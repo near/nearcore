@@ -70,6 +70,11 @@ pub enum ProtocolFeature {
     /// `CodeDoesNotExist`. Previously chunk validators rejected such a state
     /// witness as incomplete, which stalled the shard.
     FailCallToMissingGlobalContract,
+    /// BLS12-381 host functions with a per-element cost and the yield resume
+    /// host functions accept input from a register (`len == u64::MAX`).
+    /// Before, they charged gas for `u64::MAX` bytes before they read the
+    /// register, and failed with `IntegerOverflow`.
+    FixRegisterInputCharging,
     /// A bandwidth request for a destination shard that is listed as its own parent
     /// no longer chains that shard's outgoing buffer onto itself.
     FixSelfMappedShardBandwidthRequest,
@@ -139,6 +144,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 89,
             ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
+            ProtocolFeature::FixRegisterInputCharging => 89,
             ProtocolFeature::PinReceiptFees => 89,
 
             // Nightly features:

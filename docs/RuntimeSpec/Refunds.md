@@ -53,6 +53,9 @@ Gas refunds have the following fields in the `ActionReceipt`:
 - `signer_id` is the actual `signer_id` from the receipt that generates this refund.
 - `signer_public_key` is the `signer_public_key` from the receipt that generates this refund.
 
+A gas refund in a chain that an external call started is an `ActionReceiptV3` whose `authorization_context` is `ExternalContractCall`.
+It has no `signer_public_key`, so it credits the account balance and no access key or gas key.
+
 ## Access Key Allowance refunds
 
 When an account used a restricted access key with `FunctionCallPermission`, it may have had a limited allowance.

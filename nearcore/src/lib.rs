@@ -41,6 +41,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+#[cfg(feature = "json_rpc")]
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;
 use near_network::types::PeerManagerAdapter;
@@ -53,6 +54,7 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
+#[cfg(feature = "json_rpc")]
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -60,13 +62,14 @@ use std::sync::atomic::AtomicBool;
 use tokio::sync::broadcast;
 
 pub mod config;
-#[cfg(test)]
+#[cfg(all(test, feature = "json_rpc", feature = "rosetta_rpc"))]
 mod config_duration_test;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
 #[cfg(feature = "json_rpc")]
 pub mod entity_debug;
+#[cfg(feature = "json_rpc")]
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
@@ -390,6 +393,8 @@ pub fn start_with_config_and_synchronization(
     ))
 }
 
+// Without `json_rpc` there is no RPC server to await or to hand the clones to.
+#[cfg_attr(not(feature = "json_rpc"), allow(clippy::unused_async, clippy::redundant_clone))]
 pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
@@ -630,8 +635,9 @@ pub async fn start_with_config_and_synchronization_impl(
     let state_sync_spawner: Arc<dyn FutureSpawner> =
         actor_system.new_multi_threaded_future_spawner("state sync").into();
 
-    let (block_notification_watch_sender, block_notification_watch_receiver) =
-        tokio::sync::watch::channel(None);
+    let block_notification_watch_sender = tokio::sync::watch::Sender::new(None);
+    #[cfg(feature = "json_rpc")]
+    let block_notification_watch_receiver = block_notification_watch_sender.subscribe();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -750,6 +756,7 @@ pub async fn start_with_config_and_synchronization_impl(
             .client_config
             .spice_pending_transaction_queue_enabled(),
     };
+    #[cfg(feature = "json_rpc")]
     let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
@@ -777,8 +784,8 @@ pub async fn start_with_config_and_synchronization_impl(
     };
     state_sync_dumper.start();
 
-    let hot_store = storage.get_hot_store();
-    let cold_store = storage.get_cold_store();
+    #[cfg(feature = "json_rpc")]
+    let (hot_store, cold_store) = (storage.get_hot_store(), storage.get_cold_store());
 
     let (network_actor, _tcp) = PeerManagerActor::spawn(
         Clock::real(),

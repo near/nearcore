@@ -774,13 +774,8 @@ impl SpiceDataDistributorActor {
                     if &chunk_id.block_hash != block_hash {
                         return Err(Error::InvalidDecodedWitnessBlockHash);
                     }
-                    self.witness_validator_sender.send(
-                        SpiceChunkStateWitnessMessage {
-                            witness: *witness,
-                            raw_witness_size: encoded_length as usize,
-                        }
-                        .span_wrap(),
-                    );
+                    self.witness_validator_sender
+                        .send(SpiceChunkStateWitnessMessage { witness: *witness }.span_wrap());
                 }
                 reed_solomon::InsertPartResult::Decoded(Err(err)) => {
                     return Err(Error::DecodeError(err));

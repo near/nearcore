@@ -91,24 +91,26 @@ fn handshake_tracked_shards_too_many() {
 }
 
 #[test]
-fn serialize_deserialize_protobuf_only() {
-    let mut rng = make_rng(39521947542);
-    let mut clock = time::FakeClock::default();
-    let chain = data::Chain::make(&mut clock, &mut rng, 12);
-    let msgs = [
-        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
-        PeerMessage::SyncAccountsData(SyncAccountsData {
-            accounts_data: (0..4)
-                .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
-                .collect(),
-            incremental: true,
-            requesting_full_sync: true,
-        }),
-    ];
-    for m in msgs {
-        let m2 = PeerMessage::deserialize(&m.serialize()).with_context(|| m.to_string()).unwrap();
-        assert_eq!(m, m2);
-    }
+fn trace_context_round_trips_span_context() {
+    use super::trace_context::TraceContext;
+    use opentelemetry::Context;
+    use opentelemetry::trace::{
+        SpanContext, SpanId, TraceContextExt as _, TraceFlags, TraceId, TraceState,
+    };
+
+    let span_context = SpanContext::new(
+        TraceId::from_bytes([1; 16]),
+        SpanId::from_bytes([2; 8]),
+        TraceFlags::SAMPLED,
+        true,
+        TraceState::default(),
+    );
+    let cx = Context::new().with_remote_span_context(span_context);
+    let trace_context = TraceContext::from_context(&cx).unwrap();
+    let extracted = trace_context.span_context();
+    assert_eq!(extracted.trace_id(), TraceId::from_bytes([1; 16]));
+    assert_eq!(extracted.span_id(), SpanId::from_bytes([2; 8]));
+    assert!(extracted.is_sampled());
 }
 
 #[test]
@@ -142,6 +144,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         .into(),
     ));
     let msgs = [
+        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::HandshakeFailure(
             data::make_peer_info(&mut rng),
@@ -171,20 +174,31 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             part_or_header: PartOrHeader::Part { part_idx: 7 },
             body: StateRequestAckBody::WillRespond,
         }),
+        PeerMessage::SyncAccountsData(SyncAccountsData {
+            accounts_data: (0..4)
+                .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
+                .collect(),
+            incremental: true,
+            requesting_full_sync: true,
+        }),
     ];
 
     // Check that serialize;deserialize = 1
-    for m in &msgs {
-        let m2 = PeerMessage::deserialize(&m.serialize()).with_context(|| m.to_string())?;
-        if *m != m2 {
-            bail!("deserialize(serialize({m}) = {m2}");
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        for m in &msgs {
+            let frames = m.serialize_with_encoding(encoding);
+            let (_, m2) =
+                PeerMessage::deserialize_frames(&frames).with_context(|| m.to_string())?;
+            if *m != m2 {
+                bail!("deserialize(serialize({m}) = {m2}");
+            }
         }
     }
 
     // Test the unambiguous parsing argument described in
     // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit#heading=h.x1awbr2acslb
     for m in &msgs {
-        let x = m.serialize();
+        let x = m.serialize_with_encoding(Encoding::Proto).body;
         assert!(x[0] >= 32, "serialize({})[0] = {:?}, want >= 32", m, x.get(0));
     }
 
@@ -205,7 +219,8 @@ fn deserialize_sync_routing_table_with_legacy_accounts() {
     };
     // Encoding of a legacy AnnounceAccount wrapper, whose field 1 held the borsh bytes.
     rtu.special_fields.mut_unknown_fields().add_length_delimited(2, vec![0x0a, 0x03, 1, 2, 3]);
-    let got = PeerMessage::deserialize(&proto_msg.write_to_bytes().unwrap()).unwrap();
+    let frames = PeerMessageFrames::proto(proto_msg.write_to_bytes().unwrap());
+    let (_, got) = PeerMessage::deserialize_frames(&frames).unwrap();
     assert_eq!(got, msg);
 }
 

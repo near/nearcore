@@ -1,4 +1,5 @@
 use near_primitives::block::Block;
+use near_primitives::errors::ActionsValidationError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::network::PeerId;
@@ -397,6 +398,20 @@ pub enum QueryError {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "account {requested_account_id} exists but is not initialized at block #{block_height}"
+    )]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error("invalid state init at block #{block_height}: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error(
         "Contract code for contract ID {contract_account_id} has never been observed on the node at block #{block_height}"

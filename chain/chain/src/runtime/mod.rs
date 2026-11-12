@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::runtime::ecc_thread::{EccRun, EccThread};
 use crate::runtime::metrics::{
     DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS, DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS,
     DYNAMIC_RESHARDING_MEMORY_USAGE_THRESHOLD, DYNAMIC_RESHARDING_MIN_CHILD_MEMORY_USAGE,
@@ -6,10 +7,11 @@ use crate::runtime::metrics::{
 };
 use crate::runtime::signer_overlay::SignerOverlay;
 use crate::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, PendingTxCheckResult,
-    PrepareTransactionsBlockContext, PrepareTransactionsLimit, PreparedTransactions,
-    RuntimeAdapter, RuntimeStorageConfig, SkippedTransactions, StatePartValidationResult,
-    StateRootNodeValidationResult, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ParentPostStateNodes,
+    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
+    PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    SkippedTransactions, StatePartValidationResult, StateRootNodeValidationResult,
+    StorageDataSource, Tip,
 };
 use errors::FromStateViewerErrors;
 use near_async::thread_pool::{
@@ -21,7 +23,7 @@ use near_crypto::{PublicKey, PublicKeyHandle};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::{EccGroup, PooledGroup, TransactionGroupIterator};
+use near_pool::types::{EccGroup, TransactionGroupIterator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
@@ -36,8 +38,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::{
-    NonceMode, SignedTransaction, TransactionEnvelope, ValidatedEcc, ValidatedTransaction,
-    ValidatedTransactionEnvelope,
+    EccTransaction, ExternalCallsValidity, NonceMode, SignedTransaction, TransactionEnvelope,
+    ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
@@ -49,15 +51,16 @@ use near_primitives::version::{
 };
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, GasKeyNoncesView, QueryRequest,
-    QueryResponse, QueryResponseKind, ViewStateResult,
+    QueryResponse, QueryResponseKind, StateInitView, ViewStateResult,
 };
 use near_runtime::adapter::ViewRuntimeAdapter;
 use near_runtime::cache_warming::cache_keys_differ;
 use near_runtime::config::{ecc_cost, tx_cost};
 use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use near_runtime::{
-    ApplyState, PendingConstraints, PrevBlockContext, Runtime, SignedValidPeriodTransactions,
-    TxAuthorizationRef, TxVerdict, ValidatorAccountsUpdate, account_holds_contract,
+    ApplyState, EccDryRun, EccDryRunContext, ExternalCallsInChunk, PendingConstraints,
+    PostStateNodes, PrevBlockContext, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
+    TxVerdict, ValidatorAccountsUpdate, account_holds_contract, dry_run_external_call,
     get_signer_and_authorization, validate_envelope, verify_and_charge_tx_ephemeral,
     verify_ecc_ephemeral,
 };
@@ -79,10 +82,14 @@ use std::convert::Infallible;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
+use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
+mod ecc_thread;
+#[cfg(feature = "test_features")]
+pub use ecc_thread::TestHeldEccs;
 pub mod errors;
 mod metrics;
 mod signer_overlay;
@@ -109,6 +116,11 @@ pub struct NightshadeRuntime {
     state_parts_compression_lvl: i32,
     is_cloud_archival_writer: bool,
     save_receipt_to_tx: bool,
+    /// Runs the ECCs that the chunk producer packs into chunks, one at a time, for all shards.
+    ecc_thread: EccThread,
+    /// Holds up the runs of the ECCs that tests choose, to make them late.
+    #[cfg(feature = "test_features")]
+    pub test_held_eccs: TestHeldEccs,
 }
 
 /// Knobs threaded through to [`NightshadeRuntime::new`].
@@ -184,7 +196,298 @@ impl NightshadeRuntime {
             state_parts_compression_lvl,
             is_cloud_archival_writer,
             save_receipt_to_tx,
+            ecc_thread: EccThread::new(),
+            #[cfg(feature = "test_features")]
+            test_held_eccs: TestHeldEccs::default(),
         })
+    }
+
+    /// Runs the ECCs of the pool and packs the ones their contracts accept, one ECC per contract.
+    ///
+    /// Each ECC runs on the thread for ECCs, on top of the state that apply of the chunk starts
+    /// from (see `first_ecc_run` for early preparation). An accepted ECC's writes go on to the
+    /// ECCs after it, as in apply, and a refused one's are thrown away, and so are its reads. An
+    /// accepted ECC charges the contract's account in `signer_overlay`. A refused one is dropped.
+    ///
+    /// ECCs get the time that the signed transactions left, up to `time_limit`, and a run that is
+    /// not done by then is left out, and goes on in the background. The ECC stays in the pool
+    /// unless it had the whole `time_limit` to itself: that one would not be done next time
+    /// either, and the thread takes no other ECC until it is.
+    fn pack_eccs(&self, packing: EccPacking<'_>) -> Result<EccPackingResult, Error> {
+        let EccPacking {
+            state_update,
+            signer_overlay,
+            transaction_groups,
+            skip_tx_hashes,
+            runtime_config,
+            prev_block,
+            shard_id,
+            epoch_id,
+            protocol_version,
+            mut size_left,
+            deadline,
+            storage_proof_size_limit,
+            time_limit,
+            mut parent_nodes,
+            cancel,
+        } = packing;
+        let mut result = EccPackingResult::default();
+        let (mut ecc_deadline, mut full_eccs_share_available) = ecc_time(deadline, time_limit);
+        let shard_label = shard_id.to_string();
+        // The rules on the chunk's ECCs taken together, which a chunk that breaks is invalid, and
+        // the chunk's shares of compute and storage proof that the runs count toward, as they do
+        // in apply.
+        let mut external_calls = ExternalCallsValidity::new(runtime_config);
+        let mut shares = ExternalCallsInChunk::new(runtime_config, Some(prev_block.gas_limit));
+        // The state the runs go on top of. It is made for the first run, goes to the thread with a
+        // call, and comes back with what the run read.
+        let mut run_state: Option<TrieUpdate> = None;
+        let mut num_runs = 0;
+
+        while let Some(group) = transaction_groups.next_ecc() {
+            if cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
+                result.limited_by = Some(PrepareTransactionsLimit::Cancelled);
+                break;
+            }
+            // The chunk has as many ECCs as it may hold, or the ECCs used up a share of it. The
+            // ones left stay in the pool for the next chunks. This is not a limit on what else
+            // the chunk takes, so it is not in `limited_by`.
+            if !external_calls.has_room() || !shares.has_room() {
+                break;
+            }
+            // The thread is still running a call that was late, in an earlier chunk or in another
+            // shard, so no call can start now. The ECCs stay in the pool until the run is over.
+            if self.ecc_thread.is_busy() {
+                break;
+            }
+            if Instant::now() >= ecc_deadline {
+                result.limited_by = Some(PrepareTransactionsLimit::Time);
+                break;
+            }
+            if state_update.recorded_storage_size() as u64 > storage_proof_size_limit {
+                result.limited_by = Some(PrepareTransactionsLimit::StorageProofSize);
+                break;
+            }
+            let visit = take_ecc_from_group(
+                group,
+                state_update,
+                skip_tx_hashes,
+                &mut external_calls,
+                self.epoch_manager.as_ref(),
+                runtime_config,
+                &epoch_id,
+                prev_block,
+                size_left,
+                Some(ecc_deadline),
+            )?;
+            result.skipped.extend(visit.skipped);
+            result.num_rejected_due_to_congestion += visit.num_rejected_due_to_congestion;
+            result.num_rejected_without_contract += visit.num_rejected_without_contract;
+            if let Some(limit) = visit.limited_by {
+                result.limited_by = Some(limit);
+                break;
+            }
+            let Some(ecc) = visit.packed else { continue };
+
+            // Set only if a signed transaction of the contract was packed, when apply has the
+            // account loaded. Otherwise the run reads the account, as apply does, even if
+            // preparation loaded it to reject a transaction.
+            let loaded_account =
+                signer_overlay.packed_account_mut(ecc.contract_id()).map(|account| account.clone());
+            let context = EccDryRunContext {
+                shard_id,
+                epoch_id,
+                protocol_version,
+                config: Arc::clone(runtime_config),
+                config_store: Arc::clone(&self.runtime_config_store),
+                vm_generation: self.runtime_config_store.vm_generation(protocol_version),
+                gas_price: prev_block.next_gas_price,
+                prev_block: PrevBlockContext {
+                    // A run does not read the hash, and an optimistic block has none.
+                    hash: CryptoHash::default(),
+                    height: prev_block.height,
+                    epoch_id: prev_block.epoch_id,
+                    epoch_height: prev_block.epoch_height,
+                    timestamp: prev_block.timestamp,
+                },
+                cache: Some(self.compiled_contract_cache.handle()),
+            };
+            if run_state.is_none() {
+                let waits_for_nodes = parent_nodes.is_some();
+                let wait_start = Instant::now();
+                let first_run = self.first_ecc_run(
+                    state_update,
+                    parent_nodes.take(),
+                    deadline,
+                    ecc_deadline,
+                    time_limit,
+                    cancel,
+                );
+                if waits_for_nodes {
+                    let result =
+                        first_run.as_ref().err().map_or("ready", |no_state| no_state.label());
+                    metrics::ECC_STATE_WAIT_TIME
+                        .with_label_values(&[shard_label.as_str(), result])
+                        .observe(wait_start.elapsed().as_secs_f64());
+                }
+                match first_run {
+                    Ok(FirstRunState { state, restarted_time }) => {
+                        if let Some(time) = restarted_time {
+                            (ecc_deadline, full_eccs_share_available) = time;
+                        }
+                        run_state = Some(state);
+                    }
+                    Err(no_state) => {
+                        metrics::ECC_DRY_RUNS
+                            .with_label_values(&[shard_label.as_str(), no_state.label()])
+                            .inc();
+                        tracing::debug!(target: "runtime", ?no_state, "no state to run ECCs on, they stay in the pool");
+                        // The ECC goes back to the pool, ahead of the ones behind it.
+                        result.skipped.push(ecc);
+                        result.limited_by = no_state.limit();
+                        break;
+                    }
+                }
+            }
+            let state = run_state.take().expect("the state of the first run is made above");
+            // The absolute maximum time a single run can get.
+            let run_has_whole_time = full_eccs_share_available && num_runs == 0;
+            num_runs += 1;
+            let run_start = Instant::now();
+            let run = self.dry_run_ecc(
+                state,
+                context,
+                shares.clone(),
+                loaded_account,
+                ecc.to_ecc(),
+                ecc_deadline,
+            );
+            metrics::ECC_DRY_RUN_TIME
+                .with_label_values(&[shard_label.as_str()])
+                .observe(run_start.elapsed().as_secs_f64());
+
+            let EccRunOutput { dry_run, mut state, shares: counted_shares } = match run {
+                EccRun::Done(run) => run.map_err(ecc_run_error)?,
+                EccRun::Late => {
+                    metrics::ECC_DRY_RUNS.with_label_values(&[shard_label.as_str(), "late"]).inc();
+                    if !run_has_whole_time {
+                        result.skipped.push(ecc);
+                    }
+                    result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    break;
+                }
+                EccRun::Busy => {
+                    metrics::ECC_DRY_RUNS.with_label_values(&[shard_label.as_str(), "busy"]).inc();
+                    result.skipped.push(ecc);
+                    break;
+                }
+            };
+            match dry_run {
+                EccDryRun::Accepted { account: charged, .. } => {
+                    metrics::ECC_DRY_RUNS
+                        .with_label_values(&[shard_label.as_str(), "accepted"])
+                        .inc();
+                    // Only the reads of an accepted call go to the storage proof. A refused call
+                    // is not in the chunk, so a later call must not get its nodes for free.
+                    state_update.trie_update.trie.merge_recorded(&state.trie);
+                    if let Some(account) = signer_overlay.packed_account_mut(ecc.contract_id()) {
+                        *account = charged;
+                    }
+                    // The call is in the chunk, so it counts toward the chunk's rules and shares.
+                    // A refused one does not, as apply never sees it.
+                    external_calls
+                        .add(ecc.to_ecc())
+                        .expect("take_ecc_from_group checked that the ECC fits");
+                    shares = counted_shares;
+                    size_left = size_left.saturating_sub(ecc.get_size());
+                    result.packed.push(ecc);
+                }
+                EccDryRun::Refused(error) => {
+                    metrics::ECC_DRY_RUNS
+                        .with_label_values(&[shard_label.as_str(), "refused"])
+                        .inc();
+                    tracing::trace!(target: "runtime", tx=?ecc.get_hash(), ?error, "discarding ECC that its contract refuses");
+                    result.num_refused += 1;
+                }
+            }
+            state.trie = state.trie.recording_reads_new_recorder();
+            run_state = Some(state);
+        }
+        Ok(result)
+    }
+
+    /// The state that the first run of ECCs goes on top of.
+    ///
+    /// Without `parent_nodes`, the state of the preparation is the one that apply of the next chunk
+    /// starts from, so the runs go on a copy of it. With them, the state of the preparation is the
+    /// post state of the parent chunk before its changes are in a trie: its reads of the parent's
+    /// writes come from memory and record nothing, which apply's reads from the trie do. Then the
+    /// runs wait for the parent's apply to send the nodes it added, until `deadline`, the end of
+    /// the preparation, or `ecc_deadline` if the preparation has no end. They go on a trie at the
+    /// parent's new state root that has the nodes, so they read and record what apply does.
+    ///
+    /// The time that ECCs get starts when the nodes are there, so the result has the new end of it.
+    /// `None` of it means the state came at once, and the end is the one the preparation started
+    /// with.
+    fn first_ecc_run(
+        &self,
+        state_update: &TrieUpdateWitnessSizeWrapper,
+        parent_nodes: Option<ParentPostStateNodes>,
+        deadline: Option<Instant>,
+        ecc_deadline: Instant,
+        time_limit: Duration,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<FirstRunState, NoState> {
+        let Some(ParentPostStateNodes { shard_uid, receiver }) = parent_nodes else {
+            let state = state_update.trie_update.clone_for_tx_preparation();
+            return Ok(FirstRunState { state, restarted_time: None });
+        };
+        let wait_deadline = deadline.unwrap_or(ecc_deadline);
+        let PostStateNodes { state_root, nodes } =
+            wait_for_new_nodes(&receiver, wait_deadline, cancel)?;
+        let restarted_time = ecc_time(deadline, time_limit);
+        // A run that starts at the end of its time would only keep the thread for ECCs busy.
+        if Instant::now() >= restarted_time.0 {
+            return Err(NoState::TimedOut);
+        }
+        let trie = self.tries.get_trie_with_new_nodes(shard_uid, state_root, nodes);
+        let state = TrieUpdate::new(trie.recording_reads_new_recorder());
+        Ok(FirstRunState { state, restarted_time: Some(restarted_time) })
+    }
+
+    /// Runs `ecc` on the thread for ECCs until `deadline`, counting it toward `shares`.
+    /// `loaded_account` is the contract's account if the chunk's signed transactions loaded it.
+    /// `state` comes back with what the run read, unless the run is late.
+    fn dry_run_ecc(
+        &self,
+        state: TrieUpdate,
+        context: EccDryRunContext,
+        shares: ExternalCallsInChunk,
+        loaded_account: Option<Account>,
+        ecc: &EccTransaction,
+        deadline: Instant,
+    ) -> EccRun<Result<EccRunOutput, RuntimeError>> {
+        let epoch_manager = Arc::clone(&self.epoch_manager);
+        let ecc = ecc.clone();
+        #[cfg(feature = "test_features")]
+        let test_hold_gate = self.test_held_eccs.get_gate(ecc.hash());
+        let job = move || {
+            #[cfg(feature = "test_features")]
+            if let Some(gate) = test_hold_gate {
+                gate.wait();
+            }
+            let (mut state, mut shares) = (state, shares);
+            let dry_run = dry_run_external_call(
+                &mut state,
+                context,
+                epoch_manager.as_ref(),
+                &mut shares,
+                loaded_account,
+                &ecc,
+            )?;
+            Ok(EccRunOutput { dry_run, state, shares })
+        };
+        self.ecc_thread.run(job, deadline)
     }
 
     fn get_shard_uid_from_prev_hash(
@@ -388,6 +691,9 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
+                RuntimeError::ExternalCallWithoutRecorder => {
+                    Error::Other("external call run on a trie that doesn't record".to_string())
+                }
             })?;
         let elapsed = instant.elapsed();
 
@@ -850,8 +1156,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-        time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error> {
+        time_limits: PrepareTransactionsTimeLimits,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &prev_block.next_epoch_id)?;
 
         let mut trie = match storage_config.source {
@@ -887,10 +1193,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             validate_tx_ttl,
             HashSet::new(),
             &mut PendingTxCheckResult::always_admit(),
-            time_limit,
+            time_limits,
             None,
-        ) // skip_tx_hashes is empty, so there will be no skipped transactions
-        .map(|(prepared, _skipped)| prepared)
+            None,
+        ) // skip_tx_hashes is empty, so only ECCs that did not run are skipped
     }
 
     #[instrument(
@@ -919,11 +1225,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
-        time_limit: Option<Duration>,
+        time_limits: PrepareTransactionsTimeLimits,
         cancel: Option<Arc<AtomicBool>>,
+        parent_nodes: Option<ParentPostStateNodes>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
         let span = tracing::Span::current();
         let start_time = std::time::Instant::now();
+        let time_limit = time_limits.total;
 
         let epoch_id = prev_block.next_epoch_id;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -949,16 +1257,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut skipped_transactions: Vec<ValidatedTransactionEnvelope> = Vec::new();
         let mut num_checked_transactions = 0;
 
-        // ECCs go into the chunk only up to a limit, and only once there is a feature for them.
-        // TODO(spice): pack ECCs under Spice as well.
-        let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
-            && !ProtocolFeature::Spice.enabled(protocol_version);
-        let mut num_eccs_left =
-            if eccs_allowed { runtime_config.max_eccs_per_chunk(prev_block.gas_limit) } else { 0 };
-        let mut num_eccs_packed = 0;
-        // The contracts that have their ECC in the chunk. The groups come round after round, and
-        // a contract gets one ECC per chunk.
-        let mut contracts_in_chunk: HashSet<AccountId> = HashSet::new();
         let deadline = time_limit.map(|limit| start_time + limit);
 
         let size_limit = runtime_config.witness_config.combined_transactions_size_limit as u64;
@@ -967,9 +1265,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut rejected_invalid_tx = 0;
         let mut rejected_invalid_for_chain = 0;
 
-        // Add new transactions to the result until some limit is hit or the transactions run out.
-        // Once there is no room for more ECCs, the groups of them are not even visited.
-        'add_txs_loop: while let Some(group) = transaction_groups.next_filtered(num_eccs_left > 0) {
+        // Add signed transactions to the result until some limit is hit or the transactions run
+        // out. ECCs come after them, and get the time they leave.
+        'add_txs_loop: while let Some(transaction_group_iter) = transaction_groups.next_signed() {
             if total_gas_burnt >= transactions_gas_limit {
                 prepared_transactions.limited_by = PrepareTransactionsLimit::Gas;
                 break;
@@ -999,39 +1297,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break;
                 }
             }
-
-            let transaction_group_iter = match group {
-                PooledGroup::Signed(group) => group,
-                PooledGroup::Ecc(group) => {
-                    let visit = take_ecc_from_group(
-                        group,
-                        &state_update,
-                        &skip_tx_hashes,
-                        &contracts_in_chunk,
-                        self.epoch_manager.as_ref(),
-                        runtime_config,
-                        &epoch_id,
-                        &prev_block,
-                        size_limit.saturating_sub(total_size),
-                        deadline,
-                    )?;
-                    skipped_transactions.extend(visit.skipped.into_iter().map(Into::into));
-                    rejected_due_to_congestion += visit.num_rejected_due_to_congestion;
-                    rejected_invalid_tx += visit.num_rejected_without_contract;
-                    if let Some(limit) = visit.limited_by {
-                        prepared_transactions.limited_by = limit;
-                        break;
-                    }
-                    if let Some(ecc) = visit.packed {
-                        contracts_in_chunk.insert(ecc.contract_id().clone());
-                        total_size += ecc.get_size();
-                        prepared_transactions.transactions.push(ecc.into());
-                        num_eccs_left -= 1;
-                        num_eccs_packed += 1;
-                    }
-                    continue;
-                }
-            };
 
             // Transactions taken from this group so far this visit.
             let mut examined_from_group = 0usize;
@@ -1172,6 +1437,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         if let Some((idx, nonce)) = result.gas_key_nonce_update() {
                             key_entry.gas_key_nonces.insert(idx, nonce);
                         }
+                        signer_overlay.mark_packed(validated_tx.signer_id());
                         tracing::trace!(target: "runtime", tx=?validated_tx.get_hash(), "including transaction that passed validation and verification");
                         total_gas_burnt = total_gas_burnt.checked_add(result.gas_burnt).unwrap();
                         total_size += validated_tx.size_for_limits();
@@ -1187,6 +1453,58 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
 
+        // ECCs go after the signed transactions, and only once there is a feature for them.
+        // The gas and the size of the chunk leave room for them, as they have limits of their own.
+        // Running out of time, of room in the storage proof, or being cancelled leaves none.
+        // TODO(spice): pack ECCs under Spice as well.
+        let eccs_allowed = ProtocolFeature::ExternalContractCalls.enabled(protocol_version)
+            && !ProtocolFeature::Spice.enabled(protocol_version);
+        let room_for_eccs = match prepared_transactions.limited_by {
+            PrepareTransactionsLimit::NoMoreTxsInPool
+            | PrepareTransactionsLimit::Gas
+            | PrepareTransactionsLimit::Size => true,
+            PrepareTransactionsLimit::Time
+            | PrepareTransactionsLimit::StorageProofSize
+            | PrepareTransactionsLimit::Cancelled => false,
+        };
+        let mut num_eccs_packed = 0;
+        let mut num_eccs_refused = 0;
+        if eccs_allowed && room_for_eccs && time_limits.ecc.is_positive() {
+            let packing = self.pack_eccs(EccPacking {
+                state_update: &state_update,
+                signer_overlay: &mut signer_overlay,
+                transaction_groups,
+                skip_tx_hashes: &skip_tx_hashes,
+                runtime_config,
+                prev_block: &prev_block,
+                shard_id,
+                epoch_id,
+                protocol_version,
+                size_left: size_limit.saturating_sub(total_size),
+                deadline,
+                storage_proof_size_limit: runtime_config
+                    .witness_config
+                    .new_transactions_validation_state_size_soft_limit,
+                time_limit: time_limits.ecc,
+                parent_nodes,
+                cancel: cancel.as_deref(),
+            })?;
+            num_eccs_packed = packing.packed.len();
+            num_eccs_refused = packing.num_refused;
+            total_size += packing.packed.iter().map(|ecc| ecc.get_size()).sum::<u64>();
+            prepared_transactions.transactions.extend(packing.packed.into_iter().map(Into::into));
+            skipped_transactions.extend(packing.skipped.into_iter().map(Into::into));
+            rejected_due_to_congestion += packing.num_rejected_due_to_congestion;
+            rejected_invalid_tx += packing.num_rejected_without_contract;
+            if let Some(limit) = packing.limited_by {
+                prepared_transactions.limited_by = limit;
+            }
+        }
+
+        #[cfg(feature = "test_features")]
+        {
+            prepared_transactions.recorded_storage_size = state_update.recorded_storage_size();
+        }
         span.record(
             "prepared_transactions_num",
             tracing::field::display(prepared_transactions.transactions.len()),
@@ -1201,7 +1519,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             "recorded_storage_size",
             tracing::field::display(state_update.recorded_storage_size()),
         );
-        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, num_eccs_left, "transaction filtering results");
+        tracing::debug!(target: "runtime", limited_by = ?prepared_transactions.limited_by, valid_count = %prepared_transactions.transactions.len(), %num_checked_transactions, num_eccs_packed, num_eccs_refused, "transaction filtering results");
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[shard_label.as_str()])
@@ -1369,7 +1687,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::CallFunction { account_id, method_name, args } => {
+            QueryRequest::CallFunction { account_id, method_name, args, state_init } => {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) =
                     self.query_epoch_info(epoch_id, block_height, *block_hash)?;
@@ -1386,6 +1704,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         account_id,
                         method_name,
                         args.as_ref(),
+                        state_init.as_ref(),
                         &mut logs,
                         self.epoch_manager.as_ref(),
                         current_protocol_version,
@@ -1805,6 +2124,155 @@ fn chunk_tx_gas_limit(
     congestion_control.process_tx_limit()
 }
 
+/// What the producer gives `NightshadeRuntime::pack_eccs`.
+struct EccPacking<'a> {
+    state_update: &'a TrieUpdateWitnessSizeWrapper,
+    signer_overlay: &'a mut SignerOverlay,
+    transaction_groups: &'a mut dyn TransactionGroupIterator,
+    skip_tx_hashes: &'a HashSet<CryptoHash>,
+    runtime_config: &'a Arc<RuntimeConfig>,
+    prev_block: &'a PrepareTransactionsBlockContext,
+    shard_id: ShardId,
+    /// The epoch of the block the chunk is for.
+    epoch_id: EpochId,
+    protocol_version: ProtocolVersion,
+    /// How many more bytes the chunk takes.
+    size_left: u64,
+    /// When the preparation of the chunk as a whole is over, if it is limited.
+    deadline: Option<Instant>,
+    /// No more ECCs go into the chunk once the state read by the preparation is larger than this.
+    storage_proof_size_limit: u64,
+    /// The most time that ECCs may take.
+    time_limit: Duration,
+    /// Set when the state of the preparation is the post state of the parent chunk before its
+    /// changes are in a trie, as in early preparation. The parent's apply sends the nodes it added
+    /// here, and ECCs run on a trie that has them.
+    parent_nodes: Option<ParentPostStateNodes>,
+    cancel: Option<&'a AtomicBool>,
+}
+
+/// What the first run of ECCs goes on top of, see `NightshadeRuntime::first_ecc_run`. Without it
+/// no ECC runs, and the one that was about to run stays in the pool.
+struct FirstRunState {
+    state: TrieUpdate,
+    /// When the time for ECCs ends now, and whether they have the whole of it. Set if the
+    /// preparation waited for the state, as the time for ECCs starts when it is there.
+    restarted_time: Option<(Instant, bool)>,
+}
+
+/// Why there is no state for ECCs to run on.
+#[derive(Debug, Clone, Copy)]
+enum NoState {
+    /// The nodes of the parent chunk did not come in time.
+    TimedOut,
+    Cancelled,
+    /// The apply of the parent chunk ended without sending the nodes.
+    Lost,
+}
+
+impl NoState {
+    /// What stopped the preparation, if anything did: not the loss of the nodes, which leaves the
+    /// signed transactions as they are.
+    fn limit(self) -> Option<PrepareTransactionsLimit> {
+        match self {
+            Self::TimedOut => Some(PrepareTransactionsLimit::Time),
+            Self::Cancelled => Some(PrepareTransactionsLimit::Cancelled),
+            Self::Lost => None,
+        }
+    }
+
+    /// The `result` label of `ECC_DRY_RUNS`.
+    fn label(self) -> &'static str {
+        match self {
+            Self::TimedOut => "state_timed_out",
+            Self::Cancelled => "state_cancelled",
+            Self::Lost => "state_lost",
+        }
+    }
+}
+
+/// How often the wait for the nodes of the parent chunk looks at the deadline and at `cancel`.
+const NEW_NODES_POLL_INTERVAL: StdDuration = StdDuration::from_millis(5);
+
+/// Waits for the parent chunk's apply to send the nodes it added, until `deadline`.
+fn wait_for_new_nodes(
+    receiver: &Receiver<PostStateNodes>,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<PostStateNodes, NoState> {
+    loop {
+        if cancel.is_some_and(|cancel| cancel.load(Ordering::Relaxed)) {
+            return Err(NoState::Cancelled);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            // They may have come while the clock was read.
+            return match receiver.try_recv() {
+                Ok(nodes) => Ok(nodes),
+                Err(TryRecvError::Empty) => Err(NoState::TimedOut),
+                Err(TryRecvError::Disconnected) => Err(NoState::Lost),
+            };
+        }
+        match receiver.recv_timeout(left.min(NEW_NODES_POLL_INTERVAL)) {
+            Ok(nodes) => return Ok(nodes),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return Err(NoState::Lost),
+        }
+    }
+}
+
+/// When the time for ECCs ends, and whether they have the whole `time_limit`: they don't if the
+/// time limit of the whole preparation, `deadline`, comes first.
+fn ecc_time(deadline: Option<Instant>, time_limit: Duration) -> (Instant, bool) {
+    let share_end = Instant::now() + time_limit;
+    match deadline {
+        Some(deadline) if deadline < share_end => (deadline, false),
+        _ => (share_end, true),
+    }
+}
+
+/// What the run of an ECC on the thread for ECCs hands back.
+struct EccRunOutput {
+    dry_run: EccDryRun,
+    /// The state the run went on top of, with what the run read.
+    state: TrieUpdate,
+    /// The chunk's shares with the call counted, whatever came of it.
+    shares: ExternalCallsInChunk,
+}
+
+/// What `NightshadeRuntime::pack_eccs` came to.
+#[derive(Default)]
+struct EccPackingResult {
+    /// The ECCs that their contracts accept, in the order of their runs.
+    packed: Vec<ValidatedEcc>,
+    /// ECCs to put back into the pool: the ones that went into the previous chunk, which is not
+    /// in a block yet, and the ones that were late.
+    skipped: Vec<ValidatedEcc>,
+    /// Set when the packing has to stop altogether.
+    limited_by: Option<PrepareTransactionsLimit>,
+    num_rejected_due_to_congestion: usize,
+    num_rejected_without_contract: usize,
+    /// ECCs dropped because their contracts refuse them.
+    num_refused: usize,
+}
+
+/// The error for a run of an ECC that fails with an error of the runtime. As in apply, an
+/// invalid transaction is the only error that refuses a call. A run never produces one, so every
+/// error fails the preparation. The others are not the fault of the call: they come from the node,
+/// or from a state that should not be.
+fn ecc_run_error(err: RuntimeError) -> Error {
+    match err {
+        RuntimeError::StorageError(err) => Error::StorageError(err),
+        RuntimeError::ValidatorError(err) => err.into(),
+        err @ (RuntimeError::InvalidTxError(_)
+        | RuntimeError::UnexpectedIntegerOverflow(_)
+        | RuntimeError::ReceiptValidationError(_)
+        | RuntimeError::ExternalCallWithoutRecorder) => {
+            Error::Other(format!("failed to run an ECC: {err}"))
+        }
+    }
+}
+
 /// What visiting a group of ECCs to one contract came to.
 #[derive(Default)]
 struct EccGroupVisit {
@@ -1824,12 +2292,15 @@ struct EccGroupVisit {
 /// Goes through a group of ECCs to one contract, in the order they came, and takes the first one
 /// that can go into the chunk. The ones before it are dropped if nobody can run them, or put
 /// aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
-/// that does not fit in `size_left`. Takes nothing if the contract is in `contracts_in_chunk`.
+/// that does not fit in `size_left`, the room left in the chunk, or would break the rules on
+/// the chunk's ECCs taken together (`external_calls`). Takes nothing if the chunk holds an ECC
+/// to the contract already. The ECC it takes is not added to `external_calls`: the caller adds it
+/// once it is packed, which may not happen, as the contract may refuse it.
 fn take_ecc_from_group(
     group: &mut EccGroup,
     state_update: &dyn TrieAccess,
     skip_tx_hashes: &HashSet<CryptoHash>,
-    contracts_in_chunk: &HashSet<AccountId>,
+    external_calls: &mut ExternalCallsValidity,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_config: &RuntimeConfig,
     epoch_id: &EpochId,
@@ -1842,7 +2313,7 @@ fn take_ecc_from_group(
     let Some(contract_id) = group.peek_next().map(|ecc| ecc.contract_id()) else {
         return Ok(visit);
     };
-    if contracts_in_chunk.contains(contract_id) {
+    if external_calls.has_call_to(contract_id) {
         return Ok(visit);
     }
     let contract_id = contract_id.clone();
@@ -1865,11 +2336,10 @@ fn take_ecc_from_group(
             continue;
         }
         // Only the chunk that has room for it takes it. The others in the group wait behind it.
-        // TODO(ecc): cap the bytes all the ECCs of a chunk may take, to a share like the ones of
-        // the pool and of the gas, once the shares are picked. ECCs cost their sender nothing,
-        // and a few big ones to different contracts can take most of the room signed
-        // transactions share with them.
         if ecc.get_size() > size_left {
+            break;
+        }
+        if external_calls.reserve(ecc.to_ecc()).is_err() {
             break;
         }
         // Not between popping the ECC and putting it somewhere: an error must not lose it.
@@ -2009,6 +2479,7 @@ impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
+        state_init: Option<&StateInitView>,
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
@@ -2030,6 +2501,7 @@ impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             contract_id,
             method_name,
             args,
+            state_init,
             logs,
             epoch_info_provider,
         )

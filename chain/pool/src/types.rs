@@ -7,15 +7,14 @@ use std::collections::VecDeque;
 /// references to them. Each transaction group implements a draining iterator to pull transactions.
 /// The order of the transaction groups is round robin scheduling.
 pub trait TransactionGroupIterator {
+    /// The next group of any kind: signed transactions go first, then ECCs.
     fn next(&mut self) -> Option<PooledGroup<'_>>;
 
     /// The next group of signed transactions. Groups of ECCs are left alone in the pool.
     fn next_signed(&mut self) -> Option<&mut TransactionGroup>;
 
-    /// Next group if `allow_eccs` is true, next *signed* group otherwise.
-    fn next_filtered(&mut self, allow_eccs: bool) -> Option<PooledGroup<'_>> {
-        if allow_eccs { self.next() } else { self.next_signed().map(PooledGroup::Signed) }
-    }
+    /// The next group of ECCs. Groups of signed transactions are left alone in the pool.
+    fn next_ecc(&mut self) -> Option<&mut EccGroup>;
 }
 
 /// A hash of the group's identity (e.g. an AccountId and a PublicKey, or the AccountId of a

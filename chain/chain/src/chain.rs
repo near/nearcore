@@ -20,7 +20,11 @@ use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_by_hash,
 };
-use crate::spice::core::SpiceCoreReader;
+use crate::spice::boundary::write_boundary_uncertified_chunks;
+use crate::spice::core::{
+    SpiceCoreReader, record_uncertified_chunks_by_advancing,
+    record_uncertified_chunks_by_replaying_certification_window,
+};
 use crate::state_snapshot_actor::{SnapshotCallbacks, request_state_snapshot};
 use crate::state_sync::ChainStateSyncAdapter;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1431,9 +1435,9 @@ impl Chain {
                 &prev_block,
                 prev_chunk_header,
                 if is_caught_up {
-                    ApplyChunksMode::IsCaughtUp
+                    ApplyChunksMode::IncludeCatchupShards
                 } else {
-                    ApplyChunksMode::NotCaughtUp
+                    ApplyChunksMode::ExcludeCatchupShards
                 },
                 incoming_receipts,
                 storage_context,
@@ -1651,6 +1655,36 @@ impl Chain {
         let new_tail = tail_block.header().height();
         let new_chunk_tail = tail_block.chunks().min_height_included().unwrap();
         tracing::debug!(target: "sync", ?new_tail, ?new_chunk_tail, "adjusting tail for sync blocks");
+
+        // The sync block is processed next. It starts from its parent's uncertified chunks and
+        // credits its parent's endorsements against its grandparent's, and this node processed
+        // neither block. The rows are written before the heads move: after a crash in between, the
+        // next state sync writes them again, skipping the ones already there.
+        if header.is_spice() {
+            let chain_store = self.chain_store.store().chain_store();
+            if prev_block.header().is_spice() {
+                record_uncertified_chunks_by_replaying_certification_window(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header().prev_hash(),
+                )?;
+                record_uncertified_chunks_by_advancing(
+                    &chain_store,
+                    self.epoch_manager.as_ref(),
+                    &prev_block,
+                )?;
+            } else {
+                // The sync block is the first spice block, so its parent is the last pre-spice
+                // block, whose row block processing would have seeded.
+                let mut store_update = chain_store.store().store_update();
+                write_boundary_uncertified_chunks(
+                    &mut store_update,
+                    self.epoch_manager.as_ref(),
+                    prev_block.header(),
+                )?;
+                store_update.commit();
+            }
+        }
 
         let tip = Tip::from_header(prev_block.header());
         let final_head = Tip::from_header(self.genesis.header());
@@ -2528,9 +2562,24 @@ impl Chain {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        // Core statements are validated before being used to compute newly certified execution
+        // results for the gas price and total supply checks below.
+        // TODO(spice): Consider enforcing this order in the type system.
         let newly_certified_block_execution_results = if ProtocolFeature::Spice
             .enabled(protocol_version)
         {
+            if !block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered non-spice block with spice feature enabled".to_string(),
+                ));
+            }
+            validate_spice_chunk_execution_root(
+                block.header().chunk_execution_root(),
+                block.spice_core_statements(),
+            )?;
+            self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
+            self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
+            self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
             Some(
                 self.spice_core_reader.get_newly_certified_block_execution_results_for_next_block(
                     &prev,
@@ -2538,6 +2587,11 @@ impl Chain {
                 )?,
             )
         } else {
+            if block.is_spice_block() {
+                return Err(Error::Other(
+                    "encountered spice block without spice feature enabled".to_string(),
+                ));
+            }
             None
         };
 
@@ -2606,27 +2660,6 @@ impl Chain {
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
-        if ProtocolFeature::Spice.enabled(protocol_version) {
-            if !block.is_spice_block() {
-                return Err(Error::Other(
-                    "encountered non-spice block with spice feature enabled".to_string(),
-                ));
-            }
-            validate_spice_chunk_execution_root(
-                block.header().chunk_execution_root(),
-                block.spice_core_statements(),
-            )?;
-            self.spice_core_reader.validate_core_statements_in_block(&block).map_err(Box::new)?;
-            self.spice_core_reader.validate_prev_last_certified_block_epoch_id(header)?;
-            self.spice_core_reader.validate_spice_chunk_endorsement_stats(header)?;
-        } else {
-            if block.is_spice_block() {
-                return Err(Error::Other(
-                    "encountered spice block without spice feature enabled".to_string(),
-                ));
-            }
-        }
-
         let apply_chunk_work = self.apply_chunks_preprocessing(
             block,
             &prev_block,
@@ -2634,7 +2667,11 @@ impl Chain {
             // If we have the state for shards in the next epoch already downloaded, apply the state transition
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
-            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
+            if is_caught_up {
+                ApplyChunksMode::IncludeCatchupShards
+            } else {
+                ApplyChunksMode::ExcludeCatchupShards
+            },
             invalid_chunks,
         )?;
 
@@ -2996,7 +3033,7 @@ impl Chain {
                 &block,
                 &prev_block,
                 &receipts_by_shard,
-                ApplyChunksMode::CatchingUp,
+                ApplyChunksMode::OnlyCatchupShards,
                 &mut Vec::new(),
             )?;
             metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
@@ -3493,13 +3530,13 @@ impl Chain {
         for (shard_index, (block_context, cached_shard_update_key)) in
             update_shard_args.into_iter().enumerate()
         {
-            // Take the sandbox patch from the tracker for this shard.  Only
+            // Take the sandbox patch from the tracker for this shard. Only
             // shards with a new chunk receive the patch — old-chunk shards
-            // would silently drop it in the runtime.  The CatchingUp mode
-            // never consumes sandbox patches.
+            // would silently drop it in the runtime. The OnlyCatchupShards
+            // mode never consumes sandbox patches.
             let shard_has_new_chunk =
                 chunk_headers.get(shard_index).map_or(false, |h| h.is_new_chunk(block_height));
-            let state_patch = if mode != ApplyChunksMode::CatchingUp {
+            let state_patch = if mode != ApplyChunksMode::OnlyCatchupShards {
                 self.sandbox_patches.take_for_shard(shard_has_new_chunk)
             } else {
                 SandboxStatePatch::default()
@@ -3824,9 +3861,22 @@ impl Chain {
             );
             return None;
         };
+        let Ok(epoch_info) = self.epoch_manager.get_epoch_info(&epoch_id) else {
+            tracing::debug!(
+                target: "chain",
+                height = block.height,
+                shard_id = %shard_uid.shard_id(),
+                "no epoch info; skipping early transaction preparation"
+            );
+            return None;
+        };
         let next_chunk_prepare_context = PrepareTransactionsBlockContext {
             next_gas_price,
             height: block.height,
+            timestamp: block.block_timestamp,
+            // `block` is the parent of the next chunk's block, and it is in `epoch_id`.
+            epoch_id,
+            epoch_height: epoch_info.epoch_height(),
             next_epoch_id: epoch_id,
             congestion_info: block.congestion_info.clone(),
             // The next chunk of the shard has the gas limit of this one.

@@ -484,12 +484,15 @@ pub(crate) fn apply_delegate_action(
     // For the delegate action, the new receipt should inherit the creation
     // protocol version from the relayer's receipt that prepaid the static fees.
     let creation_protocol_version = receipt_runtime_configs.creation_protocol_version();
+    // The new receipt stays in the chain that authorized the relayer's receipt,
+    // such as the chain of an external call.
+    let authorization_context = action_receipt.authorization_context().into_owned();
     // Generate a new receipt from DelegateAction.
     let receipt = ReceiptEnum::new_action_receipt(
         apply_state.current_protocol_version,
         creation_protocol_version,
         action_receipt.signer_id().clone(),
-        action_receipt.signer_public_key().clone(),
+        authorization_context,
         action_receipt.gas_price(),
         delegate_action.get_actions(),
     );

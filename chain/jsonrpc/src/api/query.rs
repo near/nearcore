@@ -90,6 +90,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
                 account_id,
                 method_name: method_name.to_string(),
                 args: parse_data()?.into(),
+                state_init: None,
             },
             None => return Err(RpcParseError("Method name is missing".to_string())),
         },
@@ -122,6 +123,12 @@ impl RpcFrom<QueryError> for RpcQueryError {
             }
             QueryError::UnknownAccount { requested_account_id, block_height, block_hash } => {
                 Self::UnknownAccount { requested_account_id, block_height, block_hash }
+            }
+            QueryError::UninitializedAccount { requested_account_id, block_height, block_hash } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
+            QueryError::InvalidStateInit { error, block_height, block_hash } => {
+                Self::InvalidStateInit { error, block_height, block_hash }
             }
             QueryError::NoContractCode { contract_account_id, block_height, block_hash } => {
                 Self::NoContractCode { contract_account_id, block_height, block_hash }

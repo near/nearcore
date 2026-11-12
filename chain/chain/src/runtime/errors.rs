@@ -1,4 +1,8 @@
 use crate::near_chain_primitives::error::QueryError;
+use near_runtime::state_viewer::errors::{
+    CallFunctionError, ViewAccessKeyError, ViewContractCodeError, ViewGasKeyNoncesError,
+    ViewStateError,
+};
 
 #[easy_ext::ext(FromStateViewerErrors)]
 impl QueryError {
@@ -14,6 +18,15 @@ impl QueryError {
             near_runtime::state_viewer::errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            CallFunctionError::UninitializedAccount { requested_account_id } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
+            CallFunctionError::InvalidStateInit { error } => {
+                Self::InvalidStateInit { error, block_height, block_hash }
+            }
+            CallFunctionError::NoGlobalContractCode { identifier } => {
+                Self::NoGlobalContractCode { identifier, block_height, block_hash }
+            }
             near_runtime::state_viewer::errors::CallFunctionError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
@@ -54,6 +67,9 @@ impl QueryError {
             near_runtime::state_viewer::errors::ViewContractCodeError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            ViewContractCodeError::UninitializedAccount { requested_account_id } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
             near_runtime::state_viewer::errors::ViewContractCodeError::InternalError {
                 error_message,
             } => Self::InternalError { error_message, block_height, block_hash },
@@ -81,6 +97,9 @@ impl QueryError {
             near_runtime::state_viewer::errors::ViewStateError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            ViewStateError::UninitializedAccount { requested_account_id } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
             near_runtime::state_viewer::errors::ViewStateError::AccountStateTooLarge {
                 requested_account_id,
             } => Self::TooLargeContractState { requested_account_id, block_height, block_hash },
@@ -103,6 +122,9 @@ impl QueryError {
             near_runtime::state_viewer::errors::ViewAccessKeyError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            ViewAccessKeyError::UninitializedAccount { requested_account_id } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
             near_runtime::state_viewer::errors::ViewAccessKeyError::AccessKeyDoesNotExist {
                 public_key,
             } => Self::UnknownAccessKey { public_key, block_height, block_hash },
@@ -128,6 +150,9 @@ impl QueryError {
             near_runtime::state_viewer::errors::ViewGasKeyNoncesError::AccountDoesNotExist {
                 requested_account_id,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            ViewGasKeyNoncesError::UninitializedAccount { requested_account_id } => {
+                Self::UninitializedAccount { requested_account_id, block_height, block_hash }
+            }
             near_runtime::state_viewer::errors::ViewGasKeyNoncesError::GasKeyDoesNotExist {
                 public_key,
             } => Self::UnknownGasKey { public_key, block_height, block_hash },

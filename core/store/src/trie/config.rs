@@ -1,8 +1,6 @@
 use crate::StoreConfig;
-use crate::config::{PrefetchConfig, TrieCacheConfig};
+use crate::config::TrieCacheConfig;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::AccountId;
-use std::str::FromStr;
 
 /// Default memory limit, if nothing else is configured.
 /// It is chosen to correspond roughly to the old limit, which was
@@ -25,13 +23,6 @@ pub struct TrieConfig {
     pub view_shard_cache_config: TrieCacheConfig,
     pub enable_receipt_prefetching: bool,
 
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
-    pub sweat_prefetch_receivers: Vec<AccountId>,
-    /// List of allowed predecessor accounts for SWEAT prefetching.
-    pub sweat_prefetch_senders: Vec<AccountId>,
-    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
-    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
-
     /// List of shards we will load into memory.
     pub load_memtries_for_shards: Vec<ShardUId>,
     /// Whether mem-trie should be loaded for each tracked shard.
@@ -47,20 +38,6 @@ impl TrieConfig {
         this.view_shard_cache_config = config.view_trie_cache.clone();
 
         this.enable_receipt_prefetching = config.enable_receipt_prefetching;
-        for account in &config.sweat_prefetch_receivers {
-            match AccountId::from_str(account) {
-                Ok(account_id) => this.sweat_prefetch_receivers.push(account_id),
-                Err(e) => tracing::error!(target: "config", %account, %e, "invalid account id"),
-            }
-        }
-        for account in &config.sweat_prefetch_senders {
-            match AccountId::from_str(account) {
-                Ok(account_id) => this.sweat_prefetch_senders.push(account_id),
-                Err(e) => tracing::error!(target: "config", %account, %e, "invalid account id"),
-            }
-        }
-        this.claim_sweat_prefetch_config.clone_from(&config.claim_sweat_prefetch_config);
-        this.kaiching_prefetch_config.clone_from(&config.kaiching_prefetch_config);
         this.load_memtries_for_shards.clone_from(&config.load_memtries_for_shards);
         this.load_memtries_for_tracked_shards = config.load_memtries_for_tracked_shards;
 
@@ -86,9 +63,5 @@ impl TrieConfig {
     /// Checks if any of prefetching related configs was enabled.
     pub fn prefetch_enabled(&self) -> bool {
         self.enable_receipt_prefetching
-            || (!self.sweat_prefetch_receivers.is_empty()
-                && !self.sweat_prefetch_senders.is_empty())
-            || !self.claim_sweat_prefetch_config.is_empty()
-            || !self.kaiching_prefetch_config.is_empty()
     }
 }

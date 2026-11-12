@@ -180,7 +180,7 @@ pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
     let action_receipt = ReceiptEnum::ActionV3(ActionReceiptV3 {
         signer_id: versioned.signer_id().clone(),
         refund_to: versioned.refund_to().clone(),
-        signer_public_key: versioned.signer_public_key().clone(),
+        authorization_context: versioned.authorization_context().into_owned(),
         gas_price: versioned.gas_price(),
         creation_protocol_version: PROTOCOL_VERSION,
         output_data_receivers: versioned.output_data_receivers().to_vec(),

@@ -33,7 +33,6 @@ from configured_logger import logger
 from key import Key
 import state_sync_lib
 
-# cspell:ignore nretry pmap preemptible proxify uefi useragent
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
@@ -427,8 +426,8 @@ class BaseNode(object):
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         resp = self.get_access_key_list(acc, finality)
-        if resp.get('error', {}).get('cause',
-                                     {}).get('name') == 'UNKNOWN_ACCOUNT':
+        error_name = resp.get('error', {}).get('cause', {}).get('name')
+        if error_name in ('UNKNOWN_ACCOUNT', 'UNINITIALIZED_ACCOUNT'):
             return None
         for access_key in resp['result']['keys']:
             if access_key['public_key'] == pk:

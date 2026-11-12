@@ -3,7 +3,7 @@ use near_primitives::action::delegate::{
     DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedDelegateActionRef,
     VersionedSignedDelegateAction,
 };
-use near_primitives::receipt::{DataReceiver, Receipt, ReceiptEnum};
+use near_primitives::receipt::{AuthorizationContext, DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
 use near_primitives::types::AccountId;
@@ -153,14 +153,16 @@ fn map_delegate_action(
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
 fn map_action_receipt(
     signer_id: &mut AccountId,
-    signer_public_key: &mut PublicKey,
+    signer_public_key: Option<&mut PublicKey>,
     output_data_receivers: &mut [DataReceiver],
     actions: &mut Vec<Action>,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
 ) {
     *signer_id = crate::key_mapping::map_account(signer_id, secret);
-    *signer_public_key = crate::key_mapping::map_key(signer_public_key, secret).public_key();
+    if let Some(signer_public_key) = signer_public_key {
+        *signer_public_key = crate::key_mapping::map_key(signer_public_key, secret).public_key();
+    }
     for receiver in output_data_receivers {
         receiver.receiver_id = crate::key_mapping::map_account(&receiver.receiver_id, secret);
     }
@@ -205,7 +207,7 @@ pub fn map_receipt(
         ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) => {
             map_action_receipt(
                 &mut r.signer_id,
-                &mut r.signer_public_key,
+                Some(&mut r.signer_public_key),
                 &mut r.output_data_receivers,
                 &mut r.actions,
                 secret,
@@ -215,7 +217,7 @@ pub fn map_receipt(
         ReceiptEnum::ActionV2(r) | ReceiptEnum::PromiseYieldV2(r) => {
             map_action_receipt(
                 &mut r.signer_id,
-                &mut r.signer_public_key,
+                Some(&mut r.signer_public_key),
                 &mut r.output_data_receivers,
                 &mut r.actions,
                 secret,
@@ -223,9 +225,13 @@ pub fn map_receipt(
             );
         }
         ReceiptEnum::ActionV3(r) | ReceiptEnum::PromiseYieldV3(r) => {
+            let signer_public_key = match &mut r.authorization_context {
+                AuthorizationContext::AccessKey(signer_public_key) => Some(signer_public_key),
+                AuthorizationContext::ExternalContractCall => None,
+            };
             map_action_receipt(
                 &mut r.signer_id,
-                &mut r.signer_public_key,
+                signer_public_key,
                 &mut r.output_data_receivers,
                 &mut r.actions,
                 secret,

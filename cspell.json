@@ -71,6 +71,7 @@
         "bytecode",
         "bytecodes",
         "bytesize",
+        "callees",
         "camino",
         "canonicality",
         "chacha",
@@ -118,6 +119,7 @@
         "deprioritize",
         "deprioritized",
         "Deque",
+        "derefs",
         "deser",
         "desync",
         "desynchronized",
@@ -336,6 +338,7 @@
         "posvyatokum",
         "PQDSA",
         "Precompilaton",
+        "preemptible",
         "Prefetcher",
         "prefetchers",
         "prefunded",
@@ -347,6 +350,7 @@
         "profraw",
         "profraws",
         "prost",
+        "proxify",
         "pubkeys",
         "pugachag",
         "pullable",
@@ -593,7 +597,9 @@
         "nanosleep",
         "tmpfs",
         "nixpkgs",
-        "prebuilds"
+        "prebuilds",
+        "nretry",
+        "uefi"
     ],
     "import": []
 }

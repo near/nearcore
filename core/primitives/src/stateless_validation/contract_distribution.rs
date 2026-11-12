@@ -345,6 +345,12 @@ pub struct ContractCodeRequestInner {
     next_chunk: ChunkProductionKey,
     /// List of code-hashes for the contracts accessed.
     contracts: Vec<CodeHash>,
+    // TODO: the responder re-derives the `MainTransitionKey` from chain state
+    // and ignores this field, so on the wire it is dead weight. A cleaner
+    // long-term fix is to drop it, or to have the chunk producer sign the
+    // `MainTransitionKey` as part of `ChunkContractAccesses` and carry that
+    // signed attestation here so the responder can authenticate it instead
+    // of re-deriving.
     main_transition: MainTransitionKey,
     signature_differentiator: SignatureDifferentiator,
 }

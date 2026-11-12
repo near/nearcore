@@ -1976,6 +1976,7 @@ impl JsonRpcHandler {
                     account_id: request_data.account_id,
                     method_name: request_data.method_name,
                     args: request_data.args,
+                    state_init: request_data.state_init,
                 },
             ))
             .await;

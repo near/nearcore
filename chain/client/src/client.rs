@@ -212,6 +212,7 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self.config.ecc_time_share.update(update_client_config.ecc_time_share);
         is_updated |= self
             .config
             .block_production_tracking_delay
@@ -373,7 +374,11 @@ impl Client {
             multi_spawner.memtrie_loading,
             validator_signer.clone(),
             resharding_sender.clone(),
-            Some(myself_sender.on_post_state_ready.clone()),
+            // Only early preparation uses the post state of a chunk, so without it the apply of a
+            // chunk need not copy anything for it.
+            config
+                .enable_early_prepare_transactions
+                .then(|| myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(
@@ -435,11 +440,13 @@ impl Client {
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
             config.produce_chunk_add_transactions_time_limit.clone(),
+            config.ecc_time_share.clone(),
             &chain.chain_store(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
             rng_seed,
             config.transaction_pool_size_limit,
+            config.ecc_pool_size_share,
             multi_spawner.prepare_transactions,
             config.spice_pending_transaction_queue_enabled(),
         );
@@ -661,7 +668,7 @@ impl Client {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
-                // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                // TODO(ecc): account ECCs against the contract's balance
                 transactions.iter().filter_map(TransactionEnvelope::as_signed),
                 &config,
                 gas_price,
@@ -714,7 +721,7 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
-                    // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                    // TODO(ecc): account ECCs against the contract's balance
                     transactions.iter().filter_map(TransactionEnvelope::as_signed),
                     &config,
                     gas_price,

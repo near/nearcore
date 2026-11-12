@@ -71,6 +71,8 @@ pub enum ReceiptEnum {
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
     ActionV2(ActionReceiptV2) = 5,
     PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
 }
 ```
 
@@ -78,7 +80,10 @@ An [ActionReceipt](#actionreceipt) is a request to apply [Actions](Actions.md), 
 `PromiseYield`, `PromiseResume` and `GlobalContractDistribution` are the receipts described above.
 `ActionV2` and `PromiseYieldV2` carry an `ActionReceiptV2`, which has the fields of `ActionReceipt` plus `refund_to`.
 If `refund_to` is set, deposit refunds for the receipt go to that account instead of `predecessor_id`.
-Action receipts that contracts create use these V2 kinds.
+Action receipts that contracts create in a chain a signed transaction started use these V2 kinds.
+`ActionV3` and `PromiseYieldV3` carry an `ActionReceiptV3`, which has the fields of `ActionReceiptV2` with `authorization_context` in place of `signer_public_key`.
+`authorization_context` is `AccessKey(PublicKey)` or `ExternalContractCall`, and the action receipts and gas refunds in a chain an external call started use these V3 kinds with `ExternalContractCall`.
+A deposit refund comes from `system` in every chain, as an `Action` receipt.
 
 ## ActionReceipt
 
@@ -124,7 +129,7 @@ If smart contract finishes its execution with some value (not Promise), runtime 
 
 #### actions
 
-- **`type`**: [`FunctionCall`](Actions.md#functioncallaction) | [`TransferAction`](Actions.md#transferaction) | [`StakeAction`](Actions.md#stakeaction) | [`AddKeyAction`](Actions.md#addkeyaction) | [`DeleteKeyAction`](Actions.md#deletekeyaction) | [`CreateAccountAction`](Actions.md#createaccountaction) | [`DeleteAccountAction`](Actions.md#deleteaccountaction)
+- **`type`**: `Vec<Action>`. See [Actions](Actions.md) for the action kinds.
 
 ## DataReceipt
 
@@ -260,13 +265,9 @@ Receipt {
 ```
 
 ```python
-data_receipts["alice,e5fa44"] = borsh_serialize(Receipt{
-    receiver_id: "alice",
-    receipt: DataReceipt {
-        data_id: "e5fa44",
-        data: "some data for alice",
-    }
-};
+data_receipts["alice,e5fa44"] = borsh_serialize(ReceivedData{
+    data: "some data for alice",
+});
 pending_data_receipt_count["alice,5e73d4"] = 1`
 del pending_data_receipt_store["alice,e5fa44"]
 ```
@@ -285,14 +286,10 @@ Receipt{
 ```
 
 ```python
-data_receipts["alice,7448d8"] = borsh_serialize(Receipt{
-    receiver_id: "alice",
-    receipt: DataReceipt {
-        data_id: "7448d8",
-        data: "some more data for alice",
-    }
-};
-postponed_receipt_id = pending_data_receipt_store["alice,5e73d4"]
+data_receipts["alice,7448d8"] = borsh_serialize(ReceivedData{
+    data: "some more data for alice",
+});
+postponed_receipt_id = pending_data_receipt_store["alice,7448d8"]
 postponed_receipt = postponed_receipts[postponed_receipt_id]
 del postponed_receipts[postponed_receipt_id]
 del pending_data_receipt_count["alice,5e73d4"]
@@ -312,8 +309,17 @@ mainly two types of errors:
 
 ```rust
 /// The `receiver_id` of a Receipt is not valid.
-InvalidReceiverId { account_id: AccountId },
+InvalidReceiverId { account_id: String },
 ``` 
+
+error is returned.
+
+- refund receiver is invalid. If the `refund_to` of the receipt is set and is not a valid account id, a
+
+```rust
+/// The `refund_to` of an ActionReceipt is not valid.
+InvalidRefundTo { account_id: String },
+```
 
 error is returned.
 

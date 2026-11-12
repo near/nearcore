@@ -33,7 +33,7 @@ tokio = { workspace = true, features = ["signal"] }
 tokio-util.workspace = true
 tracing.workspace = true
 
-nearcore.workspace = true
+nearcore = { workspace = true, features = ["json_rpc"] }
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true

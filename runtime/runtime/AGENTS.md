@@ -13,12 +13,12 @@ fn apply() contains the following steps:
 
 `process_transactions` takes all transactions in a chunk, validates them, charges gas, and converts them to local receipts.
 
-Important structs:
-struct Receipt
+Important types:
+enum Receipt
 enum ReceiptEnum
 struct ActionReceiptV2
 enum Action
-struct Account
+enum Account
 
 Receipt is an internal representation of a task to execute.
 Receipts have a `predecessor_id` (the account which created the receipt) and a `receiver_id` (the account where the receipt should execute).

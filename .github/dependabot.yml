@@ -1,22 +1,39 @@
 # Dependabot configuration for nearcore.
+# cspell:ignore anthropics
 #
-# We do NOT run Dependabot *version* updates — only *security* updates (driven
-# by published advisories). Every `updates` entry below sets
+# Application dependencies receive security updates only. Their entries set
 # `open-pull-requests-limit: 0`, which disables version-update PRs while leaving
 # security updates active (security updates have a separate internal cap of 10
-# open PRs that this limit does not affect).
+# open PRs that this limit does not affect). The Claude review action is the
+# only version-update exception, capped at one open PR.
 #
 # Goal: cut the noise from per-dependency security PRs in the side modules by
 # grouping them into a single PR per module set, WITHOUT touching the root
 # workspace. See each entry for details.
 #
 # Note: `schedule.interval` is a required field but only governs version
-# updates (which are off here). It does NOT delay security updates — those are
-# triggered by advisory publication and open ~immediately regardless of the
-# interval. The root workspace is listed (rather than omitted) so it is
-# unambiguously covered and its policy is explicit.
+# updates (enabled only for the Claude action). Security updates are triggered
+# by advisory publication regardless of the interval. The root workspace is
+# listed (rather than omitted) so it is unambiguously covered and its policy
+# is explicit.
 version: 2
 updates:
+  # --- GitHub Actions: Claude PR review ---
+  # Keep the action's bundled Claude Code current so `--model opus` follows
+  # new Opus models. Only this action receives version-update PRs.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      exclude:
+        - "anthropics/claude-code-action"
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: "anthropics/claude-code-action"
+    commit-message:
+      prefix: "chore(ci)"
+
   # --- npm: debug-ui (debugging tool, does not ship in neard) ---
   # Highest-volume source of Dependabot PRs. Consolidate every security bump
   # into one PR.

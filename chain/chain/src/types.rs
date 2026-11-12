@@ -5,6 +5,7 @@ use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ProtocolConfig;
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_configs::ReshardingConfig;
+use near_chain_configs::default_produce_chunk_add_transactions_time_limit;
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
@@ -35,16 +36,16 @@ use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode,
+    Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas, MerkleHash, NumBlocks,
+    NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 pub use near_runtime::PendingConstraints;
-use near_runtime::PostStateReadyCallback;
 use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::{PostStateNodes, PostStateReadyCallback};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
@@ -53,9 +54,11 @@ use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use num_rational::Rational32;
+use std::cmp::{max, min};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Receiver;
 use tracing::instrument;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -434,6 +437,12 @@ pub struct PreparedTransactions {
     pub transactions: Vec<ValidatedTransactionEnvelope>,
     /// Describes what limited the number of prepared transactions.
     pub limited_by: PrepareTransactionsLimit,
+    /// The size of the state the preparation read, in bytes. It holds what the prepared
+    /// transactions read, and what the signed transactions that were rejected read. It holds the
+    /// reads of an ECC only if its contract accepts it. Lets tests see the storage proof of the
+    /// preparation, which is otherwise gone when the function returns.
+    #[cfg(feature = "test_features")]
+    pub recorded_storage_size: usize,
 }
 
 impl PreparedTransactions {
@@ -441,12 +450,15 @@ impl PreparedTransactions {
         PreparedTransactions {
             transactions: Vec::new(),
             limited_by: PrepareTransactionsLimit::NoMoreTxsInPool,
+            #[cfg(feature = "test_features")]
+            recorded_storage_size: 0,
         }
     }
 }
 
-/// Transactions that were taken out of the pool in prepare_transactions,
-/// but should be skipped because they were in skip_tx_hashes.
+/// Transactions that were taken out of the pool in prepare_transactions, but are not in the chunk
+/// and should go back to the pool: the ones that were in skip_tx_hashes, and the ECCs that did not
+/// get to run, or that were late and may finish in time next time.
 #[derive(Debug, Clone)]
 pub struct SkippedTransactions(pub Vec<ValidatedTransactionEnvelope>);
 
@@ -494,6 +506,12 @@ pub struct PrepareTransactionsBlockContext {
     pub next_gas_price: Balance,
     /// Height of the previous block
     pub height: BlockHeight,
+    /// Timestamp of the previous block, which ECCs see
+    pub timestamp: u64,
+    /// Epoch id of the previous block, which ECCs see
+    pub epoch_id: EpochId,
+    /// Epoch height of the previous block, which ECCs see
+    pub epoch_height: EpochHeight,
     /// Epoch id of the current block
     pub next_epoch_id: EpochId,
     /// Congestion info from the previous block
@@ -510,13 +528,58 @@ impl PrepareTransactionsBlockContext {
         gas_limit: Gas,
     ) -> Result<Self, Error> {
         let header = prev_block.header();
+        let epoch_id = epoch_manager.get_epoch_id(header.hash())?;
         Ok(Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
+            timestamp: header.raw_timestamp(),
+            epoch_id,
+            epoch_height: epoch_manager.get_epoch_info(&epoch_id)?.epoch_height(),
             next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
             congestion_info,
             gas_limit,
         })
+    }
+}
+
+/// The trie nodes that the apply of the parent chunk adds, which early preparation waits for before
+/// it runs ECCs. See `RuntimeAdapter::prepare_transactions_extra`.
+pub struct ParentPostStateNodes {
+    /// The shard of the parent chunk.
+    pub shard_uid: ShardUId,
+    pub receiver: Receiver<PostStateNodes>,
+}
+
+/// How long preparing the transactions of a chunk may take.
+///
+/// The preparation as a whole may be unlimited in time, but ECCs never are. A run of a contract is
+/// bounded by its gas, not by time. A refused call costs its sender nothing, so without a
+/// limit of their own ECCs could have taken any amount of time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrepareTransactionsTimeLimits {
+    /// The limit on the whole preparation. `None` is no limit on the signed transactions.
+    pub total: Option<Duration>,
+    /// The limit on ECCs. This is the maximum they can take, but it's not a guaranteed allowance.
+    /// ECCs can get less time if the signed transactions take long enough. Setting limit to zero
+    /// keeps ECCs out of the chunk.
+    pub ecc: Duration,
+}
+
+impl PrepareTransactionsTimeLimits {
+    /// ECCs get `ecc_share` of `total`, from nothing to all of it. If there is no total limit,
+    /// they get that share of the default one.
+    pub fn new(total: Option<Duration>, ecc_share: Rational32) -> Self {
+        let basis = total
+            .or_else(default_produce_chunk_add_transactions_time_limit)
+            .expect("the default time limit is set");
+        let (numer, denom) = (*ecc_share.numer(), *ecc_share.denom());
+        let ecc = max(Duration::ZERO, min(basis, basis * numer / denom));
+        Self { total, ecc }
+    }
+
+    /// No limit on the whole preparation, and no ECCs in the chunk.
+    pub fn unlimited_without_eccs() -> Self {
+        Self { total: None, ecc: Duration::ZERO }
     }
 }
 
@@ -593,6 +656,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// update is preserved for validation of next transactions.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
+    /// Also returns the ECCs that were taken out of the pool but are not in the result and should
+    /// go back to it, to be reintroduced after the prepared transactions.
     fn prepare_transactions(
         &self,
         storage: RuntimeStorageConfig,
@@ -601,8 +666,8 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
-        time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error>;
+        time_limits: PrepareTransactionsTimeLimits,
+    ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// `prepare_transactions` with extra options, used in early transaction preparation.
     /// * takes `TrieUpdate` instead of `RuntimeStorageConfig`. The Trie in `TrieUpdate` should have
@@ -617,6 +682,10 @@ pub trait RuntimeAdapter: Send + Sync {
     ///   cancelled, the function will return `Ok` with `limited_by` set to
     ///   `PrepareTransactionsLimit::Cancelled`. This allows to reintroduce the transactions that
     ///   were removed from the pool.
+    /// * `parent_nodes` - set when `storage` is the post state of the parent chunk before its
+    ///   changes are in a trie, as in early preparation. The parent's apply sends the trie nodes it
+    ///   added there, and ECCs run on a trie that has them, since they would read less than apply
+    ///   does from `storage`. Signed transactions still use `storage`.
     fn prepare_transactions_extra(
         &self,
         storage: TrieUpdate,
@@ -627,8 +696,9 @@ pub trait RuntimeAdapter: Send + Sync {
         validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
         skip_tx_hashes: HashSet<CryptoHash>,
         check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
-        time_limit: Option<Duration>,
+        time_limits: PrepareTransactionsTimeLimits,
         cancel: Option<Arc<AtomicBool>>,
+        parent_nodes: Option<ParentPostStateNodes>,
     ) -> Result<(PreparedTransactions, SkippedTransactions), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
