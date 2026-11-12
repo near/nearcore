@@ -3,7 +3,8 @@
 
 use super::ChunkExecutorActor;
 use near_chain::Error;
-use near_chain::spice::boundary::{is_last_pre_spice_block, shards_applied_itself};
+use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain::spice::chunk_application::shards_applied_itself;
 use near_primitives::hash::CryptoHash;
 
 impl ChunkExecutorActor {

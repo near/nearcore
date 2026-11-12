@@ -2,7 +2,7 @@
 //! the chunks at the spice activation boundary.
 
 use crate::Chain;
-use crate::spice::boundary::applies_chunk_itself;
+use crate::spice::chunk_application::applies_chunk_itself;
 use crate::stateless_validation::chunk_validation::{
     validate_receipt_proof, validate_source_receipt_proofs,
 };

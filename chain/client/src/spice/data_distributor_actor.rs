@@ -31,7 +31,7 @@ use near_chain::spice::activation::{
 use near_chain::spice::all_stake_fallback::{
     fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
-use near_chain::spice::boundary::{applies_chunk_itself, shards_applied_itself};
+use near_chain::spice::chunk_application::{applies_chunk_itself, shards_applied_itself};
 use near_chain::spice::core::{SpiceCoreReader, get_last_certified_block_header};
 use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME;
