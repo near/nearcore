@@ -5249,6 +5249,7 @@ dependencies = [
  "landlock",
  "libc",
  "lru 0.18.2",
+ "near-cache",
  "near-crypto",
  "near-o11y",
  "near-parameters",
