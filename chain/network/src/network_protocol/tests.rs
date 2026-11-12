@@ -2,6 +2,7 @@ use super::*;
 use crate::network_protocol::PeersResponse;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
+use crate::testonly::Rng as TestRng;
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
@@ -69,7 +70,7 @@ const ACCEPT_BOTH: NetworkTransitionConfig = NetworkTransitionConfig::RELEASE_2_
 
 /// Makes an `OwnedAccount` of a new validator, signed using `encoding`.
 fn make_signed_owned_account(
-    rng: &mut crate::testonly::Rng,
+    rng: &mut TestRng,
     clock: &time::Clock,
     peer_id: PeerId,
     encoding: Encoding,
