@@ -226,8 +226,11 @@ fn setup_two_shards(contracts: &[&AccountId], rpc_tracks_shards: bool) -> TestLo
 #[test]
 fn test_send_tx_times_out_early_for_ecc_on_rpc_without_the_shard() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: ECCs are not enabled in this build");
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
     let contract_id = create_account_id("contract");
