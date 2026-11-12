@@ -10,11 +10,13 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
+use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, Fee, RuntimeConfigStore};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, TransferAction};
@@ -22,6 +24,7 @@ use near_primitives::types::{AccountId, Balance, ProtocolVersion};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{ExecutionStatusView, FinalExecutionOutcomeView};
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::iter::once;
 use std::sync::Arc;
@@ -285,5 +288,66 @@ fn test_meta_transaction_after_fee_increase() {
         statuses.iter().any(|status| matches!(status, ExecutionStatusView::Failure(_))),
         "expected the inner actions to fail, got {statuses:?}"
     );
+    assert_eq!(created, 0);
+}
+
+/// A call of the test contract that creates a receipt to `receiver` whose first action fails, so
+/// that its transfers are refunded unexecuted.
+fn call_creating_failing_receipt(receiver: &AccountId) -> Action {
+    let batch_create = json!({"batch_create": {"account_id": receiver}, "id": 0});
+    let failing_call = json!({"action_function_call": {
+        "promise_index": 0,
+        "method_name": "fail-first",
+        "arguments": [],
+        "amount": "0",
+        "gas": Gas::from_teragas(1).as_gas(),
+    }, "id": 0});
+    let transfer = json!({"action_transfer": {"promise_index": 0, "amount": "0"}, "id": 0});
+    let mut promise = vec![batch_create, failing_call];
+    promise.extend(vec![transfer; NUM_TRANSFERS]);
+    let args = serde_json::to_vec(&promise).unwrap();
+    Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "call_promise".to_string(),
+        args,
+        gas: Gas::from_teragas(300),
+        deposit: Balance::ZERO,
+    }))
+}
+
+/// A receipt created by a contract records the version the contract ran at, not the version of
+/// the transaction, since the contract paid its static fees from attached gas at the fees of that
+/// version. The transaction is converted before the fee increase and the contract runs after it,
+/// so the transfers of the receipt it creates are refunded at the increased fee.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+#[test]
+fn test_contract_receipt_after_fee_increase() {
+    init_test_logger();
+    let Some(fee_change) = FeeChange::new(PINNED_VERSION, 3, 1) else { return };
+    let signer = create_account_id("alice");
+    let contract = create_account_id("zed");
+    let receiver = create_account_id("zoe");
+    let mut env = fee_change.setup_env(&[&signer, &contract, &receiver]);
+    let deploy_contract = env.rpc_node().tx_deploy_test_contract(&contract);
+    env.rpc_runner().run_tx(deploy_contract, Duration::seconds(10));
+
+    // The contract and the receiver are left out: their balances only grow by the rewards of
+    // their function calls, which `tokens_burnt` already counts.
+    let actions = vec![call_creating_failing_receipt(&receiver)];
+    let (outcome, created) = fee_change.run(&mut env, &signer, &contract, actions, &[&signer]);
+    let contract_receipt_outcome = outcome
+        .receipts_outcome
+        .iter()
+        .find(|receipt_outcome| receipt_outcome.outcome.executor_id == receiver)
+        .unwrap();
+    let status = &contract_receipt_outcome.outcome.status;
+    assert!(
+        matches!(status, ExecutionStatusView::Failure(_)),
+        "expected a failure, got {status:?}"
+    );
+    let contract_receipt = env.rpc_node().receipt(contract_receipt_outcome.id);
+    let ReceiptEnum::ActionV3(action_receipt) = contract_receipt.receipt() else {
+        panic!("expected an ActionV3 receipt, got {contract_receipt:?}");
+    };
+    assert_eq!(action_receipt.creation_protocol_version, fee_change.new_version);
     assert_eq!(created, 0);
 }

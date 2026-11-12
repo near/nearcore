@@ -10887,10 +10887,11 @@ fn apply_with_configs(
         .unwrap()
 }
 
-/// Applies `receipts` and `transactions` at `version`, whose `Transfer`
-/// execution fee is `factor` times the one of all versions before it.
-fn apply_with_transfer_fee_factor(
+/// Applies `receipts` and `transactions` at `version`, whose execution fee of
+/// `cost` is `factor` times the one of all versions before it.
+fn apply_with_exec_fee_factor(
     version: ProtocolVersion,
+    cost: ActionCosts,
     factor: u64,
     receipts: &[Receipt],
     transactions: Vec<SignedTransaction>,
@@ -10898,10 +10899,10 @@ fn apply_with_transfer_fee_factor(
     let old_config = RuntimeConfig::test();
     let mut new_config = RuntimeConfig::test();
     let fees = Arc::make_mut(&mut new_config.fees);
-    let transfer = &mut fees.action_fees[ActionCosts::transfer];
-    let old_execution_gas = transfer.exec_fee().gas;
+    let fee = &mut fees.action_fees[cost];
+    let old_execution_gas = fee.exec_fee().gas;
     let new_execution_gas = old_execution_gas.checked_mul(factor).unwrap();
-    transfer.execution = FeeComponent::Gas(new_execution_gas);
+    fee.execution = FeeComponent::Gas(new_execution_gas);
     apply_with_configs(version, old_config, new_config, receipts, transactions)
 }
 
@@ -10927,13 +10928,17 @@ fn pinned_receipt(gas_price: Balance, actions: Vec<Action>) -> Receipt {
     })
 }
 
-/// Applies `receipt` after the `Transfer` execution fee changed by `factor`
+/// Applies `receipt` after the execution fee of `cost` changed by `factor`
 /// since it was created. Returns its outcome and the total amount of the
 /// refunds it produced.
-fn apply_pinned_receipt(receipt: &Receipt, factor: u64) -> (ExecutionOutcome, Balance) {
+fn apply_pinned_receipt(
+    receipt: &Receipt,
+    cost: ActionCosts,
+    factor: u64,
+) -> (ExecutionOutcome, Balance) {
     let receipts = from_ref(receipt);
     let apply_result =
-        apply_with_transfer_fee_factor(PINNED_EXECUTION_VERSION, factor, receipts, vec![]);
+        apply_with_exec_fee_factor(PINNED_EXECUTION_VERSION, cost, factor, receipts, vec![]);
     let outcome = apply_result
         .outcomes
         .into_iter()
@@ -10979,8 +10984,8 @@ fn test_pin_receipt_fees_failed_receipt() {
     let mut actions = vec![delete_key];
     actions.extend(vec![transfer(); 10]);
     let receipt = pinned_receipt(GAS_PRICE, actions);
-    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, 1);
-    let (increased, increased_refund) = apply_pinned_receipt(&receipt, 3);
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 3);
     assert_matches!(increased.status, ExecutionStatus::Failure(_));
     assert_eq!(increased_refund, unchanged_refund);
     assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
@@ -10994,8 +10999,8 @@ fn test_pin_receipt_fees_failed_receipt() {
 fn test_pin_receipt_fees_successful_receipt() {
     let purchase_price = GAS_PRICE.checked_mul(2).unwrap();
     let receipt = pinned_receipt(purchase_price, vec![transfer(); 10]);
-    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, 1);
-    let (increased, increased_refund) = apply_pinned_receipt(&receipt, 3);
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 3);
     assert_matches!(increased.status, ExecutionStatus::SuccessValue(_));
     assert_eq!(increased_refund, unchanged_refund);
     assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
@@ -11003,6 +11008,28 @@ fn test_pin_receipt_fees_successful_receipt() {
     let unchanged_compute_usage = unchanged.compute_usage.unwrap();
     let increased_compute_usage = increased.compute_usage.unwrap();
     assert!(increased_compute_usage > unchanged_compute_usage);
+}
+
+/// The refund of a receipt that creates an account is reduced by the account
+/// creation charge, net of the `CreateAccount` execution fee that was burnt.
+/// The charge is computed with the creation config too, so a change of that
+/// fee changes neither the refund nor the tokens burnt.
+#[test]
+fn test_pin_receipt_fees_account_creation() {
+    // Purchased at the minimum price, which covers creating an account.
+    let purchase_price = RuntimeConfig::test().min_gas_purchase_price;
+    let create_account = Action::CreateAccount(CreateAccountAction {});
+    let deposit = Balance::from_near(1);
+    let actions = vec![create_account, Action::Transfer(TransferAction { deposit })];
+    let mut receipt = pinned_receipt(purchase_price, actions);
+    receipt.set_receiver_id("new.alice.near".parse().unwrap());
+    let create_account_cost = ActionCosts::create_account;
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, create_account_cost, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, create_account_cost, 3);
+    assert_matches!(increased.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
 }
 
 /// The relayer of a meta transaction prepaid the static fees of the inner actions when its
@@ -11028,8 +11055,10 @@ fn test_pin_receipt_fees_delegate_action() {
     receipt.set_receiver_id(alice_account());
 
     let receipts = from_ref(&receipt);
-    let unchanged = apply_with_transfer_fee_factor(PINNED_EXECUTION_VERSION, 1, receipts, vec![]);
-    let increased = apply_with_transfer_fee_factor(PINNED_EXECUTION_VERSION, 3, receipts, vec![]);
+    let transfer_cost = ActionCosts::transfer;
+    let version = PINNED_EXECUTION_VERSION;
+    let unchanged = apply_with_exec_fee_factor(version, transfer_cost, 1, receipts, vec![]);
+    let increased = apply_with_exec_fee_factor(version, transfer_cost, 3, receipts, vec![]);
     assert_eq!(increased.outgoing_receipts, unchanged.outgoing_receipts);
     let inner_receipt = increased
         .outgoing_receipts
@@ -11061,7 +11090,8 @@ fn converted_receipt(version: ProtocolVersion) -> Receipt {
         Balance::from_yoctonear(1),
         CryptoHash::default(),
     );
-    let apply_result = apply_with_transfer_fee_factor(version, 1, &[], vec![transaction]);
+    let apply_result =
+        apply_with_exec_fee_factor(version, ActionCosts::transfer, 1, &[], vec![transaction]);
     let [receipt] = apply_result.outgoing_receipts.as_slice() else {
         panic!("expected one receipt, got {:?}", apply_result.outgoing_receipts);
     };
