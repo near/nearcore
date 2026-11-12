@@ -396,9 +396,7 @@ impl NetworkState {
         ban_reason: ReasonForBan,
         transport: &dyn NetworkTransport,
     ) {
-        if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-            tracing::debug!(target: "network", ?err, ?ban_reason, "peer store failed to record ban");
-        }
+        self.peer_store.peer_ban(clock, peer_id, ban_reason);
         transport.ban_peer(peer_id, ban_reason);
     }
 

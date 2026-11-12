@@ -52,8 +52,18 @@ fn ban_store() {
         PeerStore::new(&clock.clock(), make_config(&boot_nodes, Blacklist::default(), false))
             .unwrap();
     assert_eq!(peer_store.healthy_peers(3).len(), 2);
-    peer_store.peer_ban(&clock.clock(), &peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
+    peer_store.peer_ban(&clock.clock(), &peer_info_to_ban.id, ReasonForBan::Abusive);
     assert_eq!(peer_store.healthy_peers(3).len(), 1);
+}
+
+#[test]
+fn ban_unknown_peer() {
+    let clock = time::FakeClock::default();
+    let peer_store =
+        PeerStore::new(&clock.clock(), make_config(&[], Blacklist::default(), false)).unwrap();
+    let peer_id = gen_peer_info(0).id;
+    peer_store.peer_ban(&clock.clock(), &peer_id, ReasonForBan::Abusive);
+    assert!(peer_store.is_banned(&peer_id));
 }
 
 #[test]
@@ -65,7 +75,7 @@ fn ban_survives_connection_updates() {
         make_config(&[peer_info.clone()], Blacklist::default(), false),
     )
     .unwrap();
-    peer_store.peer_ban(&clock.clock(), &peer_info.id, ReasonForBan::Abusive).unwrap();
+    peer_store.peer_ban(&clock.clock(), &peer_info.id, ReasonForBan::Abusive);
 
     // A connection to the peer finishes registering after the ban, then closes.
     peer_store.peer_connected(&clock.clock(), &peer_info);

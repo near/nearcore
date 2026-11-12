@@ -423,22 +423,16 @@ impl PeerStore {
         peer_state.last_seen = clock.now_utc();
     }
 
-    pub fn peer_ban(
-        &self,
-        clock: &time::Clock,
-        peer_id: &PeerId,
-        ban_reason: ReasonForBan,
-    ) -> anyhow::Result<()> {
+    pub fn peer_ban(&self, clock: &time::Clock, peer_id: &PeerId, ban_reason: ReasonForBan) {
         tracing::warn!(target: "network", %peer_id, ?ban_reason, "banning peer");
         let mut inner = self.0.lock();
-        if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
-            let now = clock.now_utc();
-            peer_state.last_seen = now;
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
-        } else {
-            bail!("Peer {} is missing in the peer store", peer_id);
-        }
-        Ok(())
+        // A peer that has connected only on TIER1 or TIER3 may be missing from the store.
+        let peer_info = PeerInfo { id: peer_id.clone(), addr: None, account_id: None };
+        inner.add_signed_peer(clock, peer_info);
+        let peer_state = inner.peer_states.get_mut(peer_id).unwrap();
+        let now = clock.now_utc();
+        peer_state.last_seen = now;
+        peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
