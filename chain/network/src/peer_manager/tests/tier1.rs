@@ -1,17 +1,22 @@
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    PeerAddr, PeerMessage, RoutedMessage, T1MessageBody, T2MessageBody, TieredMessageBody,
+    PartialEncodedChunkForwardMsg, PeerAddr, PeerMessage, RoutedMessage, T1MessageBody,
+    T2MessageBody, TieredMessageBody,
 };
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
+use crate::stats::metrics;
 use crate::stun;
 use crate::tcp;
 use crate::testonly::{Rng, make_rng};
 use near_async::time;
+use near_crypto::Signature;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::sharding::ChunkHash;
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::db::TestDB;
 use rand::Rng as _;
@@ -48,6 +53,21 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
     }
 }
 
+// Sends a routed message from `from` to the account `target`.
+// Returns false if the routing information was missing.
+async fn send_message_to_account(
+    clock: &time::Clock,
+    from: &peer_manager::testonly::ActorHandler,
+    target: AccountId,
+    body: TieredMessageBody,
+) -> bool {
+    let clock = clock.clone();
+    from.with_state_and_transport(move |s, transport| async move {
+        s.send_message_to_account(&clock, &target, body, &*transport)
+    })
+    .await
+}
+
 // Sends a routed message from `from` to the account of `to`.
 // Returns false if the routing information was missing.
 async fn send_message(
@@ -57,11 +77,7 @@ async fn send_message(
     body: TieredMessageBody,
 ) -> bool {
     let target = to.cfg.validator.signer.get().unwrap().validator_id().clone();
-    let clock = clock.clone();
-    from.with_state_and_transport(move |s, transport| async move {
-        s.send_message_to_account(&clock, &target, body, &*transport)
-    })
-    .await
+    send_message_to_account(clock, from, target, body).await
 }
 
 // Sends a routed message from `from` to `to`, then waits until `to` receives it over `recv_tier`
@@ -424,6 +440,134 @@ async fn relay_through_validator() {
     tracing::info!(target:"test", "send message v0 -> v2, relayed by v1");
     let got = send_and_recv_tier1_message(rng, &clock.clock(), &v0, &v2).await;
     assert_eq!(got.num_hops(), 1);
+}
+
+const CHUNK_FORWARD: &str = "PartialEncodedChunkForward";
+
+/// Constructs a random TIER1 message of a type which only `route_metrics` sends, as all the
+/// tests of a process share the metrics.
+fn make_chunk_forward(rng: &mut Rng) -> TieredMessageBody {
+    T1MessageBody::PartialEncodedChunkForward(PartialEncodedChunkForwardMsg {
+        chunk_hash: ChunkHash(data::make_hash(rng)),
+        inner_header_hash: data::make_hash(rng),
+        merkle_root: data::make_hash(rng),
+        signature: Signature::default(),
+        prev_block_hash: data::make_hash(rng),
+        height_created: rng.r#gen(),
+        shard_id: ShardId::new(0),
+        parts: vec![],
+    })
+    .into()
+}
+
+/// Chunk forwards created by the nodes of this process, by route: direct, relay, none.
+fn sent_counts() -> [u64; 3] {
+    [metrics::Tier1Route::Direct, metrics::Tier1Route::Relay, metrics::Tier1Route::None]
+        .map(|route| metrics::TIER1_SENT.with_label_values(&[CHUNK_FORWARD, route.as_ref()]).get())
+}
+
+/// Chunk forwards forwarded by the nodes of this process, by result: sent, not connected,
+/// unreachable.
+fn forwarded_counts() -> [u64; 3] {
+    [
+        metrics::Tier1Forward::Sent,
+        metrics::Tier1Forward::NotConnected,
+        metrics::Tier1Forward::Unreachable,
+    ]
+    .map(|result| {
+        metrics::TIER1_FORWARDED.with_label_values(&[CHUNK_FORWARD, result.as_ref()]).get()
+    })
+}
+
+/// Chunk forwards received over TIER1 by the nodes of this process: from their author, from
+/// another peer.
+fn received_counts() -> [u64; 2] {
+    [true, false].map(|direct| {
+        metrics::NETWORK_ROUTED_MSG_LATENCY
+            .with_label_values(&[
+                CHUNK_FORWARD,
+                tcp::Tier::T1.as_ref(),
+                metrics::bool_to_str(/*fastest=*/ true),
+                metrics::bool_to_str(direct),
+            ])
+            .get_sample_count()
+    })
+}
+
+#[tokio::test]
+async fn route_metrics() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start 4 validators, only v1 advertises an address");
+    let mut v0cfg = chain.make_config(rng);
+    v0cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
+    let mut v2cfg = chain.make_config(rng);
+    v2cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
+    let mut v3cfg = chain.make_config(rng);
+    v3cfg.validator.proxies = config::ValidatorProxies::Static(vec![]);
+    let v0 = start_pm(clock.clock(), TestDB::new(), v0cfg, chain.clone()).await;
+    let v1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v2 = start_pm(clock.clock(), TestDB::new(), v2cfg, chain.clone()).await;
+    let v3 = start_pm(clock.clock(), TestDB::new(), v3cfg, chain.clone()).await;
+    v3.connect_to(&v0.peer_info(), tcp::Tier::T2).await;
+    v0.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
+    v1.connect_to(&v2.peer_info(), tcp::Tier::T2).await;
+
+    let chain_info =
+        peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg, &v2.cfg, &v3.cfg]);
+    for pm in [&v0, &v1, &v2, &v3] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    let mut accounts_data = HashSet::new();
+    for pm in [&v0, &v1, &v2, &v3] {
+        accounts_data.extend(pm.tier1_advertise_proxies(&clock.clock()).await);
+    }
+    for pm in [&v0, &v1, &v2] {
+        pm.wait_for_accounts_data(&accounts_data).await;
+    }
+
+    tracing::info!(target:"test", "v3 goes down, the other validators keep its account data");
+    let v3_account = v3.cfg.validator.signer.get().unwrap().validator_id().clone();
+    drop(v3);
+    let (id0, id2) = (v0.cfg.node_id(), v2.cfg.node_id());
+    v1.wait_for_routing_table(&[(id0.clone(), vec![id0]), (id2.clone(), vec![id2])]).await;
+
+    tracing::info!(target:"test", "send message v0 -> v2, v0 has no tier1 connections");
+    assert!(!send_message(&clock.clock(), &v0, &v2, make_chunk_forward(rng)).await);
+    assert_eq!([0, 0, 1], sent_counts());
+
+    tracing::info!(target:"test", "tier1 connection gets established: v0 -> v1");
+    v0.tier1_connect(&clock.clock()).await;
+    // A message which v1 fails to forward triggers no event. v1 handles the messages of v0 in
+    // order, so once it has received this one, it has handled the ones which v0 sent before.
+    let sync = async |rng: &mut Rng| {
+        send_and_recv_message(&clock.clock(), &v0, &v1, make_chunk_forward(rng), tcp::Tier::T1)
+            .await;
+    };
+
+    tracing::info!(target:"test", "send message v0 -> v3, v1 has no route to v3");
+    let body = make_chunk_forward(rng);
+    assert!(send_message_to_account(&clock.clock(), &v0, v3_account, body).await);
+    sync(rng).await;
+    assert_eq!([0, 0, 1], forwarded_counts());
+
+    tracing::info!(target:"test", "send message v0 -> v2, v1 has a tier2 route to v2");
+    assert!(send_message(&clock.clock(), &v0, &v2, make_chunk_forward(rng)).await);
+    sync(rng).await;
+    assert_eq!([0, 1, 1], forwarded_counts());
+
+    tracing::info!(target:"test", "tier1 connection gets established: v1 <- v2");
+    v2.tier1_connect(&clock.clock()).await;
+    tracing::info!(target:"test", "send message v0 -> v2, relayed by v1");
+    send_and_recv_message(&clock.clock(), &v0, &v2, make_chunk_forward(rng), tcp::Tier::T1).await;
+    assert_eq!([1, 1, 1], forwarded_counts());
+
+    assert_eq!([2, 3, 1], sent_counts());
+    assert_eq!([2, 1], received_counts());
 }
 
 #[tokio::test]

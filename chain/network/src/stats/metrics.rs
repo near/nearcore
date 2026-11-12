@@ -376,11 +376,11 @@ pub(crate) static BROADCAST_MESSAGES: LazyLock<IntCounterVec> = LazyLock::new(||
     try_create_int_counter_vec("near_broadcast_msg", "Broadcasted messages", &["type"]).unwrap()
 });
 
-static NETWORK_ROUTED_MSG_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+pub(crate) static NETWORK_ROUTED_MSG_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_network_routed_msg_latency",
-        "Latency of network messages, assuming clocks are perfectly synchronized. 'tier' indicates what is the tier of the connection on which the message arrived (TIER1 is expected to be faster than TIER2) and 'fastest' indicates whether this was the first copy of the message to arrive.",
-        &["routed","tier","fastest"],
+        "Latency of network messages, assuming clocks are perfectly synchronized. 'tier' indicates what is the tier of the connection on which the message arrived (TIER1 is expected to be faster than TIER2), 'fastest' indicates whether this was the first copy of the message to arrive and 'direct' indicates whether the message arrived straight from its author.",
+        &["routed","tier","fastest","direct"],
         Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
@@ -390,6 +390,25 @@ static NETWORK_ROUTED_MSG_NUM_HOPS: LazyLock<IntCounterVec> = LazyLock::new(|| {
         "near_network_routed_msg_hops",
         "Number of peers the routed message traveled through",
         &["routed", "hops"],
+    )
+    .unwrap()
+});
+
+pub(crate) static TIER1_SENT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_tier1_sent_total",
+        "TIER1 messages this node created for other nodes, by message type and route",
+        &["type", "route"],
+    )
+    .unwrap()
+});
+
+pub(crate) static TIER1_FORWARDED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_tier1_forwarded_total",
+        "TIER1 messages of other nodes forwarded by this node to their target, \
+         by message type and result",
+        &["type", "result"],
     )
     .unwrap()
 });
@@ -423,13 +442,15 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: LazyLock<IntCounter> = LazyLock::new(
 /// `fastest` indicates whether this message is the first copy of `msg` received -
 /// important messages are sent multiple times over different routing paths
 /// simultaneously to improve the chance that the message will be delivered on time.
+/// `direct` indicates whether the peer which delivered `msg` is its author.
 pub(crate) fn record_routed_msg_metrics(
     clock: &time::Clock,
     msg: &RoutedMessage,
     tier: tcp::Tier,
     fastest: bool,
+    direct: bool,
 ) {
-    record_routed_msg_latency(clock, msg, tier, fastest);
+    record_routed_msg_latency(clock, msg, tier, fastest, direct);
     record_routed_msg_hops(msg);
 }
 
@@ -452,12 +473,18 @@ fn record_routed_msg_latency(
     msg: &RoutedMessage,
     tier: tcp::Tier,
     fastest: bool,
+    direct: bool,
 ) {
     let Some(latency) = routed_msg_latency(clock.now_utc(), msg) else {
         return;
     };
     NETWORK_ROUTED_MSG_LATENCY
-        .with_label_values(&[msg.body_variant(), tier.as_ref(), bool_to_str(fastest)])
+        .with_label_values(&[
+            msg.body_variant(),
+            tier.as_ref(),
+            bool_to_str(fastest),
+            bool_to_str(direct),
+        ])
         .observe(latency.as_seconds_f64());
 }
 
@@ -506,6 +533,41 @@ impl MessageDropped {
     pub fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
         DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
+    }
+}
+
+/// The route on which this node sends a TIER1 message it created.
+#[derive(Clone, Copy, strum::AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub(crate) enum Tier1Route {
+    /// To the target, or to one of its proxies.
+    Direct,
+    /// To another TIER1 peer, which forwards the message to the target.
+    Relay,
+    /// The node is connected to no other TIER1 peer and drops the message.
+    None,
+}
+
+impl Tier1Route {
+    pub fn inc(self, msg: &TieredMessageBody) {
+        TIER1_SENT.with_label_values(&[msg.variant(), self.as_ref()]).inc();
+    }
+}
+
+/// The result of forwarding a TIER1 message of another node to its target.
+#[derive(Clone, Copy, strum::AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub(crate) enum Tier1Forward {
+    Sent,
+    /// This node reaches the target over TIER2 only.
+    NotConnected,
+    /// This node reaches the target over neither tier, so the target is most likely offline.
+    Unreachable,
+}
+
+impl Tier1Forward {
+    pub fn inc(self, msg_type: &str) {
+        TIER1_FORWARDED.with_label_values(&[msg_type, self.as_ref()]).inc();
     }
 }
 

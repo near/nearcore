@@ -772,12 +772,17 @@ impl NetworkState {
                 let body_variant = msg.body_variant();
                 let sent = transport.send_message(
                     tcp::Tier::T1,
-                    peer_id,
+                    peer_id.clone(),
                     Arc::new(PeerMessage::Routed(msg)),
                 );
-                if !sent {
-                    metrics::MessageDropped::NoRouteFound.inc_msg_type(body_variant);
-                }
+                let result = if sent {
+                    metrics::Tier1Forward::Sent
+                } else if self.graph.routing_table.view_route(&peer_id).is_some() {
+                    metrics::Tier1Forward::NotConnected
+                } else {
+                    metrics::Tier1Forward::Unreachable
+                };
+                result.inc(body_variant);
                 return sent;
             }
             tcp::Tier::T2 => match self.tier2_find_route(&clock, msg.target()) {
@@ -896,6 +901,7 @@ impl NetworkState {
                     Some(peer_id) => peer_id,
                     None => continue,
                 };
+                metrics::Tier1Route::Direct.inc(&msg);
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
                 let raw = RawRoutedMessage {
@@ -909,6 +915,7 @@ impl NetworkState {
             }
             // Neither the target nor its proxies are connected to this node over TIER1.
             let Some(relay) = self.pick_tier1_relay() else {
+                metrics::Tier1Route::None.inc(&msg);
                 metrics::MessageDropped::NoRouteFound.inc(&msg);
                 tracing::debug!(
                     target: "network",
@@ -918,6 +925,7 @@ impl NetworkState {
                 );
                 return false;
             };
+            metrics::Tier1Route::Relay.inc(&msg);
             let raw = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
             let peer_msg = Arc::new(PeerMessage::Routed(self.sign_message(clock, raw)));
             transport.send_message(tcp::Tier::T1, relay, peer_msg);
@@ -1187,7 +1195,8 @@ impl NetworkState {
             // (could arrive via both T1 and T2).
             let new_hash = CryptoHash::hash_borsh(msg.body());
             let fastest = self.recent_routed_messages.lock().put(new_hash, ()).is_none();
-            metrics::record_routed_msg_metrics(clock, &msg, tier, fastest);
+            let direct = from == msg.author();
+            metrics::record_routed_msg_metrics(clock, &msg, tier, fastest, direct);
         }
 
         self.add_route_back(clock, from, tier, &msg);
