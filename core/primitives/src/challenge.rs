@@ -163,7 +163,7 @@ mod tests {
     use crate::receipt::{ActionReceiptV3, AuthorizationContext, ReceiptV0};
     use crate::sharding::ShardChunkHeader;
     use crate::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
-    use crate::version::PROTOCOL_VERSION;
+    use crate::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_crypto::KeyType;
     use near_primitives_core::types::{Balance, ShardId};
 
@@ -199,14 +199,15 @@ mod tests {
         })
     }
 
+    /// A refund created before `PinReceiptFees`, which is not an `ActionReceiptV3`.
+    fn older_refund() -> Receipt {
+        let protocol_version = ProtocolFeature::PinReceiptFees.protocol_version() - 1;
+        Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO, protocol_version)
+    }
+
     fn receipt_v3_chunk() -> ShardChunk {
         // Signed transactions only, so the receipt is the only reason to refuse.
-        let refund = Receipt::new_balance_refund(
-            &"alice.near".parse().unwrap(),
-            Balance::ZERO,
-            PROTOCOL_VERSION,
-        );
-        chunk_with_receipts(signed_txs(), vec![refund, action_receipt_v3()])
+        chunk_with_receipts(signed_txs(), vec![older_refund(), action_receipt_v3()])
     }
 
     fn signed_txs() -> Vec<TransactionEnvelope> {
@@ -289,11 +290,7 @@ mod tests {
 
     #[test]
     fn test_chunk_state_with_older_receipts_decodes() {
-        let refund = Receipt::new_balance_refund(
-            &"alice.near".parse().unwrap(),
-            Balance::ZERO,
-            PROTOCOL_VERSION,
-        );
+        let refund = older_refund();
         assert_decodes(&chunk_state(chunk_with_receipts(signed_txs(), vec![refund])));
     }
 

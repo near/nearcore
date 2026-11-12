@@ -244,7 +244,7 @@ fn test_max_receipt_size_yield_resume() {
     let yield_receipt_res =
         env.rpc_runner().execute_tx(yield_receipt_tx, Duration::seconds(10)).unwrap();
 
-    let expected_size = 4194508;
+    let expected_size = 4194509;
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
             index: Some(0),
