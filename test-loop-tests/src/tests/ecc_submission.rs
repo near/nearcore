@@ -17,7 +17,7 @@ use near_client::test_utils::create_chunk_on_block;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest;
 use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptToTxRequest};
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
-use near_network::types::NetworkRequests;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
@@ -231,6 +231,42 @@ fn setup_two_shards(contracts: &[&AccountId], rpc_tracks_shards: bool) -> TestLo
         env.validator_runner().run_tx(deploy_tx, Duration::seconds(10));
     }
     env
+}
+
+/// On an RPC node that does not track the contract's shard, `send_tx` waiting for an external call
+/// times out on the first block instead of after the whole wait.
+#[test]
+fn test_send_tx_times_out_early_for_ecc_on_rpc_without_the_shard() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_id = create_account_id("contract");
+    let mut env = setup_two_shards(&[&contract_id], false);
+    // The test network does not route status queries, and the node never reads the answer.
+    let rpc_data_idx = env.rpc_data_idx();
+    env.node_datas[rpc_data_idx].register_override_handler(&mut env.test_loop.data, |request| {
+        match request {
+            NetworkRequests::TxStatus(..) => HandlerResult::Handled(NetworkResponses::NoResponse),
+            request => HandlerResult::Unhandled(request),
+        }
+    });
+
+    let call = EccTransaction::new(contract_id, vec![1]);
+    let error = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(call, TxExecutionStatus::Included),
+            // Shorter than the 10 second wait, which a timeout at its end would exceed.
+            Duration::seconds(3),
+        )
+        .unwrap_err();
+    let error = format!("{error:?}");
+    assert!(error.contains("TIMEOUT_ERROR") && error.contains("DOES_NOT_TRACK_SHARD"), "{error}");
 }
 
 /// An ECC goes to the chunk producers of the contract's shard, whichever shard that is.

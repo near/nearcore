@@ -7,8 +7,8 @@ use near_client::ViewClientActor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
 use near_primitives::views::{
-    AccessKeyPermissionView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    SignedTransactionView, TransactionEnvelopeView,
+    AccessKeyPermissionView, ChunkTransactionView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    SignedTransactionView,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -62,11 +62,17 @@ impl ExecutionToReceipts {
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 for transaction in chunk.transactions {
                     match transaction {
-                        TransactionEnvelopeView::Signed(t) => {
+                        ChunkTransactionView::Signed(t) => {
                             transactions.insert(t.hash, t);
                         }
-                        TransactionEnvelopeView::Unsigned(call) => {
-                            external_calls.insert(call.transaction_id, call.contract_id);
+                        ChunkTransactionView::Unsigned(call) => {
+                            // A chunk fetched by its block carries every unique id.
+                            let transaction_id = call.transaction_id.ok_or_else(|| {
+                                ErrorKind::InternalInvariantError(
+                                    "external call without a unique id".to_string(),
+                                )
+                            })?;
+                            external_calls.insert(transaction_id, call.contract_id);
                         }
                     }
                 }

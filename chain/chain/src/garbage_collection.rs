@@ -1153,9 +1153,11 @@ impl<'a> ChainStoreUpdate<'a> {
             for outcome_id in outcome_ids {
                 let key = get_outcome_id_block_hash(&outcome_id, block_hash);
                 self.gc_col(DBCol::TransactionResultForBlock, &key);
-                // Only an external call's outcome has a row here, so for any other outcome this
-                // writes a deletion of a missing key and reads nothing.
-                self.gc_col(DBCol::ExternalCallTransactions, &key);
+                // Only an external call's outcome has a row here. Checking first, which the bloom
+                // filter answers for a missing key, keeps other outcomes from writing tombstones.
+                if self.store().exists(DBCol::ExternalCallTransactions, &key) {
+                    self.gc_col(DBCol::ExternalCallTransactions, &key);
+                }
             }
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }

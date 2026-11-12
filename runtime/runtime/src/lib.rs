@@ -3133,7 +3133,8 @@ fn send_transaction_receipt(
     Ok(())
 }
 
-/// Records that `receipt` comes from the transaction `tx_hash` of `sender_id`.
+/// Records that `receipt` comes from the transaction or external call whose outcome id is
+/// `tx_hash`, sent by `sender_id`.
 fn record_transaction_receipt(
     processing_state: &mut ApplyProcessingReceiptState,
     receipt: &Receipt,

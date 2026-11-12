@@ -227,35 +227,29 @@ impl ChainStoreAdapter {
         )
     }
 
-    /// `chunk` as read from the store, with the height of the block that includes it set when it
-    /// holds an external call, whose unique id depends on that height.
-    pub fn with_external_call_height_included(
+    /// The height of the canonical block that includes `chunk`, which the unique ids of its
+    /// external calls need. `None` when it holds none, or no block on the canonical chain
+    /// includes it: a fork block, or none at all. That block can only be a child of the block
+    /// the chunk was made on.
+    // TODO(spice): look for a fork block in `all_next_block_hashes`.
+    pub fn get_external_call_height_included(
         &self,
-        mut chunk: ShardChunk,
-    ) -> Result<ShardChunk, Error> {
-        if chunk.to_transactions().iter().any(|tx| tx.as_unsigned().is_some()) {
-            let height = self.get_chunk_height_included(&chunk)?;
-            chunk.set_height_included(height);
+        chunk: &ShardChunk,
+    ) -> Result<Option<BlockHeight>, Error> {
+        if !chunk.to_transactions().iter().any(|tx| tx.as_unsigned().is_some()) {
+            return Ok(None);
         }
-        Ok(chunk)
-    }
-
-    /// The height of the canonical block that includes `chunk`, which can only be a child of the
-    /// block it was made on. An error while no canonical block includes it.
-    fn get_chunk_height_included(&self, chunk: &ShardChunk) -> Result<BlockHeight, Error> {
-        let block_hash = self.get_next_block_hash(chunk.prev_block())?;
+        let block_hash = match self.get_next_block_hash(chunk.prev_block()) {
+            Ok(block_hash) => block_hash,
+            Err(Error::DBNotFoundErr(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        };
         let block = self.get_block(&block_hash)?;
-        let chunks = block.chunks();
-        let included = chunks
+        let included = block
+            .chunks()
             .iter()
             .any(|header| header.is_new_chunk() && header.chunk_hash() == chunk.chunk_hash());
-        if !included {
-            return Err(Error::DBNotFoundErr(format!(
-                "BLOCK INCLUDING CHUNK: {:?}",
-                chunk.chunk_hash()
-            )));
-        }
-        Ok(block.header().height())
+        Ok(included.then(|| block.header().height()))
     }
 
     pub fn get_outgoing_receipts(
