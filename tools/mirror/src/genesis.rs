@@ -154,6 +154,7 @@ fn map_delegate_action(
 fn map_action_receipt(
     signer_id: &mut AccountId,
     signer_public_key: Option<&mut PublicKey>,
+    refund_to: Option<&mut AccountId>,
     output_data_receivers: &mut [DataReceiver],
     actions: &mut Vec<Action>,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
@@ -162,6 +163,9 @@ fn map_action_receipt(
     *signer_id = crate::key_mapping::map_account(signer_id, secret);
     if let Some(signer_public_key) = signer_public_key {
         *signer_public_key = crate::key_mapping::map_key(signer_public_key, secret).public_key();
+    }
+    if let Some(refund_to) = refund_to {
+        *refund_to = crate::key_mapping::map_account(refund_to, secret);
     }
     for receiver in output_data_receivers {
         receiver.receiver_id = crate::key_mapping::map_account(&receiver.receiver_id, secret);
@@ -208,6 +212,7 @@ pub fn map_receipt(
             map_action_receipt(
                 &mut r.signer_id,
                 Some(&mut r.signer_public_key),
+                None,
                 &mut r.output_data_receivers,
                 &mut r.actions,
                 secret,
@@ -218,6 +223,7 @@ pub fn map_receipt(
             map_action_receipt(
                 &mut r.signer_id,
                 Some(&mut r.signer_public_key),
+                r.refund_to.as_mut(),
                 &mut r.output_data_receivers,
                 &mut r.actions,
                 secret,
@@ -232,6 +238,7 @@ pub fn map_receipt(
             map_action_receipt(
                 &mut r.signer_id,
                 signer_public_key,
+                r.refund_to.as_mut(),
                 &mut r.output_data_receivers,
                 &mut r.actions,
                 secret,
