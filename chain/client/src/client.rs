@@ -536,7 +536,8 @@ impl Client {
     }
 
     /// Remove transactions for tracked chunks in `block` from the pool.
-    /// Returns the hashes of transactions referenced by those tracked chunks.
+    /// Returns the hashes of transactions referenced by those tracked chunks, for an external call
+    /// its hash without the state init.
     pub fn remove_transactions_for_block(
         &mut self,
         block: &Block,
@@ -555,7 +556,8 @@ impl Client {
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
                 for tx in transactions {
-                    removed_hashes.push(tx.get_hash());
+                    let hash = *tx.id_hash();
+                    removed_hashes.push(hash);
                 }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                 pool_guard.remove_transactions(shard_uid, transactions);
@@ -589,7 +591,10 @@ impl Client {
                 let validated_txs = chunk
                     .to_transactions()
                     .into_iter()
-                    .filter(|tx| !exclude.contains(&tx.get_hash()))
+                    .filter(|tx| {
+                        let hash = *tx.id_hash();
+                        !exclude.contains(&hash)
+                    })
                     .filter_map(|tx| {
                         match ValidatedTransactionEnvelope::new(
                             &config,

@@ -5260,7 +5260,7 @@
             "type": "string"
           },
           "state_init": {
-            "description": "The universal account state init the call carries.",
+            "description": "The universal account state init this copy of the call carries.",
             "nullable": true,
             "type": "string"
           },

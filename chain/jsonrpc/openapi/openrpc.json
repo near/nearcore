@@ -4089,7 +4089,7 @@
           },
           "state_init": {
             "default": null,
-            "description": "The universal account state init the call carries.",
+            "description": "The universal account state init this copy of the call carries.",
             "type": [
               "string",
               "null"

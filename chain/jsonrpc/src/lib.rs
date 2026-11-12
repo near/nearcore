@@ -549,7 +549,7 @@ enum TransactionToWaitFor {
 /// The id of the copy of `call` included in the block at `height`.
 fn external_call_candidate(call: &EccTransaction, height: BlockHeight) -> TransactionInfo {
     TransactionInfo::TransactionId {
-        tx_hash: create_ecc_outcome_id(call.hash(), height),
+        tx_hash: create_ecc_outcome_id(call.hash_without_state_init(), height),
         sender_account_id: call.contract_id().clone(),
     }
 }

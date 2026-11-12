@@ -1,6 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{ecc_cost, safe_gas_to_balance, total_send_fees, tx_cost};
+use crate::config::{ecc_cost, exec_fee, safe_gas_to_balance, total_send_fees, tx_cost};
 use crate::conversions::Convert;
 use crate::find_skipped_transactions;
 use crate::tests::{
@@ -2089,7 +2089,7 @@ fn test_dry_run_ecc_matches_apply() {
         let (bob, written) = bob_ecc_state(&tries, root);
         assert_eq!(dry_run_written, written, "{name}");
         match dry_run {
-            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage, .. } => {
                 assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
                 assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
                 assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
@@ -2372,7 +2372,7 @@ fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
         );
         let outcome = &apply_result.outcomes[0].outcome;
         match early {
-            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage, .. } => {
                 assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
                 assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
                 assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
@@ -10848,4 +10848,466 @@ fn test_re_added_key_rejects_replayed_tx() {
             InvalidTxError::InvalidNonce { .. }
         ))
     );
+}
+
+/// External calls that carry a universal account's state init.
+mod ecc_state_init {
+    use super::*;
+    use crate::verifier::ecc_cost_for_account;
+    use near_primitives::action::GlobalContractIdentifier;
+    use near_primitives::universal_state_init::{
+        RawStateInit, UniversalStateInit, UniversalStateInitV1,
+    };
+    use near_primitives::utils::derive_universal_account_id;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// A global contract whose reserved method accepts a call when `accepts`, and refuses it
+    /// otherwise.
+    fn code(accepts: bool) -> ContractCode {
+        let body = if accepts { "" } else { "unreachable" };
+        let wat = format!(
+            r#"(module (memory (export "memory") 1) (func (export "{ECC_METHOD_NAME}") {body}))"#
+        );
+        ContractCode::new(near_test_contracts::wat_contract(&wat), None)
+    }
+
+    /// A state init with one storage entry, and `code` as the account's contract.
+    fn state_init(code: Option<&ContractCode>) -> RawStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: code.map(|code| GlobalContractIdentifier::CodeHash(*code.hash())),
+            data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw()
+    }
+
+    /// Deploys `code` as a global contract and creates the account `state_init` derives to, funded
+    /// and not initialized, as a transfer to its address leaves it.
+    fn setup(
+        code: &ContractCode,
+        state_init: &RawStateInit,
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, MockEpochInfoProvider, AccountId) {
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+            vec![alice_account()],
+            Balance::from_near(1_000),
+            Balance::ZERO,
+            Gas::from_teragas(1000),
+        );
+        let account_id = derive_universal_account_id(state_init);
+        let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+        let code_key = TrieKey::GlobalContractCode {
+            identifier: GlobalContractCodeIdentifier::CodeHash(*code.hash()),
+        };
+        state_update.set(code_key, code.code().to_vec());
+        let account = Account::new_uninitialized(
+            Balance::from_near(10),
+            apply_state.config.fees.storage_usage_config.num_bytes_account,
+            initial_nonce_value(1, PROTOCOL_VERSION),
+        );
+        set_account(&mut state_update, account_id.clone(), &account);
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+        (runtime, tries, root, apply_state, epoch_info_provider, account_id)
+    }
+
+    fn account(tries: &ShardTries, root: CryptoHash, account_id: &AccountId) -> Account {
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        get_account(&state, account_id).unwrap().unwrap()
+    }
+
+    /// The value that `state_init` writes under the key `k`, if it is in the state.
+    fn installed_data(
+        tries: &ShardTries,
+        root: CryptoHash,
+        account_id: &AccountId,
+    ) -> Option<Vec<u8>> {
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let key = TrieKey::ContractData { account_id: account_id.clone(), key: b"k".to_vec() };
+        state.get(&key, AccessOptions::DEFAULT).unwrap()
+    }
+
+    /// Applies a chunk with `ecc` alone, and returns the new root and the call's outcome.
+    fn apply_ecc(
+        runtime: &Runtime,
+        tries: &ShardTries,
+        root: CryptoHash,
+        apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        ecc: EccTransaction,
+    ) -> (CryptoHash, ExecutionOutcomeWithId) {
+        let (root, result) = apply_envelopes_and_commit(
+            runtime,
+            tries,
+            root,
+            apply_state,
+            vec![ecc.into()],
+            epoch_info_provider,
+        );
+        let [outcome] = result.outcomes.as_slice() else { panic!("{:?}", result.outcomes) };
+        (root, outcome.clone())
+    }
+
+    /// The first call to an uninitialized account installs its state init and runs the code the
+    /// init names, under the unique id of the same call without the state init.
+    #[test]
+    fn test_ecc_installs_state_init() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+        let without_init = EccTransaction::new(account_id.clone(), vec![]);
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+        let id = create_ecc_outcome_id(without_init.hash(), apply_state.block_height);
+        assert_eq!(outcome.id, id);
+        let account = account(&tries, root, &account_id);
+        assert!(account.is_initialized());
+        assert_eq!(account.contract().into_owned(), AccountContract::Global(*code.hash()));
+        let data_key = TrieKey::ContractData { account_id, key: b"k".to_vec() };
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert_eq!(state.get(&data_key, AccessOptions::DEFAULT).unwrap(), Some(b"v".to_vec()));
+    }
+
+    /// A call the contract refuses rolls the install back, and nobody pays.
+    #[test]
+    fn test_refused_ecc_rolls_state_init_back() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(false);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let before = account(&tries, root, &account_id);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        // The installed code ran and refused the call.
+        assert_matches!(
+            outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(_)),
+            }))
+        );
+        assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
+        assert_eq!(account(&tries, root, &account_id), before);
+        assert_eq!(installed_data(&tries, root, &account_id), None);
+    }
+
+    /// A state init that installs no code leaves the call nothing to run, so it is refused and the
+    /// install rolled back.
+    #[test]
+    fn test_ecc_state_init_without_code_rolled_back() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(None);
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let before = account(&tries, root, &account_id);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        let error = InvalidTxError::ContractNotFound { contract_id: account_id.clone() };
+        assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error.into()));
+        assert_eq!(account(&tries, root, &account_id), before);
+        assert_eq!(installed_data(&tries, root, &account_id), None);
+    }
+
+    /// A call to an uninitialized account without a state init has nothing to run.
+    #[test]
+    fn test_ecc_without_state_init_to_uninitialized_account() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let ecc = EccTransaction::new(account_id.clone(), vec![]);
+
+        let (_, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        let error = InvalidTxError::ContractNotFound { contract_id: account_id };
+        assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error.into()));
+    }
+
+    /// A state init sent to an initialized account is ignored: the call runs, changes nothing a
+    /// state init would, and costs what the call without it costs.
+    #[test]
+    fn test_ecc_state_init_on_initialized_account_is_ignored() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let install =
+            EccTransaction::new_with_state_init(account_id.clone(), vec![0], Some(init.clone()));
+        let (mut root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, install);
+        let install_cost = outcome.outcome.tokens_burnt;
+        let before = account(&tries, root, &account_id);
+        assert!(before.is_initialized());
+
+        // Each call applies on top of the state the one before it left.
+        let mut tokens_burnt = vec![];
+        for (payload, init) in [(1, Some(init.clone())), (2, None)] {
+            let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![payload], init);
+            let (after_root, outcome) =
+                apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+            root = after_root;
+            assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+            let after = account(&tries, root, &account_id);
+            assert_eq!(after.contract(), before.contract());
+            assert_eq!(after.storage_usage(), before.storage_usage());
+            tokens_burnt.push(outcome.outcome.tokens_burnt);
+        }
+        assert_eq!(tokens_burnt[0], tokens_burnt[1]);
+        // The installing call paid the fees of a self-addressed `UniversalStateInit` action on top.
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: init,
+            deposit: Balance::ZERO,
+        }));
+        let config = &apply_state.config;
+        let action_fee = total_send_fees(config, true, from_ref(&action), &account_id)
+            .unwrap()
+            .checked_add_result(exec_fee(config, &action, &account_id).unwrap())
+            .unwrap();
+        let action_cost = safe_gas_to_balance(apply_state.gas_price, action_fee.gas).unwrap();
+        assert_eq!(install_cost, tokens_burnt[1].checked_add(action_cost).unwrap());
+    }
+
+    /// A chunk with two copies of one call is invalid. If one reaches apply anyway, apply skips the
+    /// second copy with no outcome, since both copies share a unique id.
+    #[test]
+    fn test_ecc_copies_with_and_without_state_init_in_one_chunk() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let with_init = EccTransaction::new_with_state_init(account_id, vec![], Some(init));
+        let without_init = with_init.without_state_init();
+
+        let (_, result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root,
+            &apply_state,
+            vec![with_init.into(), without_init.clone().into()],
+            &epoch_info_provider,
+        );
+
+        let [outcome] = result.outcomes.as_slice() else { panic!("{:?}", result.outcomes) };
+        let unique_id = create_ecc_outcome_id(without_init.hash(), apply_state.block_height);
+        assert_eq!(outcome.id, unique_id);
+        assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+    }
+
+    /// The producer's dry run of a call with a state init ends as apply does, the install accepted,
+    /// refused or skipped, and it says whether the call installed the state init.
+    #[test]
+    fn test_dry_run_ecc_with_state_init_matches_apply() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        for (name, accepts, initialized) in
+            [("installed", true, false), ("refused", false, false), ("ignored", true, true)]
+        {
+            let code = code(accepts);
+            let init = state_init(Some(&code));
+            let (runtime, tries, mut root, apply_state, epoch_info_provider, account_id) =
+                setup(&code, &init);
+            if initialized {
+                let install = EccTransaction::new_with_state_init(
+                    account_id.clone(),
+                    vec![],
+                    Some(init.clone()),
+                );
+                root =
+                    apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, install)
+                        .0;
+                assert!(account(&tries, root, &account_id).is_initialized(), "{name}");
+            }
+            let before = account(&tries, root, &account_id);
+            let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![1], Some(init));
+
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+            let mut state = TrieUpdate::new(trie.recording_reads_new_recorder());
+            let context = EccDryRunContext {
+                shard_id: apply_state.shard_id,
+                epoch_id: apply_state.epoch_id,
+                protocol_version: apply_state.current_protocol_version,
+                config: Arc::clone(&apply_state.config),
+                vm_generation: apply_state.vm_generation,
+                gas_price: apply_state.gas_price,
+                prev_block: apply_state.prev_block.clone(),
+                cache: None,
+            };
+            let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, None);
+            let dry_run = dry_run_external_call(
+                &mut state,
+                context,
+                &epoch_info_provider,
+                &mut external_calls,
+                None,
+                &ecc,
+            )
+            .unwrap();
+            let (root, outcome) =
+                apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+            let after = account(&tries, root, &account_id);
+            match dry_run {
+                EccDryRun::Accepted { account, gas_burnt, compute_usage, installed_state_init } => {
+                    assert!(accepts, "{name}");
+                    assert_eq!(installed_state_init, !initialized, "{name}");
+                    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+                    assert_eq!(outcome.outcome.gas_burnt, gas_burnt, "{name}");
+                    assert_eq!(outcome.outcome.compute_usage, Some(compute_usage), "{name}");
+                    assert_eq!(after, account, "{name}");
+                }
+                EccDryRun::Refused(error) => {
+                    assert!(!accepts, "{name}");
+                    assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error), "{name}");
+                    assert_eq!(after, before, "{name}");
+                }
+            }
+        }
+    }
+
+    /// A call whose fees, its state init's included, pass the gas budget of a call can never run.
+    /// It is refused, funded or not, and counts no more compute than a call within the budget.
+    #[test]
+    fn test_ecc_state_init_fees_past_call_budget_refused() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        // 1_900 two-byte keys with empty values: the call fits `max_external_call_size`, and the
+        // fees of its state init, about 400 Tgas, are far past `max_gas_burnt_external`.
+        let data = (0..1_900u16).map(|key| (key.to_be_bytes().to_vec(), vec![])).collect();
+        let init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data,
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw();
+        for (name, balance) in
+            [("funded", Balance::from_near(10)), ("unfunded", Balance::from_yoctonear(1))]
+        {
+            let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+                setup(&code, &init);
+            let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+            let mut before = get_account(&state_update, &account_id).unwrap().unwrap();
+            before.set_amount(balance);
+            set_account(&mut state_update, account_id.clone(), &before);
+            state_update.commit(StateChangeCause::InitialState);
+            let trie_changes = state_update.finalize().unwrap().trie_changes;
+            let mut store_update = tries.store_update();
+            let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+            store_update.commit();
+            let ecc =
+                EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init.clone()));
+            let config = &apply_state.config;
+            let budget = config.wasm_config.limit_config.max_gas_burnt_external;
+            let cost =
+                ecc_cost_for_account(config, &ecc, Some(&before), apply_state.gas_price).unwrap();
+            assert!(ecc.get_size() <= config.external_calls_config.max_call_size, "{name}");
+            assert!(cost.gas_burnt > budget, "{name}");
+
+            let (root, outcome) =
+                apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+            assert_matches!(outcome.outcome.status, ExecutionStatus::Failure(_), "{name}");
+            assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO, "{name}");
+            assert_eq!(account(&tries, root, &account_id), before, "{name}");
+            let compute = outcome.outcome.compute_usage.unwrap();
+            assert!(
+                compute <= budget.as_gas(),
+                "{name}: the refusal counts {compute} compute, past the call budget of {budget}"
+            );
+        }
+    }
+
+    /// The dry run refuses a call whose state init derives to another account, as apply does.
+    #[test]
+    fn test_dry_run_ecc_refuses_state_init_for_another_account() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        // The same contract with other data derives to another account, and accepts the call if
+        // installed.
+        let other_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data: BTreeMap::from([(b"k".to_vec(), b"w".to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw();
+        assert_ne!(derive_universal_account_id(&other_init), account_id);
+        let before = account(&tries, root, &account_id);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(other_init));
+
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+        let mut state = TrieUpdate::new(trie.recording_reads_new_recorder());
+        let context = EccDryRunContext {
+            shard_id: apply_state.shard_id,
+            epoch_id: apply_state.epoch_id,
+            protocol_version: apply_state.current_protocol_version,
+            config: Arc::clone(&apply_state.config),
+            vm_generation: apply_state.vm_generation,
+            gas_price: apply_state.gas_price,
+            prev_block: apply_state.prev_block.clone(),
+            cache: None,
+        };
+        let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, None);
+        let dry_run = dry_run_external_call(
+            &mut state,
+            context,
+            &epoch_info_provider,
+            &mut external_calls,
+            None,
+            &ecc,
+        )
+        .unwrap();
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        assert_matches!(
+            &outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::ActionsValidation(
+                    ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+                )
+            ))
+        );
+        assert_eq!(account(&tries, root, &account_id), before);
+        let EccDryRun::Refused(error) = dry_run else { panic!("{dry_run:?}") };
+        assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error));
+    }
 }

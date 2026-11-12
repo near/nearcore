@@ -1,21 +1,27 @@
 //! Submitting ECCs to an RPC node: what it refuses, and where it sends what it accepts.
 
-use crate::setup::builder::TestLoopBuilder;
+use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::create_account_id;
+use crate::utils::account::{archival_account_id, create_account_id};
+use crate::utils::cloud_archival::{apply_writer_settings, get_cloud_storage};
 use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
+use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
+use near_client::BlockResponse;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::create_chunk_on_block;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest;
 use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptToTxRequest};
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::types::{NetworkRequests, NetworkResponses};
+use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
@@ -24,14 +30,20 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{
     Action, ECC_METHOD_NAME, EccTransaction, ExecutionStatus, TransactionEnvelope, TransferAction,
+    ValidatedEcc, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{AccountId, Balance, TransactionOrReceiptId};
-use near_primitives::utils::create_ecc_outcome_id;
+use near_primitives::universal_state_init::{
+    RawStateInit, UniversalStateInit, UniversalStateInitV1,
+};
+use near_primitives::utils::{create_ecc_outcome_id, derive_universal_account_id};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, TransactionEnvelopeView, TxExecutionStatus};
 use near_primitives_core::serialize::to_base64;
+use near_store::adapter::StoreAdapter;
+use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 fn ecc(contract_id: &AccountId) -> EccTransaction {
@@ -858,4 +870,248 @@ fn test_ecc_promise_transfers_to_another_shard() {
     // price, and the transfer refunds all of it, so the contract pays exactly the transfer.
     let contract_after = env.rpc_node().query_balance(&contract_id);
     assert_eq!(contract_after, contract_before.checked_sub(ECC_TRANSFER_AMOUNT).unwrap());
+}
+
+/// The time an RPC request in the universal account tests may take.
+const UNIVERSAL_RPC_TIMEOUT: Duration = Duration::seconds(30);
+
+/// Deploys `ecc_contract` as a global contract from `sponsor` and funds the universal account whose
+/// state init uses it, which a transfer leaves uninitialized. Returns the account and its state
+/// init.
+fn fund_universal_wallet(env: &mut TestLoopEnv, sponsor: &AccountId) -> (AccountId, RawStateInit) {
+    let code = ecc_contract();
+    let code_hash = CryptoHash::hash_bytes(&code);
+    let deploy =
+        env.rpc_node().tx_deploy_global_contract(sponsor, code, GlobalContractDeployMode::CodeHash);
+    env.rpc_runner().run_tx(deploy, UNIVERSAL_RPC_TIMEOUT);
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(GlobalContractIdentifier::CodeHash(code_hash)),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    })
+    .to_raw();
+    let wallet = derive_universal_account_id(&state_init);
+    let fund = env.rpc_node().tx_send_money(sponsor, &wallet, Balance::from_near(10));
+    env.rpc_runner().run_tx(fund, UNIVERSAL_RPC_TIMEOUT);
+    (wallet, state_init)
+}
+
+/// The cold store and the cloud archive keep a copy of a call that carries a state init with its
+/// init, and under the unique id RPC returned for it.
+#[test]
+fn test_ecc_with_state_init_in_the_archives() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    // Enough blocks for the call's block to be final, copied to cold and written to the bucket.
+    const BLOCKS_TO_ARCHIVE: usize = 10;
+    let sponsor = create_account_id("sponsor");
+    let shard_layout = ShardLayout::single_shard();
+    let shard_uids: Vec<_> = shard_layout.shard_uids().collect();
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .shard_layout(shard_layout)
+        .epoch_length(10)
+        .add_user_account(&sponsor, Balance::from_near(1_000))
+        .enable_archival_node(ArchivalKind::ColdAndCloud)
+        .bucket_config(BucketConfig::with_batch_size_for_test(4))
+        .config_modifier(move |config, _| {
+            give_eccs_time(config);
+            if config.archive {
+                apply_writer_settings(config, true, &shard_uids, 1, Duration::ZERO);
+            }
+        })
+        .build();
+    let (wallet, state_init) = fund_universal_wallet(&mut env, &sponsor);
+    let call = EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(state_init));
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(call.clone(), TxExecutionStatus::Final),
+            UNIVERSAL_RPC_TIMEOUT,
+        )
+        .unwrap();
+    let outcome = response.final_execution_outcome.unwrap().into_outcome();
+    let transaction_id = outcome.transaction_outcome.id;
+    let block_hash = outcome.transaction_outcome.block_hash;
+    let block_header = env.rpc_node().client().chain.get_block_header(&block_hash).unwrap();
+    let height = block_header.height();
+    let shard_layout =
+        env.rpc_node().client().epoch_manager.get_shard_layout(block_header.epoch_id()).unwrap();
+    let shard_id = shard_layout.account_id_to_shard_id(&wallet);
+    env.rpc_runner().run_for_number_of_blocks(BLOCKS_TO_ARCHIVE);
+
+    // Cold maps the unique id to the copy as it landed, state init included.
+    let archival_idx = env.archival_data_idx();
+    let cold_store_sender = env.node_datas[archival_idx].cold_store_sender.as_ref().unwrap();
+    let cold_db = env.test_loop.data.get(&cold_store_sender.actor_handle()).get_cold_db();
+    let cold_chain_store = cold_db.as_store().chain_store();
+    let landed_hash = cold_chain_store.get_external_call_hash(&transaction_id, &block_hash);
+    assert_eq!(landed_hash, Some(call.get_hash()));
+    let landed = cold_chain_store.get_transaction(&call.get_hash()).unwrap();
+    assert_eq!(landed.as_unsigned().unwrap().state_init(), call.state_init());
+    assert!(
+        cold_chain_store.get_outcome_by_id_and_block_hash(&transaction_id, &block_hash).is_some()
+    );
+
+    // The bucket holds the chunk with the copy as it landed, and its outcome under the unique id.
+    let cloud_storage = get_cloud_storage(&env, &archival_account_id());
+    let shard_data = cloud_storage.get_shard_data(height, shard_id).unwrap().unwrap();
+    let new_chunk = shard_data.new_chunk().unwrap();
+    let transactions = new_chunk.chunk().to_transactions();
+    let archived = transactions.iter().find_map(|tx| tx.as_unsigned()).unwrap();
+    assert_eq!(archived.get_hash(), call.get_hash());
+    assert_eq!(archived.state_init(), call.state_init());
+    let outcome_ids = new_chunk.transaction_result_for_block();
+    assert!(outcome_ids.iter().any(|(id, _)| *id == transaction_id));
+}
+
+/// Two copies of one call land at one height on two forks: the canonical one stripped of
+/// the state init by the honest producer, and the other with it. Each block keeps its own copy
+/// under the same unique id, and `tx` returns the canonical copy as it ran.
+#[test]
+fn test_ecc_copies_with_and_without_state_init_on_two_forks() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    // Enough blocks for every node to process both blocks at the height.
+    const BLOCKS_AFTER_FORK: usize = 3;
+    let sponsor = create_account_id("sponsor");
+    let mut env = setup(PROTOCOL_VERSION, &[&sponsor], &sponsor);
+    let (wallet, state_init) = fund_universal_wallet(&mut env, &sponsor);
+    let install =
+        EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(state_init.clone()));
+    env.rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(install, TxExecutionStatus::Final),
+            UNIVERSAL_RPC_TIMEOUT,
+        )
+        .unwrap();
+
+    // The wallet is initialized, so the producer strips the state init of this call.
+    let call = EccTransaction::new_with_state_init(wallet, vec![2], Some(state_init));
+    let stripped = call.without_state_init();
+    assert_eq!(env.rpc_node().process_tx(call.clone(), false), ProcessTxResponse::RequestRouted);
+    let height = env.rpc_runner().run_until_included(&[stripped.get_hash()]);
+
+    // A block at the same height on the same parent, whose chunk carries the copy with the init.
+    let mut validator = env.validator_mut();
+    let client = &mut validator.client_actor().client;
+    let canonical = client.chain.get_block_by_height(height).unwrap();
+    let parent = client.chain.get_block(canonical.header().prev_hash()).unwrap();
+    assert_eq!(parent.header().height() + 1, height, "the canonical block skips no height");
+    let copy_with_init: ValidatedTransactionEnvelope =
+        ValidatedEcc::new_for_test(call.clone()).into();
+    let (fork_chunk, fork_block) = create_chunk_on_block(client, &parent, vec![copy_with_init]);
+    let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
+    client
+        .distribute_and_persist_encoded_chunk(
+            fork_chunk.chunk,
+            fork_chunk.encoded_chunk_parts_paths,
+            fork_chunk.receipts,
+            validator_id,
+        )
+        .unwrap();
+    for node_data in &env.node_datas {
+        let response = BlockResponse {
+            block: fork_block.clone(),
+            peer_id: node_data.peer_id.clone(),
+            // A node drops an unrequested block at a height it already has a block for.
+            was_requested: true,
+        };
+        node_data.client_sender.send(response.span_wrap());
+    }
+    env.rpc_runner().run_for_number_of_blocks(BLOCKS_AFTER_FORK);
+
+    let chain_store = env.rpc_node().store().chain_store();
+    let blocks_at_height = chain_store.get_all_block_hashes_by_height(height);
+    let blocks_at_height: HashSet<_> = blocks_at_height.values().flatten().copied().collect();
+    assert_eq!(blocks_at_height, HashSet::from([*canonical.hash(), *fork_block.hash()]));
+    let unique_id = create_ecc_outcome_id(stripped.hash(), height);
+    let landed = chain_store.get_external_call_hash(&unique_id, canonical.hash());
+    assert_eq!(landed, Some(stripped.get_hash()));
+    let landed_on_fork = chain_store.get_external_call_hash(&unique_id, fork_block.hash());
+    assert_eq!(landed_on_fork, Some(call.get_hash()));
+
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| {
+                client.tx(RpcTransactionStatusRequest {
+                    transaction_info: TransactionInfo::TransactionId {
+                        tx_hash: unique_id,
+                        sender_account_id: call.contract_id().clone(),
+                    },
+                    wait_until: TxExecutionStatus::Final,
+                })
+            },
+            UNIVERSAL_RPC_TIMEOUT,
+        )
+        .unwrap();
+    let outcome = response.final_execution_outcome.unwrap().into_outcome();
+    assert_eq!(outcome.transaction_outcome.block_hash, *canonical.hash());
+    let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+        panic!("expected an external call, got {:?}", outcome.transaction);
+    };
+    assert_eq!(view.state_init, None);
+}
+
+/// A wallet funded by a transfer gets its code from its first external call's state init. Later
+/// calls run it, and a resent first call lands without its init under a new unique id.
+#[test]
+fn test_ecc_initializes_universal_account() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let mut env = setup(PROTOCOL_VERSION, &[&sponsor], &sponsor);
+    let (wallet, state_init) = fund_universal_wallet(&mut env, &sponsor);
+
+    let response = env.rpc_node().process_tx(ecc(&wallet), false);
+    let error = InvalidTxError::ContractNotFound { contract_id: wallet.clone() };
+    assert_eq!(response, ProcessTxResponse::InvalidTx(error));
+
+    let first_call = EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(state_init));
+    let second_call = EccTransaction::new(wallet, vec![2]);
+    // The first call again, at a later height: its own unique id, and its state init, which the
+    // account now ignores, stripped by the producer.
+    let first_state_init = first_call.state_init().map(|state_init| state_init.0.clone());
+    let calls = [(first_call.clone(), first_state_init), (second_call, None), (first_call, None)];
+    let mut transaction_ids = vec![];
+    for (call, landed_state_init) in calls {
+        let response = env
+            .rpc_runner()
+            .run_with_jsonrpc_client(
+                |client| client.send_tx(call.clone(), TxExecutionStatus::Final),
+                UNIVERSAL_RPC_TIMEOUT,
+            )
+            .unwrap();
+        let outcome = response.final_execution_outcome.unwrap().into_outcome();
+        assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(call.payload().to_vec()));
+        let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+            panic!("expected an external call, got {:?}", outcome.transaction);
+        };
+        assert_eq!(view.state_init, landed_state_init);
+        let block_hash = outcome.transaction_outcome.block_hash;
+        let height = env.rpc_node().client().chain.get_block_header(&block_hash).unwrap().height();
+        let without_init = call.without_state_init();
+        assert_eq!(view.transaction_id, create_ecc_outcome_id(without_init.hash(), height));
+        transaction_ids.push(view.transaction_id);
+    }
+    assert_ne!(transaction_ids[0], transaction_ids[2]);
 }

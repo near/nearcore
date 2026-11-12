@@ -1797,8 +1797,7 @@ pub struct EccTransactionView {
     pub payload: Vec<u8>,
     /// The unique id of this copy of the call, its outcome id.
     pub transaction_id: CryptoHash,
-    /// The universal account state init the call carries.
-    // TODO(ecc): fill from the call once external calls carry a state init.
+    /// The universal account state init this copy of the call carries.
     #[serde_as(as = "Option<Base64>")]
     #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub state_init: Option<Vec<u8>>,
@@ -1807,8 +1806,9 @@ pub struct EccTransactionView {
 impl EccTransactionView {
     /// The view of the copy of `tx` whose unique id is `transaction_id`.
     pub fn new(tx: EccTransaction, transaction_id: CryptoHash) -> Self {
-        let (contract_id, payload) = tx.into_parts();
-        Self { contract_id, payload, transaction_id, state_init: None }
+        let (contract_id, payload, state_init) = tx.into_parts();
+        let state_init = state_init.map(|state_init| state_init.0);
+        Self { contract_id, payload, transaction_id, state_init }
     }
 }
 
@@ -1892,7 +1892,6 @@ pub struct ChunkEccTransactionView {
     /// canonical chain includes the chunk.
     pub transaction_id: Option<CryptoHash>,
     /// The universal account state init the call carries.
-    // TODO(ecc): fill from the call once external calls carry a state init.
     #[serde_as(as = "Option<Base64>")]
     #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub state_init: Option<Vec<u8>>,
@@ -1948,14 +1947,15 @@ impl ChunkTransactionView {
         match tx {
             TransactionEnvelope::Signed(tx) => Self::Signed(tx.into()),
             TransactionEnvelope::Unsigned(tx) => {
-                let transaction_id =
-                    height_included.map(|height| create_ecc_outcome_id(tx.hash(), height));
-                let (contract_id, payload) = tx.into_parts();
+                let transaction_id = height_included
+                    .map(|height| create_ecc_outcome_id(tx.hash_without_state_init(), height));
+                let (contract_id, payload, state_init) = tx.into_parts();
+                let state_init = state_init.map(|state_init| state_init.0);
                 Self::Unsigned(ChunkEccTransactionView {
                     contract_id,
                     payload,
                     transaction_id,
-                    state_init: None,
+                    state_init,
                 })
             }
         }
@@ -3476,6 +3476,7 @@ mod tests {
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::serialize::to_base64;
     use near_primitives_core::types::Balance;
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -3553,6 +3554,24 @@ mod tests {
         assert_eq!(ecc_json["kind"], "external_call");
         assert_eq!(ecc_json["transaction_id"], json!(ecc_view.id()));
         assert_eq!(ecc_json["state_init"], serde_json::Value::Null);
+    }
+
+    /// The view of a copy that carries a state init shows it, under the unique id of the copy
+    /// without it.
+    #[test]
+    fn test_external_call_view_with_state_init() {
+        let without = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![4, 5, 6])),
+        );
+        let view = ChunkTransactionView::new(TransactionEnvelope::from(with), Some(1));
+        let without_view = ChunkTransactionView::new(TransactionEnvelope::from(without), Some(1));
+        assert_eq!(view.id(), without_view.id());
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["state_init"], json!(to_base64(&[4, 5, 6])));
+        assert_eq!(serde_json::from_value::<ChunkTransactionView>(json).unwrap(), view);
     }
 
     /// An external call in a chunk no canonical block includes has no unique id, `null` in JSON.

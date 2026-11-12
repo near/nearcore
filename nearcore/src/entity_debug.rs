@@ -427,6 +427,10 @@ impl EntityDebugHandlerImpl {
                         );
                         ret.add("hash", EntityDataValue::String(call.hash().to_string()));
                         ret.add("payload", EntityDataValue::String(hex::encode(call.payload())));
+                        if let Some(state_init) = call.state_init() {
+                            let state_init = hex::encode(&state_init.0);
+                            ret.add("state_init", EntityDataValue::String(state_init));
+                        }
                         Ok(EntityDataValue::Struct(ret.into()))
                     }
                 }
