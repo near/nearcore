@@ -3653,6 +3653,29 @@
         ],
         "type": "object"
       },
+      "AuthorizationContext": {
+        "description": "What authorized a chain of receipts: an access key that signed a transaction, or an\nexternal call its contract accepted.",
+        "oneOf": [
+          {
+            "enum": [
+              "ExternalContractCall"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AccessKey": {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            },
+            "required": [
+              "AccessKey"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "BandwidthRequest": {
         "description": "`BandwidthRequest` describes the size of receipts that a shard would like to send to another shard.\nWhen a shard wants to send a lot of receipts to another shard, it needs to create a request and wait\nfor a bandwidth grant from the bandwidth scheduler.",
         "properties": {
@@ -9175,7 +9198,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`method_name` is not allowed in external contract calls",
+            "description": "`method_name` is not allowed in external contract calls, or in the receipts they lead to",
             "properties": {
               "ProhibitedInExternalCall": {
                 "properties": {
@@ -13337,6 +13360,20 @@
                     },
                     "type": "array"
                   },
+                  "authorization_context": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/AuthorizationContext"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "What authorized the chain, absent in views written before external calls"
+                  },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
                   },
@@ -13373,12 +13410,22 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "signer_public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "enum": [
+                          null
+                        ],
+                        "nullable": true
+                      }
+                    ],
+                    "description": "The key of the transaction that started the chain, absent in an external call's chain"
                   }
                 },
                 "required": [
                   "signer_id",
-                  "signer_public_key",
                   "gas_price",
                   "output_data_receivers",
                   "input_data_ids",

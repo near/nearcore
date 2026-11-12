@@ -181,7 +181,10 @@ pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
     let action_receipt = ReceiptEnum::ActionV2(ActionReceiptV2 {
         signer_id: versioned.signer_id().clone(),
         refund_to: versioned.refund_to().clone(),
-        signer_public_key: versioned.signer_public_key().clone(),
+        signer_public_key: versioned
+            .signer_public_key()
+            .expect("V1 and V2 receipts carry a key")
+            .clone(),
         gas_price: versioned.gas_price(),
         output_data_receivers: versioned.output_data_receivers().to_vec(),
         input_data_ids: versioned.input_data_ids().to_vec(),

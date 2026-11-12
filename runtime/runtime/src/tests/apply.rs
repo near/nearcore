@@ -43,16 +43,17 @@ use near_primitives::deterministic_account_id::{
     DeterministicAccountStateInit, DeterministicAccountStateInitV1,
 };
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, CompilationError, DepositCostFailureReason, EpochError,
-    ExternalCallChunkLimit, FunctionCallError, InvalidTxError, MissingTrieValue, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
+    DepositCostFailureReason, EpochError, ExternalCallChunkLimit, FunctionCallError,
+    InvalidTxError, MissingTrieValue, ReceiptValidationError, RuntimeError, TxExecutionError,
 };
 use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0,
+    ActionReceipt, ActionReceiptV3, AuthorizationContext, DataReceipt,
+    GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptOrigin,
+    ReceiptOriginTransaction, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -92,7 +93,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::slice::from_ref;
 use std::sync::Arc;
 use std::sync::mpsc::TryRecvError;
-use testlib::runtime_utils::{alice_account, bob_account};
+use testlib::runtime_utils::{alice_account, bob_account, carol_account};
 
 mod contract_compilation_status;
 
@@ -850,7 +851,9 @@ const ECC_KEY: &[u8] = b"k";
 /// A contract whose ECC method runs `ecc_body`. All the contracts of the ECC execution tests
 /// share the rest:
 /// - `$write_payload` writes the call's input under `ECC_KEY`;
-/// - the `yield` method creates a yielded promise and stores its data id under `data_id`.
+/// - the `yield` method creates a yielded promise and stores its data id under `data_id`;
+/// - `$call_carol` creates a promise calling a method of carol with a deposit and gas, and
+///   returns its index. Memory holds a zero deposit at 200 and a deposit of 1 yocto at 232.
 fn ecc_contract(ecc_body: &str) -> Vec<u8> {
     near_test_contracts::wat_contract(&format!(
         r#"(module
@@ -871,18 +874,41 @@ fn ecc_contract(ecc_body: &str) -> Vec<u8> {
     (func $promise_yield_create (param i64 i64 i64 i64 i64 i64 i64) (result i64)))
   (import "env" "promise_yield_resume"
     (func $promise_yield_resume (param i64 i64 i64 i64) (result i32)))
+  (import "env" "promise_batch_action_function_call"
+    (func $promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64)))
+  (import "env" "promise_batch_action_transfer"
+    (func $promise_batch_action_transfer (param i64 i64)))
+  (import "env" "promise_then"
+    (func $promise_then (param i64 i64 i64 i64 i64 i64 i64 i64 i64) (result i64)))
+  (import "env" "promise_return" (func $promise_return (param i64)))
+  (import "env" "account_balance" (func $account_balance (param i64)))
   (memory (export "memory") 1)
   (data (i32.const 0) "k")
   (data (i32.const 8) "accepted")
   (data (i32.const 16) "data_id")
   (data (i32.const 24) "alice.near")
   (data (i32.const 40) "cb")
+  (data (i32.const 48) "carol.near")
+  (data (i32.const 64) "who")
+  (data (i32.const 72) "signer_key")
+  (data (i32.const 88) "bob.near")
+  (data (i32.const 104) "hop")
+  (data (i32.const 232) "\01")
   (func $write_payload
     (call $input (i64.const 0))
     (call $read_register (i64.const 0) (i64.const 1024))
     (drop (call $storage_write
       (i64.const 1) (i64.const 0) (call $register_len (i64.const 0)) (i64.const 1024)
       (i64.const 2)))
+  )
+  (func $call_carol (param $method_len i64) (param $method_ptr i64) (param $deposit_ptr i64)
+    (param $gas i64) (result i64)
+    (local $promise i64)
+    (local.set $promise (call $promise_batch_create (i64.const 10) (i64.const 48)))
+    (call $promise_batch_action_function_call (local.get $promise)
+      (local.get $method_len) (local.get $method_ptr) (i64.const 0) (i64.const 0)
+      (local.get $deposit_ptr) (local.get $gas))
+    (local.get $promise)
   )
   (func (export "cb"))
   (func (export "yield")
@@ -1048,8 +1074,6 @@ fn storage_usage_after_ecc(config: &RuntimeConfig, storage_usage: u64) -> u64 {
 
 /// An ECC refused by `apply_refused_ecc`.
 struct RefusedEcc {
-    /// The state root after the chunk with the call.
-    root: CryptoHash,
     /// The error the call is refused with.
     error: TxExecutionError,
     /// The compute the call's outcome reports, which counts toward the chunk's compute.
@@ -1085,13 +1109,16 @@ fn apply_refused_ecc(
     assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
     assert_eq!(apply_result.stats.balance.tx_burnt_amount, Balance::ZERO);
     assert!(outcome.outcome.logs.is_empty());
+    assert!(outcome.outcome.receipt_ids.is_empty());
+    assert!(apply_result.outgoing_receipts.is_empty());
+    assert!(apply_result.receipt_to_tx.is_empty());
     let (bob_after, value) = bob_ecc_state(tries, root);
     assert_eq!(bob_after, bob_before);
     assert_eq!(value, None);
     let ExecutionStatus::Failure(error) = outcome.outcome.status.clone() else {
         panic!("expected the ECC to be refused, got {:?}", outcome.outcome.status);
     };
-    RefusedEcc { root, error, compute_usage: outcome.outcome.compute_usage.unwrap() }
+    RefusedEcc { error, compute_usage: outcome.outcome.compute_usage.unwrap() }
 }
 
 /// Applies an ECC to a funded contract that accepts it, and returns the charge and bob's storage
@@ -1243,26 +1270,521 @@ fn test_apply_ecc_refused_out_of_gas() {
     assert!(refused.compute_usage >= budget.as_gas());
 }
 
-/// An ECC whose run creates a promise is refused, since external calls can't create receipts
-/// yet.
-/// TODO(ecc): Allow ECC to create promises.
+/// The gas each test ECC attaches to its call to carol.
+const CAROL_CALL_GAS: Gas = Gas::from_teragas(10);
+
+/// Carol's contract, the callee of the ECCs that create promises. `who` logs the signer and the
+/// predecessor it sees, `signer_key` reads the signer's key, and `hop` creates a promise to alice.
+fn ecc_callee_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(
+        r#"(module
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
+  (import "env" "signer_account_id" (func $signer_account_id (param i64)))
+  (import "env" "predecessor_account_id" (func $predecessor_account_id (param i64)))
+  (import "env" "signer_account_pk" (func $signer_account_pk (param i64)))
+  (import "env" "promise_batch_create" (func $promise_batch_create (param i64 i64) (result i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 100) "alice.near")
+  (func $log_register_0
+    (call $read_register (i64.const 0) (i64.const 0))
+    (call $log_utf8 (call $register_len (i64.const 0)) (i64.const 0))
+  )
+  (func (export "who")
+    (call $signer_account_id (i64.const 0))
+    (call $log_register_0)
+    (call $predecessor_account_id (i64.const 0))
+    (call $log_register_0)
+  )
+  (func (export "signer_key") (call $signer_account_pk (i64.const 0)))
+  (func (export "hop") (drop (call $promise_batch_create (i64.const 10) (i64.const 100))))
+)"#,
+    )
+}
+
+/// The ECC body that returns a promise calling carol's `method` with `CAROL_CALL_GAS`.
+fn ecc_body_calling_carol(method: &str) -> String {
+    let method_ptr = match method {
+        "who" => 64,
+        "signer_key" => 72,
+        "hop" => 104,
+        _ => panic!("carol's contract has no method {method}"),
+    };
+    format!(
+        "(call $write_payload)
+    (call $promise_return
+      (call $call_carol (i64.const {}) (i64.const {method_ptr}) (i64.const 200) (i64.const {})))",
+        method.len(),
+        CAROL_CALL_GAS.as_gas(),
+    )
+}
+
+/// Deploys `ecc_contract(ecc_body)` to bob and `ecc_callee_contract` to carol, both funded.
+fn setup_ecc_chain(
+    ecc_body: &str,
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider + use<>)
+{
+    let amount = Balance::from_near(1_000);
+    setup_ecc_contracts(vec![
+        EccContractSetup {
+            account_id: bob_account(),
+            code: ecc_contract(ecc_body),
+            amount,
+            locked: Balance::ZERO,
+        },
+        EccContractSetup {
+            account_id: carol_account(),
+            code: ecc_callee_contract(),
+            amount,
+            locked: Balance::ZERO,
+        },
+    ])
+}
+
+/// The receipt an accepted ECC to bob sent to carol, after applying the chunk with the call.
+fn ecc_receipt_to_carol(apply_result: &ApplyResult) -> Receipt {
+    let [receipt] = apply_result.outgoing_receipts.as_slice() else {
+        panic!("expected one receipt to carol, got {:?}", apply_result.outgoing_receipts);
+    };
+    assert_eq!(receipt.receiver_id(), &carol_account());
+    receipt.clone()
+}
+
+/// An accepted ECC's promise becomes a receipt the external call authorized, and the contract pays
+/// the burnt gas at the block's price and the attached gas at the receipt's price.
 #[test]
-fn test_apply_ecc_refused_promise() {
+fn test_apply_ecc_promise() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_chain(&ecc_body_calling_carol("who"));
+    apply_state.save_receipt_to_tx = true;
+    let (bob_before, _) = bob_ecc_state(&tries, root);
+    let ecc = ecc_to_bob();
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc.clone().into()],
+        &epoch_info_provider,
+    );
+
+    let [outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
+    let receipt_id = apply_state.create_receipt_id(&outcome_id, 0);
+    let outcome = &outcome.outcome;
+    assert_eq!(outcome.status, ExecutionStatus::SuccessReceiptId(receipt_id));
+    assert_eq!(outcome.receipt_ids, vec![receipt_id]);
+    assert_eq!(
+        apply_result.receipt_to_tx,
+        vec![(
+            receipt_id,
+            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                    tx_hash: outcome_id,
+                    sender_account_id: bob_account(),
+                }),
+                receiver_account_id: carol_account(),
+                shard_id: apply_state.shard_id,
+            }),
+        )]
+    );
+
+    // The test's block gas price is below the price gas is bought at.
+    let config = &apply_state.config;
+    assert!(GAS_PRICE < config.min_gas_purchase_price);
+    let receipt_gas_price = config.min_gas_purchase_price;
+    let receipt = ecc_receipt_to_carol(&apply_result);
+    assert_eq!(receipt.receipt_id(), &receipt_id);
+    assert_eq!(receipt.predecessor_id(), &bob_account());
+    assert_eq!(
+        receipt.receipt(),
+        &ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: bob_account(),
+            refund_to: None,
+            authorization_context: AuthorizationContext::ExternalContractCall,
+            gas_price: receipt_gas_price,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::function_call("who", vec![], CAROL_CALL_GAS)],
+        })
+    );
+
+    let fee = ecc_cost(config, &ecc, GAS_PRICE).unwrap();
+    let run_gas = outcome.gas_burnt.checked_sub(fee.gas_burnt).unwrap();
+    let burnt = fee.burnt_amount.checked_add(safe_gas_to_balance(GAS_PRICE, run_gas).unwrap());
+    let burnt = burnt.unwrap();
+    // The run burns far less than the gas it attaches, so attached gas counted as burnt shows.
+    assert!(run_gas < CAROL_CALL_GAS);
+    assert_eq!(outcome.tokens_burnt, burnt);
+    assert_eq!(apply_result.stats.balance.tx_burnt_amount, burnt);
+    // The receipt carries its static gas and prepays the execution fees of the receipt and the
+    // function call.
+    let fees = &config.fees;
+    let method_bytes = "who".len() as u64;
+    let new_receipt_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee().gas;
+    let function_call_gas = fees.fee(ActionCosts::function_call_base).exec_fee().gas;
+    let method_gas = fees.fee(ActionCosts::function_call_byte).exec_fee().gas;
+    let method_gas = method_gas.checked_mul(method_bytes).unwrap();
+    let attached_gas = CAROL_CALL_GAS
+        .checked_add(new_receipt_gas)
+        .and_then(|gas| gas.checked_add(function_call_gas))
+        .and_then(|gas| gas.checked_add(method_gas))
+        .unwrap();
+    let attached = safe_gas_to_balance(receipt_gas_price, attached_gas).unwrap();
+    let (bob_after, _) = bob_ecc_state(&tries, root);
+    let charge = bob_before.amount().checked_sub(bob_after.amount()).unwrap();
+    assert_eq!(charge, burnt.checked_add(attached).unwrap());
+}
+
+/// The gas an ECC's receipt does not use comes back to the contract as a gas refund of the
+/// external call's chain: a V3 receipt from system with the contract as signer and no key.
+#[test]
+fn test_apply_ecc_promise_unused_gas_refund() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_chain(&ecc_body_calling_carol("who"));
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    let receipt = ecc_receipt_to_carol(&apply_result);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    let carol_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|outcome| &outcome.id == receipt.receipt_id())
+        .expect("carol's receipt has an outcome");
+    // `who` creates no promises, so the gas it used is the gas it burnt.
+    assert_matches!(carol_outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+    let gas_burnt = carol_outcome.outcome.gas_burnt;
+
+    // The receipt prepaid its static gas and the execution fees of itself and its function call.
+    let config = &apply_state.config;
+    let fees = &config.fees;
+    let receipt_gas_price = config.min_gas_purchase_price;
+    assert!(GAS_PRICE < receipt_gas_price);
+    let method_gas = fees.fee(ActionCosts::function_call_byte).exec_fee().gas;
+    let prepaid_gas = CAROL_CALL_GAS
+        .checked_add(fees.fee(ActionCosts::new_action_receipt).exec_fee().gas)
+        .and_then(|gas| gas.checked_add(fees.fee(ActionCosts::function_call_base).exec_fee().gas))
+        .and_then(|gas| gas.checked_add(method_gas.checked_mul("who".len() as u64).unwrap()))
+        .unwrap();
+    let unused_gas = prepaid_gas.checked_sub(gas_burnt).unwrap();
+    let penalty = fees.gas_penalty_for_gas_refund(unused_gas);
+    // Gas burns at the block's price, below the price it was bought at, so the difference on the
+    // burnt gas comes back too.
+    let price_surplus =
+        safe_gas_to_balance(receipt_gas_price.checked_sub(GAS_PRICE).unwrap(), gas_burnt).unwrap();
+    let refund = safe_gas_to_balance(receipt_gas_price, unused_gas)
+        .unwrap()
+        .checked_sub(safe_gas_to_balance(GAS_PRICE, penalty).unwrap())
+        .and_then(|refund| refund.checked_add(price_surplus))
+        .unwrap();
+
+    let refund_receipt = receipt_to_bob(&apply_result).clone();
+    let refund_id = apply_state.create_receipt_id(receipt.receipt_id(), 0);
+    assert_eq!(carol_outcome.outcome.receipt_ids, vec![refund_id]);
+    assert_eq!(
+        refund_receipt,
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: bob_account(),
+            receipt_id: refund_id,
+            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: bob_account(),
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        })
+    );
+
+    let (bob_before, _) = bob_ecc_state(&tries, root);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&refund_receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    assert_matches!(
+        outcome_status(&apply_result, &refund_id),
+        ExecutionStatus::SuccessValue(value) if value.is_empty()
+    );
+    let (bob_after, _) = bob_ecc_state(&tries, root);
+    assert_eq!(bob_after.amount(), bob_before.amount().checked_add(refund).unwrap());
+}
+
+/// The callee of an accepted ECC's promise sees the contract as both signer and predecessor.
+#[test]
+fn test_apply_ecc_promise_callee_sees_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_chain(&ecc_body_calling_carol("who"));
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    let receipt = ecc_receipt_to_carol(&apply_result);
+
+    let (_, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    let outcome = apply_result.outcomes.iter().find(|outcome| &outcome.id == receipt.receipt_id());
+    let outcome = &outcome.expect("carol's receipt has an outcome").outcome;
+    assert_eq!(outcome.status, ExecutionStatus::SuccessValue(vec![]));
+    assert_eq!(outcome.logs, vec![bob_account().to_string(), bob_account().to_string()]);
+}
+
+/// A receipt in the chain an ECC started has no signer key: reading it fails, and the gas
+/// refund of the failed receipt credits the contract.
+#[test]
+fn test_apply_ecc_promise_signer_key_fails_and_refunds_contract() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_chain(&ecc_body_calling_carol("signer_key"));
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    let receipt = ecc_receipt_to_carol(&apply_result);
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    let status = outcome_status(&apply_result, receipt.receipt_id());
+    assert_eq!(
+        status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "signer_account_pk is not allowed in external contract calls".to_string()
+            )),
+        }))
+    );
+
+    // The gas refund stays in the chain: V3, with the contract as signer and no key.
+    let refund = receipt_to_bob(&apply_result).clone();
+    assert!(refund.predecessor_id().is_system());
+    let ReceiptEnum::ActionV3(ActionReceiptV3 {
+        signer_id,
+        refund_to: None,
+        authorization_context: AuthorizationContext::ExternalContractCall,
+        actions,
+        ..
+    }) = refund.receipt()
+    else {
+        panic!("expected a gas refund of the external call's chain, got {refund:?}");
+    };
+    assert_eq!(signer_id, &bob_account());
+    let [Action::Transfer(TransferAction { deposit })] = actions.as_slice() else {
+        panic!("expected a refund transfer, got {refund:?}");
+    };
+    assert!(*deposit > Balance::ZERO);
+    let (bob_before, _) = bob_ecc_state(&tries, root);
+    let (root, _) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&refund),
+        vec![],
+        &epoch_info_provider,
+    );
+    let (bob_after, _) = bob_ecc_state(&tries, root);
+    assert_eq!(bob_after.amount(), bob_before.amount().checked_add(*deposit).unwrap());
+}
+
+/// A receipt that a receipt of an ECC's chain creates stays in the chain: the contract is its
+/// signer and the external call what authorized it.
+#[test]
+fn test_apply_ecc_promise_chain_keeps_authorization() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_chain(&ecc_body_calling_carol("hop"));
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    let receipt = ecc_receipt_to_carol(&apply_result);
+    let (_, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        from_ref(&receipt),
+        vec![],
+        &epoch_info_provider,
+    );
+    let status = outcome_status(&apply_result, receipt.receipt_id());
+    assert_matches!(status, ExecutionStatus::SuccessValue(_));
+    let mut to_alice =
+        apply_result.outgoing_receipts.iter().filter(|r| r.receiver_id() == &alice_account());
+    let (Some(to_alice), None) = (to_alice.next(), to_alice.next()) else {
+        panic!("expected one receipt to alice, got {:?}", apply_result.outgoing_receipts);
+    };
+    assert_eq!(to_alice.predecessor_id(), &carol_account());
+    let ReceiptEnum::ActionV3(action_receipt) = to_alice.receipt() else {
+        panic!("expected a receipt of an external call's chain, got {to_alice:?}");
+    };
+    assert_eq!(action_receipt.signer_id, bob_account());
+    assert_eq!(action_receipt.authorization_context, AuthorizationContext::ExternalContractCall);
+}
+
+/// The data ids of an ECC's promises differ from the ids of the receipts it sends.
+#[test]
+fn test_apply_ecc_promise_data_ids_differ_from_receipt_ids() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    // Calls carol's `who`, then bob's `cb` on its result.
+    let gas = CAROL_CALL_GAS.as_gas();
+    let ecc_body = format!(
+        "(drop (call $promise_then
+      (call $call_carol (i64.const 3) (i64.const 64) (i64.const 200) (i64.const {gas}))
+      (i64.const 8) (i64.const 88) (i64.const 2) (i64.const 40) (i64.const 0) (i64.const 0)
+      (i64.const 200) (i64.const {gas})))"
+    );
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_ecc_chain(&ecc_body);
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc_to_bob().into()],
+        &epoch_info_provider,
+    );
+    let [outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    assert_eq!(outcome.outcome.receipt_ids.len(), 2);
+    let receipt = ecc_receipt_to_carol(&apply_result);
+    let ReceiptEnum::ActionV3(action_receipt) = receipt.receipt() else {
+        panic!("expected a receipt of an external call's chain, got {receipt:?}");
+    };
+    let [data_receiver] = action_receipt.output_data_receivers.as_slice() else {
+        panic!("expected carol's receipt to send its result to bob, got {receipt:?}");
+    };
+    assert_eq!(data_receiver.receiver_id, bob_account());
+    assert!(!outcome.outcome.receipt_ids.contains(&data_receiver.data_id));
+}
+
+/// An ECC whose promise fails receipt validation is refused.
+#[test]
+fn test_apply_ecc_refused_invalid_receipt() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
         return;
     }
     let code = ecc_contract(
-        "(call $write_payload) (drop (call $promise_batch_create (i64.const 10) (i64.const 24)))",
+        "(drop (call $call_carol (i64.const 3) (i64.const 64) (i64.const 200) (i64.const 0)))",
     );
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
     let err = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider).error;
-    assert_eq!(err, InvalidTxError::InvalidTransactionVersion.into());
+    assert_eq!(
+        err,
+        TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::NewReceiptValidationError(
+                ReceiptValidationError::ActionsValidation(
+                    ActionsValidationError::FunctionCallZeroAttachedGas
+                )
+            ),
+        })
+    );
 }
 
-/// An ECC whose run creates a yielded promise is refused. Unlike other promises, this has to stay
-/// so once ECCs can create receipts: the yield's data id is derived from the height of the chunk
-/// that includes the call.
+/// An ECC whose run spends the contract's whole balance and then attaches the 1 yocto deposit the
+/// VM subsidizes is refused, even when gas is free and the charge is zero.
+#[test]
+fn test_apply_ecc_refused_subsidized_deposit() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    // Sends the whole balance to alice, then calls carol with 1 yocto.
+    let gas = CAROL_CALL_GAS.as_gas();
+    let code = ecc_contract(&format!(
+        "(call $account_balance (i64.const 300))
+    (call $promise_batch_action_transfer
+      (call $promise_batch_create (i64.const 10) (i64.const 24)) (i64.const 300))
+    (drop (call $call_carol (i64.const 3) (i64.const 64) (i64.const 232) (i64.const {gas})))"
+    ));
+    // The locked balance covers the contract's storage.
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1), Balance::from_near(1_000));
+    apply_state.gas_price = Balance::ZERO;
+    let mut config = RuntimeConfig::clone(&apply_state.config);
+    config.min_gas_purchase_price = Balance::ZERO;
+    apply_state.config = Arc::new(config);
+
+    let err = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider).error;
+    assert_eq!(
+        err,
+        InvalidTxError::NotEnoughBalance {
+            signer_id: bob_account(),
+            balance: Balance::ZERO,
+            cost: Balance::from_yoctonear(1),
+        }
+        .into()
+    );
+}
+
+/// An ECC whose run creates a yielded promise is refused: the yield's data id would differ between
+/// the chunk producer's run and the run at apply.
 #[test]
 fn test_apply_ecc_refused_promise_yield_create() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1278,13 +1800,21 @@ fn test_apply_ecc_refused_promise_yield_create() {
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
     let err = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider).error;
-    assert_eq!(err, InvalidTxError::InvalidTransactionVersion.into());
+    assert_eq!(
+        err,
+        TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "promise_yield_create is not allowed in external contract calls".to_string()
+            )),
+        })
+    );
 }
 
-/// An ECC whose run resumes a yielded promise is refused, and the promise stays yielded.
-/// TODO(ecc): allow ECC to interact with yield-resume.
+/// An ECC whose run resumes a yielded promise is accepted, and the resume reaches the promise in
+/// the same chunk.
 #[test]
-fn test_apply_ecc_refused_yield_resume() {
+fn test_apply_ecc_yield_resume() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -1319,10 +1849,21 @@ fn test_apply_ecc_refused_yield_resume() {
     let data_id = CryptoHash::try_from(data_id.as_slice()).unwrap();
     assert!(has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
 
-    let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
-    assert_eq!(refused.error, InvalidTxError::InvalidTransactionVersion.into());
-    let state = tries.new_trie_update(ShardUId::single_shard(), refused.root);
-    assert!(has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
+    let ecc = ecc_to_bob();
+    let (root, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc.clone().into()],
+        &epoch_info_provider,
+    );
+    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
+    assert_eq!(outcome_status(&apply_result, &outcome_id), ExecutionStatus::SuccessValue(vec![]));
+    // The yielded promise runs in the same chunk, so the chunk has its outcome too.
+    assert_eq!(apply_result.outcomes.len(), 2);
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    assert!(!has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
 }
 
 /// An ECC whose contract can pay its fees but not the gas of the run is refused.
@@ -7498,8 +8039,11 @@ fn test_gas_refund_to_gas_key() {
 
     // Create a gas refund receipt targeting alice's gas key
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund =
-        Receipt::new_gas_refund(&alice_account(), refund_amount, gas_key_signer.public_key());
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        AuthorizationContext::AccessKey(gas_key_signer.public_key()),
+    );
 
     // Apply the refund receipt
     let apply_result = runtime
@@ -7544,7 +8088,11 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     // Create a gas refund receipt with a public key that doesn't exist on the account
     let unknown_key = PublicKey::from_seed(KeyType::ED25519, "unknown_key");
     let refund_amount = Balance::from_millinear(1);
-    let gas_refund = Receipt::new_gas_refund(&alice_account(), refund_amount, unknown_key);
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        AuthorizationContext::AccessKey(unknown_key),
+    );
 
     let shard_uid = ShardUId::single_shard();
     let apply_result = runtime
@@ -7563,6 +8111,58 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
     let state = tries.new_trie_update(shard_uid, root);
 
     // Account balance should increase as fallback
+    let alice = get_account(&state, &alice_account()).unwrap().unwrap();
+    assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
+}
+
+/// A gas refund of an external call's chain has no key, so it credits the contract's balance and
+/// leaves the contract's gas key alone.
+#[test]
+fn test_ecc_gas_refund_credits_balance_not_gas_key() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let initial_balance = Balance::from_near(1_000_000);
+    let gas_key_balance = Balance::from_millinear(10);
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account()],
+        initial_balance,
+        1,
+        gas_key_balance,
+    );
+    let refund_amount = Balance::from_millinear(1);
+    let gas_refund = Receipt::new_gas_refund(
+        &alice_account(),
+        refund_amount,
+        AuthorizationContext::ExternalContractCall,
+    );
+
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[gas_refund],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    let access_key =
+        get_access_key(&state, &alice_account(), &gas_key_signer.public_key()).unwrap().unwrap();
+    assert_eq!(access_key.gas_key_info().unwrap().balance, gas_key_balance);
     let alice = get_account(&state, &alice_account()).unwrap().unwrap();
     assert_eq!(alice.amount(), initial_balance.checked_add(refund_amount).unwrap());
 }

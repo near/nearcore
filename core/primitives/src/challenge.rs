@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
+use crate::receipt::{Receipt, ReceiptEnum};
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::state::PartialState;
 use crate::types::AccountId;
@@ -74,9 +75,9 @@ pub enum ChallengeBody {
 }
 
 impl ChallengeBody {
-    /// Whether the body holds a chunk with an ECC. The previous release decodes the
-    /// transactions of a chunk in a challenge as `SignedTransaction`, which refuses an ECC.
-    fn holds_ecc(&self) -> bool {
+    /// Whether the body holds a chunk with an ECC or an `ActionReceiptV3`, which the previous
+    /// release fails to decode.
+    fn holds_ecc_or_receipt_v3(&self) -> bool {
         let chunk = match self {
             Self::BlockDoubleSign(_) => return false,
             Self::ChunkProofs(proofs) => match proofs.chunk.as_ref() {
@@ -86,6 +87,21 @@ impl ChallengeBody {
             Self::ChunkState(state) => &state.prev_chunk,
         };
         chunk.to_transactions().iter().any(|tx| tx.as_unsigned().is_some())
+            || chunk.prev_outgoing_receipts().iter().any(is_action_receipt_v3)
+    }
+}
+
+/// Exhaustive, so that a new receipt variant has to be classified here.
+fn is_action_receipt_v3(receipt: &Receipt) -> bool {
+    match receipt.receipt() {
+        ReceiptEnum::ActionV3(_) | ReceiptEnum::PromiseYieldV3(_) => true,
+        ReceiptEnum::Action(_)
+        | ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseYield(_)
+        | ReceiptEnum::PromiseResume(_)
+        | ReceiptEnum::GlobalContractDistribution(_)
+        | ReceiptEnum::ActionV2(_)
+        | ReceiptEnum::PromiseYieldV2(_) => false,
     }
 }
 
@@ -105,14 +121,16 @@ impl Challenge {
     }
 }
 
-/// Refuses a challenge whose chunk holds an ECC, so that a block with such a challenge fails to
-/// decode on both sides of the upgrade that brings ECCs. Signed transactions decode the same on
-/// both releases, so this needs no protocol version check.
+/// Refuses a challenge holding an ECC or an `ActionReceiptV3`, which the previous release cannot
+/// decode, so both releases drop a block carrying one without a protocol version check.
 impl BorshDeserialize for Challenge {
     fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
         let body = ChallengeBody::deserialize_reader(reader)?;
-        if body.holds_ecc() {
-            return Err(Error::new(ErrorKind::InvalidData, "challenge holds an ECC"));
+        if body.holds_ecc_or_receipt_v3() {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "challenge holds an ECC or a V3 receipt",
+            ));
         }
         let account_id = AccountId::deserialize_reader(reader)?;
         let signature = Signature::deserialize_reader(reader)?;
@@ -142,16 +160,48 @@ pub struct SlashedValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::receipt::{ActionReceiptV3, AuthorizationContext, ReceiptV0};
     use crate::sharding::ShardChunkHeader;
     use crate::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
     use crate::version::PROTOCOL_VERSION;
     use near_crypto::KeyType;
-    use near_primitives_core::types::ShardId;
+    use near_primitives_core::types::{Balance, ShardId};
 
     fn chunk_with(transactions: Vec<TransactionEnvelope>) -> ShardChunk {
+        chunk_with_receipts(transactions, vec![])
+    }
+
+    fn chunk_with_receipts(
+        transactions: Vec<TransactionEnvelope>,
+        receipts: Vec<Receipt>,
+    ) -> ShardChunk {
         let hash = CryptoHash::default();
         let header = ShardChunkHeader::new_dummy(1, ShardId::new(0), hash, PROTOCOL_VERSION);
-        ShardChunk::new(header, transactions, vec![])
+        ShardChunk::new(header, transactions, receipts)
+    }
+
+    fn action_receipt_v3() -> Receipt {
+        let account_id: AccountId = "wallet.near".parse().unwrap();
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: account_id,
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![],
+            }),
+        })
+    }
+
+    fn receipt_v3_chunk() -> ShardChunk {
+        // Signed transactions only, so the receipt is the only reason to refuse.
+        let refund = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+        chunk_with_receipts(signed_txs(), vec![refund, action_receipt_v3()])
     }
 
     fn signed_txs() -> Vec<TransactionEnvelope> {
@@ -202,7 +252,7 @@ mod tests {
         let bytes = borsh::to_vec(challenge).unwrap();
         let err = Challenge::try_from_slice(&bytes).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidData);
-        assert!(err.to_string().contains("challenge holds an ECC"), "{err}");
+        assert!(err.to_string().contains("challenge holds an ECC or a V3 receipt"), "{err}");
     }
 
     fn assert_decodes(challenge: &Challenge) {
@@ -220,6 +270,22 @@ mod tests {
     #[test]
     fn test_chunk_state_with_ecc_refused() {
         assert_refused(&chunk_state(chunk_with(ecc_txs())));
+    }
+
+    #[test]
+    fn test_chunk_proofs_with_receipt_v3_refused() {
+        assert_refused(&chunk_proofs(receipt_v3_chunk()));
+    }
+
+    #[test]
+    fn test_chunk_state_with_receipt_v3_refused() {
+        assert_refused(&chunk_state(receipt_v3_chunk()));
+    }
+
+    #[test]
+    fn test_chunk_state_with_older_receipts_decodes() {
+        let refund = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+        assert_decodes(&chunk_state(chunk_with_receipts(signed_txs(), vec![refund])));
     }
 
     #[test]
