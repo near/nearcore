@@ -269,12 +269,14 @@ fn test_meta_transaction_after_fee_increase() {
     };
     let signed_delegate_action = SignedDelegateAction::sign(&sender_signer, delegate_action);
 
+    // The inner actions move no tokens to `receiver`. Its balance only grows by the reward of
+    // the failed function call, which `tokens_burnt` already counts.
     let (outcome, created) = fee_change.run(
         &mut env,
         &relayer,
         &sender,
         vec![signed_delegate_action.into()],
-        &[&relayer, &sender, &receiver],
+        &[&relayer, &sender],
     );
     // The receipt of the relayer succeeds, the receipt of the inner actions fails.
     let statuses: Vec<_> =
