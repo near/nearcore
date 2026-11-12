@@ -387,8 +387,8 @@ impl NetworkState {
         rx
     }
 
-    /// Stops peer instance if it is still connected,
-    /// and then mark peer as banned in the peer store.
+    /// Marks the peer as banned in the peer store and closes the peer's
+    /// connections on every tier.
     pub fn disconnect_and_ban(
         &self,
         clock: &time::Clock,
@@ -396,13 +396,10 @@ impl NetworkState {
         ban_reason: ReasonForBan,
         transport: &dyn NetworkTransport,
     ) {
-        if self.peers.is_connected_on_tier(peer_id, tcp::Tier::T2) {
-            transport.disconnect_peer(peer_id, Some(ban_reason));
-        } else {
-            if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::debug!(target: "network", ?err, "failed to save peer data");
-            }
+        if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
+            tracing::debug!(target: "network", ?err, ?ban_reason, "peer store failed to record ban");
         }
+        transport.ban_peer(peer_id, ban_reason);
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
@@ -593,13 +590,7 @@ impl NetworkState {
             }
 
             // Save the fact that we are disconnecting to the PeerStore.
-            let res = match &reason {
-                ClosingReason::Ban(ban_reason) => {
-                    self.peer_store.peer_ban(clock, &info.peer_info.id, *ban_reason)
-                }
-                _ => self.peer_store.peer_disconnected(clock, &info.peer_info.id),
-            };
-            if let Err(err) = res {
+            if let Err(err) = self.peer_store.peer_disconnected(clock, &info.peer_info.id) {
                 tracing::debug!(target: "network", ?err, "failed to save peer data");
             }
 
@@ -1583,7 +1574,7 @@ impl NetworkState {
                                 clock.sleep(timeout).await;
                                 match this.graph.load().local_edges.get(&other_peer) {
                                     Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                    _ => transport.disconnect_peer(&other_peer, None),
+                                    _ => transport.disconnect_peer(tcp::Tier::T2, &other_peer),
                                 }
                             }
                         }))

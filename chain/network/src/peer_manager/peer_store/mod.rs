@@ -380,7 +380,10 @@ impl PeerStore {
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             peer_state.last_seen = clock.now_utc();
-            peer_state.status = KnownPeerStatus::NotConnected;
+            // A ban stays in place until `unban` lifts it.
+            if !peer_state.status.is_banned() {
+                peer_state.status = KnownPeerStatus::NotConnected;
+            }
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }

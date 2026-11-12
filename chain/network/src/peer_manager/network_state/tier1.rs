@@ -285,7 +285,7 @@ impl super::NetworkState {
         // Close all other connections, as they are redundant or are no longer TIER1.
         for peer_id in tier1.keys() {
             if !safe_set.contains(peer_id) {
-                transport.disconnect_peer(peer_id, None);
+                transport.disconnect_peer(tcp::Tier::T1, peer_id);
             }
         }
         if let Some(vc) = validator_cfg {

@@ -262,15 +262,23 @@ impl NetworkTransport for TcpTransport {
         ConnectHandle::new(rx)
     }
 
-    fn disconnect_peer(&self, peer_id: &PeerId, ban_reason: Option<ReasonForBan>) {
-        // A peer may be connected on multiple tiers simultaneously
-        // (e.g. T1 + T2 for a validator). Stop the connection on every
-        // tier we find it on — partial disconnect would leave a stale
-        // entry on the other tier.
+    fn disconnect_peer(&self, tier: tcp::Tier, peer_id: &PeerId) {
+        let pool = match tier {
+            tcp::Tier::T1 => &self.tier1,
+            tcp::Tier::T2 => &self.tier2,
+            tcp::Tier::T3 => &self.tier3,
+        };
+        let snapshot = pool.load();
+        if let Some(conn) = snapshot.ready.get(peer_id) {
+            conn.stop(None);
+        }
+    }
+
+    fn ban_peer(&self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         for pool in [&self.tier1, &self.tier2, &self.tier3] {
             let snapshot = pool.load();
             if let Some(conn) = snapshot.ready.get(peer_id) {
-                conn.stop(ban_reason);
+                conn.stop(Some(ban_reason));
             }
         }
     }
