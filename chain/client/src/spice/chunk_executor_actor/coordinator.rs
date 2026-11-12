@@ -71,6 +71,10 @@ pub struct ChunkExecutorActor {
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
+
+    /// The blocks postprocessed since this actor started, in order.
+    #[cfg(test)]
+    pub(crate) postprocessed_blocks: Vec<CryptoHash>,
 }
 
 /// Message with incoming unverified receipts corresponding to the block.
@@ -140,6 +144,8 @@ impl ChunkExecutorActor {
             config,
             snapshot_callbacks,
             advertised_snapshot: None,
+            #[cfg(test)]
+            postprocessed_blocks: Vec::new(),
         }
     }
 
@@ -479,6 +485,8 @@ impl ChunkExecutorActor {
     }
 
     fn postprocess_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        #[cfg(test)]
+        self.postprocessed_blocks.push(*block_hash);
         let block = self.chain_store.get_block(block_hash)?;
         // Before `apply_block_postprocessing`, which is what advances the flat head: the
         // snapshot request freezes the flat heads where they are, at or below the sync block,
