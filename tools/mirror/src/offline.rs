@@ -174,14 +174,28 @@ impl crate::ChainAccess for ChainAccess {
         // this implements the same logic as in Chain::get_execution_outcome(). We will rewrite
         // that here because it makes more sense for us to have just the ChainStore and not the Chain,
         // since we're just reading data, not doing any protocol related stuff
-        outcomes
-            .into_iter()
-            .find(|outcome| match self.chain.get_block_header(&outcome.block_hash) {
-                Ok(header) => is_on_current_chain(&self.chain, &header).unwrap_or(false),
-                Err(_) => false,
-            })
-            .map(Into::into)
-            .ok_or(ChainError::Unknown)
+        let mut rejected = Vec::new();
+        for outcome in outcomes {
+            if !outcome.outcome_with_id.outcome.status.has_changed_state() {
+                rejected.push(outcome);
+                continue;
+            }
+            let Ok(header) = self.chain.get_block_header(&outcome.block_hash) else { continue };
+            if is_on_current_chain(&self.chain, &header).unwrap_or(false) {
+                return Ok(outcome.into());
+            }
+        }
+        let mut earliest: Option<(BlockHeight, _)> = None;
+        for outcome in rejected {
+            let Ok(header) = self.chain.get_block_header(&outcome.block_hash) else { continue };
+            if !is_on_current_chain(&self.chain, &header).unwrap_or(false) {
+                continue;
+            }
+            if earliest.as_ref().is_none_or(|(height, _)| header.height() < *height) {
+                earliest = Some((header.height(), outcome));
+            }
+        }
+        earliest.map(|(_, outcome)| outcome.into()).ok_or(ChainError::Unknown)
     }
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
