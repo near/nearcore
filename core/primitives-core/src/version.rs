@@ -150,12 +150,12 @@ impl ProtocolFeature {
             ProtocolFeature::FixRegisterInputCharging => 89,
             ProtocolFeature::PinReceiptFees => 89,
             ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
+            ProtocolFeature::ExternalContractCalls => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ExternalContractCalls => 150,
             ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             ProtocolFeature::ContractCompilationStatus => 158,

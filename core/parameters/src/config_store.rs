@@ -25,7 +25,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// deployed versions from this when they fall below `MIN_SUPPORTED_PROTOCOL_VERSION`.
 /// At least one vm generation below `MIN_SUPPORTED_PROTOCOL_VERSION` must be
 /// maintained, older entries may be removed safely.
-const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 150, 157];
+const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 157];
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
@@ -33,7 +33,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
     (89, include_config!("89.yaml")),
-    (150, include_config!("150.yaml")),
     (157, include_config!("157.yaml")),
 ];
 
