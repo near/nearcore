@@ -70,11 +70,8 @@ fn ban_unknown_peer() {
 fn ban_survives_connection_updates() {
     let clock = time::FakeClock::default();
     let peer_info = gen_peer_info(0);
-    let peer_store = PeerStore::new(
-        &clock.clock(),
-        make_config(&[peer_info.clone()], Blacklist::default(), false),
-    )
-    .unwrap();
+    let peer_store =
+        PeerStore::new(&clock.clock(), make_config(&[], Blacklist::default(), false)).unwrap();
     peer_store.peer_ban(&clock.clock(), &peer_info.id, ReasonForBan::Abusive);
 
     // A connection to the peer finishes registering after the ban, then closes.
