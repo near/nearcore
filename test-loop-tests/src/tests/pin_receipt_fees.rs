@@ -264,7 +264,7 @@ fn test_meta_transaction_after_fee_increase() {
         .collect();
     let delegate_action = DelegateAction {
         sender_id: sender.clone(),
-        receiver_id: receiver.clone(),
+        receiver_id: receiver,
         actions: inner_actions,
         nonce: env.rpc_node().get_next_nonce(&sender),
         max_block_height: env.rpc_node().head().height + 10 * EPOCH_LENGTH,
