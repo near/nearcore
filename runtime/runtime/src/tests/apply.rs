@@ -66,7 +66,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash, Nonce,
     NonceIndex, ShardId, StateChangeCause,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
@@ -84,6 +84,7 @@ use near_store::{
     KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
     TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
     get_received_data, has_promise_yield_receipt, remove_account, set_access_key, set_account,
+    set_gas_key_nonce,
 };
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
@@ -5146,6 +5147,99 @@ fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
             hash,
         })) if hash == value_hash
     );
+}
+
+fn setup_gas_key_test_with_distinct_nonces(num_nonces: NonceIndex) -> GasKeyTestSetup {
+    // Distinct values keep the nonce leaves from sharing one hash in the recorded proof.
+    const FIRST_DISTINCT_NONCE: Nonce = 1_000_000;
+    let mut setup = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        num_nonces,
+        Balance::ZERO,
+    );
+    let gas_key_pk = setup.gas_key_signer.public_key();
+    let mut state_update = setup.tries.new_trie_update(setup.shard_uid, setup.root);
+    for index in 0..num_nonces {
+        let nonce = FIRST_DISTINCT_NONCE + index as Nonce;
+        set_gas_key_nonce(&mut state_update, alice_account(), gas_key_pk.clone(), index, nonce);
+    }
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = setup.tries.store_update();
+    setup.root = setup.tries.apply_all(&trie_changes, setup.shard_uid, &mut store_update);
+    store_update.commit();
+    setup
+}
+
+#[test]
+fn test_delete_gas_key_nonces_exceed_receipt_storage_proof_limit() {
+    // Far below the recorded size of the nonce paths, far above what the limit sees without reads.
+    const PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT: usize = 10_000;
+
+    let feature_version = ProtocolFeature::ReadGasKeyNoncesBeforeRemoval.protocol_version();
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test_with_distinct_nonces(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY);
+    let gas_key_pk = gas_key_signer.public_key();
+    let mut runtime_config = RuntimeConfig::test();
+    Arc::make_mut(&mut runtime_config.wasm_config)
+        .limit_config
+        .per_receipt_storage_proof_size_limit = PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT;
+    apply_state.config = Arc::new(runtime_config);
+
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_key_receipt = create_receipt_with_actions(
+        alice_account(),
+        alice_signer,
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: gas_key_pk.clone() }))],
+    );
+    let apply_receipt = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
+                &None,
+                apply_state,
+                from_ref(&delete_key_receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result_before = apply_receipt(&apply_state);
+    assert_matches!(
+        apply_result_before.outcomes[0].outcome.status,
+        ExecutionStatus::SuccessValue(_)
+    );
+    let PartialState::TrieValues(recorded_values) = apply_result_before.proof.unwrap().nodes;
+    let recorded_storage_proof_size: usize = recorded_values.iter().map(|value| value.len()).sum();
+    assert!(recorded_storage_proof_size > PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT);
+
+    apply_state.current_protocol_version = feature_version;
+    let apply_result_after = apply_receipt(&apply_state);
+    let delete_key_action_index = 0;
+    assert_eq!(
+        apply_result_after.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(delete_key_action_index),
+            kind: ActionErrorKind::ReceiptStorageProofSizeExceeded {
+                limit: PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT as u64,
+            },
+        }))
+    );
+    let root = commit_apply_result(&apply_result_after, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    assert!(get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().is_some());
 }
 
 /// Deploys a contract, records a witness for a call to it (which excludes the
