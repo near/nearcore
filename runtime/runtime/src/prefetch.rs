@@ -272,7 +272,7 @@ mod tests {
     use near_primitives::transaction::Action;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{AccountId, Balance, Gas};
-    use near_primitives::version::ProtocolFeature;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::adapter::StoreAdapter;
     use near_store::flat::FlatStorageManager;
     use near_store::test_utils::{create_test_store, test_populate_trie};
@@ -502,6 +502,7 @@ mod tests {
                 signer.public_key(),
                 Balance::ZERO,
                 vec![action],
+                PROTOCOL_VERSION,
             )
         };
         let enqueued_before = prefetcher.prefetch_enqueued.get();

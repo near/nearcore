@@ -851,6 +851,7 @@ fn test_ecc_promise_transfers_to_another_shard() {
         output_data_receivers,
         input_data_ids,
         actions,
+        ..
     }) = refund.receipt()
     else {
         panic!("expected a gas refund of the external call's chain, got {refund:?}");

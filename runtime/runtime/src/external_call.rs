@@ -31,7 +31,7 @@ use crate::{ActionResult, ApplyState, PrevBlockContext};
 use ahash::RandomState as AHashRandomState;
 use bytesize::ByteSize;
 use dashmap::DashMap;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ExternalCallChunkLimit, IntegerOverflowError, InvalidTxError,
@@ -234,6 +234,9 @@ pub struct EccDryRunContext {
     pub epoch_id: EpochId,
     pub protocol_version: ProtocolVersion,
     pub config: Arc<RuntimeConfig>,
+    /// The Runtime configs of all protocol versions. `config` must be its config of
+    /// `protocol_version`.
+    pub config_store: Arc<RuntimeConfigStore>,
     pub vm_generation: VmGeneration,
     pub gas_price: Balance,
     /// The chunk's parent block, which the run sees.

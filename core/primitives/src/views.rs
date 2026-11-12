@@ -52,7 +52,7 @@ use crate::types::{
 };
 use crate::universal_state_init::RawStateInit;
 use crate::utils::create_ecc_outcome_id;
-use crate::version::{ProtocolVersion, Version};
+use crate::version::{PROTOCOL_VERSION, ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
@@ -2803,10 +2803,12 @@ impl TryFrom<ReceiptView> for Receipt {
                         .map(TryInto::try_into)
                         .collect::<Result<Vec<_>, _>>()?;
                     // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there a signed chain always creates ActionReceiptV2.
-                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
-                    // through views, and a V3 receipt authorized by an access key, which the
-                    // runtime does not build, becomes V1 or V2. This will be fixed with #14709.
+                    // created by the runtime - there a signed chain creates ActionReceiptV2,
+                    // or ActionReceiptV3 since `PinReceiptFees`. Views don't carry
+                    // `creation_protocol_version`, so a V3 receipt authorized by an access key
+                    // becomes V1 or V2, and a receipt of an external call records
+                    // `PROTOCOL_VERSION`. ActionReceiptV2 without refund_to becomes V1 after a
+                    // roundtrip through views. This will be fixed with #14709.
                     // TODO(ecc): keep such a V3 receipt as V3 before the runtime builds them.
                     match authorization_context {
                         AuthorizationContext::AccessKey(signer_public_key)
@@ -2848,6 +2850,7 @@ impl TryFrom<ReceiptView> for Receipt {
                                 refund_to,
                                 authorization_context: AuthorizationContext::ExternalContractCall,
                                 gas_price,
+                                creation_protocol_version: PROTOCOL_VERSION,
                                 output_data_receivers,
                                 input_data_ids,
                                 actions,
@@ -3470,7 +3473,7 @@ mod tests {
     };
     use crate::trie_split::TrieSplit;
     use crate::universal_state_init::RawStateInit;
-    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
+    use crate::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
@@ -3642,7 +3645,6 @@ mod tests {
     #[test]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
-        use near_primitives_core::version::PROTOCOL_VERSION;
 
         let config_store = RuntimeConfigStore::new();
         let config = config_store.get_config(PROTOCOL_VERSION);
@@ -3709,7 +3711,8 @@ mod tests {
     }
 
     /// The receipts of an external call's chain use tags 7 and 8, and their view names the
-    /// external call as what authorized them.
+    /// external call as what authorized them. The view doesn't carry the creation version,
+    /// which comes back as `PROTOCOL_VERSION`.
     #[test]
     fn test_external_call_receipt_view_round_trip() {
         let action_receipt = ActionReceiptV3 {
@@ -3717,6 +3720,7 @@ mod tests {
             refund_to: None,
             authorization_context: AuthorizationContext::ExternalContractCall,
             gas_price: Balance::from_yoctonear(100),
+            creation_protocol_version: PROTOCOL_VERSION,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],

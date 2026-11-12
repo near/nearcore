@@ -412,6 +412,7 @@ mod tests {
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
+            config_store: Arc::new(RuntimeConfigStore::test()),
             next_wasm_config: None,
             vm_generation: Default::default(),
             cache: None,

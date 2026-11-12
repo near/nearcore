@@ -1042,6 +1042,7 @@ mod tests {
     use crate::{ActionResult, ApplyState};
     use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
+    use near_parameters::RuntimeConfigStore;
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
     };
@@ -1198,6 +1199,7 @@ mod tests {
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
+            config_store: Arc::new(RuntimeConfigStore::test()),
             next_wasm_config: None,
             vm_generation: Default::default(),
             cache: None,
@@ -2205,7 +2207,11 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(&alice_account(), Balance::from_yoctonear(10)),
+            &Receipt::new_balance_refund(
+                &alice_account(),
+                Balance::from_yoctonear(10),
+                PROTOCOL_VERSION,
+            ),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )

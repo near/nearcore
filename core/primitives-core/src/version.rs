@@ -113,6 +113,11 @@ pub enum ProtocolFeature {
     /// (not fully implemented, yet. only stabilize when it is fully implemented,
     /// including payment for new state)
     ContractCompilationStatus,
+    /// Adds `creation_protocol_version` to action receipts and pins the
+    /// execution fees of the receipt to its creation protocol version.
+    /// This ensures that the fees prepaid at creation match the fees that are
+    /// charged during execution.
+    PinReceiptFees,
 }
 
 impl ProtocolFeature {
@@ -140,6 +145,7 @@ impl ProtocolFeature {
             ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
             ProtocolFeature::FixRegisterInputCharging => 89,
+            ProtocolFeature::PinReceiptFees => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

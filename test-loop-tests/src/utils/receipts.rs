@@ -11,11 +11,12 @@ use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, Receipt,
+    ActionReceiptV3, BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, Receipt,
     ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{ShardUId, get};
 
 pub enum ReceiptKind {
@@ -166,26 +167,22 @@ fn check_promise_yield_receipts_exist_in_memtrie(
     assert_ne!(indices.len(), 0);
 }
 
-/// Takes an action receipt of any version and converts it to the latest version.
+/// Takes an action receipt of any version and converts it to the latest version, created at
+/// `PROTOCOL_VERSION`.
 pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
     let versioned = match input.receipt() {
-        near_primitives::receipt::ReceiptEnum::Action(action_receipt) => {
-            VersionedActionReceipt::from(action_receipt)
-        }
-        near_primitives::receipt::ReceiptEnum::ActionV2(action_receipt_v2) => {
-            VersionedActionReceipt::from(action_receipt_v2)
-        }
+        ReceiptEnum::Action(action_receipt) => VersionedActionReceipt::from(action_receipt),
+        ReceiptEnum::ActionV2(action_receipt_v2) => VersionedActionReceipt::from(action_receipt_v2),
+        ReceiptEnum::ActionV3(action_receipt_v3) => VersionedActionReceipt::from(action_receipt_v3),
         _ => panic!("must be action receipt"),
     };
 
-    let action_receipt = ReceiptEnum::ActionV2(ActionReceiptV2 {
+    let action_receipt = ReceiptEnum::ActionV3(ActionReceiptV3 {
         signer_id: versioned.signer_id().clone(),
         refund_to: versioned.refund_to().clone(),
-        signer_public_key: versioned
-            .signer_public_key()
-            .expect("V1 and V2 receipts carry a key")
-            .clone(),
+        authorization_context: versioned.authorization_context().into_owned(),
         gas_price: versioned.gas_price(),
+        creation_protocol_version: PROTOCOL_VERSION,
         output_data_receivers: versioned.output_data_receivers().to_vec(),
         input_data_ids: versioned.input_data_ids().to_vec(),
         actions: versioned.actions().to_vec(),
