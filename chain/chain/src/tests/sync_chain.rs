@@ -4,7 +4,6 @@ use assert_matches::assert_matches;
 use near_async::time::Clock;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
@@ -111,30 +110,6 @@ fn chain_sync_headers_does_not_stall_on_fully_known_response() {
 
     // Head should advance despite the previous invalid data
     assert_eq!(chain.header_head().unwrap().height, MAX_HEADERS);
-}
-
-#[test]
-fn chain_sync_headers_recovers_header_head_stranded_behind_stored_headers() {
-    init_test_logger();
-    let (mut chain, epoch_manager, _, bls_signer) = setup(Clock::real());
-    let blocks = build_blocks(&chain, epoch_manager.as_ref(), bls_signer, 4);
-    let headers: Vec<Arc<BlockHeader>> =
-        blocks[1..].iter().map(|block| block.header().clone().into()).collect();
-    chain.sync_block_headers(headers.clone()).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 4);
-
-    // Reproduce the state left by a partial batch from before header heads were saved
-    // together with the headers: all headers are stored, but the header head stayed
-    // at genesis.
-    let mut store_update = chain.mut_chain_store().store_update();
-    store_update.save_header_head(&Tip::from_header(blocks[0].header())).unwrap();
-    store_update.commit().unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 0);
-
-    // The response is fully known, so the headers are not processed again, but the
-    // header head still has to catch up to the headers already in the store.
-    chain.sync_block_headers(headers).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 4);
 }
 
 #[test]

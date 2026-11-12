@@ -1558,17 +1558,6 @@ impl Chain {
         };
 
         if all_known {
-            // Detect if the node has been hit by the header sync stall bug and perform recovery.
-            // Can be removed in the future. (Release 2.15+)
-            if let Some(last_header) = headers.last() {
-                if last_header.height() > self.chain_store.header_head()?.height {
-                    let mut chain_store_update = self.chain_store.store_update();
-                    let tip = Tip::from_header(last_header);
-                    chain_store_update.save_header_head(&tip)?;
-                    metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
-                    chain_store_update.commit()?;
-                }
-            }
             return Ok(());
         }
 
