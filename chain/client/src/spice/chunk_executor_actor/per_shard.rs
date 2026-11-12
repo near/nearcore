@@ -216,14 +216,12 @@ impl PerShardChunkExecutor {
         self.shard_uid
     }
 
-    /// Park `block` and try to drain — the per-shard half of the coordinator
-    /// routing a processed block to this shard. It retries the whole queue, which picks up what no
-    /// event about a parent does: a finished catchup, or a fork below the final execution head.
+    /// Park `block` and try to apply it — the per-shard half of the coordinator routing a processed
+    /// block to this shard.
     pub(crate) fn handle_processed_block(&mut self, block: &Block) {
-        self.park_block(block.header());
-        // TODO(spice-state-sync): replace with a CatchupFinished message from the client when the
-        // catchup finishes.
-        self.try_apply_pending();
+        let header = block.header();
+        self.park_block(header);
+        self.try_apply_parked((header.height(), *header.hash()));
     }
 
     /// Park the block of `header` without draining, so that a run of blocks can be parked before
@@ -288,11 +286,11 @@ impl PerShardChunkExecutor {
         self.unverified_receipts.len()
     }
 
-    /// Apply every parked block that is ready, lowest height first. Applying a
-    /// block can make the next height ready, and a higher fork block can be ready
-    /// while a lower one waits, so we scan past `NotReady`. Cross-shard
-    /// dependencies are re-driven by the next receipt / endorsement / sibling apply.
-    pub(crate) fn try_apply_pending(&mut self) {
+    /// Apply every parked block that is ready, lowest height first, which a finished catchup and
+    /// blocks parked again need: no event about a parent retries them. Applying a block can make
+    /// the next height ready, and a higher fork block can be ready while a lower one waits, so we
+    /// scan past `NotReady`.
+    pub(crate) fn try_apply_all_parked(&mut self) {
         let parked: Vec<(BlockHeight, CryptoHash)> =
             self.parked_blocks.parents.keys().copied().collect();
         for entry in parked {
