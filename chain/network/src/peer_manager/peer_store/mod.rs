@@ -87,6 +87,13 @@ struct Inner {
     addr_peers: HashMap<SocketAddr, VerifiedPeer>,
 }
 
+/// A ban stays in place until `unban` lifts it.
+fn set_status_unless_banned(peer_state: &mut KnownPeerState, status: KnownPeerStatus) {
+    if !peer_state.status.is_banned() {
+        peer_state.status = status;
+    }
+}
+
 impl Inner {
     /// Adds a peer which proved to have secret key associated with the ID.
     ///
@@ -373,17 +380,14 @@ impl PeerStore {
         inner.add_signed_peer(clock, peer_info.clone());
         let entry = inner.peer_states.get_mut(&peer_info.id).unwrap();
         entry.last_seen = clock.now_utc();
-        entry.status = KnownPeerStatus::Connected;
+        set_status_unless_banned(entry, KnownPeerStatus::Connected);
     }
 
     pub fn peer_disconnected(&self, clock: &time::Clock, peer_id: &PeerId) -> anyhow::Result<()> {
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             peer_state.last_seen = clock.now_utc();
-            // A ban stays in place until `unban` lifts it.
-            if !peer_state.status.is_banned() {
-                peer_state.status = KnownPeerStatus::NotConnected;
-            }
+            set_status_unless_banned(peer_state, KnownPeerStatus::NotConnected);
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
@@ -412,7 +416,7 @@ impl PeerStore {
         };
         if result.is_err() {
             // Marks the peer status as Unknown (as we failed to connect to it).
-            peer_state.status = KnownPeerStatus::Unknown;
+            set_status_unless_banned(peer_state, KnownPeerStatus::Unknown);
         }
         peer_state.last_outbound_attempt =
             Some((clock.now_utc(), result.map_err(|err| err.to_string())));

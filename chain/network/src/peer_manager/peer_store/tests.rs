@@ -1,5 +1,6 @@
 use super::*;
 use crate::blacklist::Blacklist;
+use anyhow::anyhow;
 use near_async::time;
 use near_crypto::{KeyType, SecretKey};
 use std::collections::HashSet;
@@ -53,6 +54,31 @@ fn ban_store() {
     assert_eq!(peer_store.healthy_peers(3).len(), 2);
     peer_store.peer_ban(&clock.clock(), &peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
     assert_eq!(peer_store.healthy_peers(3).len(), 1);
+}
+
+#[test]
+fn ban_survives_connection_updates() {
+    let clock = time::FakeClock::default();
+    let peer_info = gen_peer_info(0);
+    let peer_store = PeerStore::new(
+        &clock.clock(),
+        make_config(&[peer_info.clone()], Blacklist::default(), false),
+    )
+    .unwrap();
+    peer_store.peer_ban(&clock.clock(), &peer_info.id, ReasonForBan::Abusive).unwrap();
+
+    // A connection to the peer finishes registering after the ban, then closes.
+    peer_store.peer_connected(&clock.clock(), &peer_info);
+    assert!(peer_store.is_banned(&peer_info.id));
+    peer_store.peer_disconnected(&clock.clock(), &peer_info.id).unwrap();
+    assert!(peer_store.is_banned(&peer_info.id));
+
+    peer_store.peer_connection_attempt(
+        &clock.clock(),
+        &peer_info.id,
+        Err(anyhow!("connection refused")),
+    );
+    assert!(peer_store.is_banned(&peer_info.id));
 }
 
 #[test]
