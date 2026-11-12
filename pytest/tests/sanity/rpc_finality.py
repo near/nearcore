@@ -38,7 +38,27 @@ class TestRpcFinality(unittest.TestCase):
             }
         }
 
-        config = {node_id: {"consensus": consensus} for node_id in range(3)}
+        # broadcast_tx_commit below can wait four blocks, longer than the
+        # default 10s polling timeout.
+        rpc = {
+            "polling_config": {
+                "polling_interval": {
+                    "secs": 0,
+                    "nanos": 200000000,
+                },
+                "polling_timeout": {
+                    "secs": 20,
+                    "nanos": 0,
+                },
+            }
+        }
+
+        config = {
+            node_id: {
+                "consensus": consensus,
+                "rpc": rpc
+            } for node_id in range(3)
+        }
 
         nodes: List[LocalNode] = start_cluster(3, 0, 1, None, [
             ["min_gas_price", "0"],
@@ -59,8 +79,13 @@ class TestRpcFinality(unittest.TestCase):
         logger.info("About to send payment")
         # this transaction will be added to the block (probably around block 5)
         # and the receipts & transfers will happen in the next block (block 6).
-        # This function should return as soon as block 6 arrives in node0.
-        tx_result = nodes[0].send_tx_and_wait(tx, timeout=10)
+        # With early transaction preparation (on by default in nightly builds),
+        # the chunk producer picks the transactions for chunk 5 when it applies
+        # the optimistic block 4, which arrives right after block 3. The
+        # transaction then lands in block 6 and the receipt in block 7.
+        # This function returns as soon as the block with the receipt arrives
+        # in node0.
+        tx_result = nodes[0].send_tx_and_wait(tx, timeout=20)
         logger.info(tx_result)
         logger.info("Done")
 
@@ -77,17 +102,17 @@ class TestRpcFinality(unittest.TestCase):
         nodes[2].kill()
 
         print(
-            f"Block height is {nodes[0].get_latest_block().height} (should be 6)"
+            f"Block height is {nodes[0].get_latest_block().height} (should be 6 or 7)"
         )
 
         # So now the situation is following:
-        # Block 6 (head) - has the final receipt (that adds state to test1)
-        # Block 5 (doomslug) - has the transaction (so this is the moment when state is removed from test0)
-        # Block 4 (final) - has no information about the transaction.
+        # Head - has the final receipt (that adds state to test1)
+        # Head - 1 (doomslug) - has the transaction (so this is the moment when state is removed from test0)
+        # Head - 2 (final) - has no information about the transaction.
 
         # So with optimistic finality: test0 = -upfront_charge, test1 = +10
-        # with doomslug (state as of block 5): test0 = -upfront_charge, test1 = 0
-        # with final (state as of block 4): test0 = 0, test1 = 0
+        # with doomslug (state as of head - 1): test0 = -upfront_charge, test1 = 0
+        # with final (state as of head - 2): test0 = 0, test1 = 0
 
         for acc_id in ['test0', 'test1']:
             amounts = [
