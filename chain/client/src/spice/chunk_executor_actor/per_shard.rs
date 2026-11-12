@@ -212,10 +212,11 @@ impl PerShardChunkExecutor {
 
     /// Park `block` and try to drain — the per-shard half of the coordinator
     /// routing a processed block to this shard. It retries the whole queue, which picks up what no
-    /// event about a parent does: a finished catchup, a fork below the final execution head, or a
-    /// transient error.
+    /// event about a parent does: a finished catchup, or a fork below the final execution head.
     pub(crate) fn handle_processed_block(&mut self, block: &Block) {
         self.park_block(block.header());
+        // TODO(spice-state-sync): replace with a CatchupFinished message from the client when the
+        // catchup finishes.
         self.try_apply_pending();
     }
 
