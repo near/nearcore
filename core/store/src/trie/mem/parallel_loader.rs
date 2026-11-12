@@ -32,20 +32,17 @@ pub fn load_memtrie_in_parallel(
     reader.load_in_parallel(plan, name)
 }
 
-/// Logic to load a memtrie in parallel. It consists of three stages:
-///  - First, we use the State column to visit the trie starting from the root. We recursively
-///    expand the trie until all the unexpanded subtrees are small enough
-///    (memory_usage <= `subtree_size`). The trie we have expanded is represented as a "plan",
-///    which is a structure similar to the trie itself.
-///  - Then, we load each small subtree (the keys under which all share a common prefix) in
-///    parallel, by reading the FlatState column for keys that correspond to the prefix of that
-///    subtree. The result of each construction is a `MemTrieNodeId` representing the root of that
-///    subtree.
-///  - Finally, We construct the final trie by using the loaded subtree roots and converting the
-///    plan into a complete memtrie, returning the final root.
+/// Loads a memtrie in parallel, in three stages:
+///  1. Plan: walk the trie top down through the State column, expanding a node while its
+///     subtree is bigger than `1 / num_subtrees_desired` of the whole trie and the walk is
+///     shallower than `MAX_PLAN_DEPTH`. The expanded part is kept as a "plan" mirroring the
+///     trie's shape, whose leaves name the subtrees left to load by their key prefix.
+///  2. Load: build each planned subtree in parallel from the FlatState keys under its prefix,
+///     yielding the `MemTrieNodeId` of that subtree's root.
+///  3. Assemble: turn the plan into memtrie nodes with the subtree roots plugged in, and
+///     return the final root.
 ///
-/// This loader is only suitable for loading a single trie. It does not load multiple state roots,
-/// or multiple shards.
+/// Loads a single trie: one state root of one shard.
 pub struct ParallelMemTrieLoader {
     store: TrieStoreAdapter,
     shard_uid: ShardUId,
@@ -63,7 +60,8 @@ impl ParallelMemTrieLoader {
         Self { store, shard_uid, root, num_subtrees_desired }
     }
 
-    /// Implements stage 1; recursively expanding the trie until all subtrees are small enough.
+    /// Implements stage 1; recursively expanding the trie until all subtrees are small enough
+    /// or the depth cap is hit.
     fn make_loading_plan(&self) -> Result<PartialTrieLoadingPlan, StorageError> {
         let subtrees_to_load = Mutex::new(Vec::new());
         let root = self.make_loading_plan_recursive(
@@ -71,6 +69,7 @@ impl ParallelMemTrieLoader {
             NibblePrefix::new(),
             &subtrees_to_load,
             None,
+            0,
         )?;
         Ok(PartialTrieLoadingPlan { root, subtrees_to_load: subtrees_to_load.into_inner() })
     }
@@ -84,7 +83,13 @@ impl ParallelMemTrieLoader {
         mut prefix: NibblePrefix,
         subtrees_to_load: &Mutex<Vec<NibblePrefix>>,
         max_subtree_size: Option<u64>,
+        depth: usize,
     ) -> Result<TrieLoadingPlanNode, StorageError> {
+        // The plan is built, converted by `to_node` and dropped recursively, while trie depth is
+        // bounded only by key length, so cap it. Below the cap the subtree loader builds the rest
+        // iteratively. Real plans are a few levels deep, so the cap only trims parallelism.
+        const MAX_PLAN_DEPTH: usize = 256;
+
         // Read the node from the State column.
         let value = self.store.get(self.shard_uid, &hash)?;
         let node = RawTrieNodeWithSize::try_from_slice(&value)
@@ -94,7 +99,7 @@ impl ParallelMemTrieLoader {
             .unwrap_or_else(|| node.memory_usage / self.num_subtrees_desired as u64);
 
         // If subtree is small enough, add it to the list of subtrees to load, and we're done.
-        if node.memory_usage <= max_subtree_size {
+        if node.memory_usage <= max_subtree_size || depth >= MAX_PLAN_DEPTH {
             let mut lock = subtrees_to_load.lock();
             let subtree_id = lock.len();
             lock.push(prefix);
@@ -121,6 +126,7 @@ impl ParallelMemTrieLoader {
                     &prefix,
                     subtrees_to_load,
                     max_subtree_size,
+                    depth,
                 )?;
 
                 Ok(TrieLoadingPlanNode::Branch { children, value: None })
@@ -135,6 +141,7 @@ impl ParallelMemTrieLoader {
                     &prefix,
                     subtrees_to_load,
                     max_subtree_size,
+                    depth,
                 )?;
 
                 Ok(TrieLoadingPlanNode::Branch { children, value: Some(flat_value) })
@@ -147,6 +154,7 @@ impl ParallelMemTrieLoader {
                     prefix,
                     subtrees_to_load,
                     Some(max_subtree_size),
+                    depth + 1,
                 )?;
                 Ok(TrieLoadingPlanNode::Extension {
                     extension: extension.into_boxed_slice(),
@@ -162,6 +170,7 @@ impl ParallelMemTrieLoader {
         prefix: &NibblePrefix,
         subtrees_to_load: &Mutex<Vec<NibblePrefix>>,
         max_subtree_size: u64,
+        depth: usize,
     ) -> Result<Vec<(u8, Box<TrieLoadingPlanNode>)>, StorageError> {
         let existing_children = children_hashes.iter().collect::<Vec<_>>();
         let children = existing_children
@@ -174,6 +183,7 @@ impl ParallelMemTrieLoader {
                     prefix,
                     subtrees_to_load,
                     Some(max_subtree_size),
+                    depth + 1,
                 )?;
                 Ok((i, Box::new(node)))
             })
