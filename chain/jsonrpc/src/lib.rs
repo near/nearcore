@@ -1092,6 +1092,17 @@ impl JsonRpcHandler {
                         transaction = TransactionToWaitFor::Known(Box::new(tx_info.clone()));
                         break;
                     }
+                    // A node without the shard reads a forwarded answer only when asked again, so
+                    // waiting could only time out. TODO(ecc): ask about forwarded candidates again.
+                    if matches!(transaction, TransactionToWaitFor::ExternalCall { .. })
+                        && matches!(
+                            timeout_error_cause,
+                            TimeoutErrorCause::DoesNotTrackShard { .. }
+                        )
+                    {
+                        let cause = std::mem::take(&mut timeout_error_cause);
+                        return self.tx_status_on_timeout(&tx_info, fetch_receipt, cause);
+                    }
                 }
                 new_block_watcher.changed().await.map_err(|_| {
                     RpcTransactionError::InternalError {
