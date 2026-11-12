@@ -30,7 +30,6 @@ prometheus = { workspace = true, optional = true }
 rand.workspace = true
 rayon = { workspace = true, optional = true }
 ripemd.workspace = true
-rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true

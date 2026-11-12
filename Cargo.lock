@@ -4110,6 +4110,9 @@ dependencies = [
  "lru 0.18.2",
  "parking_lot 0.12.1",
  "rand 0.8.5",
+ "rustix",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -5265,7 +5268,6 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "ripemd",
- "rustix",
  "serde",
  "serde_json",
  "sha2 0.10.6",
