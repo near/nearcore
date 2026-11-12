@@ -8846,6 +8846,52 @@
             ],
             "title": "InvalidRefundTo",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `PromiseYield` receipt must have exactly one input data dependency.",
+            "properties": {
+              "InvalidPromiseYieldInputDataCount": {
+                "properties": {
+                  "number_of_input_data_dependencies": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_input_data_dependencies"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidPromiseYieldInputDataCount"
+            ],
+            "title": "InvalidPromiseYieldInputDataCount",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The same input data id is listed more than once in an ActionReceipt.",
+            "properties": {
+              "DuplicateInputDataId": {
+                "properties": {
+                  "data_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "data_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DuplicateInputDataId"
+            ],
+            "title": "DuplicateInputDataId",
+            "type": "object"
           }
         ],
         "title": "ReceiptValidationError"

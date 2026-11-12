@@ -282,13 +282,15 @@ impl ReceiptPreparationPipeline {
                     let shard_id = self.shard_id;
                     let priority = self.priority;
                     contract_compilation_pool().spawn_boxed(Box::new(move || {
-                        let task_status = {
+                        {
+                            // Only claim a task nobody has started. Overwriting any other status
+                            // would lose a result or a wakeup of the thread waiting for it.
                             let mut status = task.status.lock();
-                            std::mem::replace(&mut *status, PrepareTaskStatus::Working)
-                        };
-                        let PrepareTaskStatus::Pending = task_status else {
-                            return;
-                        };
+                            let PrepareTaskStatus::Pending = *status else {
+                                return;
+                            };
+                            *status = PrepareTaskStatus::Working;
+                        }
                         PIPELINING_ACTIONS_TASK_DELAY_TIME
                             .inc_by(task.created.elapsed().as_secs_f64());
                         let start = Instant::now();

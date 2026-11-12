@@ -335,6 +335,9 @@ pub struct Chain {
     /// need a node-scoped signal instead of the process-global metric.
     #[cfg(feature = "test_features")]
     pub failed_optimistic_block_applies: std::sync::atomic::AtomicU64,
+    /// Subset of `failed_optimistic_block_applies` whose error is `Error::InvalidReceipt`.
+    #[cfg(feature = "test_features")]
+    pub invalid_receipt_optimistic_block_applies: std::sync::atomic::AtomicU64,
     #[cfg(feature = "test_features")]
     pub adv_corrupt_state_sync_chunk_extra: bool,
 }
@@ -478,6 +481,8 @@ impl Chain {
             test_paused_blocks: Default::default(),
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
+            #[cfg(feature = "test_features")]
+            invalid_receipt_optimistic_block_applies: Default::default(),
             #[cfg(feature = "test_features")]
             adv_corrupt_state_sync_chunk_extra: false,
         })
@@ -665,6 +670,8 @@ impl Chain {
             test_paused_blocks: Default::default(),
             #[cfg(feature = "test_features")]
             failed_optimistic_block_applies: Default::default(),
+            #[cfg(feature = "test_features")]
+            invalid_receipt_optimistic_block_applies: Default::default(),
             #[cfg(feature = "test_features")]
             adv_corrupt_state_sync_chunk_extra: false,
         })
@@ -2184,6 +2191,11 @@ impl Chain {
                     #[cfg(feature = "test_features")]
                     self.failed_optimistic_block_applies
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    #[cfg(feature = "test_features")]
+                    if matches!(e, Error::InvalidReceipt(_)) {
+                        self.invalid_receipt_optimistic_block_applies
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                     tracing::warn!(
                         target: "chain", ?e,
                         ?prev_block_hash, %block_height, %shard_id,
