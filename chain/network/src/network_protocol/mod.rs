@@ -1,12 +1,15 @@
 /// Contains types that belong to the `network protocol.
 mod edge;
+mod message_kind;
 mod peer;
 mod proto_conv;
 mod state_sync;
+mod trace_context;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use bytesize::{KIB, MIB};
 pub use edge::*;
+pub use message_kind::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
@@ -43,6 +46,7 @@ mod _proto {
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::network_protocol::trace_context::TraceContext;
 use crate::spice::data_distribution::SpiceDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
@@ -70,6 +74,7 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::io;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -82,6 +87,73 @@ const MAX_SMALL_MESSAGE_SIZE: usize = (512 * KIB) as usize;
 const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
 const MAX_LARGE_MESSAGE_SIZE: usize = (128 * MIB) as usize;
 const MAX_HUGE_MESSAGE_SIZE: usize = (512 * MIB) as usize;
+
+/// Serialization format of network messages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+pub enum Encoding {
+    Proto,
+    Borsh,
+}
+
+/// Frames of a serialized `PeerMessage`. A single frame is sent as its length (`u32`, little endian)
+/// followed by its bytes.
+///
+/// A protobuf-encoded message is sent as a single frame, without a header. Every borsh-encoded
+/// message is sent as two frames: the header (`PeerMessageHeader`) and the body (`PeerMessage`).
+/// The receiver reads the header first and decides what to do with the body (e.g. enforces the
+/// size limit of the message kind) before reading it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeerMessageFrames {
+    pub encoding: Encoding,
+    /// Header of a borsh-encoded message, `None` for a protobuf-encoded message.
+    pub header: Option<Vec<u8>>,
+    /// The protobuf-encoded message, or the borsh-encoded body.
+    pub body: Vec<u8>,
+}
+
+impl PeerMessageFrames {
+    /// Frames of a protobuf-encoded message.
+    pub fn proto(body: Vec<u8>) -> Self {
+        Self { encoding: Encoding::Proto, header: None, body }
+    }
+
+    /// Total size of the frames, without their lengths.
+    pub fn len(&self) -> usize {
+        self.header.as_ref().map_or(0, Vec::len) + self.body.len()
+    }
+}
+
+/// Header of a borsh-encoded message, sent as a separate frame before the body.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub(crate) enum PeerMessageHeader {
+    V1(PeerMessageHeaderV1) = 0,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeerMessageHeaderV1 {
+    kind: PeerMessageKind,
+    trace_context: Option<TraceContext>,
+}
+
+impl PeerMessageHeader {
+    fn new(kind: PeerMessageKind, trace_context: Option<TraceContext>) -> Self {
+        Self::V1(PeerMessageHeaderV1 { kind, trace_context })
+    }
+
+    pub(crate) fn kind(&self) -> PeerMessageKind {
+        match self {
+            Self::V1(header) => header.kind,
+        }
+    }
+
+    pub(crate) fn trace_context(&self) -> Option<&TraceContext> {
+        match self {
+            Self::V1(header) => header.trace_context.as_ref(),
+        }
+    }
+}
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct PeerAddr {
@@ -522,27 +594,62 @@ pub enum ParsePeerMessageError {
     ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
     ProtoConv(#[source] proto_conv::ParsePeerMessageError),
+    #[error("BorshDecode")]
+    BorshDecode(#[from] io::Error),
 }
 
 impl PeerMessage {
-    /// Serializes a message and attaches current Span's context to the message.
-    pub(crate) fn serialize(&self) -> Vec<u8> {
-        let mut msg = proto::PeerMessage::from(self);
-        let cx = Span::current().context();
-        msg.trace_context = inject_trace_context(&cx);
-        msg.write_to_bytes().unwrap()
+    /// Serializes a message using `encoding`.
+    /// Both encodings carry the current Span's context: protobuf messages in the message itself,
+    /// borsh messages in the header.
+    pub(crate) fn serialize_with_encoding(&self, encoding: Encoding) -> PeerMessageFrames {
+        match encoding {
+            Encoding::Proto => {
+                let mut msg = proto::PeerMessage::from(self);
+                let cx = Span::current().context();
+                msg.trace_context = inject_trace_context(&cx);
+                PeerMessageFrames::proto(msg.write_to_bytes().unwrap())
+            }
+            Encoding::Borsh => {
+                let trace_context = TraceContext::from_context(&Span::current().context());
+                let header =
+                    borsh::to_vec(&PeerMessageHeader::new(self.kind(), trace_context)).unwrap();
+                PeerMessageFrames {
+                    encoding: Encoding::Borsh,
+                    header: Some(header),
+                    body: borsh::to_vec(self).unwrap(),
+                }
+            }
+        }
     }
 
-    pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+    /// Deserializes a message from its frames, also returning the parsed borsh header, if any.
+    pub(crate) fn deserialize_frames(
+        frames: &PeerMessageFrames,
+    ) -> Result<(Option<PeerMessageHeader>, PeerMessage), ParsePeerMessageError> {
         let span = tracing::trace_span!(target: "network", "deserialize").entered();
-        Ok({
-            let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
-                .map_err(ParsePeerMessageError::ProtoDecode)?;
-            if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
-                span.clone().or_current().add_link(extracted_span_context);
+        match frames.encoding {
+            Encoding::Proto => {
+                let proto_msg: proto::PeerMessage =
+                    proto::PeerMessage::parse_from_bytes(&frames.body)
+                        .map_err(ParsePeerMessageError::ProtoDecode)?;
+                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                    span.clone().or_current().add_link(extracted_span_context);
+                }
+                let msg =
+                    (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?;
+                Ok((None, msg))
             }
-            (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
-        })
+            Encoding::Borsh => {
+                let header =
+                    frames.header.as_deref().map(PeerMessageHeader::try_from_slice).transpose()?;
+                if let Some(span_context) = header.as_ref().and_then(|h| h.trace_context()) {
+                    span.clone().or_current().add_link(span_context.span_context());
+                }
+                let msg = PeerMessage::try_from_slice(&frames.body)?;
+                Ok((header, msg))
+            }
+        }
     }
 
     pub(crate) fn msg_variant(&self) -> &'static str {
@@ -555,78 +662,7 @@ impl PeerMessage {
     /// Maximum allowed size (in bytes) of the encoded form of a message of this type.
     /// Incoming messages larger than this are dropped before being processed.
     pub(crate) fn max_size(&self) -> usize {
-        use T1MessageBody::*;
-        use T2MessageBody::*;
-        use TieredMessageBody::{T1, T2};
-
-        match self {
-            PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::StateRequestHeader(_, _)
-            | PeerMessage::StateRequestPart(_, _, _)
-            | PeerMessage::StateRequestAck(_)
-            | PeerMessage::RequestUpdateNonce(_)
-            | PeerMessage::Tier1Handshake(_)
-            | PeerMessage::Tier2Handshake(_)
-            | PeerMessage::Tier3Handshake(_)
-            | PeerMessage::Disconnect(_)
-            | PeerMessage::HandshakeFailure(_, _)
-            | PeerMessage::LastEdge(_)
-            | PeerMessage::PeersRequest(_)
-            | PeerMessage::Challenge(_) // challenges are disabled
-            | PeerMessage::EpochSyncRequest => MAX_SMALL_MESSAGE_SIZE,
-
-            PeerMessage::PeersResponse(_)
-            | PeerMessage::Transaction(_)
-            | PeerMessage::SyncRoutingTable(_)
-            | PeerMessage::SyncAccountsData(_)
-            | PeerMessage::SyncSnapshotHosts(_)
-            | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Block(_)
-            | PeerMessage::OptimisticBlock(_) => MAX_MEDIUM_MESSAGE_SIZE,
-
-            PeerMessage::VersionedStateResponse(_) => MAX_LARGE_MESSAGE_SIZE,
-            PeerMessage::EpochSyncResponse(_) => MAX_HUGE_MESSAGE_SIZE,
-            PeerMessage::Routed(msg) => match msg.body() {
-                T1(body) => match body.as_ref() {
-                    BlockApproval(_) | VersionedChunkEndorsement(_) | SpiceChunkEndorsement(_) => {
-                        MAX_SMALL_MESSAGE_SIZE
-                    }
-
-                    PartialEncodedChunkForward(_)
-                    | ChunkContractAccesses(_)
-                    | ContractCodeRequest(_)
-                    | SpiceDataRequest(_)
-                    | SpiceChunkContractAccesses(_)
-                    | SpiceContractCodeRequest(_)
-                    | VersionedPartialEncodedChunk(_) => MAX_MEDIUM_MESSAGE_SIZE,
-
-                    PartialEncodedStateWitness(_)
-                    | PartialEncodedStateWitnessForward(_)
-                    | VersionedPartialEncodedStateWitness(_)
-                    | VersionedPartialEncodedStateWitnessForward(_)
-                    | ContractCodeResponse(_)
-                    | SpicePartialData(_)
-                    | SpiceContractCodeResponse(_) => MAX_LARGE_MESSAGE_SIZE,
-                },
-                T2(body) => match body.as_ref() {
-                    TxStatusRequest(_, _)
-                    | Ping(_)
-                    | Pong(_)
-                    | ChunkStateWitnessAck(_)
-                    | StatePartRequest(_)
-                    | StateHeaderRequest(_)
-                    | StateRequestAck(_) => MAX_SMALL_MESSAGE_SIZE,
-
-                    ForwardTx(_)
-                    | PartialEncodedChunkRequest(_)
-                    | TxStatusResponse(_)
-                    | PartialEncodedChunkResponse(_) => MAX_MEDIUM_MESSAGE_SIZE,
-
-                    | PartialEncodedContractDeploys(_) => MAX_LARGE_MESSAGE_SIZE,
-                },
-            },
-        }
+        self.kind().max_size()
     }
 }
 

@@ -1,3 +1,5 @@
+use near_primitives::action::GlobalContractIdentifier;
+use near_primitives::errors::{ActionsValidationError, RuntimeError};
 use near_primitives::types::AccountId;
 
 #[derive(thiserror::Error, Debug)]
@@ -84,6 +86,10 @@ pub enum CallFunctionError {
     AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
     #[error("account {requested_account_id} exists but is not initialized")]
     UninitializedAccount { requested_account_id: AccountId },
+    #[error("invalid state init: {error}")]
+    InvalidStateInit { error: Box<ActionsValidationError> },
+    #[error("global contract code {identifier:?} does not exist")]
+    NoGlobalContractCode { identifier: GlobalContractIdentifier },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
     #[error("VM error occurred: #{error_message}")]
@@ -139,5 +145,11 @@ impl From<near_primitives::errors::StorageError> for ViewStateError {
 impl From<near_primitives::errors::StorageError> for CallFunctionError {
     fn from(storage_error: near_primitives::errors::StorageError) -> Self {
         Self::InternalError { error_message: storage_error.to_string() }
+    }
+}
+
+impl From<RuntimeError> for CallFunctionError {
+    fn from(runtime_error: RuntimeError) -> Self {
+        Self::InternalError { error_message: runtime_error.to_string() }
     }
 }

@@ -14,7 +14,7 @@ pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "bob".parse().unwrap(),
-        signer_account_pk: vec![0, 1, 2],
+        signer_account_pk: Some(vec![0, 1, 2]),
         predecessor_account_id: "carol".parse().unwrap(),
         refund_to_account_id: "david".parse().unwrap(),
         input: std::rc::Rc::new([]),

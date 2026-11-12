@@ -1,8 +1,8 @@
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest, PeersResponse,
-    T2MessageBody,
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
+    PeersResponse, T2MessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::{PeerConfig, PeerHandle};
@@ -260,6 +260,12 @@ async fn test_oversized_peers_response_bans_without_adding_to_peer_store() -> an
 #[tokio::test]
 // Verifies that HandshakeFailures are served correctly.
 async fn test_handshake() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        test_handshake_with_encoding(encoding).await;
+    }
+}
+
+async fn test_handshake_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
@@ -272,7 +278,7 @@ async fn test_handshake() {
     let inbound =
         PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
     let outbound_port = outbound_stream.local_addr.port();
-    let mut outbound = Stream::new(outbound_stream);
+    let mut outbound = Stream::new_with_encoding(outbound_stream, encoding);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -319,6 +325,45 @@ async fn test_handshake() {
     // Send a correct Handshake, expect a matching Handshake response.
     handshake.sender_chain_info = chain.get_peer_chain_info();
     outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
+    let resp = outbound.read().await.unwrap();
+    assert_matches!(resp, PeerMessage::Tier2Handshake(_));
+}
+
+#[tokio::test]
+async fn test_handshake_response() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        test_handshake_response_with_encoding(encoding).await;
+    }
+}
+
+async fn test_handshake_response_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(89028037453);
+    let mut clock = time::FakeClock::default();
+
+    let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
+    let inbound_cfg = PeerConfig { network: chain.make_config(&mut rng), chain: chain.clone() };
+    let outbound_cfg = PeerConfig { network: chain.make_config(&mut rng), chain: chain.clone() };
+    let (outbound_stream, inbound_stream) =
+        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
+    let inbound =
+        PeerHandle::start_endpoint(clock.clock(), ActorSystem::new(), inbound_cfg, inbound_stream);
+    let outbound_port = outbound_stream.local_addr.port();
+    let mut outbound = Stream::new_with_encoding(outbound_stream, encoding);
+
+    let handshake = Handshake {
+        protocol_version: PROTOCOL_VERSION,
+        oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION,
+        sender_peer_id: outbound_cfg.id(),
+        target_peer_id: inbound.cfg.id(),
+        sender_listen_port: Some(outbound_port),
+        sender_chain_info: chain.get_peer_chain_info(),
+        partial_edge_info: outbound_cfg
+            .partial_edge_info(&inbound.cfg.id(), Edge::create_fresh_nonce(&clock.clock())),
+        owned_account: None,
+    };
+    outbound.write(&PeerMessage::Tier2Handshake(handshake)).await;
+    // The inbound side responds with a handshake in the negotiated encoding.
     let resp = outbound.read().await.unwrap();
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
 }

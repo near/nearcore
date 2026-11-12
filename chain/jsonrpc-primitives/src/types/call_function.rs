@@ -1,6 +1,9 @@
 use crate::types::query::RpcQueryError;
+use near_primitives::action::GlobalContractIdentifier;
+use near_primitives::errors::ActionsValidationError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::views::StateInitView;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -11,6 +14,9 @@ pub struct RpcCallFunctionRequest {
     pub method_name: String,
     #[serde(rename = "args_base64")]
     pub args: near_primitives::types::FunctionArgs,
+    /// Runs the call as if this were installed, unless the account already has its state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_init: Option<StateInitView>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -48,6 +54,12 @@ pub enum RpcCallFunctionError {
         block_height: BlockHeight,
         block_hash: CryptoHash,
     },
+    #[error("invalid state init: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"
     )]
@@ -55,6 +67,14 @@ pub enum RpcCallFunctionError {
         contract_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error(
+        "global contract code with identifier {identifier:?} has never been observed on the node"
+    )]
+    NoGlobalContractCode {
+        identifier: GlobalContractIdentifier,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error("Function call returned an error: {vm_error:?}")]
     ContractExecutionError {
@@ -113,6 +133,12 @@ impl From<crate::types::query::RpcQueryError> for RpcCallFunctionError {
                 block_height,
                 block_hash,
             } => Self::UninitializedAccount { requested_account_id, block_height, block_hash },
+            RpcQueryError::InvalidStateInit { error, block_height, block_hash } => {
+                Self::InvalidStateInit { error, block_height, block_hash }
+            }
+            RpcQueryError::NoGlobalContractCode { identifier, block_height, block_hash } => {
+                Self::NoGlobalContractCode { identifier, block_height, block_hash }
+            }
             crate::types::query::RpcQueryError::GarbageCollectedBlock { block_height, .. } => {
                 Self::InternalError {
                     error_message: format!(

@@ -222,6 +222,8 @@ pub fn map_receipt(
                 default_key,
             );
         }
+        // TODO(ecc): map the account IDs in the receipts of an external call's chain.
+        ReceiptEnum::ActionV3(_) | ReceiptEnum::PromiseYieldV3(_) => {}
         _ => {}
     }
 }

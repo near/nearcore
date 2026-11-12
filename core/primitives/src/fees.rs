@@ -475,6 +475,12 @@ fn permission_exec_fees(
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
+/// The price the gas attached to a chain's first receipts is bought at, given the gas price the
+/// chunk is applied with.
+pub fn receipt_gas_price(config: &RuntimeConfig, current_gas_price: Balance) -> Balance {
+    std::cmp::max(current_gas_price, config.min_gas_purchase_price)
+}
+
 /// Returns the total cost of converting a `tx` into a receipt, including the
 /// costs of the spawned receipts.
 pub fn tx_cost(
@@ -545,7 +551,7 @@ pub fn calculate_tx_cost(
     // Gas attached to the receipt is purchased at a price which should be at least as large as
     // min_gas_purchase_price. Later it might be burned at a lower price, in which case the price
     // difference will be refunded.
-    let receipt_gas_price = std::cmp::max(current_gas_price, config.min_gas_purchase_price);
+    let receipt_gas_price = receipt_gas_price(config, current_gas_price);
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;

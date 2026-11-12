@@ -17,8 +17,8 @@ pub struct VMContext {
     /// execution.
     pub signer_account_id: AccountId,
     /// The public key that was used to sign the original transaction that led to
-    /// this execution.
-    pub signer_account_pk: PublicKey,
+    /// this execution, absent in the chain of receipts an external call started.
+    pub signer_account_pk: Option<PublicKey>,
     /// If this execution is the result of cross-contract call or a callback then
     /// predecessor is the account that called it.
     /// If this execution is the result of direct execution of transaction then it

@@ -65,7 +65,12 @@ decl_test_bytes!(
     ctx,
     ctx.predecessor_account_id.as_bytes()
 );
-decl_test_bytes!(test_signer_account_pk, signer_account_pk, ctx, ctx.signer_account_pk);
+decl_test_bytes!(
+    test_signer_account_pk,
+    signer_account_pk,
+    ctx,
+    ctx.signer_account_pk.as_ref().expect("the test context carries a key")
+);
 decl_test_bytes!(
     test_refund_to_account_id,
     refund_to_account_id,
@@ -165,6 +170,26 @@ fn test_prohibited_in_external_call() {
     assert_host_error(logic.predecessor_account_id(0), prohibited("predecessor_account_id"));
     assert_host_error(logic.prepaid_gas(), prohibited("prepaid_gas"));
     assert_host_error(logic.random_seed(0), prohibited("random_seed"));
+    assert_host_error(
+        logic.promise_yield_create(0, 0, 0, 0, 0, 1, 0),
+        prohibited("promise_yield_create"),
+    );
+    assert_host_error(
+        logic.promise_yield_create_with_id(0, 0, 0, 0, 0, 0, 1, 0, 0),
+        prohibited("promise_yield_create_with_id"),
+    );
+}
+
+/// A receipt in the chain of an external call carries no signer key, so reading it fails.
+#[test]
+fn test_signer_account_pk_without_key() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.context.signer_account_pk = None;
+    let mut logic = logic_builder.build();
+    assert_host_error(
+        logic.signer_account_pk(0),
+        HostError::ProhibitedInExternalCall { method_name: "signer_account_pk".into() },
+    );
 }
 
 #[test]

@@ -2469,6 +2469,31 @@
         "title": "AddKeyAction",
         "type": "object"
       },
+      "AuthorizationContext": {
+        "description": "What authorized a chain of receipts: an access key that signed a transaction, or an\nexternal call its contract accepted.",
+        "oneOf": [
+          {
+            "enum": [
+              "ExternalContractCall"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AccessKey": {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            },
+            "required": [
+              "AccessKey"
+            ],
+            "title": "AccessKey",
+            "type": "object"
+          }
+        ],
+        "title": "AuthorizationContext"
+      },
       "BandwidthRequest": {
         "description": "`BandwidthRequest` describes the size of receipts that a shard would like to send to another shard.\nWhen a shard wants to send a lot of receipts to another shard, it needs to create a request and wait\nfor a bandwidth grant from the bandwidth scheduler.",
         "properties": {
@@ -6559,7 +6584,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`method_name` is not allowed in external contract calls",
+            "description": "`method_name` is not allowed in external contract calls, or in the receipts they lead to",
             "properties": {
               "ProhibitedInExternalCall": {
                 "properties": {
@@ -8353,6 +8378,17 @@
                     },
                     "type": "array"
                   },
+                  "authorization_context": {
+                    "description": "What authorized the chain, absent in views written before external calls",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/AuthorizationContext"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
                   },
@@ -8386,12 +8422,19 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "signer_public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "description": "The key of the transaction that started the chain, absent in an external call's chain",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "signer_id",
-                  "signer_public_key",
                   "gas_price",
                   "output_data_receivers",
                   "input_data_ids",
@@ -8821,6 +8864,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -8845,6 +8899,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -8866,6 +8931,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "sync_checkpoint": {
                 "$ref": "#/components/schemas/SyncCheckpoint"
@@ -12879,6 +12955,53 @@
         ],
         "title": "StateChangesRequestView"
       },
+      "StateInitView": {
+        "description": "The initial state of a `0s` or `0u` account, as its state-init action carries it.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "deterministic": {
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "code",
+                  "data"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "deterministic"
+            ],
+            "title": "Deterministic",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "universal": {
+                "$ref": "#/components/schemas/RawStateInit"
+              }
+            },
+            "required": [
+              "universal"
+            ],
+            "title": "Universal",
+            "type": "object"
+          }
+        ],
+        "title": "StateInitView"
+      },
       "StateItem": {
         "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",
         "properties": {
@@ -15436,6 +15559,21 @@
           "required": false,
           "schema": {
             "type": "string"
+          }
+        },
+        {
+          "name": "state_init",
+          "required": false,
+          "schema": {
+            "description": "Runs the call as if this were installed, unless the account already has its state.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StateInitView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {
