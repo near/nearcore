@@ -38,11 +38,14 @@ class TestReleaseCandidate(TestSetup):
         # Upgrade 1/2 nodes in the second epoch. A quarter at a time.
         self.upgrade_interval_minutes = 15  # 15 minutes between each upgrade batch.
         self.upgrade_delay_minutes = 120  # 2 hours after the test starts. This falls in the second and third epochs.
+        # Reassign chunk producers to shards every epoch, so they state sync.
+        self.shuffle_chunk_producers = True
 
     def amend_epoch_config(self):
         super().amend_epoch_config()
-        self._amend_epoch_config(
-            ".shuffle_shard_assignment_for_chunk_producers = true")
+        if self.shuffle_chunk_producers:
+            self._amend_epoch_config(
+                ".shuffle_shard_assignment_for_chunk_producers = true")
 
     def _upgrade_nodes_in_four_batches(self):
         """
@@ -77,3 +80,34 @@ class TestReleaseCandidate(TestSetup):
         """
         super().after_test_start()
         self._upgrade_nodes_in_four_batches()
+
+
+class TestReleaseCandidateSpice(TestReleaseCandidate):
+    """
+    TestReleaseCandidate for the upgrade to SPICE, set up for debugging it:
+    - No chunk producer shard shuffle, so producers keep their shard across
+      the upgrade and never state sync. This keeps state sync out of the way
+      of the upgrade itself.
+    - Debug logs for the SPICE targets from the start of the test, so the
+      first blocks after the upgrade are logged in detail.
+    """
+
+    # spice_data_distribution is left at info: it logs every data request
+    # and floods the logs once execution stalls.
+    SPICE_DEBUG_LOG_TARGETS = [
+        "chunk_executor",
+        "spice_core",
+        "spice_core_writer",
+        "spice_boundary",
+        "spice_activation",
+        "spice_chunk_validator",
+    ]
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.shuffle_chunk_producers = False
+
+    def amend_configs_before_test_start(self):
+        super().amend_configs_before_test_start()
+        self._set_log_level(
+            {target: "debug" for target in self.SPICE_DEBUG_LOG_TARGETS})

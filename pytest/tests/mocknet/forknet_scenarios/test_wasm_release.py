@@ -4,8 +4,6 @@ Test case classes for release tests on forknet.
 
 # cspell:words bisontrails ledgerbyfigment minimise poolv zavodil
 
-from typing import Dict
-
 from .base import TestSetup, NodeHardware, time_to_str
 from mirror import CommandContext, update_config_cmd, run_remote_cmd, start_nodes_cmd
 
@@ -81,32 +79,6 @@ class TestWasmCandidate(TestSetup):
         self._amend_epoch_config(".block_producer_kickout_threshold = 0")
         self._amend_epoch_config(".chunk_producer_kickout_threshold = 0")
         self._amend_epoch_config(".chunk_validator_only_kickout_threshold = 0")
-
-    def _set_log_level(self, target_log_level: Dict[str, str]):
-        """
-        Append extra target=level directives to log_config.json on
-        every node. Appending makes the new directives override any
-        existing same-target ones, since tracing_subscriber's EnvFilter
-        applies the last matching directive.
-        """
-        if not target_log_level:
-            return
-        extra = ",".join(
-            f"{target}={level}" for target, level in target_log_level.items())
-        jq_filter = (f'.opentelemetry = (.opentelemetry + ",{extra}") | '
-                     f'.rust_log = (.rust_log + ",{extra}")')
-
-        def patch_cmd(path):
-            return f"jq '{jq_filter}' {path} > {path}.tmp && mv {path}.tmp {path}"
-
-        run_cmd_args = copy.deepcopy(self.args)
-        run_cmd_args.host_type = "nodes"
-        run_cmd_args.cmd = patch_cmd("/home/ubuntu/.near/log_config.json")
-        run_remote_cmd(CommandContext(run_cmd_args))
-        run_cmd_args.host_type = "traffic"
-        run_cmd_args.cmd = patch_cmd(
-            "/home/ubuntu/.near/target/log_config.json")
-        run_remote_cmd(CommandContext(run_cmd_args))
 
     def amend_configs_before_test_start(self):
         super().amend_configs_before_test_start()

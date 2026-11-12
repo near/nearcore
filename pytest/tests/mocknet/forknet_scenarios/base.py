@@ -289,6 +289,32 @@ class TestSetup:
         if self.has_archival:
             self._setup_archival()
 
+    def _set_log_level(self, target_log_level: dict[str, str]):
+        """
+        Append extra target=level directives to log_config.json on
+        every node and on the traffic host. Appending makes the new
+        directives override any existing same-target ones, since
+        tracing_subscriber's EnvFilter applies the last matching directive.
+        """
+        if not target_log_level:
+            return
+        extra = ",".join(
+            f"{target}={level}" for target, level in target_log_level.items())
+        jq_filter = (f'.opentelemetry = (.opentelemetry + ",{extra}") | '
+                     f'.rust_log = (.rust_log + ",{extra}")')
+
+        def patch_cmd(path):
+            return f"jq '{jq_filter}' {path} > {path}.tmp && mv {path}.tmp {path}"
+
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = "nodes"
+        run_cmd_args.cmd = patch_cmd("/home/ubuntu/.near/log_config.json")
+        run_remote_cmd(CommandContext(run_cmd_args))
+        run_cmd_args.host_type = "traffic"
+        run_cmd_args.cmd = patch_cmd(
+            "/home/ubuntu/.near/target/log_config.json")
+        run_remote_cmd(CommandContext(run_cmd_args))
+
     def start_network(self):
         """
         mirror start-nodes
