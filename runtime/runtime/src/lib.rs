@@ -1474,9 +1474,16 @@ impl Runtime {
             );
 
             // sanity check: as long as the purchase price is high enough, there should always be
-            // enough refund balance to cover the cost of creating an account.
-            if gas_purchase_price >= config.min_gas_purchase_price {
-                debug_assert!(burned_gas_refund >= amount_to_charge);
+            // enough refund balance to cover the cost of creating an account. Unless the creation
+            // config priced the actions differently: a transfer priced as a plain transfer can
+            // create an account under the current config, e.g. when `universal_accounts` was
+            // turned on in between.
+            if gas_purchase_price >= config.min_gas_purchase_price
+                && burned_gas_refund < amount_to_charge
+            {
+                let creation_config = receipt_runtime_configs.creation_config();
+                let current_config = receipt_runtime_configs.current_config();
+                debug_assert!(creation_config != current_config);
             }
 
             // Subtract `amount_actually_charged` from the refund.

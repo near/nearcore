@@ -10850,11 +10850,12 @@ const PINNED_CREATION_VERSION: ProtocolVersion = ProtocolFeature::PinReceiptFees
 /// The version that executes the receipts of the `PinReceiptFees` tests.
 const PINNED_EXECUTION_VERSION: ProtocolVersion = PINNED_CREATION_VERSION + 1;
 
-/// Applies `receipts` and `transactions` at `version`, whose `Transfer`
-/// execution fee is `factor` times the one of all versions before it.
-fn apply_with_transfer_fee_factor(
+/// Applies `receipts` and `transactions` at `version`, whose config is
+/// `new_config`, while `old_config` is the config of all versions before it.
+fn apply_with_configs(
     version: ProtocolVersion,
-    factor: u64,
+    old_config: RuntimeConfig,
+    new_config: RuntimeConfig,
     receipts: &[Receipt],
     transactions: Vec<SignedTransaction>,
 ) -> ApplyResult {
@@ -10864,13 +10865,7 @@ fn apply_with_transfer_fee_factor(
         Balance::ZERO,
         Gas::from_teragas(1000),
     );
-    let old_config = Arc::clone(&apply_state.config);
-    let mut new_config = old_config.as_ref().clone();
-    let fees = Arc::make_mut(&mut new_config.fees);
-    let transfer = &mut fees.action_fees[ActionCosts::transfer];
-    let old_execution_gas = transfer.exec_fee().gas;
-    let new_execution_gas = old_execution_gas.checked_mul(factor).unwrap();
-    transfer.execution = FeeComponent::Gas(new_execution_gas);
+    let old_config = Arc::new(old_config);
     let new_config = Arc::new(new_config);
     let configs = BTreeMap::from([(0, old_config), (version, Arc::clone(&new_config))]);
     apply_state.config_store = Arc::new(RuntimeConfigStore::new_custom(configs));
@@ -10890,6 +10885,24 @@ fn apply_with_transfer_fee_factor(
             Default::default(),
         )
         .unwrap()
+}
+
+/// Applies `receipts` and `transactions` at `version`, whose `Transfer`
+/// execution fee is `factor` times the one of all versions before it.
+fn apply_with_transfer_fee_factor(
+    version: ProtocolVersion,
+    factor: u64,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+) -> ApplyResult {
+    let old_config = RuntimeConfig::test();
+    let mut new_config = RuntimeConfig::test();
+    let fees = Arc::make_mut(&mut new_config.fees);
+    let transfer = &mut fees.action_fees[ActionCosts::transfer];
+    let old_execution_gas = transfer.exec_fee().gas;
+    let new_execution_gas = old_execution_gas.checked_mul(factor).unwrap();
+    transfer.execution = FeeComponent::Gas(new_execution_gas);
+    apply_with_configs(version, old_config, new_config, receipts, transactions)
 }
 
 /// A receipt from alice to bob created at `PINNED_CREATION_VERSION`.
@@ -11069,4 +11082,33 @@ fn test_pin_receipt_fees_transaction_records_creation_version() {
             ..
         })
     );
+}
+
+/// A receipt created while `universal_accounts` was off priced its transfer to
+/// a `0u` id as a plain transfer. When it executes with `universal_accounts`
+/// on, the transfer creates the account, and the account creation charge is
+/// capped by the refund of the burnt gas.
+#[test]
+fn test_pin_receipt_fees_universal_accounts_turned_on() {
+    let mut old_config = RuntimeConfig::test();
+    let mut old_wasm_config = old_config.wasm_config.as_ref().clone();
+    old_wasm_config.universal_accounts = false;
+    old_config.wasm_config = Arc::new(old_wasm_config);
+    let new_config = RuntimeConfig::test();
+    assert!(new_config.wasm_config.universal_accounts);
+
+    // Purchased at the minimum price, which covers creating an account.
+    let purchase_price = new_config.min_gas_purchase_price;
+    let deposit = Balance::from_near(1);
+    let actions = vec![Action::Transfer(TransferAction { deposit })];
+    let mut receipt = pinned_receipt(purchase_price, actions);
+    // cspell:disable-next-line
+    let universal_account = "0u1kajgpx8a97y8ap8y03pvt8kbm2p2cn9k5h17bgw1wa21j88865g";
+    receipt.set_receiver_id(universal_account.parse().unwrap());
+
+    let receipts = from_ref(&receipt);
+    let apply_result =
+        apply_with_configs(PINNED_EXECUTION_VERSION, old_config, new_config, receipts, vec![]);
+    let outcome = &apply_result.outcomes[0].outcome;
+    assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_));
 }

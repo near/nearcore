@@ -54,6 +54,11 @@ impl<'a> ReceiptRuntimeConfigs<'a> {
         self.creation
     }
 
+    /// The config of the current protocol version.
+    pub(crate) fn current_config(&self) -> &'a RuntimeConfig {
+        self.current
+    }
+
     /// A static fee with the gas priced with the creation config and the
     /// compute with the current one.
     fn pinned_cost(creation_cost: ParameterCost, current_cost: ParameterCost) -> ParameterCost {
