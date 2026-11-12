@@ -166,7 +166,7 @@ gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt p
 <p>While the call runs, <code>account_balance</code> returns the real balance of the contract, which includes the money the call
 will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
 and its gas, or it is rejected.</p>
-<p>The call also pays fees for its input before the method runs (see
+<p>The call also pays fees for its input, and for installing its state init if it carries one, before the method runs (see
 <a href="../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>). They are charged
 with the gas after the call. <code>used_gas</code> does not include them, and the fees lower the <code>max_gas_burnt_external</code> limit
 on the gas burnt.</p>

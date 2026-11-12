@@ -3597,7 +3597,8 @@ An external call runs the contract method with the reserved name <code>__nightly
 when the feature is stabilized). A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
 action to it fails with <code>ReservedMethodName</code>. An external call that creates a yielded promise is rejected, since
 the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
-limited too (see <a href="RuntimeSpec/Components/BindingsSpec/TrieAPI.html">Trie API</a>).</p>
+limited too (see <a href="RuntimeSpec/Components/BindingsSpec/TrieAPI.html">Trie API</a>). An external call may carry the state init of a universal account, which
+installs the account's code and data right before the method runs if the account isn't initialized yet.</p>
 <p>A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
 doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:
 the call sees the height, the timestamp and the epoch of the parent block, both when the producer runs it and when
@@ -3772,7 +3773,7 @@ gas burnt is limited by <code>max_gas_burnt_external</code>, and the gas burnt p
 <p>While the call runs, <code>account_balance</code> returns the real balance of the contract, which includes the money the call
 will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
 and its gas, or it is rejected.</p>
-<p>The call also pays fees for its input before the method runs (see
+<p>The call also pays fees for its input, and for installing its state init if it carries one, before the method runs (see
 <a href="RuntimeSpec/Components/BindingsSpec/../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>). They are charged
 with the gas after the call. <code>used_gas</code> does not include them, and the fees lower the <code>max_gas_burnt_external</code> limit
 on the gas burnt.</p>
@@ -4392,7 +4393,8 @@ If <code>ptr</code> is wrong but inside guest memory, the function overwrites th
 not follow the specification are considered to be bugs that need to be fixed.</p>
 <p>In an external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>), the storage functions below can also panic with
 <code>RecordedStorageExceeded</code>: the trie nodes and values the call reads go into the chunk's storage proof, and an external
-call may add at most <code>max_external_call_recorded_size</code> (20 KiB) to it. A read that would record a value past the limit
+call may add at most <code>max_external_call_recorded_size</code> (20 KiB) to it, including what installing its state init
+records. A read that would record a value past the limit
 fails without reading it. A read that records the trie node that crosses the limit fails after recording it, and so does
 a <code>storage_remove</code> that crosses it. The call is then rejected, and nobody pays for it (see
 <a href="RuntimeSpec/Components/BindingsSpec/../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>).</p>
@@ -8810,9 +8812,17 @@ its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward <code>max_gas_burnt_external</code>, so a larger
 payload leaves less of the budget to the method. With the largest payload, up
 to the 20 KiB cap on a call's size, the fees are about 1.3 Tgas. The contract
-must exist, have a contract deployed and be able to afford the fees, or the
-call is rejected before any contract code is loaded. Like the rest of the call,
-the fees are charged after the call, and only if the contract accepts it.</p>
+must exist, have a contract deployed or get one from the call's state init
+(below), and be able to afford the fees, or the call is rejected before any
+contract code is loaded.</p>
+<p>A call may carry the state init of a universal account. If the account is not
+initialized yet, the call installs the state init right before the method runs,
+and also burns the fees of a <code>UniversalStateInit</code> action with it. Those fees
+count toward <code>max_gas_burnt_external</code> too, and a call whose fees use all of it
+is rejected before the install. If the contract rejects the call, the install
+is rolled back. An account that is initialized already ignores the state init,
+and the chunk producer packs the call without it. Like the rest of the call,
+all these fees are charged after the call, and only if the contract accepts it.</p>
 <p>A rejected call pays nothing, but it isn't free for the chunk. The compute of
 the work validators did on it, fees included, counts toward the chunk's
 compute limit, so that work stays bounded. This holds even for a call rejected
@@ -8837,8 +8847,9 @@ invalid.</p>
 <p>the storage proof its run records: at most
 <code>max_external_call_recorded_size</code>, 20 KiB. A read that records the trie node
 crossing the limit fails the call with <code>RecordedStorageExceeded</code>, and a value
-whose length would cross it isn't read at all. The limit applies to the run
-only, not to reading the contract's account before it.</p>
+whose length would cross it isn't read at all. The limit applies to the
+install of a state init and the run, not to reading the contract's account
+before them.</p>
 <p>Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
 proof limit uses too, even for a key that isn't there. So removals are costly
 in an external call: it can remove no more than ten keys, and fewer, as the

@@ -146,7 +146,8 @@
 not follow the specification are considered to be bugs that need to be fixed.</p>
 <p>In an external call (see <a href="ContextAPI.html">Context API</a>), the storage functions below can also panic with
 <code>RecordedStorageExceeded</code>: the trie nodes and values the call reads go into the chunk's storage proof, and an external
-call may add at most <code>max_external_call_recorded_size</code> (20 KiB) to it. A read that would record a value past the limit
+call may add at most <code>max_external_call_recorded_size</code> (20 KiB) to it, including what installing its state init
+records. A read that would record a value past the limit
 fails without reading it. A read that records the trie node that crosses the limit fails after recording it, and so does
 a <code>storage_remove</code> that crosses it. The call is then rejected, and nobody pays for it (see
 <a href="../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>).</p>
