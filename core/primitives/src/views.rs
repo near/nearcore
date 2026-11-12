@@ -2809,6 +2809,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     // becomes V1 or V2, and a receipt of an external call records
                     // `PROTOCOL_VERSION`. ActionReceiptV2 without refund_to becomes V1 after a
                     // roundtrip through views. This will be fixed with #14709.
+                    // TODO(ecc): keep such a V3 receipt as V3 before the runtime builds them.
                     match authorization_context {
                         AuthorizationContext::AccessKey(signer_public_key)
                             if refund_to.is_some() =>
