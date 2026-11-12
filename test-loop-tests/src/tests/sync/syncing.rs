@@ -1,4 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_next_nonce};
 use itertools::Itertools;
@@ -17,8 +19,6 @@ const NUM_CLIENTS: usize = 4;
 // Test that a new node that only has genesis can use whatever method available
 // to sync up to the current state of the network.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_sync_from_genesis() {
     init_test_logger();
     let accounts =
@@ -53,6 +53,8 @@ fn slow_test_sync_from_genesis() {
     // Check that the new node will reach a high height as well.
     env.node_runner(new_node_idx)
         .run_until(|node| node.head().height > 10050, Duration::seconds(20));
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 /// Kill all validators simultaneously and restart them, repeating multiple
@@ -123,6 +125,8 @@ fn slow_test_validator_restart_under_cross_shard_load() {
                 idx,
             );
         }
+        assert_execution_kept_up(&env);
+        assert_certification_kept_up(&env);
 
         // Send cross-shard transfers after each restart to generate traffic
         // across all shards.

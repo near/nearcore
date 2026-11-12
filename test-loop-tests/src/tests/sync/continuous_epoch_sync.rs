@@ -1,4 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
@@ -33,6 +35,8 @@ fn test_epoch_sync_proof_update() {
         let head_hash = env.validator().head().last_block_hash;
         validate_epoch_sync_proof(&epoch_store, &head_hash);
     }
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Test that epoch sync proof is correctly updated even in presence of forks.
@@ -83,6 +87,8 @@ fn test_epoch_sync_proof_update_with_forks() {
         let head = chain_store.head().unwrap();
         validate_epoch_sync_proof(&chain_store.epoch_store(), &head.last_block_hash);
     }
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Test that a stale node (one that has data beyond genesis but is far behind the
@@ -122,6 +128,8 @@ fn test_epoch_sync_stale_node_triggers_reset() {
         "stale node head ({node0_head}) should be near kill height ({kill_height}), \
          indicating it was shut down for data reset rather than catching up"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 
     tracing::info!(node0_head, "stale node data reset test passed");
 }
@@ -129,8 +137,6 @@ fn test_epoch_sync_stale_node_triggers_reset() {
 // Test that a fresh node (genesis-only) can bootstrap via epoch sync using the
 // ContinuousEpochSync proof path.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_epoch_sync_bootstrap_fresh_node() {
     init_test_logger();
     let epoch_length = 10;
@@ -190,6 +196,8 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: update_epoch_sync_proof is called when the stored proof is 2 epochs
@@ -242,6 +250,8 @@ fn test_epoch_sync_proof_update_after_multi_epoch_gap() {
         "proof should have advanced past the stale proof",
     );
     validate_epoch_sync_proof(&epoch_store, &env.validator().head().last_block_hash);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Validate that the epoch sync proof stored in epoch_store matches the one derived

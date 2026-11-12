@@ -29,6 +29,8 @@ use crate::tests::early_kickout_probe::{
     walk_anchor_rows,
 };
 use crate::utils::account::{create_account_id, create_validators_spec, validators_spec_clients};
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use borsh::BorshDeserialize;
 use near_chain_configs::TrackedShardsConfig;
@@ -58,8 +60,6 @@ fn assert_inside_grace_window(walk: &AnchorWalk, label: &str) {
 // so a missing same-epoch row rejects the block and stalls `run_until_synced`. The
 // probes turn that into a positive assertion.
 #[test]
-// TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_far_horizon_observer() {
     init_test_logger();
 
@@ -181,6 +181,9 @@ fn slow_test_early_kickout_far_horizon_observer() {
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+    // TODO(spice-test): the test network delivers spice data over direct links only, so with a
+    // single peer this node misses the other producers' receipt proofs and stops executing.
+    assert_certification_kept_up(&env);
 }
 
 // Case B — validator state sync via shard shuffling (true producer catchup).
@@ -192,8 +195,6 @@ fn slow_test_early_kickout_far_horizon_observer() {
 // That single producer per shard also means the schedule does not rotate with height
 // here, so this case cannot detect a wrong anchor offset. Cases A and C carry that.
 #[test]
-// TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_state_sync_shuffling() {
     init_test_logger();
 
@@ -225,6 +226,8 @@ fn slow_test_early_kickout_state_sync_shuffling() {
         assert_inside_grace_window(&walk, &label);
         assert_blacklist_read_everywhere(&walk, &label);
     }
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Case C — the 151 -> 152 activation edge, crossed by a node that block-synced from
@@ -237,8 +240,6 @@ fn slow_test_early_kickout_state_sync_shuffling() {
 // would sit one height inside the window and drift out on any timing change, leaving
 // the pre-activation assertions vacuous.
 #[test]
-// TODO(spice-test): mirrors a sync scenario spice marks incompatible; assess and fix for spice.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_activation_edge_block_sync() {
     init_test_logger();
 
@@ -321,4 +322,6 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
 
     assert_shard_shuffling_happened(&env, &clients);
     tracing::info!(target: "test", activation_height, ?walk, "activation edge probe complete");
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
