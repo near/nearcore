@@ -297,6 +297,18 @@ impl Receipt {
         VersionedReceiptEnum::from(&receipt.receipt)
     }
 
+    /// The action receipt of any version, or `None` if this is not an action
+    /// receipt. A promise yield receipt is not an action receipt here.
+    pub fn action_receipt(&self) -> Option<VersionedActionReceipt<'_>> {
+        match self.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt) => Some(action_receipt),
+            VersionedReceiptEnum::Data(_)
+            | VersionedReceiptEnum::PromiseYield(_)
+            | VersionedReceiptEnum::PromiseResume(_)
+            | VersionedReceiptEnum::GlobalContractDistribution(_) => None,
+        }
+    }
+
     pub fn receipt_mut(&mut self) -> &mut ReceiptEnum {
         let Receipt::V0(receipt) = self;
         &mut receipt.receipt
