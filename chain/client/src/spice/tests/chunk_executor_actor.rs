@@ -70,7 +70,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::flat::{
-    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageReadyStatus,
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageReadyStatus,
     FlatStorageStatus,
 };
 use near_store::{DBCol, PartialStorage, ShardUId};
@@ -2249,6 +2249,14 @@ impl CatchUpTest {
         }
     }
 
+    /// Finishes the shard's catchup, as `finish_catchup_blocks` does by deleting the sync block's
+    /// state sync info.
+    fn finish_catchup(&self) {
+        let mut store_update = self.test_actor.chain.chain_store.store().store_update();
+        store_update.delete(DBCol::StateDlInfos, self.sync_block.hash().as_ref());
+        store_update.commit();
+    }
+
     /// Saves what applying the shard at the block after the sync block needs, the block's chunks
     /// and the receipts the sync block sends the shard, and returns that block.
     fn save_inputs_of_the_block_after_the_sync_block(&mut self) -> Arc<Block> {
@@ -2278,9 +2286,7 @@ impl CatchUpTest {
 fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
     // The shard's catchup finished.
     let mut catch_up = CatchUpTest::setup();
-    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
-    store_update.delete(DBCol::StateDlInfos, catch_up.sync_block.hash().as_ref());
-    store_update.commit();
+    catch_up.finish_catchup();
 
     // The restarted node processes the next epoch's first block.
     catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
@@ -2302,9 +2308,7 @@ fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
 fn test_parking_again_the_blocks_after_the_current_epochs_sync_block() {
     // The shard's catchup finished before the epoch's end.
     let mut catch_up = CatchUpTest::setup();
-    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
-    store_update.delete(DBCol::StateDlInfos, catch_up.sync_block.hash().as_ref());
-    store_update.commit();
+    catch_up.finish_catchup();
 
     // Restarted after the catchup finished, the node processes the blocks after the final execution
     // head.
@@ -2355,9 +2359,7 @@ fn test_parking_again_the_blocks_of_a_shard_once_its_catchup_finishes() {
     }
 
     // The catchup finishes, and the node processes the next epoch's first block.
-    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
-    store_update.delete(DBCol::StateDlInfos, catch_up.sync_block.hash().as_ref());
-    store_update.commit();
+    catch_up.finish_catchup();
     catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
         block_hash: *catch_up.next_epoch_first_block.hash(),
     });
@@ -2392,9 +2394,7 @@ fn test_executing_a_shard_once_its_catchup_finishes() {
     // apply the shard.
     let mut catch_up = CatchUpTest::setup();
     let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
-    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
-    store_update.delete(DBCol::StateDlInfos, catch_up.sync_block.hash().as_ref());
-    store_update.commit();
+    catch_up.finish_catchup();
 
     // The node processes the block after the sync block.
     catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
@@ -2447,9 +2447,7 @@ fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
         .handle_with_internal_events(ProcessedBlock { block_hash: *catch_up.sync_block.hash() });
 
     // The catchup finishes, and the node processes the next epoch's first block.
-    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
-    store_update.delete(DBCol::StateDlInfos, catch_up.sync_block.hash().as_ref());
-    store_update.commit();
+    catch_up.finish_catchup();
     catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
         block_hash: *catch_up.next_epoch_first_block.hash(),
     });
@@ -2470,11 +2468,7 @@ fn test_not_moving_the_flat_head_of_a_caught_up_shard_for_a_fork() {
     store_update.flat_store_update().set_flat_storage_status(
         catch_up.shard_uid,
         FlatStorageStatus::Ready(FlatStorageReadyStatus {
-            flat_head: BlockInfo {
-                hash: *sync_header.hash(),
-                height: sync_header.height(),
-                prev_hash: *sync_header.prev_hash(),
-            },
+            flat_head: Tip::from_header(sync_header).into(),
         }),
     );
     store_update.commit();
@@ -2487,11 +2481,7 @@ fn test_not_moving_the_flat_head_of_a_caught_up_shard_for_a_fork() {
         .unwrap()
         .add_delta(FlatStateDelta {
             metadata: FlatStateDeltaMetadata {
-                block: BlockInfo {
-                    hash: *header.hash(),
-                    height: header.height(),
-                    prev_hash: *header.prev_hash(),
-                },
+                block: Tip::from_header(header).into(),
                 prev_block_with_changes: None,
             },
             changes: FlatStateChanges::default(),
