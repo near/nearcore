@@ -236,9 +236,18 @@ its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward `max_gas_burnt_external`, so a larger
 payload leaves less of the budget to the method. With the largest payload, up
 to the 20 KiB cap on a call's size, the fees are about 1.3 Tgas. The contract
-must exist, have a contract deployed and be able to afford the fees, or the
-call is rejected before any contract code is loaded. Like the rest of the call,
-the fees are charged after the call, and only if the contract accepts it.
+must exist, have a contract deployed or get one from the call's state init
+(below), and be able to afford the fees, or the call is rejected before any
+contract code is loaded.
+
+A call may carry the state init of a universal account. If the account is not
+initialized yet, the call installs the state init right before the method runs,
+and also burns the fees of a `UniversalStateInit` action with it. Those fees
+count toward `max_gas_burnt_external` too, and a call whose fees use all of it
+is rejected before the install. If the contract rejects the call, the install
+is rolled back. An account that is initialized already ignores the state init,
+and the chunk producer packs the call without it. Like the rest of the call,
+all these fees are charged after the call, and only if the contract accepts it.
 
 A rejected call pays nothing, but it isn't free for the chunk. The compute of
 the work validators did on it, fees included, counts toward the chunk's
@@ -262,8 +271,9 @@ validators do on external calls, per call and per chunk. Besides
 - the storage proof its run records: at most
   `max_external_call_recorded_size`, 20 KiB. A read that records the trie node
   crossing the limit fails the call with `RecordedStorageExceeded`, and a value
-  whose length would cross it isn't read at all. The limit applies to the run
-  only, not to reading the contract's account before it.
+  whose length would cross it isn't read at all. The limit applies to the
+  install of a state init and the run, not to reading the contract's account
+  before them.
 
   Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
   proof limit uses too, even for a key that isn't there. So removals are costly

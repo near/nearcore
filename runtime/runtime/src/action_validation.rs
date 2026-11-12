@@ -5,14 +5,14 @@ use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractIdentifier, StateInitCounts, UniversalStateInitAction, UseGlobalContractAction,
+    GlobalContractIdentifier, StateInitCounts, UseGlobalContractAction,
 };
 use near_primitives::errors::ActionsValidationError;
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::universal_state_init::{DecodeMode, UniversalStateInit};
+use near_primitives::universal_state_init::{DecodeMode, RawStateInit, UniversalStateInit};
 use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::account::id::AccountType;
@@ -195,9 +195,13 @@ fn validate_action_with_mode(
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver)
         }
-        Action::UniversalStateInit(a) => {
-            validate_universal_state_init(limit_config, a, receiver, current_protocol_version, mode)
-        }
+        Action::UniversalStateInit(a) => validate_universal_state_init(
+            limit_config,
+            &a.state_init,
+            receiver,
+            current_protocol_version,
+            mode,
+        ),
         Action::TransferToGasKey(_) => Ok(()),
         Action::WithdrawFromGasKey(_) => Ok(()),
     }
@@ -503,9 +507,9 @@ fn validate_deterministic_state_init(
     Ok(())
 }
 
-fn validate_universal_state_init(
+pub(crate) fn validate_universal_state_init(
     limit_config: &LimitConfig,
-    action: &UniversalStateInitAction,
+    state_init: &RawStateInit,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
@@ -518,7 +522,7 @@ fn validate_universal_state_init(
 
     // The account id must be exactly the one derived from the bytes the producer
     // serialized, so this hashes the wire form rather than any decoded view of it.
-    let derived_id = derive_universal_account_id(&action.state_init);
+    let derived_id = derive_universal_account_id(state_init);
     if derived_id != *receiver_id {
         return Err(ActionsValidationError::InvalidUniversalStateInitReceiver {
             derived_id,
@@ -535,7 +539,7 @@ fn validate_universal_state_init(
         mode == ValidateReceiptMode::NewReceipt
             && ProtocolFeature::CanonicalUniversalStateInit.enabled(current_protocol_version),
     );
-    let state_init = UniversalStateInit::from_raw(&action.state_init, decode_mode)
+    let state_init = UniversalStateInit::from_raw(state_init, decode_mode)
         .map_err(|_| ActionsValidationError::MalformedUniversalStateInit)?;
 
     if let Some(code) = state_init.code() {

@@ -34,7 +34,7 @@ async fn test_send_tx_async() {
 
     // Broadcast transaction asynchronously
     let result = client.broadcast_tx_async(to_base64(&bytes)).await.unwrap();
-    assert_eq!(tx_hash.to_string(), result);
+    assert_eq!(Some(tx_hash.to_string()), result);
 
     // Wait for transaction to be executed using wait_or_timeout
     wait_or_timeout(100, 10000, || async {

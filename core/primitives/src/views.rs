@@ -38,7 +38,7 @@ use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, EccTransaction, ExecutionMetadata, ExecutionOutcome,
+    DeployContractAction, ECC_ESCAPE_BYTE, EccTransaction, ExecutionMetadata, ExecutionOutcome,
     ExecutionOutcomeWithIdAndProof, ExecutionStatus, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransactionEnvelope, TransferAction,
 };
@@ -51,6 +51,7 @@ use crate::types::{
     StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
 use crate::universal_state_init::RawStateInit;
+use crate::utils::create_ecc_outcome_id;
 use crate::version::{PROTOCOL_VERSION, ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -69,6 +70,7 @@ use serde_with::rust::double_option;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::io::{Error as IoError, Read, Write};
 use std::num::NonZeroU32;
 use std::ops::Range;
 use std::sync::Arc;
@@ -1314,23 +1316,30 @@ impl BlockView {
 pub struct ChunkView {
     pub author: AccountId,
     pub header: ChunkHeaderView,
-    pub transactions: Vec<TransactionEnvelopeView>,
+    pub transactions: Vec<ChunkTransactionView>,
     pub receipts: Vec<ReceiptView>,
 }
 
 impl ChunkView {
-    pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
+    /// The view of `chunk`. `height_included`, the height of the block that includes it, gives
+    /// its external calls their unique ids; without it they have none.
+    pub fn from_author_chunk(
+        author: AccountId,
+        chunk: ShardChunk,
+        height_included: Option<BlockHeight>,
+    ) -> Self {
+        let transaction_view = |tx| ChunkTransactionView::new(tx, height_included);
         match chunk {
             ShardChunk::V1(chunk) => Self {
                 author,
                 header: ShardChunkHeader::V1(chunk.header).into(),
-                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                transactions: chunk.transactions.into_iter().map(transaction_view).collect(),
                 receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
             ShardChunk::V2(chunk) => Self {
                 author,
                 header: chunk.header.into(),
-                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                transactions: chunk.transactions.into_iter().map(transaction_view).collect(),
                 receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
@@ -1770,40 +1779,233 @@ impl From<SignedTransaction> for SignedTransactionView {
 }
 
 #[serde_as]
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EccTransactionView {
     pub contract_id: AccountId,
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub payload: Vec<u8>,
-    pub hash: CryptoHash,
+    /// The unique id of this copy of the call, its outcome id.
+    pub transaction_id: CryptoHash,
+    /// The universal account state init this copy of the call carries.
+    #[serde_as(as = "Option<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
+    pub state_init: Option<Vec<u8>>,
 }
 
-impl From<EccTransaction> for EccTransactionView {
-    fn from(tx: EccTransaction) -> Self {
-        let hash = tx.get_hash();
-        let (contract_id, payload) = tx.into_parts();
-        Self { contract_id, payload, hash }
+impl EccTransactionView {
+    /// The view of the copy of `tx` whose unique id is `transaction_id`.
+    pub fn new(tx: EccTransaction, transaction_id: CryptoHash) -> Self {
+        let (contract_id, payload, state_init) = tx.into_parts();
+        let state_init = state_init.map(|state_init| state_init.0);
+        Self { contract_id, payload, transaction_id, state_init }
     }
 }
 
-/// A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it
-/// always had.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+/// Reads transaction views written before they carried `kind`, as signed transactions.
+#[derive(serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
-pub enum TransactionEnvelopeView {
+enum BackwardCompatibleTransactionEnvelopeView {
+    Tagged(TaggedTransactionEnvelopeView),
     Signed(SignedTransactionView),
+}
+
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TaggedTransactionEnvelopeView {
+    Signed(SignedTransactionView),
+    ExternalCall(EccTransactionView),
+}
+
+/// A transaction of either kind, in a chunk, a tx status result or an indexer message.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
+#[serde(tag = "kind", from = "BackwardCompatibleTransactionEnvelopeView")]
+pub enum TransactionEnvelopeView {
+    #[serde(rename = "signed")]
+    Signed(SignedTransactionView),
+    #[serde(rename = "external_call")]
     Unsigned(EccTransactionView),
 }
 
-impl From<TransactionEnvelope> for TransactionEnvelopeView {
-    fn from(tx: TransactionEnvelope) -> Self {
+impl From<BackwardCompatibleTransactionEnvelopeView> for TransactionEnvelopeView {
+    fn from(view: BackwardCompatibleTransactionEnvelopeView) -> Self {
+        match view {
+            BackwardCompatibleTransactionEnvelopeView::Tagged(
+                TaggedTransactionEnvelopeView::Signed(tx),
+            )
+            | BackwardCompatibleTransactionEnvelopeView::Signed(tx) => Self::Signed(tx),
+            BackwardCompatibleTransactionEnvelopeView::Tagged(
+                TaggedTransactionEnvelopeView::ExternalCall(tx),
+            ) => Self::Unsigned(tx),
+        }
+    }
+}
+
+impl From<SignedTransactionView> for TransactionEnvelopeView {
+    fn from(tx: SignedTransactionView) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl TransactionEnvelopeView {
+    /// The id of the transaction's outcome. A signed transaction's is its hash, and an external
+    /// call's is the unique id of its copy.
+    pub fn id(&self) -> CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash,
+            Self::Unsigned(tx) => tx.transaction_id,
+        }
+    }
+
+    pub fn as_signed(&self) -> Option<&SignedTransactionView> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+}
+
+/// An external call as a chunk holds it. Its unique id is unknown in a chunk that no block on the
+/// canonical chain includes.
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkEccTransactionView {
+    pub contract_id: AccountId,
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub payload: Vec<u8>,
+    /// The unique id of this copy of the call, its outcome id. `None` when no block on the
+    /// canonical chain includes the chunk.
+    pub transaction_id: Option<CryptoHash>,
+    /// The universal account state init the call carries.
+    #[serde_as(as = "Option<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
+    pub state_init: Option<Vec<u8>>,
+}
+
+/// Reads chunk transactions from nodes that write them without `kind`, as signed transactions.
+// TODO(ecc): remove after the protocol upgrade, once every node writes `kind`.
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+enum BackwardCompatibleChunkTransactionView {
+    Tagged(TaggedChunkTransactionView),
+    Signed(SignedTransactionView),
+}
+
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TaggedChunkTransactionView {
+    Signed(SignedTransactionView),
+    ExternalCall(ChunkEccTransactionView),
+}
+
+/// A transaction as a chunk holds it, written like a `TransactionEnvelopeView`.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
+#[serde(tag = "kind", from = "BackwardCompatibleChunkTransactionView")]
+pub enum ChunkTransactionView {
+    #[serde(rename = "signed")]
+    Signed(SignedTransactionView),
+    #[serde(rename = "external_call")]
+    Unsigned(ChunkEccTransactionView),
+}
+
+impl From<BackwardCompatibleChunkTransactionView> for ChunkTransactionView {
+    fn from(view: BackwardCompatibleChunkTransactionView) -> Self {
+        match view {
+            BackwardCompatibleChunkTransactionView::Tagged(TaggedChunkTransactionView::Signed(
+                tx,
+            ))
+            | BackwardCompatibleChunkTransactionView::Signed(tx) => Self::Signed(tx),
+            BackwardCompatibleChunkTransactionView::Tagged(
+                TaggedChunkTransactionView::ExternalCall(tx),
+            ) => Self::Unsigned(tx),
+        }
+    }
+}
+
+impl ChunkTransactionView {
+    /// The view of `tx`. `height_included`, the height of the block that includes its chunk,
+    /// gives an external call its unique id; without it the call has none.
+    pub fn new(tx: TransactionEnvelope, height_included: Option<BlockHeight>) -> Self {
         match tx {
             TransactionEnvelope::Signed(tx) => Self::Signed(tx.into()),
-            TransactionEnvelope::Unsigned(tx) => Self::Unsigned(tx.into()),
+            TransactionEnvelope::Unsigned(tx) => {
+                let transaction_id = height_included
+                    .map(|height| create_ecc_outcome_id(tx.hash_without_state_init(), height));
+                let (contract_id, payload, state_init) = tx.into_parts();
+                let state_init = state_init.map(|state_init| state_init.0);
+                Self::Unsigned(ChunkEccTransactionView {
+                    contract_id,
+                    payload,
+                    transaction_id,
+                    state_init,
+                })
+            }
         }
+    }
+
+    /// The id of the transaction's outcome, `None` for an external call without a unique id.
+    pub fn id(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Signed(tx) => Some(tx.hash),
+            Self::Unsigned(tx) => tx.transaction_id,
+        }
+    }
+
+    /// The transaction's view outside a chunk, where an external call takes `transaction_id`, its
+    /// outcome's id, as its unique id.
+    pub fn into_transaction_view(self, transaction_id: CryptoHash) -> TransactionEnvelopeView {
+        match self {
+            Self::Signed(tx) => TransactionEnvelopeView::Signed(tx),
+            Self::Unsigned(tx) => TransactionEnvelopeView::Unsigned(EccTransactionView {
+                contract_id: tx.contract_id,
+                payload: tx.payload,
+                transaction_id,
+                state_init: tx.state_init,
+            }),
+        }
+    }
+}
+
+/// A signed transaction keeps the bytes of its `SignedTransactionView`, which never start with
+/// the escape byte an external call's view starts with.
+impl BorshSerialize for TransactionEnvelopeView {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), IoError> {
+        match self {
+            Self::Signed(tx) => tx.serialize(writer),
+            Self::Unsigned(tx) => {
+                ECC_ESCAPE_BYTE.serialize(writer)?;
+                tx.serialize(writer)
+            }
+        }
+    }
+}
+
+impl BorshDeserialize for TransactionEnvelopeView {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> Result<Self, IoError> {
+        let prefix = [u8::deserialize_reader(reader)?];
+        if prefix[0] == ECC_ESCAPE_BYTE {
+            return Ok(Self::Unsigned(EccTransactionView::deserialize_reader(reader)?));
+        }
+        let mut reader = prefix.chain(reader);
+        Ok(Self::Signed(SignedTransactionView::deserialize_reader(&mut reader)?))
     }
 }
 
@@ -2261,9 +2463,9 @@ pub struct FinalExecutionOutcomeView {
     /// FinalExecutionStatus::Failure - the result of the first leaf receipt_id
     /// FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id
     pub status: FinalExecutionStatus,
-    /// Signed Transaction
-    pub transaction: SignedTransactionView,
-    /// The execution outcome of the signed transaction.
+    /// The transaction, signed or an external call.
+    pub transaction: TransactionEnvelopeView,
+    /// The execution outcome of the transaction.
     pub transaction_outcome: ExecutionOutcomeWithIdView,
     /// The execution outcome of receipts.
     pub receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
@@ -3010,6 +3212,7 @@ pub enum StateChangeCauseView {
     Migration,
     BandwidthSchedulerStateUpdate,
     ContractCompilationStatusUpdate,
+    ExternalCallProcessing { transaction_id: CryptoHash },
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -3045,6 +3248,9 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
             StateChangeCause::ContractCompilationStatusUpdate => {
                 Self::ContractCompilationStatusUpdate
+            }
+            StateChangeCause::ExternalCallProcessing { transaction_id } => {
+                Self::ExternalCallProcessing { transaction_id }
             }
         }
     }
@@ -3249,8 +3455,9 @@ impl CongestionInfoView {
 #[cfg(not(feature = "nightly"))]
 mod tests {
     use super::{
-        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum, QueryRequest,
-        ReceiptView, StateInitView, TransactionEnvelopeView,
+        ChunkHeaderView, ChunkTransactionView, EccTransactionView, ExecutionMetadataView,
+        FinalExecutionOutcomeViewEnum, QueryRequest, ReceiptView, StateInitView,
+        TransactionEnvelopeView,
     };
     use crate::action::{Action, TransferAction};
     use crate::profile_data_v2::ProfileDataV2;
@@ -3261,15 +3468,17 @@ mod tests {
     };
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::{
-        EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
+        ECC_ESCAPE_BYTE, EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
     use crate::universal_state_init::RawStateInit;
     use crate::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
+    use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::serialize::to_base64;
     use near_primitives_core::types::Balance;
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -3307,10 +3516,7 @@ mod tests {
         }
     }
 
-    /// The untagged view tells its variants apart by their fields, and a signed transaction keeps
-    /// the JSON shape it always had.
-    #[test]
-    fn test_transaction_envelope_view_json_roundtrip() {
+    fn signed_transaction_view() -> TransactionEnvelopeView {
         let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -3320,19 +3526,93 @@ mod tests {
             Balance::from_yoctonear(1),
             CryptoHash::default(),
         );
-        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        TransactionEnvelopeView::Signed(signed_tx.into())
+    }
 
-        let signed_view = TransactionEnvelopeView::from(TransactionEnvelope::from(signed_tx));
-        let ecc_view = TransactionEnvelopeView::from(TransactionEnvelope::from(ecc));
+    fn external_call_view() -> TransactionEnvelopeView {
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        TransactionEnvelopeView::Unsigned(EccTransactionView::new(
+            ecc,
+            CryptoHash::hash_bytes(b"id"),
+        ))
+    }
+
+    /// Both kinds round-trip in JSON, and a signed transaction keeps its fields beside `kind`.
+    #[test]
+    fn test_transaction_envelope_view_json_roundtrip() {
+        let signed_view = signed_transaction_view();
+        let ecc_view = external_call_view();
         assert_matches!(signed_view, TransactionEnvelopeView::Signed(_));
         assert_matches!(ecc_view, TransactionEnvelopeView::Unsigned(_));
 
-        for view in [signed_view.clone(), ecc_view] {
+        for view in [signed_view.clone(), ecc_view.clone()] {
             let json = serde_json::to_value(&view).unwrap();
             assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), view);
         }
         let signed_json = serde_json::to_value(&signed_view).unwrap();
+        assert_eq!(signed_json["kind"], "signed");
         assert_eq!(signed_json["signer_id"], "alice.near");
+        let ecc_json = serde_json::to_value(&ecc_view).unwrap();
+        assert_eq!(ecc_json["kind"], "external_call");
+        assert_eq!(ecc_json["transaction_id"], json!(ecc_view.id()));
+        assert_eq!(ecc_json["state_init"], serde_json::Value::Null);
+    }
+
+    /// The view of a copy that carries a state init shows it, under the unique id of the copy
+    /// without it.
+    #[test]
+    fn test_external_call_view_with_state_init() {
+        let without = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![4, 5, 6])),
+        );
+        let view = ChunkTransactionView::new(TransactionEnvelope::from(with), Some(1));
+        let without_view = ChunkTransactionView::new(TransactionEnvelope::from(without), Some(1));
+        assert_eq!(view.id(), without_view.id());
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["state_init"], json!(to_base64(&[4, 5, 6])));
+        assert_eq!(serde_json::from_value::<ChunkTransactionView>(json).unwrap(), view);
+    }
+
+    /// An external call in a chunk no canonical block includes has no unique id, `null` in JSON.
+    #[test]
+    fn test_chunk_transaction_view_without_unique_id() {
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        let view = ChunkTransactionView::new(TransactionEnvelope::from(ecc), None);
+        assert_eq!(view.id(), None);
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["kind"], "external_call");
+        assert_eq!(json["transaction_id"], serde_json::Value::Null);
+        assert_eq!(serde_json::from_value::<ChunkTransactionView>(json).unwrap(), view);
+    }
+
+    /// JSON written before transaction views carried `kind` decodes as a signed transaction.
+    #[test]
+    fn test_transaction_envelope_view_json_without_kind() {
+        let signed_view = signed_transaction_view();
+        let mut json = serde_json::to_value(&signed_view).unwrap();
+        json.as_object_mut().unwrap().remove("kind");
+        assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), signed_view);
+    }
+
+    /// A signed transaction's view keeps the borsh bytes of its `SignedTransactionView`, and an
+    /// external call's view, which starts with the escape byte, round-trips.
+    #[test]
+    fn test_transaction_envelope_view_borsh() {
+        let signed_view = signed_transaction_view();
+        let TransactionEnvelopeView::Signed(signed_tx_view) = &signed_view else { unreachable!() };
+        let signed_bytes = borsh::to_vec(&signed_view).unwrap();
+        assert_eq!(signed_bytes, borsh::to_vec(signed_tx_view).unwrap());
+
+        let ecc_view = external_call_view();
+        let ecc_bytes = borsh::to_vec(&ecc_view).unwrap();
+        assert_eq!(ecc_bytes[0], ECC_ESCAPE_BYTE);
+
+        for (view, bytes) in [(signed_view, signed_bytes), (ecc_view, ecc_bytes)] {
+            assert_eq!(TransactionEnvelopeView::try_from_slice(&bytes).unwrap(), view);
+        }
     }
 
     #[test]

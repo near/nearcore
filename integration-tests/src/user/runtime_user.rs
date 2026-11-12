@@ -20,7 +20,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, ViewStateResult,
+    FinalExecutionOutcomeView, FinalExecutionStatus, TransactionEnvelopeView, ViewStateResult,
 };
 use near_runtime::SignedValidPeriodTransactions;
 use near_runtime::state_viewer::TrieViewer;
@@ -293,7 +293,9 @@ impl RuntimeUser {
         // entire chunk.)
         let status = status?;
         let receipts = outcomes.split_off(1);
-        let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
+        let transaction = TransactionEnvelopeView::Signed(
+            self.transactions.borrow().get(hash).unwrap().clone().into(),
+        );
         Some(FinalExecutionOutcomeView {
             status,
             transaction,

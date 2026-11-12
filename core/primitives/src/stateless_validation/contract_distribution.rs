@@ -136,7 +136,8 @@ impl ChunkContractAccessesV1 {
     }
 
     fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == ChunkContractAccessesInner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -155,6 +156,8 @@ pub struct ChunkContractAccessesInner {
 }
 
 impl ChunkContractAccessesInner {
+    const DIFFERENTIATOR: &'static str = "ChunkContractAccessesInner";
+
     fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
@@ -164,7 +167,7 @@ impl ChunkContractAccessesInner {
             next_chunk,
             contracts: contracts.into_iter().collect(),
             main_transition,
-            signature_differentiator: "ChunkContractAccessesInner".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }
@@ -207,7 +210,8 @@ impl ChunkContractAccessesV2 {
     }
 
     fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == ChunkContractAccessesV2Inner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -233,6 +237,9 @@ pub struct ChunkContractAccessesV2Inner {
 }
 
 impl ChunkContractAccessesV2Inner {
+    // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
+    const DIFFERENTIATOR: &'static str = "ChunkContractAccessesV2Inner";
+
     fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
@@ -246,8 +253,7 @@ impl ChunkContractAccessesV2Inner {
             main_transition,
             prev_block_hash,
             prev_prev_block_hash,
-            // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
-            signature_differentiator: "ChunkContractAccessesV2Inner".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }
@@ -329,7 +335,8 @@ impl ContractCodeRequestV1 {
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == ContractCodeRequestInner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -356,6 +363,8 @@ pub struct ContractCodeRequestInner {
 }
 
 impl ContractCodeRequestInner {
+    const DIFFERENTIATOR: &'static str = "ContractCodeRequestInner";
+
     fn new(
         requester: AccountId,
         next_chunk: ChunkProductionKey,
@@ -367,7 +376,7 @@ impl ContractCodeRequestInner {
             next_chunk,
             contracts: contracts.into_iter().collect(),
             main_transition,
-            signature_differentiator: "ContractCodeRequestInner".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }
@@ -462,7 +471,8 @@ impl ContractCodeResponseV2 {
     }
 
     fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == ContractCodeResponseV2Inner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -479,6 +489,8 @@ pub struct ContractCodeResponseV2Inner {
 }
 
 impl ContractCodeResponseV2Inner {
+    const DIFFERENTIATOR: &'static str = "ContractCodeResponseV2Inner";
+
     fn encode(
         next_chunk: ChunkProductionKey,
         contracts: &Vec<CodeBytes>,
@@ -489,7 +501,7 @@ impl ContractCodeResponseV2Inner {
             next_chunk,
             responder: responder.clone(),
             compressed_contracts,
-            signature_differentiator: "ContractCodeResponseV2Inner".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         })
     }
 }
@@ -809,7 +821,8 @@ impl PartialEncodedContractDeploysV1 {
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == PartialEncodedContractDeploysInner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -838,12 +851,10 @@ pub struct PartialEncodedContractDeploysInner {
 }
 
 impl PartialEncodedContractDeploysInner {
+    const DIFFERENTIATOR: &'static str = "PartialEncodedContractDeploysInner";
+
     fn new(next_chunk: ChunkProductionKey, part: PartialEncodedContractDeploysPart) -> Self {
-        Self {
-            next_chunk,
-            part,
-            signature_differentiator: "PartialEncodedContractDeploysInner".to_owned(),
-        }
+        Self { next_chunk, part, signature_differentiator: Self::DIFFERENTIATOR.to_owned() }
     }
 }
 
@@ -882,7 +893,8 @@ impl PartialEncodedContractDeploysV2 {
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == PartialEncodedContractDeploysV2Inner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -901,6 +913,9 @@ pub struct PartialEncodedContractDeploysV2Inner {
 }
 
 impl PartialEncodedContractDeploysV2Inner {
+    // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
+    const DIFFERENTIATOR: &'static str = "PartialEncodedContractDeploysV2Inner";
+
     fn new(
         next_chunk: ChunkProductionKey,
         part: PartialEncodedContractDeploysPart,
@@ -912,8 +927,7 @@ impl PartialEncodedContractDeploysV2Inner {
             part,
             prev_block_hash,
             prev_prev_block_hash,
-            // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
-            signature_differentiator: "PartialEncodedContractDeploysV2Inner".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }
@@ -949,7 +963,8 @@ impl SpiceChunkContractAccesses {
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == SpiceChunkContractAccessesInner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -961,12 +976,10 @@ struct SpiceChunkContractAccessesInner {
 }
 
 impl SpiceChunkContractAccessesInner {
+    const DIFFERENTIATOR: &'static str = "SpiceChunkContractAccessesInner";
+
     fn new(chunk_id: SpiceChunkId, contracts: BTreeSet<CodeHash>) -> Self {
-        Self {
-            chunk_id,
-            contracts,
-            signature_differentiator: "SpiceChunkContractAccessesInner".to_owned(),
-        }
+        Self { chunk_id, contracts, signature_differentiator: Self::DIFFERENTIATOR.to_owned() }
     }
 }
 
@@ -1008,7 +1021,8 @@ impl SpiceContractCodeRequest {
     }
 
     pub fn verify_signature(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
+        self.inner.signature_differentiator == SpiceContractCodeRequestInner::DIFFERENTIATOR
+            && self.signature.verify(&borsh::to_vec(&self.inner).unwrap(), public_key)
     }
 }
 
@@ -1021,12 +1035,14 @@ struct SpiceContractCodeRequestInner {
 }
 
 impl SpiceContractCodeRequestInner {
+    const DIFFERENTIATOR: &'static str = "SpiceContractCodeRequestInner";
+
     fn new(requester: AccountId, chunk_id: SpiceChunkId, contracts: HashSet<CodeHash>) -> Self {
         Self {
             requester,
             chunk_id,
             contracts: contracts.into_iter().collect(),
-            signature_differentiator: "SpiceContractCodeRequestInner".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }

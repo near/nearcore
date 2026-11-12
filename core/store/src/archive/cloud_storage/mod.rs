@@ -142,6 +142,7 @@ pub fn is_cloud_archive_reader_bootstrapped(col: DBCol) -> bool {
             // Reconstructed from ShardData.
             | DBCol::Receipts
             | DBCol::Transactions
+            | DBCol::ExternalCallTransactions
 
             // From EpochData.
             | DBCol::EpochInfo

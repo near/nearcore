@@ -1064,7 +1064,7 @@ impl fmt::Debug for RoutedMessageBody {
                 write!(f, "TxStatusRequest({}, {})", account_id, hash)
             }
             RoutedMessageBody::TxStatusResponse(response) => {
-                write!(f, "TxStatusResponse({})", response.transaction.hash)
+                write!(f, "TxStatusResponse({})", response.transaction.id())
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
