@@ -309,7 +309,7 @@ impl PerShardChunkExecutor {
         }
     }
 
-    /// Try to apply the parked block `entry`, and unpark it once it is scheduled or dropped.
+    /// Try to apply the parked block `entry`, and remove it once it is scheduled or dropped.
     fn try_apply_parked(&mut self, entry: (BlockHeight, CryptoHash)) {
         let Some(&parent) = self.parked_blocks.parents.get(&entry) else {
             return;
