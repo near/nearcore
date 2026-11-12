@@ -203,8 +203,8 @@ per call.
 
 ### Gas in External Contract Calls
 
-External contract calls (the `ExternalContractCalls` protocol feature, not yet
-stable) let a contract authorize a call from a user who has no balance. The
+External contract calls (the `ExternalContractCalls` protocol feature) let a
+contract authorize a call from a user who has no balance. The
 contract pays for the gas, so there is no `attached_gas` and the
 `prepaid_gas()` host function fails. Instead, two limits apply:
 

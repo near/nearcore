@@ -192,8 +192,8 @@ pub fn process_external_call<'a>(
             return Ok(refuse(err.into(), 0));
         }
     };
-    // A call refused for its validity counts its fees toward the shares too, so that such calls
-    // stay within them.
+    // A call refused for its validity counts its fees toward the shares too. The share does not
+    // refuse it; `max_external_calls_per_chunk` bounds such calls.
     if let Some(err) = validation_error {
         external_calls.add(cost.compute_burnt, 0);
         return Ok(refuse(err.into(), cost.compute_burnt));
