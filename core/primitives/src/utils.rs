@@ -613,6 +613,32 @@ mod tests {
         assert_eq!(ids, vec![Some(unique_id), None]);
     }
 
+    /// A copy's unique id is the hash of the call's bytes without its state init, starting with
+    /// the escape byte and the version, then the including block's height as u64 little endian.
+    #[test]
+    fn test_ecc_outcome_id_of_a_call() {
+        let height: BlockHeight = 7;
+        let state_init = Some(RawStateInit(vec![9]));
+        let call = EccTransaction::new_with_state_init(
+            "wallet.near".parse().unwrap(),
+            vec![1, 2],
+            state_init,
+        );
+        let mut call_bytes = vec![0xFF, 0x00];
+        call_bytes.extend_from_slice(&11u32.to_le_bytes());
+        call_bytes.extend_from_slice(b"wallet.near");
+        call_bytes.extend_from_slice(&2u32.to_le_bytes());
+        call_bytes.extend_from_slice(&[1, 2]);
+        // No state init.
+        call_bytes.push(0);
+        let mut id_bytes = hash(&call_bytes).as_ref().to_vec();
+        id_bytes.extend_from_slice(&height.to_le_bytes());
+
+        let id = create_ecc_outcome_id(call.hash_without_state_init(), height);
+        assert_eq!(id, hash(&id_bytes));
+        assert_ne!(call.hash(), call.hash_without_state_init());
+    }
+
     #[test]
     fn test_ecc_outcome_id() {
         let ecc_hash = hash(b"ecc");
