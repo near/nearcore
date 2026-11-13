@@ -17,7 +17,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
+use std::thread::{Builder, scope};
 
 /// The tries a reader applies recorded state changes into.
 pub fn build_shard_tries(store: &Store) -> ShardTries {
@@ -60,7 +60,7 @@ pub(crate) async fn install_state_snapshot(
 
 /// Threads that read a batch's trie paths before it is applied. The reads wait on the
 /// disk rather than the CPU, so more threads than cores still shorten the wait.
-const READ_AHEAD_THREADS: usize = 16;
+const READ_AHEAD_THREADS: usize = 8;
 
 /// Trie storage for one batch: the nodes that batch has applied, over the nodes the store
 /// already holds. A height reads what the height below it wrote, and a store read does
@@ -144,10 +144,15 @@ impl BatchTrieUpdate {
     pub(crate) fn read_ahead(&self, keys: &[Vec<u8>]) {
         let next_key = AtomicUsize::new(0);
         let num_threads = keys.len().min(READ_AHEAD_THREADS);
-        thread::scope(|scope| {
+        scope(|thread_scope| {
             for _ in 0..num_threads {
                 let trie = Trie::new(self.storage.clone(), self.state_root, None);
-                scope.spawn(|| read_trie_paths(trie, keys, &next_key));
+                let reader = || read_trie_paths(trie, keys, &next_key);
+                // A thread the OS refuses leaves its keys to the threads already running, or
+                // to `apply` when none started.
+                if Builder::new().spawn_scoped(thread_scope, reader).is_err() {
+                    break;
+                }
             }
         });
     }
@@ -182,7 +187,7 @@ impl BatchTrieUpdate {
 /// Reads the trie path of each key `next_key` hands out until none is left.
 fn read_trie_paths(trie: Trie, keys: &[Vec<u8>], next_key: &AtomicUsize) {
     while let Some(key) = keys.get(next_key.fetch_add(1, Ordering::Relaxed)) {
-        // A failed read is left to `apply`, which reads the same node and reports it.
+        // A failed read is left to `apply`, which reads and reports any node it needs.
         let _ =
             trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::NO_SIDE_EFFECTS);
     }
