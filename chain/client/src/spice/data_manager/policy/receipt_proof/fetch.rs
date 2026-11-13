@@ -30,14 +30,14 @@ fn needed_shards(
     // applied it, so it has no proofs from it either.
     let applied_itself = shards_applied_itself(shard_tracker, epoch_manager, block)?;
     let chunk_store = chain_store.chunk_store();
-    let state_synced_at_block = |shard_id: ShardId| {
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        chunk_store.get_chunk_extra(block.hash(), &shard_uid).is_ok()
-            && chunk_store.get_chunk_extra(block.prev_hash(), &shard_uid).is_err()
-    };
     let sources = shard_layout
         .shard_ids()
-        .filter(|shard_id| !applied_itself.contains(shard_id) || state_synced_at_block(*shard_id))
+        .filter(|&shard_id| {
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            !applied_itself.contains(&shard_id)
+                || (chunk_store.get_chunk_extra(block.hash(), &shard_uid).is_ok()
+                    && chunk_store.get_chunk_extra(block.prev_hash(), &shard_uid).is_err())
+        })
         .collect();
     // The proof feeds applying the destination shard in the next block. `block` is a
     // spice or last pre-spice block, so the next one is a spice block: no boundary case.

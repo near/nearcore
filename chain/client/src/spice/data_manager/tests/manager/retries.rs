@@ -497,7 +497,7 @@ fn expiring_the_lowest_item_lets_the_next_height_be_pulled() {
     manager.on_block_processed(&blocks[2]);
     assert!(manager.pulling_from(&ids[1]).is_empty());
 
-    manager.set_final_execution_head(&blocks[1]);
+    manager.set_shard_final_execution_head(1, &blocks[1]);
 
     // The clock stands still: only the expiry can have let the next height in.
     let requests = wants_for(manager.on_block_processed(&blocks[3]), &ids[1]);
