@@ -144,3 +144,31 @@ impl ExternalCallCache {
         canonical_hash.is_ok_and(|hash| hash == cached.block_hash)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_store::test_utils::create_test_store;
+
+    /// When the cache is full, a new call pushes out the least recently used one.
+    #[test]
+    fn test_full_cache_drops_the_least_recently_used_call() {
+        let cache = ExternalCallCache::new(create_test_store());
+        let call_hash = |index: usize| CryptoHash::hash_bytes(&index.to_le_bytes());
+        let block_hash = CryptoHash::hash_bytes(b"block");
+        for index in 0..=CAPACITY.get() {
+            let inclusion = ExternalCallInclusion {
+                unique_id: call_hash(index),
+                hash: call_hash(index),
+                hash_without_state_init: call_hash(index),
+                accepted: true,
+            };
+            cache.remember(&block_hash, 1, &[inclusion]);
+        }
+        let calls = cache.calls.lock();
+        assert_eq!(calls.len(), CAPACITY.get());
+        assert!(!calls.contains(&call_hash(0)));
+        assert!(calls.contains(&call_hash(1)));
+        assert!(calls.contains(&call_hash(CAPACITY.get())));
+    }
+}

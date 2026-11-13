@@ -876,6 +876,9 @@ fn test_ecc_promise_transfers_to_another_shard() {
 /// The time an RPC request in the universal account tests may take.
 const UNIVERSAL_RPC_TIMEOUT: Duration = Duration::seconds(30);
 
+/// How many blocks a test waits to see that a repeat of a call that ran does not land.
+const REPEAT_CHECK_BLOCKS: usize = 5;
+
 /// Deploys `ecc_contract` as a global contract from `sponsor` and funds the universal account whose
 /// state init uses it, which a transfer leaves uninitialized. Returns the account and its state
 /// init.
@@ -1089,12 +1092,112 @@ fn test_ecc_initializes_universal_account() {
 
     let first_call = EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(state_init));
     let second_call = EccTransaction::new(wallet, vec![2]);
-    // The first call again, at a later height: its own unique id, and its state init, which the
-    // account now ignores, stripped by the producer.
     let first_state_init = first_call.state_init().map(|state_init| state_init.0.clone());
-    let calls = [(first_call.clone(), first_state_init), (second_call, None), (first_call, None)];
     let mut transaction_ids = vec![];
-    for (call, landed_state_init) in calls {
+    for (call, included_state_init) in [(&first_call, first_state_init), (&second_call, None)] {
+        let outcome = send_and_wait(&mut env, call);
+        let view = assert_included(&env, call, &outcome);
+        assert_eq!(view.state_init, included_state_init);
+        transaction_ids.push(view.transaction_id);
+    }
+
+    // The first call again, once its first inclusion is final. `send_tx` finds that inclusion by
+    // the call's hash, and the repeat goes nowhere.
+    let from_height = env.rpc_node().head().height + 1;
+    let outcome = send_and_wait(&mut env, &first_call);
+    let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+        panic!("expected an external call, got {:?}", outcome.transaction);
+    };
+    assert_eq!(view.transaction_id, transaction_ids[0]);
+    env.rpc_runner().run_for_number_of_blocks(REPEAT_CHECK_BLOCKS);
+    let stripped_hash = *first_call.hash_without_state_init();
+    assert!(chunks_with_ecc(&env.rpc_node(), stripped_hash, from_height).is_empty());
+    assert!(chunks_with_ecc(&env.rpc_node(), *first_call.hash(), from_height).is_empty());
+}
+
+/// A resend of a call whose own run deleted its contract returns the first inclusion. Nodes check
+/// for a repeat before they check the contract, which the first run removed.
+#[test]
+fn test_resend_of_ecc_that_deleted_its_contract_returns_the_first_inclusion() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let beneficiary = create_account_id("beneficiary");
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&beneficiary, &contract_id], &beneficiary);
+    let deploy_tx =
+        env.rpc_node().tx_deploy_contract(&contract_id, self_deleting_contract(&beneficiary));
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
+
+    let call = EccTransaction::new(contract_id.clone(), vec![1]);
+    let first = send_and_wait(&mut env, &call);
+    env.rpc_runner().run_for_number_of_blocks(REPEAT_CHECK_BLOCKS);
+    // The setup: the first run deleted the contract's account.
+    assert!(env.rpc_node().view_account_query(&contract_id).is_err());
+
+    let resent = send_and_wait(&mut env, &call);
+    assert_eq!(resent.transaction_outcome.id, first.transaction_outcome.id);
+}
+
+/// A contract whose ECC method deletes its own account, sending the balance to `beneficiary`.
+fn self_deleting_contract(beneficiary: &AccountId) -> Vec<u8> {
+    let beneficiary_len = beneficiary.len();
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "current_account_id" (func $current_account_id (param i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
+  (import "env" "promise_batch_create" (func $promise_batch_create (param i64 i64) (result i64)))
+  (import "env" "promise_batch_action_delete_account" (func $delete_account (param i64 i64 i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 1024) "{beneficiary}")
+  (func (export "{ECC_METHOD_NAME}")
+    (call $current_account_id (i64.const 0))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (call $delete_account
+      (call $promise_batch_create (call $register_len (i64.const 0)) (i64.const 0))
+      (i64.const {beneficiary_len})
+      (i64.const 1024))
+  )
+)"#
+    ))
+}
+
+/// Sends `call` through `send_tx` and returns its outcome once final.
+fn send_and_wait(env: &mut TestLoopEnv, call: &EccTransaction) -> FinalExecutionOutcomeView {
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(call.clone(), TxExecutionStatus::Final),
+            UNIVERSAL_RPC_TIMEOUT,
+        )
+        .unwrap();
+    response.final_execution_outcome.unwrap().into_outcome()
+}
+
+/// Checks that `outcome` is an accepted inclusion of `call`, with the unique id of the call's hash
+/// without state init at its height, and returns the inclusion's view.
+fn assert_included<'a>(
+    env: &TestLoopEnv,
+    call: &EccTransaction,
+    outcome: &'a FinalExecutionOutcomeView,
+) -> &'a EccTransactionView {
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(call.payload().to_vec()));
+    let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+        panic!("expected an external call, got {:?}", outcome.transaction);
+    };
+    let block_hash = outcome.transaction_outcome.block_hash;
+    let height = env.rpc_node().client().chain.get_block_header(&block_hash).unwrap().height();
+    let expected_id = create_ecc_outcome_id(call.hash_without_state_init(), height);
+    assert_eq!(view.transaction_id, expected_id);
+    view
+}
+
         let response = env
             .rpc_runner()
             .run_with_jsonrpc_client(
