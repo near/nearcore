@@ -229,7 +229,7 @@ When the network first enables dynamic resharding (transitioning from static to 
 
 ## 6. Memtrie Pre-loading for Dynamic Resharding
 
-The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but we have an entire epoch (~12 hours on mainnet) between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
+The parent shard's memtrie must be loaded when resharding executes (checked at `chain/chain/src/resharding/manager.rs`). Loading takes ~30 seconds, but an entire epoch (about 7 hours on mainnet) passes between when the decision is known and when resharding executes. The pre-loading mechanism handles this with background loading:
 
 ### Timeline
 
