@@ -69,7 +69,9 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash, Nonce,
     NonceIndex, ShardId, StateChangeCause,
 };
-use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use near_primitives::universal_state_init::{
+    RawStateInit, UniversalStateInit, UniversalStateInitV1,
+};
 use near_primitives::utils::{
     create_ecc_outcome_id, create_receipt_id_from_transaction, derive_near_deterministic_account_id,
 };
@@ -3115,6 +3117,51 @@ fn test_apply_ecc_refused_past_compute_share() {
     assert_eq!(value, None);
     assert_eq!(second.outcome.compute_usage, Some(0));
     assert_eq!(second.outcome.gas_burnt, Gas::ZERO);
+}
+
+/// An ECC refused for its state init counts the compute of its fees toward the share of the
+/// chunk's compute, so the next ECC is refused at the share.
+#[test]
+fn test_apply_ecc_refused_for_state_init_counts_toward_compute_share() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let contracts = vec![funded_ecc_contract(&bob_account(), ecc_accepting_contract())];
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
+        setup_ecc_contracts(contracts);
+    apply_state.trie_access_tracker_state = Default::default();
+    let gas_limit = apply_state.gas_limit.unwrap();
+    let config = Arc::make_mut(&mut apply_state.config);
+    config.external_calls_config.chunk_compute_share = tiny_share(gas_limit.as_gas());
+    let missing: AccountId = "missing.near".parse().unwrap();
+    let malformed_init = Some(RawStateInit(vec![2]));
+    let malformed =
+        EccTransaction::new_with_state_init(missing, ECC_PAYLOAD.to_vec(), malformed_init);
+    let to_bob = EccTransaction::new(bob_account(), ECC_PAYLOAD.to_vec());
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![malformed.into(), to_bob.into()],
+        &epoch_info_provider,
+    );
+
+    let [first, second] = &apply_result.outcomes[..] else {
+        panic!("expected two outcomes, got {:?}", apply_result.outcomes);
+    };
+    assert_matches!(
+        first.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+            InvalidTxError::ActionsValidation(_)
+        ))
+    );
+    let share = apply_state.config.external_calls_config.compute_share(gas_limit);
+    let used = first.outcome.compute_usage.unwrap();
+    assert_eq!(
+        refused_at_share(&second.outcome.status),
+        ExternalCallChunkLimit::Compute { used, limit: share }
+    );
 }
 
 /// Once the chunk's ECCs use up their share of the chunk's storage proof, a further ECC is
