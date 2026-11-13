@@ -46,15 +46,16 @@ use std::sync::Arc;
 
 mod boundary;
 
-// Each pending chunk stores uncompressed witnesses plus uncompressed contracts. A witness is
-// bounded by MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB) and the contracts of each code request by
-// MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), so a chunk with one witness and one
-// request holds ~320 MiB.  MAX_PENDING_CHUNKS * 320 MiB ≈ 7.5 GiB worst-case memory budget.
+// Each pending chunk stores its uncompressed witness candidates plus uncompressed contracts.
+// A chunk holds at most one candidate per producer of its shard, each bounded by
+// MAX_UNCOMPRESSED_STATE_WITNESS_SIZE (64 MiB). The contracts of each code request are bounded by
+// MAX_UNCOMPRESSED_CONTRACT_CODE_PER_REQUEST_SIZE (256 MiB), and a chunk sends at most one request
+// per candidate plus one for its contract accesses. With honest producers, one candidate and one
+// request per chunk, MAX_PENDING_CHUNKS * 320 MiB ≈ 7.5 GiB.
 // On the other hand if the validator follows 8 shards this means 3 pending chunks per shard on
 // average, so we do not want to drop below that.
 // TODO(spice): add test covering the relationship between constants.
-// TODO(spice-data-distribution): a pending chunk can hold several witnesses and code requests, so
-// this bounds chunks, not memory.
+// TODO(spice-data-distribution): bound the bytes held, not the chunks.
 pub(crate) const MAX_PENDING_CHUNKS: usize = 24;
 
 /// How many blocks we have not received yet we hold contract accesses for. Honest accesses
@@ -764,11 +765,11 @@ impl SpiceChunkValidatorActor {
         // over the producers and retry with another one if it does not answer. A producer
         // answers one code request per chunk and requester, so code asked here from a producer
         // already asked for this chunk never arrives, and the candidate waits until evicted.
-        let producer = self
-            .epoch_manager
-            .get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?
-            .into_iter()
-            .next()
+        let producers =
+            self.epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, chunk_id.shard_id)?;
+        let producer = producers
+            .first()
+            .cloned()
             .ok_or_else(|| Error::Other("chunk has no producers".to_owned()))?;
         let entry =
             self.partial_chunk_data.get_or_insert_mut(chunk_id.clone(), PartialChunkData::new);
@@ -776,6 +777,8 @@ impl SpiceChunkValidatorActor {
             uncached.into_iter().filter(|hash| !entry.code.contains_key(hash)).collect();
         let to_request = entry.take_unrequested(missing.clone());
         entry.candidates.push(WitnessCandidate { witness, missing });
+        // The data manager delivers one commitment per producer.
+        debug_assert!(entry.candidates.len() <= producers.len());
         if !to_request.is_empty() {
             self.request_code(&chunk_id, producer, to_request, &signer);
         }

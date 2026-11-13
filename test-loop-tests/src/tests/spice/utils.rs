@@ -68,13 +68,12 @@ fn install_endorsement_delay_handler(
                     let Some(front) = delayed_endorsements.front() else {
                         break;
                     };
-                    let Some(&height) = block_heights.read().get(&front.0) else {
-                        // Endorsed block not observed on this handler yet; wait
-                        // until it arrives before deciding if the delay has
-                        // elapsed.
-                        break;
-                    };
-                    if height + delay_height >= block.header().height() {
+                    // A node endorses only blocks it processed, and it broadcasts each block it
+                    // processes, so an endorsed block this handler never saw was processed before
+                    // the handler was installed, and its delay has elapsed.
+                    let height = block_heights.read().get(&front.0).copied();
+                    if height.is_some_and(|height| height + delay_height >= block.header().height())
+                    {
                         break;
                     }
                     let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();

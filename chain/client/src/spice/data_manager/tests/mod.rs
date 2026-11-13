@@ -81,6 +81,11 @@ fn receipt_data_with_proof(
     ))
 }
 
+/// `data` as decoded for `id` under its own commitment.
+fn decoded_data(id: &DataId, data: SpiceData) -> Decoded {
+    id.verify_data(data).expect("the data is the data the id names")
+}
+
 /// Merklizes `parts` into a commitment and verifies each part against it.
 fn commit_parts(
     parts: Vec<Box<[u8]>>,
@@ -164,7 +169,7 @@ fn decode(
     encoder: &Arc<ReedSolomonEncoder>,
     parts: Vec<VerifiedCodedPart>,
     senders: Range<usize>,
-) -> SpiceData {
+) -> Decoded {
     match insert_data_parts(item, encoder, parts, senders) {
         PartInsertResult::Decoded(data) => data,
         other => panic!("commitment did not decode: {other:?}"),
@@ -317,7 +322,11 @@ fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
 
 /// A witness for `shard` of `block` with no contents.
 fn witness_data(block: &Block, shard: u64) -> SpiceData {
-    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) };
+    witness_data_for(SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) })
+}
+
+/// A witness for `chunk_id` with no contents.
+fn witness_data_for(chunk_id: SpiceChunkId) -> SpiceData {
     SpiceData::StateWitness(Box::new(SpiceChunkStateWitness::new(
         chunk_id,
         PartialState::TrieValues(Vec::new()),

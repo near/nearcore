@@ -6,7 +6,7 @@ fn parts_without_an_item_for_a_processed_block_are_not_wanted() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 1, 0);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0], None).unwrap();
     let encoder = encoder();
     let (commitment, parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
 
@@ -21,7 +21,7 @@ fn parts_signed_with_a_key_not_valid_for_the_items_block_are_rejected_and_change
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0], None).unwrap();
     let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
     parts.truncate(DATA_PARTS);
     let signer = other_key_signer(&producers()[0]);
@@ -30,7 +30,7 @@ fn parts_signed_with_a_key_not_valid_for_the_items_block_are_rejected_and_change
 
     assert_matches!(result, Err(SenderFault::InvalidSignature));
     let result = manager.receive_from(&producers()[0], &id, &commitment, parts);
-    assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == receipt_data(0, 1));
+    assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == decoded_data(&id, receipt_data(0, 1)));
 }
 
 #[test]
@@ -39,14 +39,14 @@ fn received_data_is_delivered_on_decode_and_its_commitment_settled() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0], None).unwrap();
     let encoder = encoder();
     let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
     let late_part = parts.split_off(DATA_PARTS);
 
     let delivered = manager.receive_from(&producers()[0], &id, &commitment, parts).unwrap();
 
-    assert_matches!(delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
+    assert_matches!(delivered, PartsOutcome::Decoded(data) if data == decoded_data(&id, receipt_data(0, 1)));
     // Nothing more can arrive under a decoded commitment, so a re-pushed part cannot
     // deliver twice. The item stays until it expires.
     let result = manager.receive_from(&producers()[1], &id, &commitment, late_part);
@@ -60,7 +60,7 @@ fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0], None).unwrap();
     let encoder = encoder();
     let (first, first_parts) = encode_to_wire(&encoder, &receipt_data(0, 1));
     let (second, second_parts) = encode_to_wire(&encoder, &other_receipt_data(0, 1));
@@ -69,10 +69,13 @@ fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
     let second_delivered =
         manager.receive_from(&producers()[1], &id, &second, second_parts).unwrap();
 
-    assert_matches!(first_delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
+    assert_matches!(
+        first_delivered,
+        PartsOutcome::Decoded(data) if data == decoded_data(&id, receipt_data(0, 1))
+    );
     assert_matches!(
         second_delivered,
-        PartsOutcome::Decoded(data) if data == other_receipt_data(0, 1)
+        PartsOutcome::Decoded(data) if data == decoded_data(&id, other_receipt_data(0, 1))
     );
 }
 
@@ -82,7 +85,7 @@ fn assembled_data_failing_its_id_check_is_settled_on_the_spot() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);
     let mut manager = TestManager::new(&chain).manager;
-    manager.track_block(&blocks[0]).unwrap();
+    manager.track_block(&blocks[0], None).unwrap();
     let encoder = encoder();
     // The decoded proof's destination doesn't match the id's `to_shard`.
     let (commitment, mut parts) = encode_to_wire(&encoder, &receipt_data(0, 0));

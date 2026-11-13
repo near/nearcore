@@ -84,7 +84,7 @@ fn answer_requests(
         match manager.manager.receive_from(&producer, id, &commitment, parts) {
             Ok(PartsOutcome::Decoded(data)) => {
                 assert_eq!(producer, honest.producer);
-                assert_eq!(data, receipt_data(0, 1));
+                assert_eq!(data, decoded_data(id, receipt_data(0, 1)));
                 honest_decoded = true;
             }
             Err(SenderFault::GarbageCommitment(_)) => assert_ne!(producer, honest.producer),

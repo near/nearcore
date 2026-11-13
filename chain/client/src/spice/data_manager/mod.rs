@@ -10,17 +10,21 @@ mod pull;
 mod sender;
 mod serve;
 
+pub(crate) use data_id::Decoded;
 pub use data_id::{DataId, ReceiptProofId};
 pub(crate) use encode::{EncodedData, encode};
 use heights::ChainHeights;
-pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
+use item::VerifiedCodedPart;
+pub(crate) use item::{AssembledDataError, SpiceData};
 use item::{FetchItem, PartInsertResult};
 use lru::LruCache;
 use near_async::time::Instant;
+use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::{Block, Error};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, epoch_chunk_producers_for_shard};
+use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
@@ -34,7 +38,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use orphans::ParkedParts;
 pub(crate) use policy::ServePolicies;
-use policy::receipt_proof;
+use policy::{receipt_proof, witness};
 use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
 use sender::AuthenticatedSender;
@@ -59,6 +63,10 @@ pub(crate) const MAX_REQUESTED_PARTS: usize = 128;
 /// Max number of entries `(data_id, ordinals)` a single batched request may carry.
 /// This caps the encodes (CPU).
 pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
+
+/// Max number of witness entries a single batched request may carry. Serving one encodes a
+/// witness of up to 64 MiB.
+pub(crate) const MAX_REQUESTED_WITNESSES: usize = 2;
 
 /// Blocks parts are parked for.
 pub(crate) const MAX_ORPHAN_BLOCKS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
@@ -94,7 +102,7 @@ pub(crate) enum PartsOutcome {
     /// Parts accepted; no commitment decoded.
     Collecting,
     /// A commitment decoded to this data, which matches the committed hash and the id.
-    Decoded(SpiceData),
+    Decoded(Decoded),
     /// The item is done, or the commitment was already settled, to data or to garbage; The parts
     /// were probably OK, but we don't need them any more.
     AlreadySettled,
@@ -119,14 +127,12 @@ pub(crate) struct ProcessedBlockOutput {
     /// Requests for the pullable items, grouped by producer.
     pub(crate) pull_requests: Vec<PullRequest>,
     /// Data decoded from the parts parked for the block.
-    pub(crate) decoded: Vec<(DataId, SpiceData)>,
+    pub(crate) decoded: Vec<Decoded>,
 }
 
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
-// TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
-// on the old actor path (#16275).
 pub(crate) struct SpiceDataManager {
     encoders: ReedSolomonEncoderCache,
     chain_store: ChainStoreAdapter,
@@ -147,7 +153,7 @@ pub(crate) struct SpiceDataManager {
     /// Parts for blocks not processed yet, by block hash; the most recently parked blocks.
     // TODO(spice-data-distribution): bound the data parked per sender.
     orphans: LruCache<CryptoHash, Vec<ParkedParts>>,
-    /// Processed blocks above the final execution head, with their heights.
+    /// Processed blocks above the cut-off, with their heights.
     processed_blocks: HashMap<CryptoHash, BlockHeight>,
 }
 
@@ -174,31 +180,48 @@ impl SpiceDataManager {
         }
     }
 
-    /// The ids of every data kind this node needs from `block`.
-    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
-    // witnesses move onto the engine (#16275).
-    fn needed_items(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
-        receipt_proof::needed_items(self.epoch_manager.as_ref(), &self.shard_tracker, block)
+    /// The ids of every data kind this node, `me` when it has an account, needs from `block`.
+    fn needed_items(
+        &self,
+        block: &BlockHeader,
+        me: Option<&AccountId>,
+    ) -> Result<Vec<DataId>, Error> {
+        let epoch_manager = self.epoch_manager.as_ref();
+        let mut ids = receipt_proof::needed_items(epoch_manager, &self.shard_tracker, block)?;
+        if let Some(me) = me {
+            ids.extend(witness::needed_items(epoch_manager, &self.shard_tracker, me, block)?);
+        }
+        Ok(ids)
     }
 
     /// Whether the item is completed as far as data distribution is concerned.
-    fn is_done(&self, id: &DataId) -> bool {
+    fn is_done(&self, id: &DataId, me: Option<&AccountId>) -> bool {
+        let store = self.chain_store.store();
         match id {
-            DataId::ReceiptProof(id) => {
-                receipt_proof::is_done(&self.chain_store.store(), &id.source, id.to_shard)
+            DataId::ReceiptProof(id) => receipt_proof::is_done(&store, &id.source, id.to_shard),
+            DataId::Witness(chunk_id) => {
+                me.is_some_and(|me| witness::is_done(&store, me, chunk_id))
             }
-            DataId::Witness(_) => unreachable!("the data manager tracks no witnesses"),
         }
     }
 
     /// The ids of every data kind that `block` makes pullable, tracked or not.
-    fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        receipt_proof::made_pullable_by(
+    fn made_pullable_by(
+        &self,
+        block: &Block,
+        me: Option<&AccountId>,
+    ) -> Result<Vec<DataId>, Error> {
+        let epoch_manager = self.epoch_manager.as_ref();
+        let mut ids = receipt_proof::made_pullable_by(
             &self.chain_store,
-            self.epoch_manager.as_ref(),
+            epoch_manager,
             &self.shard_tracker,
             block,
-        )
+        )?;
+        if let Some(me) = me {
+            ids.extend(witness::made_pullable_by(&self.chain_store, epoch_manager, me, block)?);
+        }
+        Ok(ids)
     }
 
     /// The keys the producer `account_id` of `item` may sign its parts with.
@@ -227,21 +250,28 @@ impl SpiceDataManager {
         self.items.contains_key(id)
     }
 
-    /// Tracks the items a processed block needs or makes pullable. Returns the data decoded from
-    /// parts that waited for it. Idempotent. Fails only on a read of the block's stored chain or
-    /// epoch data.
-    fn track_block(&mut self, block: &Block) -> Result<Vec<(DataId, SpiceData)>, Error> {
-        self.track_needed_items(block)?;
-        self.mark_pullable_by(block)?;
+    /// Tracks the items a processed block needs or makes pullable, and drops the witnesses of
+    /// the chunks its parent certifies. Returns the data decoded from parts that waited for it.
+    /// Idempotent. Fails only on a read of the block's stored chain or epoch data.
+    fn track_block(
+        &mut self,
+        block: &Block,
+        me: Option<&AccountId>,
+    ) -> Result<Vec<Decoded>, Error> {
+        self.track_needed_items(block, me)?;
+        self.mark_pullable_by(block, me)?;
+        for id in witness::certified_by_parent(&self.chain_store, block)? {
+            self.remove_item(&id);
+        }
         Ok(self.release_parked(block.header()))
     }
 
     /// Starts tracking every item this node needs from `block` and doesn't already have or track.
-    fn track_needed_items(&mut self, block: &Block) -> Result<(), Error> {
+    fn track_needed_items(&mut self, block: &Block, me: Option<&AccountId>) -> Result<(), Error> {
         let block = block.header();
         let height = block.height();
-        // The chain is past the block, so its data can never be applied.
-        if self.heights.at_or_below_final_execution(height) {
+        // The chain is past the block, so its data is never needed.
+        if self.heights.at_or_below_cutoff(height) {
             return Ok(());
         }
         // A block off the canonical chain at or below the final head can never be applied.
@@ -253,9 +283,9 @@ impl SpiceDataManager {
         let epoch_info = self.epoch_manager.get_epoch_info(block.epoch_id())?;
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
         let new_items_and_producers = self
-            .needed_items(block)?
+            .needed_items(block, me)?
             .into_iter()
-            .filter(|id| !self.items.contains_key(id) && !self.is_done(id))
+            .filter(|id| !self.items.contains_key(id) && !self.is_done(id, me))
             .map(|id| {
                 let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
                 Ok((id, producers))
@@ -270,8 +300,8 @@ impl SpiceDataManager {
     }
 
     /// Adds the tracked items `block` makes pullable to `pulls`.
-    fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
-        for id in self.made_pullable_by(block)? {
+    fn mark_pullable_by(&mut self, block: &Block, me: Option<&AccountId>) -> Result<(), Error> {
+        for id in self.made_pullable_by(block, me)? {
             if self.done_items.contains(&id) {
                 continue;
             }
@@ -282,17 +312,18 @@ impl SpiceDataManager {
         Ok(())
     }
 
-    /// Handles a processed block. Returns the pull requests to send now and the data decoded
-    /// from parts that waited for the block.
+    /// Handles a processed block. `me` is this node's account, if it has one. Returns the pull
+    /// requests to send now and the data decoded from parts that waited for the block.
     pub(crate) fn on_block_processed(
         &mut self,
         block_hash: &CryptoHash,
         now: Instant,
+        me: Option<&AccountId>,
     ) -> ProcessedBlockOutput {
-        match self.final_execution_head_height() {
-            Ok(height) => self.on_final_execution_head(height),
+        match self.cutoff_height() {
+            Ok(height) => self.on_cutoff(height),
             Err(err) => {
-                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
+                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the cut-off");
             }
         }
         match self.chain_store.final_head() {
@@ -303,24 +334,43 @@ impl SpiceDataManager {
         }
         let decoded = match self.chain_store.get_block(block_hash) {
             Ok(block) => self
-                .track_block(&block)
+                .track_block(&block, me)
                 .expect("chain and epoch data of a processed block should be readable"),
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to read the block");
                 Vec::new()
             }
         };
-        self.handle_done_items();
+        self.handle_done_items(me);
         ProcessedBlockOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
     }
 
-    /// Height of the final execution head; the genesis height before the first one is recorded.
-    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
-        match self.chain_store.spice_final_execution_head() {
-            Ok(head) => Ok(head.height),
-            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
-            Err(err) => Err(err),
+    /// Height of the cut-off, below which no data is needed: the lower of the final execution
+    /// head and the last block certified as of the final head. The genesis height before the
+    /// first final execution head is recorded.
+    fn cutoff_height(&self) -> Result<BlockHeight, Error> {
+        let final_execution_height = match self.chain_store.spice_final_execution_head() {
+            Ok(head) => head.height,
+            Err(Error::DBNotFoundErr(_)) => return Ok(self.chain_store.get_genesis_height()),
+            Err(err) => return Err(err),
+        };
+        Ok(final_execution_height.min(self.last_certified_as_of_final_head()?.height()))
+    }
+
+    /// The cut-off, as [`Self::cutoff_height`] describes it. Fails before the first final
+    /// execution head is recorded.
+    pub(crate) fn cutoff(&self) -> Result<Tip, Error> {
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        let last_certified = self.last_certified_as_of_final_head()?;
+        if final_execution_head.height <= last_certified.height() {
+            return Ok(Arc::unwrap_or_clone(final_execution_head));
         }
+        Ok(Tip::from_header(&last_certified))
+    }
+
+    fn last_certified_as_of_final_head(&self) -> Result<Arc<BlockHeader>, Error> {
+        let final_head = self.chain_store.final_head()?;
+        get_last_certified_block_header(&self.chain_store, &final_head.last_block_hash)
     }
 
     /// Handles a signed message of parts. Parts for a block not processed yet wait for it.
@@ -396,9 +446,9 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Stops tracking items at or below the final execution head at `height`.
-    fn on_final_execution_head(&mut self, height: BlockHeight) {
-        self.heights.update_final_execution_head(height);
+    /// Stops tracking items at or below the cut-off at `height`.
+    fn on_cutoff(&mut self, height: BlockHeight) {
+        self.heights.update_cutoff(height);
         let Some(next_height) = height.checked_add(1) else {
             return;
         };
@@ -445,9 +495,9 @@ impl SpiceDataManager {
     }
 
     /// Marks the delivered items that are done, and stops pulling them.
-    fn handle_done_items(&mut self) {
+    fn handle_done_items(&mut self, me: Option<&AccountId>) {
         let done: Vec<DataId> =
-            self.delivered_items.iter().filter(|id| self.is_done(id)).cloned().collect();
+            self.delivered_items.iter().filter(|id| self.is_done(id, me)).cloned().collect();
         for id in done {
             self.delivered_items.remove(&id);
             self.pulls.forget(&id, self.items[&id].height);

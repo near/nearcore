@@ -5,15 +5,15 @@ use std::ops::Bound;
 /// Each height only increases: an update to a lower height leaves it unchanged.
 #[derive(Debug, Default)]
 pub(super) struct ChainHeights {
-    /// Highest final execution head.
-    final_execution_head: Option<BlockHeight>,
+    /// Highest cut-off.
+    cutoff: Option<BlockHeight>,
     /// Highest consensus final head.
     final_head: Option<BlockHeight>,
 }
 
 impl ChainHeights {
-    pub(super) fn update_final_execution_head(&mut self, height: BlockHeight) {
-        self.final_execution_head = self.final_execution_head.max(Some(height));
+    pub(super) fn update_cutoff(&mut self, height: BlockHeight) {
+        self.cutoff = self.cutoff.max(Some(height));
     }
 
     /// Updates the final head to `height` and returns the lower bound of the heights newly at
@@ -28,9 +28,9 @@ impl ChainHeights {
         Some(from)
     }
 
-    /// Whether `height` is at or below the final execution head.
-    pub(super) fn at_or_below_final_execution(&self, height: BlockHeight) -> bool {
-        self.final_execution_head.is_some_and(|head| height <= head)
+    /// Whether `height` is at or below the cut-off.
+    pub(super) fn at_or_below_cutoff(&self, height: BlockHeight) -> bool {
+        self.cutoff.is_some_and(|cutoff| height <= cutoff)
     }
 
     /// Whether `height` is at or below the final head.
