@@ -3153,6 +3153,24 @@ fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
         .collect()
 }
 
+/// The verdict on an applied external call, for metrics: `accepted`, or why it was refused, with a
+/// failed run named by its VM error.
+fn external_call_verdict(
+    status: &ExecutionStatus,
+    run_error: Option<&'static str>,
+) -> &'static str {
+    if let Some(run_error) = run_error {
+        return run_error;
+    }
+    match status {
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)) => error.into(),
+        ExecutionStatus::Failure(TxExecutionError::ActionError(error)) => (&error.kind).into(),
+        ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => "accepted",
+        // Apply gives every external call a final status, so this is never counted.
+        ExecutionStatus::Unknown => "unknown",
+    }
+}
+
 /// Records the outcome of an external contract call that `process_external_call` processed, counts
 /// what it reports toward the chunk's gas, compute and burnt tokens, and sends out its receipts.
 fn record_external_call(
@@ -3179,6 +3197,8 @@ fn record_external_call(
     } else {
         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     }
+    let verdict = external_call_verdict(&outcome.outcome.status, run_error);
+    metrics::EXTERNAL_CALL_PROCESSED.with_label_values(&[verdict]).inc();
     send_ecc_receipts(processing_state, receipt_sink, &outcome.id, ecc.contract_id(), receipts)?;
     processing_state.outcomes.push(outcome);
     Ok(())

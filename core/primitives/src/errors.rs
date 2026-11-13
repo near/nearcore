@@ -249,6 +249,7 @@ pub enum ExternalCallChunkLimit {
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
+    strum::IntoStaticStr,
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -878,6 +879,7 @@ impl std::error::Error for ActionError {}
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
+    strum::IntoStaticStr,
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]

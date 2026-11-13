@@ -141,6 +141,8 @@ pub struct ProcessedExternalCall {
     pub receipts: Vec<Receipt>,
     /// Whether the call installed its state init, which it does only on an uninitialized account.
     pub installed_state_init: bool,
+    /// Why the contract's run failed, as the VM names it, for metrics. None if it did not fail.
+    pub run_error: Option<&'static str>,
 }
 
 /// Processes an external contract call of a chunk: checks the chunk's shares for ECCs, reads
@@ -180,6 +182,7 @@ pub fn process_external_call<'a>(
         accepted: false,
         receipts: vec![],
         installed_state_init: false,
+        run_error: None,
     };
     let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
         Ok(cost) => cost,
@@ -387,6 +390,7 @@ fn process_admitted_external_call<'a>(
         accepted: false,
         receipts: vec![],
         installed_state_init: false,
+        run_error: None,
     };
     // A call that installs its state init pays the install's fees too, so its contract must
     // cover them before the run.
@@ -717,9 +721,6 @@ pub(crate) fn run_external_call(
     };
     drop(runtime_ext);
     drop(budgeted);
-    // TODO(ecc): count external call runs and their failures in metrics, either in the
-    // `FUNCTION_CALL_PROCESSED*` metrics that `action_function_call` reports or in metrics of
-    // their own.
 
     let receipt_gas_price = receipt_gas_price(config, apply_state.gas_price);
     let mut receipts = vec![];
