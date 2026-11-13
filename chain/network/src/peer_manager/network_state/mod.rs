@@ -387,8 +387,8 @@ impl NetworkState {
         rx
     }
 
-    /// Stops peer instance if it is still connected,
-    /// and then mark peer as banned in the peer store.
+    /// Marks the peer as banned in the peer store and closes the peer's
+    /// connections on every tier.
     pub fn disconnect_and_ban(
         &self,
         clock: &time::Clock,
@@ -396,13 +396,8 @@ impl NetworkState {
         ban_reason: ReasonForBan,
         transport: &dyn NetworkTransport,
     ) {
-        if self.peers.is_connected_on_tier(peer_id, tcp::Tier::T2) {
-            transport.disconnect_peer(peer_id, Some(ban_reason));
-        } else {
-            if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::debug!(target: "network", ?err, "failed to save peer data");
-            }
-        }
+        self.peer_store.peer_ban(clock, peer_id, ban_reason);
+        transport.ban_peer(peer_id, ban_reason);
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
@@ -593,13 +588,7 @@ impl NetworkState {
             }
 
             // Save the fact that we are disconnecting to the PeerStore.
-            let res = match &reason {
-                ClosingReason::Ban(ban_reason) => {
-                    self.peer_store.peer_ban(clock, &info.peer_info.id, *ban_reason)
-                }
-                _ => self.peer_store.peer_disconnected(clock, &info.peer_info.id),
-            };
-            if let Err(err) = res {
+            if let Err(err) = self.peer_store.peer_disconnected(clock, &info.peer_info.id) {
                 tracing::debug!(target: "network", ?err, "failed to save peer data");
             }
 
@@ -1497,8 +1486,10 @@ impl NetworkState {
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
         self.spawn("add_snapshot_hosts", async move {
+            let load_validators =
+                || this.accounts_data.load().data.values().map(|d| d.peer_id.clone()).collect();
             // Verify and add the new data to the internal state.
-            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
+            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts, load_validators).await;
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
             if new_data.is_empty() {
@@ -1583,7 +1574,7 @@ impl NetworkState {
                                 clock.sleep(timeout).await;
                                 match this.graph.load().local_edges.get(&other_peer) {
                                     Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                    _ => transport.disconnect_peer(&other_peer, None),
+                                    _ => transport.disconnect_peer(tcp::Tier::T2, &other_peer),
                                 }
                             }
                         }))

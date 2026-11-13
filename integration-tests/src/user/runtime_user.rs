@@ -3,7 +3,7 @@ use crate::user::User;
 use itertools::Itertools;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -222,6 +222,9 @@ impl RuntimeUser {
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            config_store: Arc::new(RuntimeConfigStore::with_one_config(
+                self.runtime_config.as_ref().clone(),
+            )),
             next_wasm_config: None,
             vm_generation: VmGeneration(0),
             cache: None,

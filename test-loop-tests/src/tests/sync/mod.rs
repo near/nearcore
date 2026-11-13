@@ -5,10 +5,12 @@ mod early_kickout_sync;
 mod epoch_sync;
 mod far_horizon;
 mod gc;
+mod header_head_epoch;
 mod migration_epoch_sync_proof;
 mod near_horizon;
 // `pub(crate)` for the shuffling assertions, reused by `tests::early_kickout_e2e`.
 pub(crate) mod state_sync;
+mod state_sync_chunk_shard_ids;
 mod state_sync_receipt_proof_labels;
 mod sync_then_catchup;
 mod syncing;

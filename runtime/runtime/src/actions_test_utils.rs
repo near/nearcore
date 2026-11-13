@@ -6,6 +6,7 @@ use near_primitives::action::DeleteAccountAction;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, Balance, StateChangeCause};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardTries, ShardUId, TrieUpdate, set_access_key, set_account};
 
@@ -52,7 +53,11 @@ pub(crate) fn test_delete_account(
         Some(Account::new(Balance::from_yoctonear(100), Balance::ZERO, contract, storage_usage));
     let mut actor_id = account_id.clone();
     let mut action_result = ActionResult::default();
-    let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+    let receipt = Receipt::new_balance_refund(
+        &"alice.near".parse().unwrap(),
+        Balance::ZERO,
+        PROTOCOL_VERSION,
+    );
     let config = RuntimeConfig::test();
     let res = action_delete_account(
         state_update,
@@ -63,6 +68,7 @@ pub(crate) fn test_delete_account(
         account_id,
         &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
         &config,
+        PROTOCOL_VERSION,
     );
     assert!(res.is_ok());
     action_result

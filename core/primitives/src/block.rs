@@ -1,7 +1,7 @@
 use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
-    InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot, InvalidStateRoot,
-    InvalidTransactionRoot,
+    InvalidChunkHeaderRoot, InvalidChunkHeight, InvalidChunkMask, InvalidReceiptRoot,
+    InvalidStateRoot, InvalidTransactionRoot,
 };
 use crate::block_body::SpiceCoreStatements;
 use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
@@ -44,6 +44,12 @@ pub enum BlockValidityError {
     InvalidChunkHeaderRoot,
     InvalidTransactionRoot,
     InvalidChunkMask,
+    /// A chunk header was created at a height above the height of the block
+    /// that includes it.
+    InvalidChunkHeight {
+        height_created: BlockHeight,
+        block_height: BlockHeight,
+    },
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, ProtocolSchema)]
@@ -567,6 +573,18 @@ impl Block {
         }
     }
 
+    /// Whether the body carries any of the deprecated challenges.
+    #[inline]
+    pub fn challenges_present(&self) -> bool {
+        #[allow(deprecated)]
+        match self {
+            Block::BlockV1(block) => !block.challenges.is_empty(),
+            Block::BlockV2(block) => !block.challenges.is_empty(),
+            Block::BlockV3(block) => !block.body.challenges.is_empty(),
+            Block::BlockV4(block) => block.body.challenges_present(),
+        }
+    }
+
     #[inline]
     pub fn chunk_endorsements(&self) -> &[ChunkEndorsementSignatures] {
         match self {
@@ -655,6 +673,15 @@ impl Block {
             self.chunks().iter().map(|chunk| chunk.is_new_chunk()).collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
             return Err(InvalidChunkMask);
+        }
+
+        // A chunk can only be included at or after the height it was created for.
+        let block_height = self.header().height();
+        for chunk in self.chunks().iter() {
+            let height_created = chunk.height_created();
+            if height_created > block_height {
+                return Err(InvalidChunkHeight { height_created, block_height });
+            }
         }
 
         Ok(())

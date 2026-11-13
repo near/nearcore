@@ -25,7 +25,7 @@ use near_primitives::action::Action;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptSource};
 use near_primitives::types::{Balance, BlockId, BlockReference, EpochId, Finality, ShardId};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     BlockView, ChunkView, ExecutionOutcomeWithIdView, ExecutionStatusView, ReceiptEnumView,
     ReceiptView, SignedTransactionView, StateChangesView, TransactionEnvelopeView,
@@ -138,7 +138,7 @@ pub async fn build_streamer_message(
             .filter_map(|transaction| {
                 let outcome = transaction.id().and_then(|id| outcomes.remove(&id));
                 if outcome.is_none() {
-                    tracing::error!(
+                    tracing::warn!(
                         target: INDEXER,
                         tx_hash = ?transaction.id(),
                         shard_id = %header.shard_id,
@@ -157,8 +157,12 @@ pub async fn build_streamer_message(
         let mut receipt_outcomes = outcomes;
 
         // Local receipts recovered from shard-outcomes would miss the delayed ones.
-        let chunk_local_receipts =
-            chunk_local_receipts(&indexer_transactions, &runtime_config, gas_price)?;
+        let chunk_local_receipts = chunk_local_receipts(
+            &indexer_transactions,
+            &runtime_config,
+            gas_price,
+            protocol_version,
+        )?;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome_id in outcome_order {
@@ -238,6 +242,7 @@ fn chunk_local_receipts(
     transactions: &[IndexerTransactionWithOutcome],
     runtime_config: &RuntimeConfig,
     gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<Vec<ReceiptView>, FailedToFetchData> {
     let mut local_receipts = Vec::new();
     for indexer_tx in transactions {
@@ -248,6 +253,7 @@ fn chunk_local_receipts(
                     tx,
                     runtime_config,
                     gas_price,
+                    protocol_version,
                 )?)
             }
             // An external call sends its receipts out like a receipt's run, none local.
@@ -497,6 +503,7 @@ fn convert_signed_transaction_sir_into_local_receipt(
     tx: &SignedTransactionView,
     runtime_config: &RuntimeConfig,
     gas_price: Balance,
+    protocol_version: ProtocolVersion,
 ) -> Result<Option<ReceiptView>, FailedToFetchData> {
     if tx.signer_id != tx.receiver_id {
         return Ok(None);
@@ -541,6 +548,7 @@ fn convert_signed_transaction_sir_into_local_receipt(
         tx.public_key.clone(),
         cost.receipt_gas_price,
         vec![],
+        protocol_version,
     );
     let mut receipt_view: ReceiptView = receipt.into();
     let ReceiptEnumView::Action { actions, .. } = &mut receipt_view.receipt else {

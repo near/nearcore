@@ -7,6 +7,7 @@ use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
+use crate::challenge::Challenge;
 use crate::congestion_info::CongestionInfo;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
@@ -982,6 +983,15 @@ impl BlockBody {
         }
     }
 
+    fn set_challenges(&mut self, challenges: Vec<Challenge>) {
+        #[allow(deprecated)]
+        match self {
+            BlockBody::V1(body) => body.challenges = challenges,
+            BlockBody::V2(body) => body.challenges = challenges,
+            BlockBody::V3(_) => unreachable!("spice body has no challenges"),
+        }
+    }
+
     fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {
         match self {
             BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
@@ -1312,6 +1322,16 @@ impl Block {
                 body.body.set_vrf_value(vrf_value);
             }
         };
+    }
+
+    pub fn set_challenges(&mut self, challenges: Vec<Challenge>) {
+        #[allow(deprecated)]
+        match self {
+            Block::BlockV1(block) => block.challenges = challenges,
+            Block::BlockV2(block) => block.challenges = challenges,
+            Block::BlockV3(block) => block.body.challenges = challenges,
+            Block::BlockV4(block) => block.body.set_challenges(challenges),
+        }
     }
 
     pub fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {

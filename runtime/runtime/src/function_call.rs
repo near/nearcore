@@ -12,8 +12,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, ActionReceiptV3, AuthorizationContext, DataReceipt, Receipt, ReceiptEnum,
-    ReceiptV0, VersionedActionReceipt,
+    AuthorizationContext, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
@@ -70,40 +69,18 @@ pub(crate) fn new_receipts(
                 );
             }
 
-            let new_receipt = match signer.authorization_context.as_ref() {
-                AuthorizationContext::AccessKey(signer_public_key) => {
-                    let new_action_receipt = ActionReceiptV2 {
-                        signer_id: signer.signer_id.clone(),
-                        signer_public_key: signer_public_key.clone(),
-                        refund_to: receipt.refund_to,
-                        gas_price: signer.gas_price,
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                    } else {
-                        ReceiptEnum::ActionV2(new_action_receipt)
-                    }
-                }
-                AuthorizationContext::ExternalContractCall => {
-                    let new_action_receipt = ActionReceiptV3 {
-                        signer_id: signer.signer_id.clone(),
-                        refund_to: receipt.refund_to,
-                        authorization_context: AuthorizationContext::ExternalContractCall,
-                        gas_price: signer.gas_price,
-                        output_data_receivers: receipt.output_data_receivers,
-                        input_data_ids: receipt.input_data_ids,
-                        actions: receipt.actions,
-                    };
-                    if receipt.is_promise_yield {
-                        ReceiptEnum::PromiseYieldV3(new_action_receipt)
-                    } else {
-                        ReceiptEnum::ActionV3(new_action_receipt)
-                    }
-                }
-            };
+            let authorization_context = signer.authorization_context.as_ref().clone();
+            let new_receipt = ReceiptEnum::new_action_receipt_from_promise(
+                apply_state.current_protocol_version,
+                signer.signer_id.clone(),
+                receipt.refund_to,
+                authorization_context,
+                signer.gas_price,
+                receipt.output_data_receivers,
+                receipt.input_data_ids,
+                receipt.actions,
+                receipt.is_promise_yield,
+            );
 
             Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
