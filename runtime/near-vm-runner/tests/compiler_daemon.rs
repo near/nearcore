@@ -9,18 +9,31 @@ use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_vm_runner::CompilePriority;
 use near_vm_runner::compiler_daemon;
+use near_vm_runner::compiler_daemon::ExitOnWorkerMemoryExhaustion;
 use near_vm_runner::logic::errors::CompilationError;
 #[cfg(feature = "test_features")]
 use near_vm_runner::logic::errors::VMRunnerError;
 use near_vm_runner::prepare;
 #[cfg(feature = "test_features")]
 use near_vm_runner::{ContractCode, MockContractRuntimeCache, precompile_contract};
+use std::alloc::System;
+#[cfg(unix)]
+use std::borrow::Cow;
 use std::env;
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 use std::sync::Arc;
+#[cfg(feature = "test_features")]
+use std::thread::{sleep, spawn};
 #[cfg(feature = "test_features")]
 use std::time::{Duration, Instant};
 
 const TEST_POOL_SIZE: usize = 4;
+const TEST_MEMORY_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+const TEST_TOTAL_BUDGET_BYTES: u64 = 4 * TEST_MEMORY_LIMIT_BYTES;
+
+#[global_allocator]
+static ALLOC: ExitOnWorkerMemoryExhaustion<System> = ExitOnWorkerMemoryExhaustion::new(System);
 
 fn main() {
     if env::args_os().nth(1).is_some_and(|arg| arg == "compile-wasm") {
@@ -29,7 +42,17 @@ fn main() {
 
     compiler_daemon::set_daemon_binary(env::current_exe().unwrap());
     compiler_daemon::set_daemon_pool_size(TEST_POOL_SIZE);
+    #[cfg(feature = "test_features")]
+    compiler_daemon::set_test_memory_config(
+        TEST_MEMORY_LIMIT_BYTES,
+        TEST_TOTAL_BUDGET_BYTES,
+        TEST_TOTAL_BUDGET_BYTES,
+    );
 
+    #[cfg(unix)]
+    test_missing_memory_limit_is_startup_error();
+    #[cfg(unix)]
+    test_allocator_exhaustion_exit_code();
     test_startup_probe();
     test_basic_compilation();
     #[cfg(all(target_os = "linux", feature = "test_features"))]
@@ -41,13 +64,114 @@ fn main() {
     test_worker_timeout_is_unknown_compilation_error();
     #[cfg(feature = "test_features")]
     test_worker_crash_is_unknown_compilation_error();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_worker_memory_escalation_succeeds();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_memory_escalation_evicts_active_sibling();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_concurrent_memory_recoveries_are_serialized();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_worker_memory_exhaustion_is_preserved();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_unknown_sigkill_is_not_memory_exhaustion();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_live_protocol_failure_has_bounded_cleanup();
+    #[cfg(all(unix, feature = "test_features"))]
+    test_local_memory_exhaustion_is_not_cached();
     #[cfg(feature = "test_features")]
     test_engine_creation_failure_is_not_cached();
+}
+
+#[cfg(unix)]
+fn test_missing_memory_limit_is_startup_error() {
+    use compiler_daemon::protocol::{
+        COMPILER_DAEMON_STACK_SIZE_ENV, COMPILER_DAEMON_THREADS_ENV, DaemonStartup, read_frame,
+    };
+
+    let mut child = Command::new(env::current_exe().unwrap())
+        .arg("compile-wasm")
+        .env_clear()
+        .env(COMPILER_DAEMON_THREADS_ENV, "1")
+        .env(COMPILER_DAEMON_STACK_SIZE_ENV, (8 * 1024 * 1024).to_string())
+        .current_dir("/")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let startup = read_frame(child.stdout.as_mut().unwrap()).unwrap();
+    let startup: DaemonStartup = borsh::from_slice(&startup).unwrap();
+    let DaemonStartup::Err(err) = startup else {
+        panic!("worker without a memory limit unexpectedly became ready");
+    };
+    assert!(err.contains("NEAR_COMPILER_DAEMON_MEMORY_LIMIT_BYTES"), "{err}");
+    assert!(!child.wait().unwrap().success());
+}
+
+/// Exercise the real system allocator under the worker's RLIMIT_AS and check
+/// that the adapter exits directly with the reserved, distinguishable status.
+#[cfg(unix)]
+fn test_allocator_exhaustion_exit_code() {
+    use compiler_daemon::protocol::{
+        COMPILER_DAEMON_MEMORY_LIMIT_ENV, COMPILER_DAEMON_STACK_SIZE_ENV,
+        COMPILER_DAEMON_THREADS_ENV, CompileRequest, DaemonStartup, MemoryLimitStatus, TestAction,
+        read_frame, write_frame,
+    };
+
+    let mut child = Command::new(env::current_exe().unwrap())
+        .arg("compile-wasm")
+        .env_clear()
+        .env(COMPILER_DAEMON_THREADS_ENV, "1")
+        .env(COMPILER_DAEMON_STACK_SIZE_ENV, (8 * 1024 * 1024).to_string())
+        .env(COMPILER_DAEMON_MEMORY_LIMIT_ENV, TEST_MEMORY_LIMIT_BYTES.to_string())
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+
+    let startup = read_frame(&mut stdout).unwrap();
+    let startup: DaemonStartup = borsh::from_slice(&startup).unwrap();
+    let DaemonStartup::Ready(status) = startup else {
+        panic!("compiler daemon failed to start");
+    };
+    assert_eq!(
+        status.memory_limit,
+        MemoryLimitStatus::Enforced { memory_limit_bytes: TEST_MEMORY_LIMIT_BYTES }
+    );
+
+    let request = CompileRequest {
+        prepared_code: Cow::Borrowed(&[]),
+        max_memory_pages: 1,
+        test_action: Some(TestAction::AllocationFailure),
+    };
+    write_frame(&mut stdin, &borsh::to_vec(&request).unwrap()).unwrap();
+    drop(stdin);
+    assert!(read_frame(&mut stdout).is_err(), "worker unexpectedly returned a response");
+
+    let status = child.wait().unwrap();
+    assert_eq!(
+        status.code(),
+        Some(compiler_daemon::WORKER_MEMORY_EXHAUSTED_EXIT_CODE),
+        "worker did not report instrumented memory exhaustion: {status}"
+    );
 }
 
 fn test_startup_probe() {
     let status = compiler_daemon::start_daemon().unwrap();
     assert_ne!(status.compiler_compatibility_hash, 0);
+    #[cfg(unix)]
+    assert_eq!(
+        status.memory_limit,
+        compiler_daemon::protocol::MemoryLimitStatus::Enforced {
+            memory_limit_bytes: TEST_MEMORY_LIMIT_BYTES,
+        }
+    );
+    #[cfg(not(unix))]
+    assert_eq!(status.memory_limit, compiler_daemon::protocol::MemoryLimitStatus::Unavailable);
     #[cfg(target_os = "linux")]
     assert_matches!(
         status.isolation,
@@ -76,6 +200,24 @@ fn prepared_module(config: &near_parameters::vm::Config, seed: usize, num_funcs:
     wat.push_str(")\n");
     let wasm = wat::parse_str(&wat).unwrap();
     prepare::prepare_contract(&wasm, config, VMKind::Wasmtime).unwrap()
+}
+
+#[cfg(all(unix, feature = "test_features"))]
+fn assert_pool_eventually_settles() {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = compiler_daemon::worker_pool_state();
+        if state.terminating == 0 && state.live == state.idle {
+            assert_eq!(
+                state.reserved_bytes,
+                state.live as u64 * TEST_MEMORY_LIMIT_BYTES,
+                "settled pool retained an unexpected reservation: {state:?}"
+            );
+            return;
+        }
+        assert!(Instant::now() < deadline, "compiler daemon pool did not settle: {state:?}");
+        sleep(Duration::from_millis(10));
+    }
 }
 
 fn test_basic_compilation() {
@@ -258,9 +400,228 @@ fn test_worker_crash_is_unknown_compilation_error() {
         &config.limit_config,
         CompilePriority::Critical,
     );
-    assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after daemon crash");
+    };
+    assert!(debug_message.contains("compiler daemon exited with"), "{debug_message}");
+    assert!(!debug_message.contains("memory limit"), "{debug_message}");
     let state = compiler_daemon::worker_pool_state();
     assert_eq!(state.live, state.idle, "worker crash leaked a worker permit: {state:?}");
+}
+
+/// Confirmed local exhaustion retries in a fresh, larger worker and produces
+/// the same artifact as an ordinary compilation.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_worker_memory_escalation_succeeds() {
+    let config = test_config();
+    let prepared = prepared_module(&config, 101, 10);
+    let expected = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::MemoryExhaustionBelow {
+            memory_limit_bytes: 2 * TEST_MEMORY_LIMIT_BYTES,
+        },
+    );
+    let compiled = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(compiled, expected, "memory escalation changed the artifact");
+    let state = compiler_daemon::worker_pool_state();
+    assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+    assert_pool_eventually_settles();
+}
+
+/// Under a constrained budget, a protected larger retry evicts an active
+/// ordinary request and that displaced caller safely requeues at the same tier.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_memory_escalation_evicts_active_sibling() {
+    let config = Arc::new(test_config());
+    let prepared = Arc::new(prepared_module(&config, 102, 10));
+    let evictions_before = compiler_daemon::worker_pool_state().scheduler_evictions;
+    let sleepers: Vec<_> = (0..3)
+        .map(|_| {
+            let config = Arc::clone(&config);
+            let prepared = Arc::clone(&prepared);
+            spawn(move || {
+                compiler_daemon::set_test_action_for_next_request(
+                    compiler_daemon::protocol::TestAction::SleepMillis(5_000),
+                );
+                compiler_daemon::compile_in_subprocess(
+                    &prepared,
+                    &config.limit_config,
+                    CompilePriority::Background,
+                )
+                .unwrap()
+                .unwrap()
+            })
+        })
+        .collect();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = compiler_daemon::worker_pool_state();
+        if state.live >= 3 && state.idle == 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "sleeping workers did not become active: {state:?}");
+        sleep(Duration::from_millis(10));
+    }
+
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::MemoryExhaustionBelow {
+            memory_limit_bytes: 2 * TEST_MEMORY_LIMIT_BYTES,
+        },
+    );
+    let compiled = compiler_daemon::compile_in_subprocess(
+        &prepared,
+        &config.limit_config,
+        CompilePriority::Critical,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(!compiled.is_empty());
+    assert!(
+        compiler_daemon::worker_pool_state().scheduler_evictions > evictions_before,
+        "larger recovery did not evict a sibling under the constrained budget"
+    );
+
+    for sleeper in sleepers {
+        assert!(!sleeper.join().unwrap().is_empty());
+    }
+    let state = compiler_daemon::worker_pool_state();
+    assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+    assert_pool_eventually_settles();
+}
+
+/// Concurrent local OOMs share one protected recovery owner and both callers
+/// eventually make progress without exceeding the global reservation budget.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_concurrent_memory_recoveries_are_serialized() {
+    let config = Arc::new(test_config());
+    let prepared = Arc::new(prepared_module(&config, 103, 10));
+    let recoveries: Vec<_> = (0..2)
+        .map(|_| {
+            let config = Arc::clone(&config);
+            let prepared = Arc::clone(&prepared);
+            spawn(move || {
+                compiler_daemon::set_test_action_for_next_request(
+                    compiler_daemon::protocol::TestAction::MemoryExhaustionBelow {
+                        memory_limit_bytes: 2 * TEST_MEMORY_LIMIT_BYTES,
+                    },
+                );
+                compiler_daemon::compile_in_subprocess(
+                    &prepared,
+                    &config.limit_config,
+                    CompilePriority::Interactive,
+                )
+                .unwrap()
+                .unwrap()
+            })
+        })
+        .collect();
+    for recovery in recoveries {
+        assert!(!recovery.join().unwrap().is_empty());
+    }
+    let state = compiler_daemon::worker_pool_state();
+    assert!(state.reserved_bytes <= TEST_TOTAL_BUDGET_BYTES, "{state:?}");
+    assert_pool_eventually_settles();
+}
+
+/// The reserved allocator exit remains distinguishable after pipe teardown,
+/// including after all larger local tiers have also failed.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_worker_memory_exhaustion_is_preserved() {
+    let config = test_config();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::AllocationFailure,
+    );
+    let result = compiler_daemon::compile_in_subprocess(
+        &[],
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after local memory exhaustion");
+    };
+    assert!(debug_message.contains("exhausted its local memory limit"), "{debug_message}");
+    let state = compiler_daemon::worker_pool_state();
+    assert_eq!(state.live, state.idle, "memory exhaustion leaked a worker permit: {state:?}");
+    assert_pool_eventually_settles();
+}
+
+/// SIGKILL without trustworthy per-worker evidence must stay an ordinary crash.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_unknown_sigkill_is_not_memory_exhaustion() {
+    let config = test_config();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::UnknownSigkill,
+    );
+    let result = compiler_daemon::compile_in_subprocess(
+        &[],
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after sigkill");
+    };
+    assert!(debug_message.contains("compiler daemon exited with"), "{debug_message}");
+    assert!(!debug_message.contains("memory limit"), "{debug_message}");
+}
+
+/// A live child which closes its response pipe is killed and reaped without an
+/// unbounded wait, while the cleanup signal remains distinct from the cause.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_live_protocol_failure_has_bounded_cleanup() {
+    let config = test_config();
+    let started = Instant::now();
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::CloseOutputAndPark,
+    );
+    let result = compiler_daemon::compile_in_subprocess(
+        &[],
+        &config.limit_config,
+        CompilePriority::Critical,
+    );
+    let Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) = result else {
+        panic!("expected unknown compilation error after broken protocol");
+    };
+    assert!(debug_message.contains("compiler daemon protocol failed"), "{debug_message}");
+    assert!(!debug_message.contains("memory limit"), "{debug_message}");
+    assert!(started.elapsed() < Duration::from_secs(5), "protocol cleanup took too long");
+    let state = compiler_daemon::worker_pool_state();
+    assert_eq!(state.live, state.idle, "protocol failure leaked a worker permit: {state:?}");
+}
+
+/// Exhausting every configured worker tier is a resource failure, not a
+/// deterministic contract compilation error, and must never be cached.
+#[cfg(all(unix, feature = "test_features"))]
+fn test_local_memory_exhaustion_is_not_cached() {
+    let config = Arc::new(test_config());
+    let code = ContractCode::new(
+        wat::parse_str(r#"(module (func (export "oom_cache_probe")))"#).unwrap(),
+        None,
+    );
+    let cache = MockContractRuntimeCache::default();
+
+    compiler_daemon::set_test_action_for_next_request(
+        compiler_daemon::protocol::TestAction::AllocationFailure,
+    );
+    let result = precompile_contract(&code, config, Some(&cache));
+
+    assert_matches!(result, Err(VMRunnerError::WasmCompilationUnknownError { .. }));
+    assert_eq!(cache.len(), 0, "local memory exhaustion was cached");
+    assert_eq!(cache.put_count(), 0, "local memory exhaustion attempted a cache write");
+    assert_pool_eventually_settles();
 }
 
 /// Engine construction depends on local process resources and configuration.
