@@ -1,9 +1,11 @@
 /// Conversion functions for `Handshake` messages.
 use super::*;
+use crate::network_protocol::Encoding;
 use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
+use near_o11y::log_assert_fail;
 use near_primitives::genesis::GenesisId;
 use protobuf::MessageField as MF;
 
@@ -107,22 +109,17 @@ impl From<&Handshake> for proto::Handshake {
                 .owned_account
                 .as_ref()
                 .and_then(|a| {
-                    // An owned account signed over its borsh encoding can't be expressed in
-                    // protobuf. A node sends only its own owned account, and a node which signs
-                    // with borsh doesn't send protobuf (see `NetworkConfig::verify`), so this
-                    // is a bug.
-                    let owned_account = a.to_proto();
-                    debug_assert!(
-                        owned_account.is_some(),
-                        "borsh-signed owned account in a protobuf handshake"
-                    );
-                    if owned_account.is_none() {
-                        tracing::error!(
-                            target: "network",
-                            "dropping a borsh-signed owned account from a protobuf handshake"
-                        );
+                    match a.encoding() {
+                        Encoding::Borsh => {
+                            // An owned account signed over its borsh encoding can't be expressed in
+                            // protobuf. A node sends only its own owned account, and a node which signs
+                            // with borsh doesn't send protobuf (see `NetworkConfig::verify`), so this
+                            // is a bug.
+                            log_assert_fail!("borsh-signed owned account in a protobuf handshake");
+                            None
+                        }
+                        Encoding::Proto => a.to_proto(),
                     }
-                    owned_account
                 })
                 .into(),
             ..Self::default()
