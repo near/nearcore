@@ -31,7 +31,6 @@ prometheus = { workspace = true, optional = true }
 rand.workspace = true
 rayon = { workspace = true, optional = true }
 ripemd.workspace = true
-rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -49,6 +48,7 @@ wasmtime = { workspace = true, features = [
     "runtime",
 ], optional = true }
 
+near-cache.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
