@@ -79,16 +79,11 @@ def fork_network(neard, fork_dir, target_validators):
     """
     fork_dir = pathlib.Path(fork_dir)
 
-    run_cmd([neard, '--home', str(fork_dir), 'fork-network', 'init'])
+    run_cmd([neard, '--home', str(fork_dir), 'fork-network', 'init',
+             '--no-snapshot'])
     run_cmd(
         [neard, '--home',
          str(fork_dir), 'fork-network', 'amend-access-keys'])
-
-    # Remove snapshots created by fork-network (not needed and waste disk)
-    for snap_dir in ['fork-snapshot', 'state-snapshot']:
-        snap_path = fork_dir / 'data' / snap_dir
-        if snap_path.exists():
-            shutil.rmtree(snap_path)
 
     # Generate validator keys and write validators.json
     setup_dir = fork_dir / 'setup'
