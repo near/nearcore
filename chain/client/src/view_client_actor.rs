@@ -893,7 +893,17 @@ impl Handler<TxStatus, Result<TxStatusOutcome, TxStatusError>> for ViewClientAct
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
+        let TxStatus { tx_hash, signer_account_id, fetch_receipt, external_call_sent_at } = msg;
+        let Some(sent_at) = external_call_sent_at else {
+            return self.get_tx_status(tx_hash, signer_account_id, fetch_receipt);
+        };
+        // `tx_hash` is the call's hash without its state init. The cache maps it to the inclusion
+        // that answers this send, and the outcome is stored under that inclusion's unique id.
+        match self.runtime.external_call_cache().answer_to_send(&tx_hash, sent_at) {
+            Some(unique_id) => self.get_tx_status(unique_id, signer_account_id, fetch_receipt),
+            // No answer yet. On a node without the call's shard this answers that it has none.
+            None => self.get_tx_status(tx_hash, signer_account_id, fetch_receipt),
+        }
     }
 }
 
