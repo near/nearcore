@@ -495,8 +495,21 @@ pub struct ApplyResult {
     pub contract_updates: ContractUpdates,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
     pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
-    /// The unique id and the hash of each external call that got an outcome.
-    pub external_calls: Vec<(CryptoHash, CryptoHash)>,
+    /// Each external call that the chunk included.
+    pub external_calls: Vec<ExternalCallInclusion>,
+}
+
+/// One inclusion of an external call in a chunk. A call can be included more than once.
+#[derive(Debug, Clone)]
+pub struct ExternalCallInclusion {
+    /// The id of this inclusion, which is its outcome id.
+    pub unique_id: CryptoHash,
+    /// The hash of the call as included, its key in the transactions column.
+    pub hash: CryptoHash,
+    /// The call's hash without its state init, the same with and without a state init.
+    pub hash_without_state_init: CryptoHash,
+    /// Whether the contract accepted and paid for the call.
+    pub accepted: bool,
 }
 
 #[derive(Debug)]
@@ -3148,9 +3161,15 @@ fn record_external_call(
     ecc: &EccTransaction,
     processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
-    let ProcessedExternalCall { outcome, accepted, receipts, installed_state_init: _ } = processed;
+    let ProcessedExternalCall { outcome, accepted, receipts, installed_state_init: _, run_error } =
+        processed;
     // Every call that gets here gets an outcome.
-    processing_state.external_calls.push((outcome.id, *ecc.hash()));
+    processing_state.external_calls.push(ExternalCallInclusion {
+        unique_id: outcome.id,
+        hash: *ecc.hash(),
+        hash_without_state_init: *ecc.hash_without_state_init(),
+        accepted,
+    });
     let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
     let stats = &mut processing_state.stats.balance;
@@ -3570,8 +3589,8 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
-    /// The unique id and the hash of each external call that got an outcome.
-    external_calls: Vec<(CryptoHash, CryptoHash)>,
+    /// Each external call that the chunk included.
+    external_calls: Vec<ExternalCallInclusion>,
 }
 
 trait MaybeRefReceipt {

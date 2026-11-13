@@ -88,8 +88,10 @@ use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 mod ecc_thread;
+mod external_call_cache;
 #[cfg(feature = "test_features")]
 pub use ecc_thread::TestHeldEccs;
+pub use external_call_cache::{EXTERNAL_CALL_REPEAT_WINDOW, ExternalCallCache};
 pub mod errors;
 mod metrics;
 mod signer_overlay;
@@ -118,23 +120,31 @@ pub struct NightshadeRuntime {
     save_receipt_to_tx: bool,
     /// Runs the ECCs that the chunk producer packs into chunks, one at a time, for all shards.
     ecc_thread: EccThread,
+    /// The external calls this node applied, shared with a view runtime over the same chain.
+    external_call_cache: ExternalCallCache,
     /// Holds up the runs of the ECCs that tests choose, to make them late.
     #[cfg(feature = "test_features")]
     pub test_held_eccs: TestHeldEccs,
 }
 
 /// Knobs threaded through to [`NightshadeRuntime::new`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub struct RuntimeOptions {
     /// True on nodes that mirror archival state to cloud storage.
     pub is_cloud_archival_writer: bool,
     /// Persist receipt-to-transaction origin mappings to disk.
     pub save_receipt_to_tx: bool,
+    /// The cache of applied external calls to share. A runtime without one starts its own.
+    pub external_call_cache: Option<ExternalCallCache>,
 }
 
 impl Default for RuntimeOptions {
     fn default() -> Self {
-        Self { is_cloud_archival_writer: false, save_receipt_to_tx: true }
+        Self {
+            is_cloud_archival_writer: false,
+            save_receipt_to_tx: true,
+            external_call_cache: None,
+        }
     }
 }
 
@@ -154,7 +164,10 @@ impl NightshadeRuntime {
         state_parts_compression_lvl: i32,
         options: RuntimeOptions,
     ) -> Arc<Self> {
-        let RuntimeOptions { is_cloud_archival_writer, save_receipt_to_tx } = options;
+        let RuntimeOptions { is_cloud_archival_writer, save_receipt_to_tx, external_call_cache } =
+            options;
+        let external_call_cache =
+            external_call_cache.unwrap_or_else(|| ExternalCallCache::new(store.clone()));
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -197,6 +210,7 @@ impl NightshadeRuntime {
             is_cloud_archival_writer,
             save_receipt_to_tx,
             ecc_thread: EccThread::new(),
+            external_call_cache,
             #[cfg(feature = "test_features")]
             test_held_eccs: TestHeldEccs::default(),
         })

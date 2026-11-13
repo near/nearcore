@@ -136,8 +136,13 @@ pub fn apply_chunk_postprocessing(
             shard_id,
             &outcomes_with_proofs,
         );
-        store_update.chain_store_update().set_external_call_hashes(block_hash, &external_calls);
+        let ecc_ids_and_hashes: Vec<_> =
+            external_calls.iter().map(|inclusion| (inclusion.unique_id, inclusion.hash)).collect();
+        store_update.chain_store_update().set_external_call_hashes(block_hash, &ecc_ids_and_hashes);
     }
+    // Every node that applies the chunk caches its calls. One that keeps no outcomes uses them
+    // to drop repeats.
+    runtime_adapter.external_call_cache().remember(block_hash, height, &external_calls);
     if config.save_receipt_to_tx {
         store_update.chain_store_update().set_receipt_to_tx(&receipt_to_tx);
     }
