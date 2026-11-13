@@ -16,10 +16,20 @@ use std::io;
 use std::mem;
 use std::sync::Arc;
 
-/// Maximum number of contracts allowed in a single SpiceContractCodeRequest.
+/// Maximum number of contracts allowed in a single contract code request.
 /// This is a conservative upper bound on the number of unique contracts that can
 /// be called in a single chunk, derived from chunk gas limit / function_call_base cost.
+/// It counts entries, so a responder must also reject repeats with
+/// `has_repeated_contracts` for the bound to hold over distinct contracts.
 pub const MAX_CONTRACTS_PER_REQUEST: usize = 1282;
+
+/// True if `contracts` names the same hash more than once. A requester builds its list from a
+/// set, so a repeat means the sender wants the responder to read one contract several times.
+/// Check `MAX_CONTRACTS_PER_REQUEST` first, so the set stays bounded.
+pub fn has_repeated_contracts(contracts: &[CodeHash]) -> bool {
+    let mut seen = HashSet::new();
+    !contracts.iter().all(|contract_hash| seen.insert(contract_hash))
+}
 
 // Data structures for chunk producers to send accessed contracts to chunk validators.
 
@@ -279,6 +289,27 @@ impl ContractCodeRequest {
         Self::V1(ContractCodeRequestV1::new(next_chunk, contracts, main_transition, signer))
     }
 
+    /// Test-only constructor that takes the contracts as a list instead of a set, so a test can
+    /// put the same hash on the wire more than once. `new` takes a set, so an honest requester
+    /// cannot express a repeat.
+    ///
+    /// It signs through the same inner as `new`, so a request built here is indistinguishable
+    /// from a real one to every check on the receiving side.
+    #[cfg(any(test, feature = "test_features"))]
+    pub fn new_with_contract_list(
+        next_chunk: ChunkProductionKey,
+        contracts: Vec<CodeHash>,
+        main_transition: MainTransitionKey,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::V1(ContractCodeRequestV1::new_with_contract_list(
+            next_chunk,
+            contracts,
+            main_transition,
+            signer,
+        ))
+    }
+
     pub fn requester(&self) -> &AccountId {
         match self {
             Self::V1(request) => &request.inner.requester,
@@ -321,6 +352,20 @@ impl ContractCodeRequestV1 {
     fn new(
         next_chunk: ChunkProductionKey,
         contracts: HashSet<CodeHash>,
+        main_transition: MainTransitionKey,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::new_with_contract_list(
+            next_chunk,
+            contracts.into_iter().collect(),
+            main_transition,
+            signer,
+        )
+    }
+
+    fn new_with_contract_list(
+        next_chunk: ChunkProductionKey,
+        contracts: Vec<CodeHash>,
         main_transition: MainTransitionKey,
         signer: &ValidatorSigner,
     ) -> Self {
@@ -368,13 +413,13 @@ impl ContractCodeRequestInner {
     fn new(
         requester: AccountId,
         next_chunk: ChunkProductionKey,
-        contracts: HashSet<CodeHash>,
+        contracts: Vec<CodeHash>,
         main_transition: MainTransitionKey,
     ) -> Self {
         Self {
             requester,
             next_chunk,
-            contracts: contracts.into_iter().collect(),
+            contracts,
             main_transition,
             signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
@@ -1002,6 +1047,29 @@ impl SpiceContractCodeRequest {
             contracts.len(),
             MAX_CONTRACTS_PER_REQUEST,
         );
+        Self::new_inner(chunk_id, contracts.into_iter().collect(), signer)
+    }
+
+    /// Test-only constructor that takes the contracts as a list instead of a set, so a test can
+    /// put the same hash on the wire more than once. `new` takes a set, so an honest requester
+    /// cannot express a repeat.
+    ///
+    /// It signs through the same inner as `new`, so a request built here is indistinguishable
+    /// from a real one to every check on the receiving side.
+    #[cfg(any(test, feature = "test_features"))]
+    pub fn new_with_contract_list(
+        chunk_id: SpiceChunkId,
+        contracts: Vec<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
+        Self::new_inner(chunk_id, contracts, signer)
+    }
+
+    fn new_inner(
+        chunk_id: SpiceChunkId,
+        contracts: Vec<CodeHash>,
+        signer: &ValidatorSigner,
+    ) -> Self {
         let inner =
             SpiceContractCodeRequestInner::new(signer.validator_id().clone(), chunk_id, contracts);
         let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
@@ -1037,11 +1105,11 @@ struct SpiceContractCodeRequestInner {
 impl SpiceContractCodeRequestInner {
     const DIFFERENTIATOR: &'static str = "SpiceContractCodeRequestInner";
 
-    fn new(requester: AccountId, chunk_id: SpiceChunkId, contracts: HashSet<CodeHash>) -> Self {
+    fn new(requester: AccountId, chunk_id: SpiceChunkId, contracts: Vec<CodeHash>) -> Self {
         Self {
             requester,
             chunk_id,
-            contracts: contracts.into_iter().collect(),
+            contracts,
             signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }

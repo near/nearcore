@@ -1331,6 +1331,36 @@
             ],
             "title": "ReservedMethodName",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The actions in the receipt removed more gas key nonces than\n`max_gas_key_nonces_removed_per_receipt` allows.",
+            "properties": {
+              "TotalNumberOfGasKeyNoncesRemovedExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_nonces": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_nonces",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfGasKeyNoncesRemovedExceeded"
+            ],
+            "title": "TotalNumberOfGasKeyNoncesRemovedExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -2437,6 +2467,36 @@
               "TransferToUniversalAccountNotAllowed"
             ],
             "title": "TransferToUniversalAccountNotAllowed",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The `AddKey` actions in one receipt add more gas key nonces in total than\nallowed.",
+            "properties": {
+              "TotalNumberOfGasKeyNoncesAddedExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_nonces": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_nonces",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfGasKeyNoncesAddedExceeded"
+            ],
+            "title": "TotalNumberOfGasKeyNoncesAddedExceeded",
             "type": "object"
           }
         ],
@@ -7618,6 +7678,18 @@
               }
             ],
             "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
+          },
+          "max_gas_key_nonces_added_per_receipt": {
+            "description": "Max number of gas key nonces the `AddKey` actions in one receipt may add,\nin total, including the actions inside a delegate action.\n\nEach nonce adds to the receipt's execution fees and so to its congestion\ngas, but the send fee does not depend on the number of nonces.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_gas_key_nonces_removed_per_receipt": {
+            "description": "Max number of gas key nonces the actions in one receipt may remove, in\ntotal. Checked at execution, because the count comes from state.\n\nRemovals are charged as compute only, and the chunk compute limit is\nchecked between receipts, so without this bound one receipt can use\nmany times the chunk compute limit.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",

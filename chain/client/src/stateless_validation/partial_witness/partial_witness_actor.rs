@@ -37,9 +37,8 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     BoundedContractCodes, ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash,
-    ContractCodeRequest, ContractCodeResponse, ContractUpdates, MAX_CONTRACTS_PER_REQUEST,
-    MainTransitionKey, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
-    split_contracts_for_response,
+    ContractCodeRequest, ContractCodeResponse, ContractUpdates, MainTransitionKey,
+    PartialEncodedContractDeploys, PartialEncodedContractDeploysPart, split_contracts_for_response,
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
@@ -83,30 +82,6 @@ pub(super) fn witness_version_mismatch(
     witness: &VersionedPartialEncodedStateWitness,
 ) -> bool {
     version_mismatch(version, matches!(witness, VersionedPartialEncodedStateWitness::V2(_)))
-}
-
-/// Label used for shard ids that are not in the epoch's shard layout.
-const UNKNOWN_SHARD_LABEL: &str = "unknown";
-
-/// Renders `shard_id` as a metric label, bucketing anything outside `epoch_id`'s shard
-/// layout as [`UNKNOWN_SHARD_LABEL`].
-///
-/// Both fields come straight off the wire and are only validated much later (see
-/// `validate_chunk_relevant`), so without this a peer could mint a fresh label value per
-/// message. Prometheus children are never evicted, so that grows the registry and the
-/// `/metrics` payload without bound. Cardinality here stays at layout size plus one.
-///
-/// The layout lookup is not new cost on this path: the callers already resolve the same
-/// unvalidated `epoch_id` through the epoch manager for the kickout gate.
-fn shard_id_metric_label(
-    epoch_manager: &dyn EpochManagerAdapter,
-    epoch_id: &EpochId,
-    shard_id: ShardId,
-) -> String {
-    match epoch_manager.get_shard_layout(epoch_id) {
-        Ok(layout) if layout.shard_ids().contains(&shard_id) => shard_id.to_string(),
-        _ => UNKNOWN_SHARD_LABEL.to_string(),
-    }
 }
 
 pub struct PartialWitnessActor {
@@ -500,7 +475,7 @@ impl PartialWitnessActor {
             partial_witness.chunk_production_key();
 
         let shard_id_label =
-            shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
+            metrics::shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
         metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
             .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
             .inc();
@@ -668,7 +643,7 @@ impl PartialWitnessActor {
                 partial_witness.chunk_production_key();
 
             let shard_id_label =
-                shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
+                metrics::shard_id_metric_label(self.epoch_manager.as_ref(), &epoch_id, shard_id);
             metrics::PARTIAL_WITNESS_PART_MESSAGES_RECEIVED_TOTAL
                 .with_label_values(&[shard_id_label.as_str(), partial_witness.version_label()])
                 .inc();
@@ -1181,10 +1156,6 @@ impl PartialWitnessActor {
             return Ok(());
         }
         self.processed_contract_code_requests.push(processed_requests_key, ());
-
-        if request.contracts().len() > MAX_CONTRACTS_PER_REQUEST {
-            return Ok(());
-        }
 
         let _timer = near_chain::stateless_validation::metrics::PROCESS_CONTRACT_CODE_REQUEST_TIME
             .with_label_values(&[&key.shard_id.to_string()])

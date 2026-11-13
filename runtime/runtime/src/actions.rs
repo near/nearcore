@@ -383,6 +383,7 @@ pub(crate) fn action_delete_account(
         result.compute_usage = safe_add_compute(result.compute_usage, compute).map_err(|_| {
             StorageError::StorageInconsistentState("compute_usage overflow".to_string())
         })?;
+        result.gas_key_nonces_removed = remove_result.gas_key_nonce_count as u64;
     }
     *actor_id = receipt.predecessor_id().clone();
     *account = None;

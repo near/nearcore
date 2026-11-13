@@ -217,6 +217,7 @@ mod tests {
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
+    use crate::trie::mem::memtrie_update::TrackingMode;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
     use crate::trie::{AccessOptions, AccessTracker};
@@ -229,6 +230,7 @@ mod tests {
     use near_primitives::types::{StateChangeCause, StateRoot};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
+    use std::thread::Builder;
 
     fn check_maybe_parallelize(keys: Vec<Vec<u8>>, parallelize: bool) {
         let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
@@ -552,6 +554,121 @@ mod tests {
         store_update.commit();
 
         trie_changes.new_root
+    }
+
+    /// The longest key there is: a `ContractData` column byte, a 64 byte account, the
+    /// separator and a 2048 byte storage key. 2114 bytes is 4228 nibbles of depth.
+    const MAX_TRIE_KEY_LEN: usize = 1 + 64 + 1 + 2048;
+
+    /// One sibling per nibble of an all-zero key, each diverging exactly there, which
+    /// puts the key under a chain of `2 * key_len` branch nodes.
+    fn long_path_changes(key_len: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        let deep_key = vec![0u8; key_len];
+        let mut keys = vec![deep_key.clone()];
+        for nibble in 0..2 * key_len {
+            let mut sibling = deep_key[..nibble / 2].to_vec();
+            sibling.push(if nibble.is_multiple_of(2) { 0x10 } else { 0x01 });
+            keys.push(sibling);
+        }
+        keys.into_iter().map(|key| (key, Some(b"v".to_vec()))).collect()
+    }
+
+    /// The parallel loader plans from State and loads subtrees from FlatState, so the
+    /// path has to go into both.
+    fn populate_long_path(shard_tries: &ShardTries, shard_uid: ShardUId) -> StateRoot {
+        let changes = long_path_changes(MAX_TRIE_KEY_LEN);
+        test_populate_flat_storage(
+            shard_tries,
+            shard_uid,
+            &CryptoHash::default(),
+            &CryptoHash::default(),
+            &changes,
+        );
+        // Under `cfg(test)` `Trie::update` runs a recursive `memory_usage_verify` that
+        // would itself blow the stack here. Recording reads skips it; a node never runs it.
+        let trie = shard_tries
+            .get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT)
+            .recording_reads_new_recorder();
+        let trie_changes = trie.update(changes.into_iter(), AccessOptions::DEFAULT).unwrap();
+        let mut store_update = shard_tries.store_update();
+        let state_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+        state_root
+    }
+
+    /// Loads and frees a trie whose path is as deep as a key can make it, on the stacks the
+    /// code gets in production: a default 2 MiB thread for the single-threaded loader and
+    /// `delete_root`, 8 MiB rayon workers for the parallel loader.
+    #[test]
+    fn test_memtrie_load_longest_path() {
+        let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let state_root = populate_long_path(&shard_tries, shard_uid);
+
+        let tries = shard_tries.clone();
+        Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let mut memtries = load_trie_from_flat_state(
+                    &tries.store().store(),
+                    shard_uid,
+                    state_root,
+                    123,
+                    false,
+                )
+                .unwrap();
+                memtries.delete_root(&state_root);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        // neard gives the global rayon pool 8 MiB stacks.
+        let pool = rayon::ThreadPoolBuilder::new().stack_size(8 << 20).build().unwrap();
+        pool.install(|| {
+            load_trie_from_flat_state(
+                &shard_tries.store().store(),
+                shard_uid,
+                state_root,
+                123,
+                true,
+            )
+            .unwrap();
+        });
+    }
+
+    /// Updates the deepest key, which rewrites every node on the longest path, on the default
+    /// 2 MiB stack that chunk application threads get. Finalizing an update recurses once per
+    /// rewritten node.
+    #[test]
+    fn test_memtrie_update_longest_path() {
+        let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let state_root = populate_long_path(&shard_tries, shard_uid);
+
+        Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let mut memtries = load_trie_from_flat_state(
+                    &shard_tries.store().store(),
+                    shard_uid,
+                    state_root,
+                    123,
+                    false,
+                )
+                .unwrap();
+                let mut update = memtries.update(state_root, TrackingMode::Refcounts).unwrap();
+                update.insert(&vec![0u8; MAX_TRIE_KEY_LEN], b"w".to_vec()).unwrap();
+                let trie_changes = update.to_trie_changes();
+                let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
+                // One branch per nibble of the key, plus its leaf.
+                assert_eq!(memtrie_changes.node_ids_with_hashes.len(), 2 * MAX_TRIE_KEY_LEN + 1);
+                let new_root = memtries.apply_memtrie_changes(124, memtrie_changes);
+                assert_eq!(new_root, trie_changes.new_root);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     /// Writes the state root into chunk extra for the given block and shard,

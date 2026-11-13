@@ -20,7 +20,7 @@ use near_vm_runner::ContractCode;
 /// All special-case resolution (ETH implicit accounts, global contracts) is
 /// performed at construction time so that `RuntimeContractExt` only needs
 /// storage and identifier to implement `Contract`.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum RuntimeContractIdentifier {
     /// No contract deployed on the account.
     None,
