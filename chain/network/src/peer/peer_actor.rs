@@ -681,7 +681,9 @@ impl PeerActor {
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
             if let Err(_) = owned_account.verify() {
-                self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                // Bans need a verified peer id. `sender_peer_id` is verified later, when
+                // registration checks the edge signature, so this just closes the connection.
+                self.stop(ClosingReason::HandshakeFailed);
                 return;
             }
             if owned_account.peer_id != handshake.sender_peer_id {
