@@ -196,35 +196,97 @@ fn read_trie_paths(trie: Trie, keys: &[Vec<u8>], next_key: &AtomicUsize) {
 #[cfg(test)]
 mod tests {
     use super::BatchTrieUpdate;
+    use near_primitives::errors::StorageError;
+    use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
-    use near_store::Trie;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{
+        AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
+    };
     use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
-    use near_store::trie::AccessOptions;
+    use near_store::trie::{AccessOptions, KeyLookupMode};
+    use near_store::{ShardTries, Trie, TrieStorage};
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
-    /// Reading ahead keeps every node on the keys' paths in memory, and reads through the
-    /// batch return what the store holds.
-    #[test]
-    fn test_read_ahead_keeps_the_paths_of_the_keys() {
+    const NUM_KEYS: u32 = 200;
+
+    /// Serves only the nodes it was given, so a read outside them fails.
+    struct GivenNodes(HashMap<CryptoHash, Arc<[u8]>>);
+
+    impl TrieStorage for GivenNodes {
+        fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+            self.0.get(hash).cloned().ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!("{hash} was not read ahead"))
+            })
+        }
+    }
+
+    fn trie_key(index: u32) -> TrieKey {
+        let account_id: AccountId = "test.near".parse().unwrap();
+        TrieKey::ContractData { account_id, key: index.to_be_bytes().to_vec() }
+    }
+
+    /// A single-shard trie holding `NUM_KEYS` contract data keys, and its root.
+    fn populated_trie() -> (ShardTries, ShardUId, CryptoHash) {
         let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
-        let mut changes = Vec::new();
-        for index in 0u32..200 {
-            changes.push((index.to_be_bytes().to_vec(), Some(index.to_le_bytes().to_vec())));
+        let mut entries = Vec::new();
+        for index in 0..NUM_KEYS {
+            entries.push((trie_key(index).to_vec(), Some(index.to_le_bytes().to_vec())));
         }
-        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
-        let keys: Vec<Vec<u8>> = changes.iter().map(|(key, _)| key.clone()).collect();
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, entries);
+        (tries, shard_uid, root)
+    }
+
+    /// After reading ahead, every key's path at the starting root is in memory.
+    #[test]
+    fn test_read_ahead_keeps_the_paths_of_the_keys() {
+        let (tries, shard_uid, root) = populated_trie();
+        let keys: Vec<Vec<u8>> = (0..NUM_KEYS).map(|index| trie_key(index).to_vec()).collect();
 
         let update = BatchTrieUpdate::new(&tries, shard_uid, root);
         update.read_ahead(&keys);
 
-        let committed_cache = update.storage.committed_cache.lock();
-        assert!(committed_cache.contains_key(&root));
-        // Each key ends at its own leaf, so every leaf was read ahead too.
-        assert!(committed_cache.len() > keys.len());
-        drop(committed_cache);
-        let batch_trie = Trie::new(update.storage.clone(), root, None);
-        for (key, value) in &changes {
-            assert_eq!(batch_trie.get(key, AccessOptions::DEFAULT).unwrap(), *value);
+        let read_ahead_nodes = update.storage.committed_cache.lock().clone();
+        let trie = Trie::new(Arc::new(GivenNodes(read_ahead_nodes)), root, None);
+        for key in &keys {
+            let value_ref = trie
+                .get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::NO_SIDE_EFFECTS)
+                .unwrap();
+            assert!(value_ref.is_some());
         }
+    }
+
+    /// A height applied after reading ahead leaves the root the plain trie update leaves.
+    #[test]
+    fn test_apply_after_read_ahead_leaves_the_same_root() {
+        let (tries, shard_uid, root) = populated_trie();
+        // Overwrites, inserts and deletes, so the walk both rewrites and merges nodes.
+        let mut state_changes = Vec::new();
+        for index in (0..NUM_KEYS + 50).step_by(3) {
+            let data = (index % 2 == 0).then(|| index.to_be_bytes().to_vec());
+            let change = RawStateChange { cause: StateChangeCause::InitialState, data };
+            state_changes.push(RawStateChangesWithTrieKey {
+                trie_key: trie_key(index),
+                changes: vec![change],
+            });
+        }
+        let mut entries = Vec::new();
+        for change in &state_changes {
+            entries.push((change.trie_key.to_vec(), change.changes[0].data.clone()));
+        }
+        let expected = tries
+            .get_trie_for_shard(shard_uid, root)
+            .update(entries.clone(), AccessOptions::NO_SIDE_EFFECTS)
+            .unwrap()
+            .new_root;
+
+        let mut update = BatchTrieUpdate::new(&tries, shard_uid, root);
+        let keys: Vec<Vec<u8>> = entries.into_iter().map(|(key, _)| key).collect();
+        update.read_ahead(&keys);
+        let applied = update.apply(&state_changes).unwrap();
+
+        assert_eq!(applied, expected);
     }
 }
