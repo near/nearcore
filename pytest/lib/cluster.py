@@ -585,7 +585,9 @@ class LocalNode(BaseNode):
         self.change_config({
             'network': {
                 'addr': f'0.0.0.0:{port}',
-                'blacklist': list(blacklist)
+                'blacklist': list(blacklist),
+                'public_addrs': [self._public_addr()],
+                'allow_private_ip_in_public_addrs': True,
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
@@ -602,6 +604,10 @@ class LocalNode(BaseNode):
 
     def addr(self):
         return ("127.0.0.1", self.port)
+
+    def _public_addr(self) -> str:
+        host, port = self.addr()
+        return f'{self.node_key.pk}@{host}:{port}'
 
     def rpc_addr(self):
         return ("127.0.0.1", self.rpc_port)
@@ -707,6 +713,7 @@ class LocalNode(BaseNode):
         self.node_key = new_key
         with open(os.path.join(self.node_dir, "node_key.json"), 'w+') as f:
             json.dump(new_key.to_json(), f)
+        self.change_config({'network': {'public_addrs': [self._public_addr()]}})
 
     def cleanup(self):
         if self.cleaned:
