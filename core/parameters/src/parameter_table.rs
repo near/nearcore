@@ -77,6 +77,9 @@ pub(crate) enum ValueConversionError {
 
     #[error("expected a VM kind, but could not parse it from `{1}`")]
     ParseVmKind(#[source] strum::ParseError, String),
+
+    #[error("invalid rational `{0} / {1}`, the denominator must be non-zero")]
+    ZeroDenominator(i32, i32),
 }
 
 macro_rules! implement_conversion_to {
@@ -139,6 +142,9 @@ impl TryFrom<&ParameterValue> for Rational32 {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             &ParameterValue::Rational { numerator, denominator } => {
+                if denominator == 0 {
+                    return Err(ValueConversionError::ZeroDenominator(numerator, denominator));
+                }
                 Ok(Rational32::new(numerator, denominator))
             }
             _ => Err(ValueConversionError::ParseType(
@@ -657,9 +663,11 @@ fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidCon
         let mut raw_number = value.to_owned();
         raw_number.retain(char::is_numeric);
         // We do not have "arbitrary_precision" serde feature enabled, thus we
-        // can only store up to `u64::MAX`, which is `18446744073709551615` and
-        // has 20 characters.
-        if raw_number.len() < 20 {
+        // can only represent integers up to `u64::MAX` as numbers, and
+        // `u64::MAX` has 20 digits, so the decision must be made by parsing
+        // the value rather than by its length. Larger values, such as `u128`
+        // balances, stay strings and are parsed by the parameter consumers.
+        if raw_number.parse::<u64>().is_ok() || raw_number.is_empty() {
             serde_yaml::from_str(&raw_number)
                 .map_err(|err| InvalidConfigError::ValueParseError(err, value.to_owned()))
         } else {
@@ -674,9 +682,9 @@ fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidCon
 mod tests {
     use super::{
         InvalidConfigError, ParameterTable, ParameterTableDiff, ParameterValue,
-        parse_parameter_value,
+        ValueConversionError, parse_parameter_value,
     };
-    use crate::Parameter;
+    use crate::{Parameter, RuntimeConfig};
     use assert_matches::assert_matches;
     use std::collections::BTreeMap;
 
@@ -1040,5 +1048,66 @@ mod tests {
             )
             .unwrap()
         );
+    }
+
+    #[test]
+    fn test_production_config_builds() {
+        let params: ParameterTable =
+            include_str!("../res/runtime_configs/parameters.yaml").parse().unwrap();
+        RuntimeConfig::try_from(&params).unwrap();
+    }
+
+    /// A 20-digit value that fits into `u64` parses as a number, not a string.
+    #[test]
+    fn test_20_digit_u64_parameter_value_is_numeric() {
+        let config = include_str!("../res/runtime_configs/parameters.yaml").replace(
+            "storage_num_bytes_account: 100",
+            "storage_num_bytes_account: \"10_000_000_000_000_000_000\"",
+        );
+        let params: ParameterTable = config.parse().unwrap();
+        RuntimeConfig::try_from(&params).unwrap();
+    }
+
+    /// Values that fit into `u64` stay numeric, larger values stay strings.
+    #[test]
+    fn test_canonicalize_yaml_string_u64_boundary() {
+        let parse = |yaml: &str| {
+            parse_parameter_value(&serde_yaml::from_str::<serde_yaml::Value>(yaml).unwrap())
+                .unwrap()
+        };
+        // 20 digits, fits into u64 (10^19)
+        assert!(matches!(
+            parse("\"10_000_000_000_000_000_000\""),
+            ParameterValue::U64(10_000_000_000_000_000_000)
+        ));
+        // 20 digits, exactly u64::MAX
+        assert!(matches!(parse("\"18_446_744_073_709_551_615\""), ParameterValue::U64(u64::MAX)));
+        // 19 digits still numeric
+        assert!(matches!(parse("\"9_999_999_999_999_999_999\""), ParameterValue::U64(_)));
+        // 2^64 overflows u64: stays a string (e.g. for u128 balances)
+        assert!(matches!(parse("\"18_446_744_073_709_551_616\""), ParameterValue::String(_)));
+        // far beyond u64: stays a string
+        assert!(matches!(
+            parse("\"10_000_000_000_000_000_000_000_000_000_000_000_000_000\""),
+            ParameterValue::String(_)
+        ));
+    }
+
+    /// A zero denominator is rejected with the typed error instead of a panic.
+    #[test]
+    fn test_zero_denominator_returns_typed_error() {
+        let config = include_str!("../res/runtime_configs/parameters.yaml")
+            .replace("denominator: 10,", "denominator: 0,");
+        let params: ParameterTable = config.parse().unwrap();
+        match RuntimeConfig::try_from(&params) {
+            Err(InvalidConfigError::ValueConversionError(source, parameter)) => {
+                assert_eq!(parameter, Parameter::BurntGasReward);
+                assert!(
+                    matches!(source, ValueConversionError::ZeroDenominator(3, 0)),
+                    "expected ZeroDenominator(3, 0), got: {source:?}"
+                );
+            }
+            other => panic!("expected a typed conversion error, got: {other:?}"),
+        }
     }
 }
