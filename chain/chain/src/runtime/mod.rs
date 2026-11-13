@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::near_chain_primitives::error::QueryError;
 use crate::runtime::ecc_thread::{EccRun, EccThread};
 use crate::runtime::metrics::{
     DYNAMIC_RESHARDING_FIND_SPLIT_ERRORS, DYNAMIC_RESHARDING_MAX_NUMBER_OF_SHARDS,
@@ -31,15 +32,18 @@ use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
 use near_primitives::epoch_manager::{DynamicReshardingConfig, EpochConfig};
-use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{
+    ActionsValidationError, EpochError, InvalidTxError, RuntimeError, StorageError,
+    TxExecutionError,
+};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::{
-    EccTransaction, ExternalCallsValidity, NonceMode, SignedTransaction, TransactionEnvelope,
-    ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
+    ECC_METHOD_NAME, EccTransaction, ExternalCallsValidity, NonceMode, SignedTransaction,
+    TransactionEnvelope, ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{
@@ -61,8 +65,8 @@ use near_runtime::{
     ApplyState, EccDryRun, EccDryRunContext, ExternalCallsInChunk, PendingConstraints,
     PostStateNodes, PrevBlockContext, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
     TxVerdict, ValidatorAccountsUpdate, call_can_run_at_account, dry_run_external_call,
-    ecc_cost_for_account, get_signer_and_authorization, validate_envelope,
-    verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
+    dry_run_external_call_with_output, ecc_cost_for_account, get_signer_and_authorization,
+    validate_envelope, verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -88,8 +92,10 @@ use tracing::instrument;
 use trie_update_wrapper::TrieUpdateWitnessSizeWrapper;
 
 mod ecc_thread;
+mod external_call_cache;
 #[cfg(feature = "test_features")]
 pub use ecc_thread::TestHeldEccs;
+pub use external_call_cache::{EXTERNAL_CALL_REPEAT_WINDOW, ExternalCallCache};
 pub mod errors;
 mod metrics;
 mod signer_overlay;
@@ -118,23 +124,31 @@ pub struct NightshadeRuntime {
     save_receipt_to_tx: bool,
     /// Runs the ECCs that the chunk producer packs into chunks, one at a time, for all shards.
     ecc_thread: EccThread,
+    /// The external calls this node applied, shared with a view runtime over the same chain.
+    external_call_cache: ExternalCallCache,
     /// Holds up the runs of the ECCs that tests choose, to make them late.
     #[cfg(feature = "test_features")]
     pub test_held_eccs: TestHeldEccs,
 }
 
 /// Knobs threaded through to [`NightshadeRuntime::new`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub struct RuntimeOptions {
     /// True on nodes that mirror archival state to cloud storage.
     pub is_cloud_archival_writer: bool,
     /// Persist receipt-to-transaction origin mappings to disk.
     pub save_receipt_to_tx: bool,
+    /// The cache of applied external calls to share. A runtime without one starts its own.
+    pub external_call_cache: Option<ExternalCallCache>,
 }
 
 impl Default for RuntimeOptions {
     fn default() -> Self {
-        Self { is_cloud_archival_writer: false, save_receipt_to_tx: true }
+        Self {
+            is_cloud_archival_writer: false,
+            save_receipt_to_tx: true,
+            external_call_cache: None,
+        }
     }
 }
 
@@ -154,7 +168,10 @@ impl NightshadeRuntime {
         state_parts_compression_lvl: i32,
         options: RuntimeOptions,
     ) -> Arc<Self> {
-        let RuntimeOptions { is_cloud_archival_writer, save_receipt_to_tx } = options;
+        let RuntimeOptions { is_cloud_archival_writer, save_receipt_to_tx, external_call_cache } =
+            options;
+        let external_call_cache =
+            external_call_cache.unwrap_or_else(|| ExternalCallCache::new(store.clone()));
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
@@ -197,6 +214,7 @@ impl NightshadeRuntime {
             is_cloud_archival_writer,
             save_receipt_to_tx,
             ecc_thread: EccThread::new(),
+            external_call_cache,
             #[cfg(feature = "test_features")]
             test_held_eccs: TestHeldEccs::default(),
         })
@@ -272,6 +290,7 @@ impl NightshadeRuntime {
                 group,
                 state_update,
                 skip_tx_hashes,
+                &|call_hash| self.external_call_cache.is_repeat(call_hash),
                 &mut external_calls,
                 self.epoch_manager.as_ref(),
                 runtime_config,
@@ -294,24 +313,14 @@ impl NightshadeRuntime {
             // preparation loaded it to reject a transaction.
             let loaded_account =
                 signer_overlay.packed_account_mut(ecc.contract_id()).map(|account| account.clone());
-            let context = EccDryRunContext {
+            let context = self.ecc_dry_run_context(
                 shard_id,
                 epoch_id,
                 protocol_version,
-                config: Arc::clone(runtime_config),
-                config_store: Arc::clone(&self.runtime_config_store),
-                vm_generation: self.runtime_config_store.vm_generation(protocol_version),
-                gas_price: prev_block.next_gas_price,
-                prev_block: PrevBlockContext {
-                    // A run does not read the hash, and an optimistic block has none.
-                    hash: CryptoHash::default(),
-                    height: prev_block.height,
-                    epoch_id: prev_block.epoch_id,
-                    epoch_height: prev_block.epoch_height,
-                    timestamp: prev_block.timestamp,
-                },
-                cache: Some(self.compiled_contract_cache.handle()),
-            };
+                runtime_config,
+                prev_block,
+                ApplyChunkReason::UpdateTrackedShard,
+            );
             if run_state.is_none() {
                 let waits_for_nodes = parent_nodes.is_some();
                 let wait_start = Instant::now();
@@ -493,6 +502,148 @@ impl NightshadeRuntime {
             Ok(EccRunOutput { dry_run, state, shares })
         };
         self.ecc_thread.run(job, deadline)
+    }
+
+    /// Checks that the contract of `ecc` can pay for it and run it, in the state of `trie`.
+    fn check_ecc_at_state(
+        &self,
+        trie: &Trie,
+        ecc: &EccTransaction,
+        gas_price: Balance,
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<(), InvalidTxError> {
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+        let contract_id = ecc.contract_id();
+        let account = get_account(trie, contract_id)?;
+        let cost = ecc_cost_for_account(runtime_config, ecc, account.as_ref(), gas_price)?;
+        verify_ecc_ephemeral(account.as_ref(), ecc, &cost)?;
+        if !call_can_run_at_account(trie, ecc)? {
+            return Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() });
+        }
+        Ok(())
+    }
+
+    /// What the dry run of an ECC sees in the chunk of `epoch_id` built on top of `prev_block`.
+    fn ecc_dry_run_context(
+        &self,
+        shard_id: ShardId,
+        epoch_id: EpochId,
+        protocol_version: ProtocolVersion,
+        runtime_config: &Arc<RuntimeConfig>,
+        prev_block: &PrepareTransactionsBlockContext,
+        apply_reason: ApplyChunkReason,
+    ) -> EccDryRunContext {
+        EccDryRunContext {
+            shard_id,
+            epoch_id,
+            protocol_version,
+            config: Arc::clone(runtime_config),
+            config_store: Arc::clone(&self.runtime_config_store),
+            vm_generation: self.runtime_config_store.vm_generation(protocol_version),
+            gas_price: prev_block.next_gas_price,
+            prev_block: PrevBlockContext {
+                // A run does not read the hash, and an optimistic block has none.
+                hash: CryptoHash::default(),
+                height: prev_block.height,
+                epoch_id: prev_block.epoch_id,
+                epoch_height: prev_block.epoch_height,
+                timestamp: prev_block.timestamp,
+            },
+            cache: Some(self.compiled_contract_cache.handle()),
+            apply_reason,
+        }
+    }
+
+    /// Runs the external call a view call describes as the producer of the chunk after
+    /// `block_hash` would run it first in the chunk, and keeps nothing the run writes.
+    fn view_external_call(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        protocol_version: ProtocolVersion,
+        contract_id: &AccountId,
+        payload: &[u8],
+        state_init: Option<&StateInitView>,
+    ) -> Result<CallResult, ViewExternalCallError> {
+        let state_init = match state_init {
+            None => None,
+            Some(StateInitView::Universal(state_init)) => Some(state_init.clone()),
+            // An external call carries only a universal state init.
+            Some(StateInitView::Deterministic { .. }) => {
+                let error = ActionsValidationError::UnsupportedProtocolFeature {
+                    protocol_feature: "deterministic state init in an external call".to_string(),
+                    version: protocol_version,
+                };
+                return Err(ViewExternalCallError::InvalidStateInit(error));
+            }
+        };
+        let ecc =
+            EccTransaction::new_with_state_init(contract_id.clone(), payload.to_vec(), state_init);
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let validated_ecc =
+            match self.validate_tx(&shard_layout, ecc.into(), protocol_version, None) {
+                Ok(ValidatedTransactionEnvelope::Unsigned(validated_ecc)) => validated_ecc,
+                Ok(ValidatedTransactionEnvelope::Signed(_)) => {
+                    let error = "an external call validated as a signed transaction";
+                    return Err(Error::Other(error.to_string()).into());
+                }
+                Err((error, _)) => return Err(ViewExternalCallError::refused_before_run(error)),
+            };
+        let chain_store = self.store.chain_store();
+        let block = chain_store.get_block(block_hash)?;
+        let chunk_extra = chain_store.chunk_store().get_chunk_extra(block_hash, &shard_uid)?;
+        // A dry run reads no congestion info.
+        let prev_block = PrepareTransactionsBlockContext::new(
+            &block,
+            self.epoch_manager.as_ref(),
+            Default::default(),
+            chunk_extra.gas_limit(),
+        )?;
+        let gas_price = prev_block.next_gas_price;
+        // A view reads through the view trie, which keeps it off the state that apply uses.
+        let view_trie = self.tries.get_view_trie_for_shard(shard_uid, state_root);
+        self.check_ecc_at_state(&view_trie, validated_ecc.to_ecc(), gas_price, protocol_version)
+            .map_err(ViewExternalCallError::refused_before_run)?;
+
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
+        // A node whose view limit is below an external call's gas refuses these view calls, so
+        // that a view call either answers as the chain would or not at all.
+        let view_limit = self.trie_viewer.max_gas_burnt_view(protocol_version);
+        if view_limit < runtime_config.wasm_config.limit_config.max_gas_burnt_external {
+            let error = "view calls of the external call method are disabled on this node";
+            return Err(Error::Other(error.to_string()).into());
+        }
+        let context = self.ecc_dry_run_context(
+            shard_uid.shard_id(),
+            prev_block.next_epoch_id,
+            protocol_version,
+            runtime_config,
+            &prev_block,
+            ApplyChunkReason::ViewTrackedShard,
+        );
+        let mut shares = ExternalCallsInChunk::new(runtime_config, Some(prev_block.gas_limit));
+        // The run records its reads, as the producer's does, so that the cap on what one call
+        // may record stops it at the same read.
+        let mut state_update = TrieUpdate::new(view_trie.recording_reads_new_recorder());
+        let output = dry_run_external_call_with_output(
+            &mut state_update,
+            context,
+            self.epoch_manager.as_ref(),
+            &mut shares,
+            None,
+            validated_ecc.to_ecc(),
+        )
+        .map_err(ecc_run_error)?;
+        match output.dry_run {
+            EccDryRun::Accepted { .. } => {
+                Ok(CallResult { result: output.return_value, logs: output.logs })
+            }
+            EccDryRun::Refused(error) => {
+                Err(ViewExternalCallError::Refused(Box::new(error), output.logs))
+            }
+        }
     }
 
     fn get_shard_uid_from_prev_hash(
@@ -1090,18 +1241,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         validated_ecc: &ValidatedEcc,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
-        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
         let ecc = validated_ecc.to_ecc();
-        let contract_id = ecc.contract_id();
-        let shard_uid = shard_layout.account_id_to_shard_uid(contract_id);
+        let shard_uid = shard_layout.account_id_to_shard_uid(ecc.contract_id());
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
-        let account = get_account(&trie, contract_id)?;
-        let cost = ecc_cost_for_account(runtime_config, ecc, account.as_ref(), gas_price)?;
-        verify_ecc_ephemeral(account.as_ref(), ecc, &cost)?;
-        if !call_can_run_at_account(&trie, ecc)? {
-            return Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() });
-        }
-        Ok(())
+        self.check_ecc_at_state(&trie, ecc, gas_price, current_protocol_version)
+    }
+
+    fn external_call_cache(&self) -> &ExternalCallCache {
+        &self.external_call_cache
     }
 
     fn can_verify_and_charge_tx(
@@ -1698,6 +1845,38 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) =
                     self.query_epoch_info(epoch_id, block_height, *block_hash)?;
+                if method_name == ECC_METHOD_NAME {
+                    // The call runs as in the next chunk, whose epoch may run a newer version.
+                    let epoch_error =
+                        |err| QueryError::from_epoch_error(err, block_height, *block_hash);
+                    let next_epoch_id = self
+                        .epoch_manager
+                        .get_epoch_id_from_prev_block(block_hash)
+                        .map_err(epoch_error)?;
+                    let next_protocol_version = self
+                        .epoch_manager
+                        .get_epoch_protocol_version(&next_epoch_id)
+                        .map_err(epoch_error)?;
+                    if ProtocolFeature::ExternalContractCalls.enabled(next_protocol_version) {
+                        let call_result = self
+                            .view_external_call(
+                                shard_uid,
+                                *state_root,
+                                block_hash,
+                                epoch_id,
+                                next_protocol_version,
+                                account_id,
+                                args.as_ref(),
+                                state_init.as_ref(),
+                            )
+                            .map_err(|err| err.into_query_error(block_height, *block_hash))?;
+                        return Ok(QueryResponse {
+                            kind: QueryResponseKind::CallResult(call_result),
+                            block_height,
+                            block_hash: *block_hash,
+                        });
+                    }
+                }
 
                 let call_function_result = self
                     .call_function(
@@ -2297,8 +2476,8 @@ struct EccGroupVisit {
 }
 
 /// Goes through a group of ECCs to one contract, in the order they came, and takes the first one
-/// that can go into the chunk. The ones before it are dropped if nobody can run them, or put
-/// aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
+/// that can go into the chunk. The ones before it are dropped if nobody can run them or they
+/// repeat a call that ran, or put aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
 /// that does not fit in `size_left`, the room left in the chunk, or would break the rules on
 /// the chunk's ECCs taken together (`external_calls`). Takes nothing if the chunk holds an ECC
 /// to the contract already. The ECC it takes is not added to `external_calls`: the caller adds it
@@ -2307,6 +2486,7 @@ fn take_ecc_from_group(
     group: &mut EccGroup,
     state_update: &dyn TrieAccess,
     skip_tx_hashes: &HashSet<CryptoHash>,
+    is_recent_repeat: &dyn Fn(&CryptoHash) -> bool,
     external_calls: &mut ExternalCallsValidity,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_config: &RuntimeConfig,
@@ -2340,6 +2520,13 @@ fn take_ecc_from_group(
         }
         if skip_tx_hashes.contains(ecc.hash_without_state_init()) {
             visit.skipped.extend(group.next());
+            continue;
+        }
+        // A repeat of a call that already ran leaves the pool unpacked.
+        if is_recent_repeat(ecc.hash_without_state_init()) {
+            let ecc =
+                group.next().expect("peek_next() returned Some, so next() should return Some");
+            tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding a repeat of an ECC that ran");
             continue;
         }
         // Only the chunk that has room for it takes it. The others in the group wait behind it.
@@ -2586,5 +2773,48 @@ impl near_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     ) -> Result<ContractCode, near_runtime::state_viewer::errors::ViewContractCodeError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_global_contract_code(&state_update, identifier)
+    }
+}
+
+/// Why a view call of the external call method returned no result.
+enum ViewExternalCallError {
+    /// The contract refused the call, with the logs of its run.
+    Refused(Box<TxExecutionError>, Vec<String>),
+    InvalidStateInit(ActionsValidationError),
+    Internal(Error),
+}
+
+impl ViewExternalCallError {
+    /// A call refused before its run, which logs nothing.
+    fn refused_before_run(error: InvalidTxError) -> Self {
+        Self::Refused(Box::new(error.into()), vec![])
+    }
+
+    fn into_query_error(self, block_height: BlockHeight, block_hash: CryptoHash) -> QueryError {
+        match self {
+            Self::Refused(error, logs) => {
+                QueryError::ExternalCallRefused { error, logs, block_height, block_hash }
+            }
+            Self::InvalidStateInit(error) => {
+                QueryError::InvalidStateInit { error: Box::new(error), block_height, block_hash }
+            }
+            Self::Internal(error) => QueryError::InternalError {
+                error_message: error.to_string(),
+                block_height,
+                block_hash,
+            },
+        }
+    }
+}
+
+impl From<Error> for ViewExternalCallError {
+    fn from(error: Error) -> Self {
+        Self::Internal(error)
+    }
+}
+
+impl From<EpochError> for ViewExternalCallError {
+    fn from(error: EpochError) -> Self {
+        Self::Internal(error.into())
     }
 }

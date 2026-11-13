@@ -11,8 +11,8 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 pub use crate::external_call::{
-    EccDryRun, EccDryRunContext, ExternalCallsInChunk, ProcessedExternalCall,
-    dry_run_external_call, process_external_call,
+    EccDryRun, EccDryRunContext, EccDryRunOutput, ExternalCallsInChunk, ProcessedExternalCall,
+    dry_run_external_call, dry_run_external_call_with_output, process_external_call,
 };
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
@@ -280,10 +280,10 @@ impl ApplyState {
             gas_price,
             prev_block,
             cache,
+            apply_reason,
         } = context;
         Self {
-            // The producer tracks the shard, so this is the reason apply runs the call with.
-            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            apply_reason,
             block_height: prev_block.height + 1,
             shard_id,
             epoch_id,
@@ -496,8 +496,21 @@ pub struct ApplyResult {
     pub contract_updates: ContractUpdates,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
     pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
-    /// The unique id and the hash of each external call that got an outcome.
-    pub external_calls: Vec<(CryptoHash, CryptoHash)>,
+    /// Each external call that the chunk included.
+    pub external_calls: Vec<ExternalCallInclusion>,
+}
+
+/// One inclusion of an external call in a chunk. A call can be included more than once.
+#[derive(Debug, Clone)]
+pub struct ExternalCallInclusion {
+    /// The id of this inclusion, which is its outcome id.
+    pub unique_id: CryptoHash,
+    /// The hash of the call as included, its key in the transactions column.
+    pub hash: CryptoHash,
+    /// The call's hash without its state init, the same with and without a state init.
+    pub hash_without_state_init: CryptoHash,
+    /// Whether the contract accepted and paid for the call.
+    pub accepted: bool,
 }
 
 #[derive(Debug)]
@@ -3167,6 +3180,24 @@ fn find_skipped_transactions(
         .collect()
 }
 
+/// The verdict on an applied external call, for metrics: `accepted`, or why it was refused, with a
+/// failed run named by its VM error.
+fn external_call_verdict(
+    status: &ExecutionStatus,
+    run_error: Option<&'static str>,
+) -> &'static str {
+    if let Some(run_error) = run_error {
+        return run_error;
+    }
+    match status {
+        ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)) => error.into(),
+        ExecutionStatus::Failure(TxExecutionError::ActionError(error)) => (&error.kind).into(),
+        ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => "accepted",
+        // Apply gives every external call a final status, so this is never counted.
+        ExecutionStatus::Unknown => "unknown",
+    }
+}
+
 /// Records the outcome of an external contract call that `process_external_call` processed, counts
 /// what it reports toward the chunk's gas, compute and burnt tokens, and sends out its receipts.
 fn record_external_call(
@@ -3175,9 +3206,15 @@ fn record_external_call(
     ecc: &EccTransaction,
     processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
-    let ProcessedExternalCall { outcome, accepted, receipts, installed_state_init: _ } = processed;
+    let ProcessedExternalCall { outcome, accepted, receipts, installed_state_init: _, run_error } =
+        processed;
     // Every call that gets here gets an outcome.
-    processing_state.external_calls.push((outcome.id, *ecc.hash()));
+    processing_state.external_calls.push(ExternalCallInclusion {
+        unique_id: outcome.id,
+        hash: *ecc.hash(),
+        hash_without_state_init: *ecc.hash_without_state_init(),
+        accepted,
+    });
     let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
     let stats = &mut processing_state.stats.balance;
@@ -3187,6 +3224,8 @@ fn record_external_call(
     } else {
         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     }
+    let verdict = external_call_verdict(&outcome.outcome.status, run_error);
+    metrics::EXTERNAL_CALL_PROCESSED.with_label_values(&[verdict]).inc();
     send_ecc_receipts(processing_state, receipt_sink, &outcome.id, ecc.contract_id(), receipts)?;
     processing_state.outcomes.push(outcome);
     Ok(())
@@ -3597,8 +3636,8 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
-    /// The unique id and the hash of each external call that got an outcome.
-    external_calls: Vec<(CryptoHash, CryptoHash)>,
+    /// Each external call that the chunk included.
+    external_calls: Vec<ExternalCallInclusion>,
 }
 
 trait MaybeRefReceipt {

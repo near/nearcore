@@ -13,8 +13,12 @@ use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_client::BlockResponse;
 use near_client::ProcessTxResponse;
+use near_client::QueryError;
 use near_client::test_utils::create_chunk_on_block;
+use near_jsonrpc_primitives::message::Message;
+use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest;
+use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::receipts::{ReceiptReference, RpcReceiptToTxRequest};
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::types::{NetworkRequests, NetworkResponses};
@@ -22,7 +26,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{ActionReceiptV3, AuthorizationContext, ReceiptEnum};
@@ -32,13 +36,19 @@ use near_primitives::transaction::{
     Action, ECC_METHOD_NAME, EccTransaction, ExecutionStatus, TransactionEnvelope, TransferAction,
     ValidatedEcc, ValidatedTransactionEnvelope,
 };
-use near_primitives::types::{AccountId, Balance, TransactionOrReceiptId};
+use near_primitives::types::{
+    AccountId, Balance, BlockReference, Finality, TransactionOrReceiptId,
+};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
 use near_primitives::utils::{create_ecc_outcome_id, derive_universal_account_id};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::views::{FinalExecutionStatus, TransactionEnvelopeView, TxExecutionStatus};
+use near_primitives::views::{
+    EccTransactionView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    GlobalContractIdentifierView, QueryRequest, QueryResponseKind, StateInitView,
+    TransactionEnvelopeView, TxExecutionStatus,
+};
 use near_primitives_core::serialize::to_base64;
 use near_store::adapter::StoreAdapter;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
@@ -53,19 +63,26 @@ fn ecc(contract_id: &AccountId) -> EccTransaction {
 /// The first byte of the payload of the ECCs that `ecc_contract` refuses.
 const REFUSED_TAG: u8 = 255;
 
-/// A contract whose ECC method returns the payload, and refuses a call whose payload starts with
-/// `REFUSED_TAG`.
+/// The log that `ecc_contract` writes on every call, before it decides.
+const ECC_CONTRACT_LOG: &str = "checked";
+
+/// A contract whose ECC method logs `ECC_CONTRACT_LOG`, returns the payload, and refuses a call
+/// whose payload starts with `REFUSED_TAG`.
 fn ecc_contract() -> Vec<u8> {
+    let log_len = ECC_CONTRACT_LOG.len();
     near_test_contracts::wat_contract(&format!(
         r#"(module
   (import "env" "input" (func $input (param i64)))
   (import "env" "register_len" (func $register_len (param i64) (result i64)))
   (import "env" "read_register" (func $read_register (param i64 i64)))
   (import "env" "value_return" (func $value_return (param i64 i64)))
+  (import "env" "log_utf8" (func $log_utf8 (param i64 i64)))
   (memory (export "memory") 1)
+  (data (i32.const 1024) "{ECC_CONTRACT_LOG}")
   (func (export "{ECC_METHOD_NAME}")
     (call $input (i64.const 0))
     (call $read_register (i64.const 0) (i64.const 0))
+    (call $log_utf8 (i64.const {log_len}) (i64.const 1024))
     (if (i32.eq (i32.load8_u (i32.const 0)) (i32.const {REFUSED_TAG})) (then unreachable))
     (call $value_return (call $register_len (i64.const 0)) (i64.const 0))
   )
@@ -876,6 +893,9 @@ fn test_ecc_promise_transfers_to_another_shard() {
 /// The time an RPC request in the universal account tests may take.
 const UNIVERSAL_RPC_TIMEOUT: Duration = Duration::seconds(30);
 
+/// How many blocks a test waits to see that a repeat of a call that ran does not land.
+const REPEAT_CHECK_BLOCKS: usize = 5;
+
 /// Deploys `ecc_contract` as a global contract from `sponsor` and funds the universal account whose
 /// state init uses it, which a transfer leaves uninitialized. Returns the account and its state
 /// init.
@@ -1089,30 +1109,245 @@ fn test_ecc_initializes_universal_account() {
 
     let first_call = EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(state_init));
     let second_call = EccTransaction::new(wallet, vec![2]);
-    // The first call again, at a later height: its own unique id, and its state init, which the
-    // account now ignores, stripped by the producer.
     let first_state_init = first_call.state_init().map(|state_init| state_init.0.clone());
-    let calls = [(first_call.clone(), first_state_init), (second_call, None), (first_call, None)];
     let mut transaction_ids = vec![];
-    for (call, landed_state_init) in calls {
+    for (call, included_state_init) in [(&first_call, first_state_init), (&second_call, None)] {
+        let outcome = send_and_wait(&mut env, call);
+        let view = assert_included(&env, call, &outcome);
+        assert_eq!(view.state_init, included_state_init);
+        transaction_ids.push(view.transaction_id);
+    }
+
+    // The first call again, once its first inclusion is final. `send_tx` finds that inclusion by
+    // the call's hash, and the repeat goes nowhere.
+    let from_height = env.rpc_node().head().height + 1;
+    let outcome = send_and_wait(&mut env, &first_call);
+    let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+        panic!("expected an external call, got {:?}", outcome.transaction);
+    };
+    assert_eq!(view.transaction_id, transaction_ids[0]);
+    env.rpc_runner().run_for_number_of_blocks(REPEAT_CHECK_BLOCKS);
+    let stripped_hash = *first_call.hash_without_state_init();
+    assert!(chunks_with_ecc(&env.rpc_node(), stripped_hash, from_height).is_empty());
+    assert!(chunks_with_ecc(&env.rpc_node(), *first_call.hash(), from_height).is_empty());
+}
+
+/// A resend of a call whose own run deleted its contract returns the first inclusion. Nodes check
+/// for a repeat before they check the contract, which the first run removed.
+#[test]
+fn test_resend_of_ecc_that_deleted_its_contract_returns_the_first_inclusion() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
+        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
+    {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let beneficiary = create_account_id("beneficiary");
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&beneficiary, &contract_id], &beneficiary);
+    let deploy_tx =
+        env.rpc_node().tx_deploy_contract(&contract_id, self_deleting_contract(&beneficiary));
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
+
+    let call = EccTransaction::new(contract_id.clone(), vec![1]);
+    let first = send_and_wait(&mut env, &call);
+    env.rpc_runner().run_for_number_of_blocks(REPEAT_CHECK_BLOCKS);
+    // The setup: the first run deleted the contract's account.
+    assert!(env.rpc_node().view_account_query(&contract_id).is_err());
+
+    let resent = send_and_wait(&mut env, &call);
+    assert_eq!(resent.transaction_outcome.id, first.transaction_outcome.id);
+}
+
+/// A contract whose ECC method deletes its own account, sending the balance to `beneficiary`.
+fn self_deleting_contract(beneficiary: &AccountId) -> Vec<u8> {
+    let beneficiary_len = beneficiary.len();
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "current_account_id" (func $current_account_id (param i64)))
+  (import "env" "register_len" (func $register_len (param i64) (result i64)))
+  (import "env" "promise_batch_create" (func $promise_batch_create (param i64 i64) (result i64)))
+  (import "env" "promise_batch_action_delete_account" (func $delete_account (param i64 i64 i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 1024) "{beneficiary}")
+  (func (export "{ECC_METHOD_NAME}")
+    (call $current_account_id (i64.const 0))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (call $delete_account
+      (call $promise_batch_create (call $register_len (i64.const 0)) (i64.const 0))
+      (i64.const {beneficiary_len})
+      (i64.const 1024))
+  )
+)"#
+    ))
+}
+
+/// Sends `call` through `send_tx` and returns its outcome once final.
+fn send_and_wait(env: &mut TestLoopEnv, call: &EccTransaction) -> FinalExecutionOutcomeView {
+    let response = env
+        .rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(call.clone(), TxExecutionStatus::Final),
+            UNIVERSAL_RPC_TIMEOUT,
+        )
+        .unwrap();
+    response.final_execution_outcome.unwrap().into_outcome()
+}
+
+/// Checks that `outcome` is an accepted inclusion of `call`, with the unique id of the call's hash
+/// without state init at its height, and returns the inclusion's view.
+fn assert_included<'a>(
+    env: &TestLoopEnv,
+    call: &EccTransaction,
+    outcome: &'a FinalExecutionOutcomeView,
+) -> &'a EccTransactionView {
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(call.payload().to_vec()));
+    let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
+        panic!("expected an external call, got {:?}", outcome.transaction);
+    };
+    let block_hash = outcome.transaction_outcome.block_hash;
+    let height = env.rpc_node().client().chain.get_block_header(&block_hash).unwrap().height();
+    let expected_id = create_ecc_outcome_id(call.hash_without_state_init(), height);
+    assert_eq!(view.transaction_id, expected_id);
+    view
+}
+
+/// A view call of the ECC method runs the call as the chunk producer would. A call the contract
+/// accepts returns the payload and the logs, and one it refuses returns the reason and the logs.
+#[test]
+fn test_view_call_runs_the_ecc_method_as_an_ecc() {
+    init_test_logger();
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
+    let view = |contract_id: &AccountId, payload: Vec<u8>| {
+        env.rpc_node().runtime_query(QueryRequest::CallFunction {
+            account_id: contract_id.clone(),
+            method_name: ECC_METHOD_NAME.to_owned(),
+            args: payload.into(),
+            state_init: None,
+        })
+    };
+
+    let response = view(&contract_id, vec![1, 2]).expect("the contract accepts the call");
+    let QueryResponseKind::CallResult(call_result) = response.kind else {
+        panic!("expected a call result, got {:?}", response.kind);
+    };
+    assert_eq!(call_result.result, vec![1, 2]);
+    assert_eq!(call_result.logs, vec![ECC_CONTRACT_LOG.to_string()]);
+
+    let refusal = view(&contract_id, vec![REFUSED_TAG]).expect_err("the contract refuses the call");
+    let QueryError::ExternalCallRefused { error, logs, .. } = refusal else {
+        panic!("expected the contract's refusal, got {refusal:?}");
+    };
+    assert_matches!(
+        *error,
+        TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::FunctionCallError(_),
+            ..
+        })
+    );
+    assert_eq!(logs, vec![ECC_CONTRACT_LOG.to_string()]);
+
+    // A call refused before its run has no logs.
+    let nobody = create_account_id("nobody");
+    let refusal = view(&nobody, vec![1]).expect_err("a missing contract refuses the call");
+    let QueryError::ExternalCallRefused { error, logs, .. } = refusal else {
+        panic!("expected a refusal, got {refusal:?}");
+    };
+    assert_matches!(
+        *error,
+        TxExecutionError::InvalidTxError(InvalidTxError::ContractNotFound { .. })
+    );
+    assert!(logs.is_empty());
+
+    // On JSON-RPC `query` and `EXPERIMENTAL_call_function`, a refusal is a structured error with
+    // the reason and the logs.
+    let query = RpcQueryRequest {
+        block_reference: BlockReference::Finality(Finality::None),
+        request: QueryRequest::CallFunction {
+            account_id: contract_id.clone(),
+            method_name: ECC_METHOD_NAME.to_owned(),
+            args: vec![REFUSED_TAG].into(),
+            state_init: None,
+        },
+    };
+    let call_function = RpcCallFunctionRequest {
+        block_reference: BlockReference::Finality(Finality::None),
+        account_id: contract_id,
+        method_name: ECC_METHOD_NAME.to_owned(),
+        args: vec![REFUSED_TAG].into(),
+        state_init: None,
+    };
+    let requests = [
+        ("query", serde_json::to_value(query).unwrap()),
+        ("EXPERIMENTAL_call_function", serde_json::to_value(call_function).unwrap()),
+    ];
+    for (method, params) in requests {
+        let message = Message::request(method.to_string(), params);
         let response = env
             .rpc_runner()
             .run_with_jsonrpc_client(
-                |client| client.send_tx(call.clone(), TxExecutionStatus::Final),
-                UNIVERSAL_RPC_TIMEOUT,
+                |client| client.transport.send_jsonrpc_request(message, false),
+                Duration::seconds(5),
             )
             .unwrap();
-        let outcome = response.final_execution_outcome.unwrap().into_outcome();
-        assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(call.payload().to_vec()));
-        let TransactionEnvelopeView::Unsigned(view) = &outcome.transaction else {
-            panic!("expected an external call, got {:?}", outcome.transaction);
+        let Message::Response(response) = response else {
+            panic!("expected a response to {method}, got {response:?}");
         };
-        assert_eq!(view.state_init, landed_state_init);
-        let block_hash = outcome.transaction_outcome.block_hash;
-        let height = env.rpc_node().client().chain.get_block_header(&block_hash).unwrap().height();
-        let without_init = call.without_state_init();
-        assert_eq!(view.transaction_id, create_ecc_outcome_id(without_init.hash(), height));
-        transaction_ids.push(view.transaction_id);
+        let error = response.result.expect_err("a refusal comes back as an error");
+        let error = serde_json::to_value(&error).unwrap();
+        assert_eq!(error["cause"]["name"], "EXTERNAL_CALL_REFUSED", "{method}: {error}");
+        assert_eq!(error["cause"]["info"]["logs"], serde_json::json!([ECC_CONTRACT_LOG]));
     }
-    assert_ne!(transaction_ids[0], transaction_ids[2]);
+}
+
+/// A view call of the ECC method with a state init runs the first call to an uninitialized
+/// universal account, and leaves the account uninitialized.
+#[test]
+fn test_view_call_of_the_ecc_method_installs_its_state_init() {
+    init_test_logger();
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let mut env = setup(PROTOCOL_VERSION, &[&sponsor], &sponsor);
+    let (wallet, state_init) = fund_universal_wallet(&mut env, &sponsor);
+    let view = |state_init: Option<StateInitView>| {
+        env.rpc_node().runtime_query(QueryRequest::CallFunction {
+            account_id: wallet.clone(),
+            method_name: ECC_METHOD_NAME.to_owned(),
+            args: vec![1, 2].into(),
+            state_init,
+        })
+    };
+
+    let refusal = view(None).expect_err("an uninitialized account has no contract");
+    let QueryError::ExternalCallRefused { error, .. } = refusal else {
+        panic!("expected a refusal, got {refusal:?}");
+    };
+    assert_matches!(
+        *error,
+        TxExecutionError::InvalidTxError(InvalidTxError::ContractNotFound { .. })
+    );
+
+    let response = view(Some(StateInitView::Universal(state_init))).expect("the call runs");
+    let QueryResponseKind::CallResult(call_result) = response.kind else {
+        panic!("expected a call result, got {:?}", response.kind);
+    };
+    assert_eq!(call_result.result, vec![1, 2]);
+    assert_eq!(call_result.logs, vec![ECC_CONTRACT_LOG.to_string()]);
+
+    // The view saved nothing: the account is still uninitialized.
+    assert_matches!(view(None), Err(QueryError::ExternalCallRefused { .. }));
+
+    // An external call carries only a universal state init.
+    let code = GlobalContractIdentifierView::CodeHash(CryptoHash::default());
+    let deterministic = StateInitView::Deterministic { code, data: BTreeMap::new() };
+    assert_matches!(view(Some(deterministic)), Err(QueryError::InvalidStateInit { .. }));
 }

@@ -54,13 +54,14 @@ use near_primitives::types::{
     ValidatorKickoutReason,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
-use near_primitives::utils::derive_universal_account_id;
+use near_primitives::utils::{derive_universal_account_id, index_to_bytes};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_runtime::ExternalCallInclusion;
 use near_runtime::PostStateNodes;
 use near_runtime::SignedValidPeriodTransactions;
 use near_runtime::config::ecc_cost;
@@ -2329,6 +2330,126 @@ fn test_can_accept_ecc_checks_contract_and_fees() {
         can_accept("test1", Balance::from_near(1)),
         Err(InvalidTxError::NotEnoughBalance { .. })
     ));
+}
+
+/// A call is a repeat only while the contract's accepted inclusion of it is in a final block on
+/// the canonical chain, at most `EXTERNAL_CALL_REPEAT_WINDOW` blocks below the final head.
+#[test]
+fn test_external_call_cache_repeats_only_an_accepted_final_canonical_inclusion() {
+    let (env, mut chain, _) = get_test_env_with_chain_and_pool();
+    let genesis = chain.genesis().clone();
+    let (genesis_hash, genesis_height) = (*genesis.hash(), genesis.height());
+    // The setup: the genesis block is the final head.
+    assert_eq!(chain.final_head().unwrap().height, genesis_height);
+    let remember = |name: &str, block_hash: CryptoHash, height: BlockHeight, accepted: bool| {
+        let call_hash = CryptoHash::hash_bytes(name.as_bytes());
+        let unique_id = CryptoHash::hash_bytes(&[name.as_bytes(), block_hash.as_ref()].concat());
+        let inclusion = ExternalCallInclusion {
+            unique_id,
+            hash: call_hash,
+            hash_without_state_init: call_hash,
+            accepted,
+        };
+        env.runtime.external_call_cache().remember(&block_hash, height, &[inclusion]);
+    };
+    let is_repeat = |name: &str| {
+        let call_hash = CryptoHash::hash_bytes(name.as_bytes());
+        env.runtime.external_call_cache().is_repeat(&call_hash)
+    };
+
+    remember("accepted", genesis_hash, genesis_height, true);
+    assert!(is_repeat("accepted"));
+    // A later inclusion, not final yet, does not replace the accepted one inside the window.
+    remember("accepted", CryptoHash::hash_bytes(b"next block"), genesis_height + 1, true);
+    assert!(is_repeat("accepted"));
+    remember("refused", genesis_hash, genesis_height, false);
+    assert!(!is_repeat("refused"));
+    remember("fork", CryptoHash::hash_bytes(b"fork block"), genesis_height, true);
+    assert!(!is_repeat("fork"));
+    remember("not final", CryptoHash::hash_bytes(b"next block"), genesis_height + 1, true);
+    assert!(!is_repeat("not final"));
+    assert!(!is_repeat("never landed"));
+    let answer = |name: &str, sent_at: BlockHeight| {
+        let call_hash = CryptoHash::hash_bytes(name.as_bytes());
+        env.runtime.external_call_cache().answer_to_send(&call_hash, sent_at)
+    };
+    let id = |name: &str, block_hash: &CryptoHash| {
+        CryptoHash::hash_bytes(&[name.as_bytes(), block_hash.as_ref()].concat())
+    };
+    let set_canonical = |height: BlockHeight, block_hash: &CryptoHash| {
+        let mut store_update = env.runtime.store().store_update();
+        store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), block_hash);
+        store_update.commit();
+    };
+
+    // A skip fork: the canonical block re-includes a call from a block that the fork orphans.
+    // The index still points at the orphaned block when the canonical inclusion is cached.
+    let fork_hash = CryptoHash::hash_bytes(b"fork block");
+    set_canonical(genesis_height, &fork_hash);
+    remember("orphaned", fork_hash, genesis_height, true);
+    remember("orphaned", genesis_hash, genesis_height, true);
+    set_canonical(genesis_height, &genesis_hash);
+    assert!(is_repeat("orphaned"));
+    assert_eq!(answer("orphaned", genesis_height), Some(id("orphaned", &genesis_hash)));
+
+    // A send is answered by an inclusion after it, or by an earlier one that ran.
+    assert_eq!(answer("accepted", genesis_height), Some(id("accepted", &genesis_hash)));
+    assert_eq!(answer("refused", genesis_height), None);
+    let retry_hash = CryptoHash::hash_bytes(b"retry block");
+    set_canonical(genesis_height + 1, &retry_hash);
+    remember("refused", retry_hash, genesis_height + 1, false);
+    assert_eq!(answer("refused", genesis_height), Some(id("refused", &retry_hash)));
+    // A resend that landed after the send, before the first inclusion was final, is its own
+    // answer even when the first inclusion is accepted.
+    remember("resent", genesis_hash, genesis_height, true);
+    remember("resent", retry_hash, genesis_height + 1, true);
+    assert_eq!(answer("resent", genesis_height), Some(id("resent", &retry_hash)));
+
+    // The final head moves past a height the canonical chain skipped. An inclusion at that height
+    // is on an orphaned block, and it does not count.
+    let skipped_height = genesis_height + 2;
+    remember("skipped height", CryptoHash::hash_bytes(b"orphaned block"), skipped_height, true);
+    let mut final_head = Tip::from_header(&genesis);
+    final_head.height = skipped_height + 1;
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update.save_final_head(&final_head).unwrap();
+    store_update.commit().unwrap();
+    assert!(!is_repeat("skipped height"));
+
+    // The final head moves past the window of the inclusion in the genesis block.
+    final_head.height = genesis_height + EXTERNAL_CALL_REPEAT_WINDOW + 1;
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update.save_final_head(&final_head).unwrap();
+    store_update.commit().unwrap();
+    assert!(!is_repeat("accepted"));
+}
+
+/// A producer leaves a repeat of a call that ran in a final block out of the chunk, and drops it
+/// from the pool, while it packs other calls.
+#[test]
+fn test_prepare_transactions_drops_a_repeat_of_an_ecc_that_ran() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let genesis = chain.genesis().clone();
+    // The setup: the genesis block is the final head, and the call to test1 ran in it.
+    assert_eq!(chain.final_head().unwrap().height, genesis.height());
+    let repeat = ecc("test1", 1);
+    let call_hash = *repeat.hash_without_state_init();
+    let inclusion = ExternalCallInclusion {
+        unique_id: CryptoHash::hash_bytes(b"inclusion that ran"),
+        hash: call_hash,
+        hash_without_state_init: call_hash,
+        accepted: true,
+    };
+    env.runtime.external_call_cache().remember(genesis.hash(), genesis.height(), &[inclusion]);
+    let mut pool = pool_with_eccs([repeat, ecc("test2", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
 }
 
 /// A chunk with no room for ECCs, as their share of its transaction bytes is zero, gets none,
