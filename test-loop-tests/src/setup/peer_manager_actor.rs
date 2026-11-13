@@ -1,3 +1,4 @@
+use super::network_rules::{Applied, NetworkRules};
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
@@ -139,6 +140,9 @@ pub type NetworkRequestObserver = Box<dyn Fn(&NetworkRequests)>;
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
     observers: Vec<NetworkRequestObserver>,
+    /// The rules of every node, consulted for this node's account before the handlers.
+    rules: NetworkRules,
+    account_id: AccountId,
 
     clock: Clock,
     client_sender: ClientSenderForTestLoopNetwork,
@@ -179,6 +183,7 @@ impl TestLoopPeerManagerActor {
         client_sender: ClientSenderForTestLoopNetwork,
         genesis_id: GenesisId,
         future_spawner: Arc<dyn FutureSpawner>,
+        rules: NetworkRules,
     ) -> Self {
         let handlers = vec![
             network_message_to_client_handler(&account_id, shared_state.clone()),
@@ -203,6 +208,8 @@ impl TestLoopPeerManagerActor {
         Self {
             handlers,
             observers: Vec::new(),
+            rules,
+            account_id: account_id.clone(),
             clock,
             client_sender,
             shared_state: shared_state.clone(),
@@ -222,6 +229,23 @@ impl TestLoopPeerManagerActor {
         // We add the handler to the end of the list and while processing the request, we iterate
         // over the handlers in reverse order.
         self.handlers.push(handler);
+    }
+
+    /// Hands `request` to the handlers, the last registered first.
+    fn dispatch(&self, request: NetworkRequests) -> PeerManagerMessageResponse {
+        let mut request = Some(request);
+        for handler in self.handlers.iter().rev() {
+            match handler(request.take().unwrap()) {
+                HandlerResult::Unhandled(req) => {
+                    request = Some(req);
+                }
+                HandlerResult::Handled(response) => {
+                    return PeerManagerMessageResponse::NetworkResponses(response);
+                }
+            }
+        }
+        // If no handler was able to handle the request, panic.
+        panic!("unhandled request: {:?}", request);
     }
 
     fn push_network_info(
@@ -277,10 +301,13 @@ impl TestLoopPeerManagerActor {
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
-/// Broadcast blocks withheld from one account, with a count of how many were withheld.
+/// Broadcast blocks withheld from one account, with a count of how many were withheld and, when
+/// they are kept, the blocks themselves with the peer each came from, for delivery later.
 struct SuppressedBlockDelivery {
     heights: Range<BlockHeight>,
     count: usize,
+    keep: bool,
+    withheld: Vec<(PeerId, Arc<Block>)>,
 }
 
 struct TestLoopNetworkSharedStateInner {
@@ -426,8 +453,46 @@ impl TestLoopNetworkSharedState {
     /// Stops delivery of broadcast blocks to `account_id` while the height is in `heights`.
     /// Peer height announcements and requested blocks still arrive.
     pub fn suppress_block_delivery(&self, account_id: &AccountId, heights: Range<BlockHeight>) {
-        let suppressed = SuppressedBlockDelivery { heights, count: 0 };
+        let suppressed =
+            SuppressedBlockDelivery { heights, count: 0, keep: false, withheld: Vec::new() };
         self.0.lock().suppressed_block_recipients.insert(account_id.clone(), suppressed);
+    }
+
+    /// [`Self::suppress_block_delivery`], but the withheld blocks are kept, so
+    /// [`Self::deliver_withheld_blocks`] can hand them over later.
+    pub fn withhold_block_delivery(&self, account_id: &AccountId, heights: Range<BlockHeight>) {
+        let suppressed =
+            SuppressedBlockDelivery { heights, count: 0, keep: true, withheld: Vec::new() };
+        self.0.lock().suppressed_block_recipients.insert(account_id.clone(), suppressed);
+    }
+
+    /// Delivers to `account_id` every distinct block withheld from it so far, in the order they
+    /// were withheld and as from the first peer that broadcast each, and stops withholding.
+    /// Returns how many it delivered.
+    pub fn deliver_withheld_blocks(&self, account_id: &AccountId) -> usize {
+        let (withheld, senders) = {
+            let mut guard = self.0.lock();
+            let Some(suppressed) = guard.suppressed_block_recipients.remove(account_id) else {
+                return 0;
+            };
+            let peer_id = &guard.account_to_peer_id[account_id];
+            (suppressed.withheld, guard.senders.get(peer_id).unwrap().clone())
+        };
+        let mut delivered = HashSet::new();
+        let withheld: Vec<_> =
+            withheld.into_iter().filter(|(_, block)| delivered.insert(*block.hash())).collect();
+        for (peer_id, block) in &withheld {
+            let future = senders.client_sender.send_async(
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: peer_id.clone(),
+                    was_requested: false,
+                }
+                .span_wrap(),
+            );
+            drop(future);
+        }
+        withheld.len()
     }
 
     /// How many broadcast blocks were withheld from `account_id`. Lets a test check that its
@@ -445,10 +510,19 @@ impl TestLoopNetworkSharedState {
             .is_some_and(|s| s.heights.contains(&height))
     }
 
-    fn count_suppressed_block(&self, account_id: &AccountId) {
+    /// Counts a block withheld from `account_id`, keeping it when the entry says so.
+    fn record_suppressed_block(
+        &self,
+        account_id: &AccountId,
+        peer_id: &PeerId,
+        block: &Arc<Block>,
+    ) {
         let mut guard = self.0.lock();
         if let Some(suppressed) = guard.suppressed_block_recipients.get_mut(account_id) {
             suppressed.count += 1;
+            if suppressed.keep {
+                suppressed.withheld.push((peer_id.clone(), block.clone()));
+            }
         }
     }
 
@@ -659,20 +733,31 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
             observer(&request);
         }
 
-        // Iterate over the handlers in reverse order to allow for overriding the default handlers.
-        let mut request = Some(request);
-        for handler in self.handlers.iter().rev() {
-            match handler(request.take().unwrap()) {
-                HandlerResult::Unhandled(req) => {
-                    request = Some(req);
-                }
-                HandlerResult::Handled(response) => {
-                    return PeerManagerMessageResponse::NetworkResponses(response);
-                }
-            }
+        let Applied { released_held, outgoing } = self.rules.apply(&self.account_id, request);
+        for request in released_held {
+            self.dispatch(request);
         }
-        // If no handler was able to handle the request, panic.
-        panic!("Unhandled request: {:?}", request);
+        // A request the rules dropped or held answers like one the handlers took in silence.
+        let mut response =
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
+        for request in outgoing {
+            response = self.dispatch(request);
+        }
+        response
+    }
+}
+
+/// A request a rule let go later than it was sent, see [`NetworkRules::apply_deferred`].
+#[derive(Debug)]
+pub struct DeferredNetworkRequest(pub NetworkRequests);
+
+impl Handler<DeferredNetworkRequest> for TestLoopPeerManagerActor {
+    fn handle(&mut self, msg: DeferredNetworkRequest) {
+        let Applied { released_held, outgoing } =
+            self.rules.apply_deferred(&self.account_id, msg.0);
+        for request in released_held.into_iter().chain(outgoing) {
+            self.dispatch(request);
+        }
     }
 }
 
@@ -692,7 +777,7 @@ fn network_message_to_client_handler(
                 let senders = shared_state.senders_for_account(&my_account_id, &account_id);
 
                 if shared_state.is_block_delivery_suppressed(&account_id, block.header().height()) {
-                    shared_state.count_suppressed_block(&account_id);
+                    shared_state.record_suppressed_block(&account_id, &my_peer_id, &block);
                 } else {
                     let future = senders.client_sender.send_async(
                         BlockResponse {
