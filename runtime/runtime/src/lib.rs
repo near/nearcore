@@ -955,6 +955,7 @@ impl Runtime {
         stats: &mut ChunkApplyStatsV1,
         epoch_info_provider: &dyn EpochInfoProvider,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
+        executed_receipt_ids: &mut HashSet<CryptoHash>,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt: VersionedActionReceipt = match receipt.versioned_receipt() {
             VersionedReceiptEnum::Action(action_receipt)
@@ -962,6 +963,19 @@ impl Runtime {
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = receipt.receiver_id();
+
+        // Honest receipt ids are unique, but a malicious chunk producer chooses the ids of the
+        // receipts it signs. Executing two receipts with the same id would also make them share
+        // the prepared contract, see `pipelining::PrepareTaskKey`.
+        if !executed_receipt_ids.insert(*receipt.receipt_id()) {
+            // An optimistic apply turns this into a rejected chunk. A normal apply panics, which
+            // is safe, because an endorsed chunk can't contain repeated receipt ids.
+            // (see `NightshadeRuntime::process_state_update`)
+            return Err(RuntimeError::ExecutionInvariantBroken(format!(
+                "receipt {} is executed more than once",
+                receipt.receipt_id()
+            )));
+        }
 
         let input_size_limit =
             apply_state.config.wasm_config.limit_config.max_receipt_total_input_size;
@@ -1247,6 +1261,7 @@ impl Runtime {
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
+                // Forged `system` FunctionCall receipts underflow here until RemoveGasRewards (87).
                 tx_burnt_amount = tx_burnt_amount.checked_sub(receiver_reward).unwrap();
                 account.set_amount(safe_add_balance(account.amount(), receiver_reward)?);
                 set_account(state_update, account_id.clone(), account);
@@ -1556,6 +1571,7 @@ impl Runtime {
             ref mut stats,
             ref mut instant_receipts,
             ref mut receipt_to_tx,
+            ref mut executed_receipt_ids,
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
@@ -1628,6 +1644,7 @@ impl Runtime {
                                 stats,
                                 epoch_info_provider,
                                 receipt_to_tx,
+                                executed_receipt_ids,
                             )
                             .map(Some);
                     } else {
@@ -1663,16 +1680,23 @@ impl Runtime {
                     account_id,
                     action_receipt,
                     receipt_to_tx,
+                    executed_receipt_ids,
                 )?;
 
                 if executed.is_some() {
                     return Ok(executed);
                 }
             }
-            VersionedReceiptEnum::PromiseYield(_) => {
+            VersionedReceiptEnum::PromiseYield(action_receipt) => {
                 // Received a new PromiseYield receipt. We simply store it and await
                 // the corresponding PromiseResume receipt.
-                set_promise_yield_receipt(state_update, receipt);
+                let &[data_id] = action_receipt.input_data_ids() else {
+                    return Err(RuntimeError::ExecutionInvariantBroken(format!(
+                        "a PromiseYield receipt must have exactly one input data id, got {}",
+                        action_receipt.input_data_ids().len()
+                    )));
+                };
+                set_promise_yield_receipt(state_update, receipt, data_id);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
                 if data_receipt.data.is_none() {
@@ -1731,6 +1755,7 @@ impl Runtime {
                             stats,
                             epoch_info_provider,
                             receipt_to_tx,
+                            executed_receipt_ids,
                         )
                         .map(Some);
                 } else {
@@ -1777,6 +1802,7 @@ impl Runtime {
         account_id: &AccountId,
         action_receipt: VersionedActionReceipt<'_>,
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
+        executed_receipt_ids: &mut HashSet<CryptoHash>,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let mut pending_data_count: u32 = 0;
         for data_id in action_receipt.input_data_ids() {
@@ -1810,6 +1836,7 @@ impl Runtime {
                     stats,
                     epoch_info_provider,
                     receipt_to_tx,
+                    executed_receipt_ids,
                 )
                 .map(Some);
         } else {
@@ -3545,6 +3572,7 @@ impl<'a> ApplyProcessingState<'a> {
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
             external_calls: Vec::new(),
+            executed_receipt_ids: HashSet::new(),
         }
     }
 }
@@ -3572,6 +3600,8 @@ struct ApplyProcessingReceiptState<'a> {
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
     /// The unique id and the hash of each external call that got an outcome.
     external_calls: Vec<(CryptoHash, CryptoHash)>,
+    /// Ids of the receipts executed in this apply, see `Runtime::apply_action_receipt`.
+    executed_receipt_ids: HashSet<CryptoHash>,
 }
 
 trait MaybeRefReceipt {
@@ -3702,6 +3732,7 @@ pub mod estimator {
     use near_store::{ShardUId, TrieUpdate};
     use near_vm_runner::CompilePriority;
     use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::collections::VecDeque;
     use std::num::NonZeroU64;
     use std::sync::Arc;
@@ -3768,6 +3799,7 @@ pub mod estimator {
             stats,
             epoch_info_provider,
             &mut receipt_to_tx,
+            &mut HashSet::new(),
         );
         let new_outgoing_receipts =
             receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
