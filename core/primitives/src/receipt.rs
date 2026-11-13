@@ -4,7 +4,8 @@ use crate::fees::{compute_receipt_congestion_gas, compute_receipt_size};
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance, BlockHeight, ShardId};
+use crate::types::{AccountId, Balance, BlockHeight, ProtocolVersion, ShardId};
+use crate::version::ProtocolFeature;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
@@ -239,6 +240,7 @@ impl BorshDeserialize for StateStoredReceipt<'_> {
 }
 
 impl Receipt {
+    /// Converts a transaction into a receipt created at `protocol_version`.
     pub fn from_tx(
         receipt_id: CryptoHash,
         tx_signer_id: AccountId,
@@ -246,19 +248,22 @@ impl Receipt {
         signer_public_key: PublicKey,
         gas_price: Balance,
         actions: Vec<Action>,
+        protocol_version: ProtocolVersion,
     ) -> Self {
+        let authorization_context = AuthorizationContext::AccessKey(signer_public_key);
+        let receipt = ReceiptEnum::new_action_receipt(
+            protocol_version,
+            protocol_version,
+            tx_signer_id.clone(),
+            authorization_context,
+            gas_price,
+            actions,
+        );
         Receipt::V0(ReceiptV0 {
-            predecessor_id: tx_signer_id.clone(),
+            predecessor_id: tx_signer_id,
             receiver_id: tx_receiver_id,
             receipt_id,
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx_signer_id,
-                signer_public_key,
-                gas_price,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
+            receipt,
         })
     }
 
@@ -292,6 +297,18 @@ impl Receipt {
         VersionedReceiptEnum::from(&receipt.receipt)
     }
 
+    /// The action receipt of any version, or `None` if this is not an action
+    /// receipt. A promise yield receipt is not an action receipt here.
+    pub fn action_receipt(&self) -> Option<VersionedActionReceipt<'_>> {
+        match self.versioned_receipt() {
+            VersionedReceiptEnum::Action(action_receipt) => Some(action_receipt),
+            VersionedReceiptEnum::Data(_)
+            | VersionedReceiptEnum::PromiseYield(_)
+            | VersionedReceiptEnum::PromiseResume(_)
+            | VersionedReceiptEnum::GlobalContractDistribution(_) => None,
+        }
+    }
+
     pub fn receipt_mut(&mut self) -> &mut ReceiptEnum {
         let Receipt::V0(receipt) = self;
         &mut receipt.receipt
@@ -321,6 +338,8 @@ impl Receipt {
             | ReceiptEnum::GlobalContractDistribution(_) => &None,
             ReceiptEnum::ActionV2(action_receipt_v2)
             | ReceiptEnum::PromiseYieldV2(action_receipt_v2) => &action_receipt_v2.refund_to,
+            ReceiptEnum::ActionV3(action_receipt_v3)
+            | ReceiptEnum::PromiseYieldV3(action_receipt_v3) => &action_receipt_v3.refund_to,
         }
     }
 
@@ -337,9 +356,11 @@ impl Receipt {
         let shard_id = match self.receipt() {
             ReceiptEnum::Action(_)
             | ReceiptEnum::ActionV2(_)
+            | ReceiptEnum::ActionV3(_)
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseYield(_)
             | ReceiptEnum::PromiseYieldV2(_)
+            | ReceiptEnum::PromiseYieldV3(_)
             | ReceiptEnum::PromiseResume(_) => {
                 shard_layout.account_id_to_shard_id(self.receiver_id())
             }
@@ -389,48 +410,65 @@ impl Receipt {
         }
     }
 
-    /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
+    /// Generates a receipt with a balance refund transfer from the system
+    /// account.
+    ///
     /// This should be used for token refunds instead of gas refunds.
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
-    pub fn new_balance_refund(receiver_id: &AccountId, refund: Balance) -> Self {
+    pub fn new_balance_refund(
+        receiver_id: &AccountId,
+        refund: Balance,
+        protocol_version: ProtocolVersion,
+    ) -> Self {
+        let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let authorization_context = AuthorizationContext::AccessKey(signer_public_key);
+        let receipt = ReceiptEnum::new_action_receipt(
+            protocol_version,
+            protocol_version,
+            "system".parse().unwrap(),
+            authorization_context,
+            Balance::ZERO,
+            actions,
+        );
         Receipt::V0(ReceiptV0 {
             predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: "system".parse().unwrap(),
-                signer_public_key: PublicKey::empty(KeyType::ED25519),
-                gas_price: Balance::ZERO,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-            }),
+            receipt,
         })
     }
 
-    /// Generates a receipt with a transfer action from system for a given balance without a
-    /// receipt_id. It contains `signer_id` and `signer_public_key` to indicate this is a gas
-    /// refund. The execution of this receipt will try to refund the allowance of the
-    /// access key with the given public key.
-    /// NOTE: The access key may be replaced by the owner, so the execution can't rely that the
-    /// access key is the same and it should use best effort for the refund.
+    /// Generates a receipt with a gas refund transfer from the system account.
+    ///
+    /// Its `signer_id` is the receiver, which marks it as a gas refund, and it
+    /// carries `authorization_context`, the context of the chain that bought
+    /// the gas. The execution of this receipt will try to refund the allowance
+    /// of the access key, if any.
+    ///
+    /// NOTE: The access key may be replaced by the owner, so the execution
+    /// can't rely that the access key is the same and it should use best effort
+    /// for the refund.
     pub fn new_gas_refund(
         receiver_id: &AccountId,
         refund: Balance,
-        signer_public_key: PublicKey,
+        authorization_context: AuthorizationContext,
+        protocol_version: ProtocolVersion,
     ) -> Self {
+        let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
+        let receipt = ReceiptEnum::new_action_receipt(
+            protocol_version,
+            protocol_version,
+            receiver_id.clone(),
+            authorization_context,
+            Balance::ZERO,
+            actions,
+        );
         Receipt::V0(ReceiptV0 {
             predecessor_id: "system".parse().unwrap(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: receiver_id.clone(),
-                signer_public_key,
-                gas_price: Balance::ZERO,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
-            }),
+            receipt,
         })
     }
 
@@ -470,6 +508,115 @@ pub enum ReceiptEnum {
     GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
     ActionV2(ActionReceiptV2) = 5,
     PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
+}
+
+impl ReceiptEnum {
+    /// Creates the action receipt of a transaction, of the inner actions of a
+    /// meta transaction or of a refund at `protocol_version`, the current
+    /// protocol version.
+    ///
+    /// Since `PinReceiptFees` it is an `ActionReceiptV3` that records
+    /// `creation_protocol_version`. Before it, it is an `ActionReceipt` in a
+    /// chain an access key authorized and an `ActionReceiptV3` in the chain of
+    /// an external call.
+    pub fn new_action_receipt(
+        protocol_version: ProtocolVersion,
+        creation_protocol_version: ProtocolVersion,
+        signer_id: AccountId,
+        authorization_context: AuthorizationContext,
+        gas_price: Balance,
+        actions: Vec<Action>,
+    ) -> Self {
+        let pin_receipt_fees = ProtocolFeature::PinReceiptFees.enabled(protocol_version);
+        match authorization_context {
+            AuthorizationContext::AccessKey(signer_public_key) if !pin_receipt_fees => {
+                let action_receipt = ActionReceipt {
+                    signer_id,
+                    signer_public_key,
+                    gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions,
+                };
+                ReceiptEnum::Action(action_receipt)
+            }
+            authorization_context => {
+                let action_receipt = ActionReceiptV3 {
+                    signer_id,
+                    refund_to: None, // The refunds should go to the predecessor.
+                    authorization_context,
+                    gas_price,
+                    creation_protocol_version,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions,
+                };
+                ReceiptEnum::ActionV3(action_receipt)
+            }
+        }
+    }
+
+    /// Creates the action receipt, or the promise yield receipt if
+    /// `is_promise_yield`, of a promise that a contract created at
+    /// `protocol_version`, the current protocol version.
+    ///
+    /// Since `PinReceiptFees` it is an `ActionReceiptV3` that records
+    /// `protocol_version`. Before it, it is an `ActionReceiptV2` in a chain an
+    /// access key authorized and an `ActionReceiptV3` in the chain of an
+    /// external call. It records the current version rather than the version
+    /// of the transaction that started the call chain, because the contract
+    /// paid the static fees of the receipt from attached gas at the current
+    /// fees.
+    pub fn new_action_receipt_from_promise(
+        protocol_version: ProtocolVersion,
+        signer_id: AccountId,
+        refund_to: Option<AccountId>,
+        authorization_context: AuthorizationContext,
+        gas_price: Balance,
+        output_data_receivers: Vec<DataReceiver>,
+        input_data_ids: Vec<CryptoHash>,
+        actions: Vec<Action>,
+        is_promise_yield: bool,
+    ) -> Self {
+        let pin_receipt_fees = ProtocolFeature::PinReceiptFees.enabled(protocol_version);
+        match authorization_context {
+            AuthorizationContext::AccessKey(signer_public_key) if !pin_receipt_fees => {
+                let action_receipt = ActionReceiptV2 {
+                    signer_id,
+                    refund_to,
+                    signer_public_key,
+                    gas_price,
+                    output_data_receivers,
+                    input_data_ids,
+                    actions,
+                };
+                if is_promise_yield {
+                    ReceiptEnum::PromiseYieldV2(action_receipt)
+                } else {
+                    ReceiptEnum::ActionV2(action_receipt)
+                }
+            }
+            authorization_context => {
+                let action_receipt = ActionReceiptV3 {
+                    signer_id,
+                    refund_to,
+                    authorization_context,
+                    gas_price,
+                    creation_protocol_version: protocol_version,
+                    output_data_receivers,
+                    input_data_ids,
+                    actions,
+                };
+                if is_promise_yield {
+                    ReceiptEnum::PromiseYieldV3(action_receipt)
+                } else {
+                    ReceiptEnum::ActionV3(action_receipt)
+                }
+            }
+        }
+    }
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -521,7 +668,7 @@ pub struct ActionReceipt {
 pub struct ActionReceiptV2 {
     /// A signer of the original transaction
     pub signer_id: AccountId,
-    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
     pub refund_to: Option<AccountId>,
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
@@ -539,44 +686,149 @@ pub struct ActionReceiptV2 {
     pub actions: Vec<Action>,
 }
 
+/// An action receipt that records what authorized its chain of receipts and
+/// the protocol version at which it was created.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ActionReceiptV3 {
+    /// A signer of the original transaction, or the contract that accepted an external call
+    pub signer_id: AccountId,
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
+    pub refund_to: Option<AccountId>,
+    /// What authorized the chain of receipts this receipt belongs to
+    pub authorization_context: AuthorizationContext,
+    /// A gas_price which has been used to buy gas in the original transaction or external call
+    pub gas_price: Balance,
+    /// The protocol version at which this receipt was created.
+    ///
+    /// The static fees of the receipt were paid with the fees of this version, so they are also
+    /// charged and refunded with them, and a receipt that executes after a fee change spends
+    /// exactly the gas that was paid for. Refunds are free, but record their version too.
+    ///
+    /// A receipt created by a contract records the version it was created at, not the version of
+    /// the transaction that started the call chain, since the contract paid its static fees from
+    /// attached gas at the fees of that version. The receipt of the inner actions of a meta
+    /// transaction is the exception: it records the creation version of the receipt that carried
+    /// the meta transaction, since the relayer prepaid its static fees with that receipt.
+    pub creation_protocol_version: ProtocolVersion,
+    /// If present, where to route the output data
+    pub output_data_receivers: Vec<DataReceiver>,
+    /// A list of the input data dependencies for this Receipt to process.
+    /// If all `input_data_ids` for this receipt are delivered to the account
+    /// that means we have all the `ReceivedData` input which will be than converted to a
+    /// `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+    /// depending on `ReceivedData` is `Some(_)` or `None`
+    pub input_data_ids: Vec<CryptoHash>,
+    /// A list of actions to process when all input_data_ids are filled
+    pub actions: Vec<Action>,
+}
+
+/// What authorized a chain of receipts: an access key that signed a transaction, or an
+/// external call its contract accepted.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub enum AuthorizationContext {
+    AccessKey(PublicKey) = 0,
+    ExternalContractCall = 1,
+}
+
 /// Convenience wrapper for common logic accessing fields on action receipts of
 /// different versions.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum VersionedActionReceipt<'a> {
     V1(Cow<'a, ActionReceipt>),
     V2(Cow<'a, ActionReceiptV2>),
+    V3(Cow<'a, ActionReceiptV3>),
 }
 
 impl VersionedActionReceipt<'_> {
-    /// A signer of the original transaction
+    /// A signer of the original transaction, or the contract that accepted an external call
     pub fn signer_id(&self) -> &AccountId {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_id,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_id,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.signer_id,
         }
     }
 
-    /// The receiver of any balance refunds form this receipt if it is different from receiver_id.
+    /// The receiver of any balance refunds from this receipt if it is different from receiver_id.
     pub fn refund_to(&self) -> &Option<AccountId> {
         match self {
             VersionedActionReceipt::V1(_) => &None,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.refund_to,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.refund_to,
         }
     }
 
-    /// An access key which was used to sign the original transaction
-    pub fn signer_public_key(&self) -> &PublicKey {
+    /// The protocol version at which the receipt was created, if recorded.
+    /// See [`ActionReceiptV3::creation_protocol_version`].
+    pub fn creation_protocol_version(&self) -> Option<ProtocolVersion> {
         match self {
-            VersionedActionReceipt::V1(action_receipt) => &action_receipt.signer_public_key,
-            VersionedActionReceipt::V2(action_receipt) => &action_receipt.signer_public_key,
+            VersionedActionReceipt::V1(_) | VersionedActionReceipt::V2(_) => None,
+            VersionedActionReceipt::V3(action_receipt) => {
+                Some(action_receipt.creation_protocol_version)
+            }
         }
     }
 
-    /// A gas_price which has been used to buy gas in the original transaction
+    /// An access key which was used to sign the original transaction, absent in the chain of an
+    /// external call
+    pub fn signer_public_key(&self) -> Option<&PublicKey> {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => Some(&action_receipt.signer_public_key),
+            VersionedActionReceipt::V2(action_receipt) => Some(&action_receipt.signer_public_key),
+            VersionedActionReceipt::V3(action_receipt) => {
+                match &action_receipt.authorization_context {
+                    AuthorizationContext::AccessKey(public_key) => Some(public_key),
+                    AuthorizationContext::ExternalContractCall => None,
+                }
+            }
+        }
+    }
+
+    /// What authorized the chain of receipts this receipt belongs to
+    pub fn authorization_context(&self) -> Cow<'_, AuthorizationContext> {
+        match self {
+            VersionedActionReceipt::V1(action_receipt) => Cow::Owned(
+                AuthorizationContext::AccessKey(action_receipt.signer_public_key.clone()),
+            ),
+            VersionedActionReceipt::V2(action_receipt) => Cow::Owned(
+                AuthorizationContext::AccessKey(action_receipt.signer_public_key.clone()),
+            ),
+            VersionedActionReceipt::V3(action_receipt) => {
+                Cow::Borrowed(&action_receipt.authorization_context)
+            }
+        }
+    }
+
+    /// A gas_price which has been used to buy gas in the original transaction or external call
     pub fn gas_price(&self) -> Balance {
         match self {
             VersionedActionReceipt::V1(action_receipt) => action_receipt.gas_price,
             VersionedActionReceipt::V2(action_receipt) => action_receipt.gas_price,
+            VersionedActionReceipt::V3(action_receipt) => action_receipt.gas_price,
         }
     }
 
@@ -585,6 +837,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.output_data_receivers,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.output_data_receivers,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.output_data_receivers,
         }
     }
 
@@ -597,6 +850,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.input_data_ids,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.input_data_ids,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.input_data_ids,
         }
     }
 
@@ -605,6 +859,7 @@ impl VersionedActionReceipt<'_> {
         match self {
             VersionedActionReceipt::V1(action_receipt) => &action_receipt.actions,
             VersionedActionReceipt::V2(action_receipt) => &action_receipt.actions,
+            VersionedActionReceipt::V3(action_receipt) => &action_receipt.actions,
         }
     }
 }
@@ -630,6 +885,18 @@ impl<'a> From<&'a ActionReceiptV2> for VersionedActionReceipt<'a> {
 impl From<ActionReceiptV2> for VersionedActionReceipt<'_> {
     fn from(other: ActionReceiptV2) -> Self {
         VersionedActionReceipt::V2(Cow::Owned(other))
+    }
+}
+
+impl<'a> From<&'a ActionReceiptV3> for VersionedActionReceipt<'a> {
+    fn from(other: &'a ActionReceiptV3) -> Self {
+        VersionedActionReceipt::V3(Cow::Borrowed(other))
+    }
+}
+
+impl From<ActionReceiptV3> for VersionedActionReceipt<'_> {
+    fn from(other: ActionReceiptV3) -> Self {
+        VersionedActionReceipt::V3(Cow::Owned(other))
     }
 }
 
@@ -676,6 +943,12 @@ impl<'a> From<&'a ReceiptEnum> for VersionedReceiptEnum<'a> {
             ReceiptEnum::PromiseYieldV2(action_receipt) => {
                 VersionedReceiptEnum::PromiseYield(action_receipt.into())
             }
+            ReceiptEnum::ActionV3(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV3(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
         }
     }
 }
@@ -702,6 +975,12 @@ impl<'a> From<ReceiptEnum> for VersionedReceiptEnum<'a> {
                 VersionedReceiptEnum::Action(action_receipt.into())
             }
             ReceiptEnum::PromiseYieldV2(action_receipt) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt.into())
+            }
+            ReceiptEnum::ActionV3(action_receipt) => {
+                VersionedReceiptEnum::Action(action_receipt.into())
+            }
+            ReceiptEnum::PromiseYieldV3(action_receipt) => {
                 VersionedReceiptEnum::PromiseYield(action_receipt.into())
             }
         }
@@ -1052,6 +1331,65 @@ mod tests {
             }),
         });
         receipt_v0
+    }
+
+    /// Before `PinReceiptFees`, a gas refund of a chain an access key authorized keeps its V1
+    /// shape, with the key.
+    #[test]
+    fn test_gas_refund_with_access_key_is_v1() {
+        let protocol_version = ProtocolFeature::PinReceiptFees.protocol_version() - 1;
+        let receiver_id: AccountId = "alice.near".parse().unwrap();
+        let signer_public_key = PublicKey::from_seed(KeyType::ED25519, "alice");
+        let refund = Balance::from_yoctonear(7);
+        let authorization_context = AuthorizationContext::AccessKey(signer_public_key.clone());
+        let expected = Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: receiver_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: receiver_id.clone(),
+                signer_public_key,
+                gas_price: Balance::ZERO,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        });
+        let gas_refund =
+            Receipt::new_gas_refund(&receiver_id, refund, authorization_context, protocol_version);
+        assert_eq!(borsh::to_vec(&gas_refund).unwrap(), borsh::to_vec(&expected).unwrap());
+    }
+
+    /// A gas refund of a chain an external call started is V3, with the contract as signer and
+    /// no key.
+    #[test]
+    fn test_gas_refund_of_external_call_is_v3() {
+        let protocol_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let contract_id: AccountId = "contract.near".parse().unwrap();
+        let refund = Balance::from_yoctonear(7);
+        let authorization_context = AuthorizationContext::ExternalContractCall;
+        let gas_refund =
+            Receipt::new_gas_refund(&contract_id, refund, authorization_context, protocol_version);
+        let expected = Receipt::V0(ReceiptV0 {
+            predecessor_id: "system".parse().unwrap(),
+            receiver_id: contract_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::ActionV3(ActionReceiptV3 {
+                signer_id: contract_id,
+                refund_to: None,
+                authorization_context: AuthorizationContext::ExternalContractCall,
+                gas_price: Balance::ZERO,
+                creation_protocol_version: protocol_version,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        });
+        assert_eq!(gas_refund, expected);
+        let VersionedReceiptEnum::Action(action_receipt) = gas_refund.versioned_receipt() else {
+            panic!("expected an action receipt, got {gas_refund:?}");
+        };
+        assert_eq!(action_receipt.signer_public_key(), None);
     }
 
     #[test]

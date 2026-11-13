@@ -491,7 +491,14 @@ impl Client {
             pending_approvals: lru::LruCache::new(
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
-            sync_handler: SyncHandler::new(config, epoch_sync, header_sync, state_sync, block_sync),
+            sync_handler: SyncHandler::new(
+                config,
+                epoch_sync,
+                header_sync,
+                state_sync,
+                block_sync,
+                rng_seed,
+            ),
             catchup_state_syncs: HashMap::new(),
             state_sync_future_spawner,
             chain_sender_for_state_sync,
@@ -536,7 +543,8 @@ impl Client {
     }
 
     /// Remove transactions for tracked chunks in `block` from the pool.
-    /// Returns the hashes of transactions referenced by those tracked chunks.
+    /// Returns the hashes of transactions referenced by those tracked chunks, for an external call
+    /// its hash without the state init.
     pub fn remove_transactions_for_block(
         &mut self,
         block: &Block,
@@ -555,7 +563,8 @@ impl Client {
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
                 for tx in transactions {
-                    removed_hashes.push(tx.get_hash());
+                    let hash = *tx.id_hash();
+                    removed_hashes.push(hash);
                 }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
                 pool_guard.remove_transactions(shard_uid, transactions);
@@ -589,7 +598,10 @@ impl Client {
                 let validated_txs = chunk
                     .to_transactions()
                     .into_iter()
-                    .filter(|tx| !exclude.contains(&tx.get_hash()))
+                    .filter(|tx| {
+                        let hash = *tx.id_hash();
+                        !exclude.contains(&hash)
+                    })
                     .filter_map(|tx| {
                         match ValidatedTransactionEnvelope::new(
                             &config,
@@ -668,7 +680,7 @@ impl Client {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
-                // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                // TODO(ecc): account ECCs against the contract's balance
                 transactions.iter().filter_map(TransactionEnvelope::as_signed),
                 &config,
                 gas_price,
@@ -721,7 +733,7 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
-                    // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                    // TODO(ecc): account ECCs against the contract's balance
                     transactions.iter().filter_map(TransactionEnvelope::as_signed),
                     &config,
                     gas_price,
@@ -1214,18 +1226,15 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// A height that fails this test cannot change the sync decision, so it needs no proof.
-    pub(crate) fn peer_height_requires_sync(
-        &self,
-        peer_height: BlockHeight,
-        head_height: BlockHeight,
-    ) -> bool {
+    /// A peer must advertise above this height to start or continue sync. A height at
+    /// or below it cannot change the sync decision, so it needs no proof.
+    pub(crate) fn sync_trigger_height(&self, head_height: BlockHeight) -> BlockHeight {
         let threshold = if self.sync_handler.sync_status.is_syncing() {
             0
         } else {
             self.config.sync_height_threshold
         };
-        peer_height > head_height + threshold
+        head_height + threshold
     }
 
     /// Record `peer_id`'s verified height if the relayed block's approvals verify as
@@ -1235,7 +1244,7 @@ impl Client {
         let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
         self.verified_peer_heights.prune_at_or_below(head_height);
         let height = block.header().height();
-        if !self.peer_height_requires_sync(height, head_height) {
+        if height <= self.sync_trigger_height(head_height) {
             return;
         }
         self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
@@ -1727,14 +1736,21 @@ impl Client {
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
-        self.chain.sync_block_headers(headers)?;
+        let head_before = self.chain.head().unwrap();
+        let header_head_before = self.chain.header_head().unwrap();
+
+        // sync_block_headers can move the head even if it fails halfway through the batch.
+        let result = self.chain.sync_block_headers(headers);
+
         let head = self.chain.head().unwrap();
         let header_head = self.chain.header_head().unwrap();
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-            head: Tip::clone(&head),
-            header_head: Tip::clone(&header_head),
-        });
-        Ok(())
+        if head != head_before || header_head != header_head_before {
+            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+                head: Tip::clone(&head),
+                header_head: Tip::clone(&header_head),
+            });
+        }
+        result
     }
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
@@ -2629,6 +2645,8 @@ impl Client {
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts);
+
+                        self.catchup_state_syncs.remove(&sync_hash);
                     }
                 }
             }

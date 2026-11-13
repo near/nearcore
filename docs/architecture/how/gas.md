@@ -85,6 +85,20 @@ too small, the transaction fails with a `NotEnoughGasKeyBalance` error. Gas
 refunds for such a transaction go back to the gas key balance. If the gas key
 no longer exists, they go to the account balance.
 
+Protocol upgrades can also change the static fees, the gas costs of creating a
+receipt and of executing its actions. A receipt's gas is purchased with the fees
+of the protocol version it is created at. Since `PinReceiptFees` (protocol
+version 89), action receipts record that version as `creation_protocol_version`,
+and the runtime charges and refunds their static fees with the fees of that
+version, also when they execute after a fee change. A receipt created by a
+contract records the version it was created at, since the contract paid its
+static fees with the fees of that version. The receipt of the inner actions of a
+meta transaction records the version of the relayer's receipt, which prepaid
+them. Only the compute costs of the fees, which limit the work done in a chunk,
+follow the current fees. Before `PinReceiptFees`, refunds were computed with the
+current fees, so a receipt that executed after a fee increase could be refunded
+gas it never purchased.
+
 #### Earlier gas pricing
 
 Gas is bought once at the beginning, but the gas price may change during
@@ -199,10 +213,12 @@ contract pays for the gas, so there is no `attached_gas` and the
 - The gas burnt plus the gas attached to outgoing promises can be at most
   `max_total_prepaid_gas`.
 
-The contract pays for all the gas the call uses from its balance, at the gas
-price of the block, the price signed transactions in the chunk pay: the gas it
-burns, the gas attached to function calls, and the execution fees of all
-actions and receipts. As in other calls, the VM only counts the gas against
+The contract pays for all the gas the call uses from its balance. The gas it
+burns costs the gas price of the block, the price signed transactions in the
+chunk pay. The gas attached to function calls and the execution fees of all
+actions and receipts cost the price a signed transaction buys that gas at, the
+block's gas price or `min_gas_purchase_price` if that is higher, which the
+receipts carry. As in other calls, the VM only counts the gas against
 the fixed limits above; the runtime charges the contract after the call, and
 rejects the call if the balance can't pay. A rejected call pays nothing, so
 the VM doesn't need to stop a call as soon as the balance runs out: the call
@@ -220,9 +236,18 @@ its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward `max_gas_burnt_external`, so a larger
 payload leaves less of the budget to the method. With the largest payload, up
 to the 20 KiB cap on a call's size, the fees are about 1.3 Tgas. The contract
-must exist, have a contract deployed and be able to afford the fees, or the
-call is rejected before any contract code is loaded. Like the rest of the call,
-the fees are charged after the call, and only if the contract accepts it.
+must exist, have a contract deployed or get one from the call's state init
+(below), and be able to afford the fees, or the call is rejected before any
+contract code is loaded.
+
+A call may carry the state init of a universal account. If the account is not
+initialized yet, the call installs the state init right before the method runs,
+and also burns the fees of a `UniversalStateInit` action with it. Those fees
+count toward `max_gas_burnt_external` too, and a call whose fees use all of it
+is rejected before the install. If the contract rejects the call, the install
+is rolled back. An account that is initialized already ignores the state init,
+and the chunk producer packs the call without it. Like the rest of the call,
+all these fees are charged after the call, and only if the contract accepts it.
 
 A rejected call pays nothing, but it isn't free for the chunk. The compute of
 the work validators did on it, fees included, counts toward the chunk's
@@ -234,8 +259,8 @@ external calls reached one of their shares, described below. A rejected call
 burns no gas, though, and its outcome reports no gas burnt: nobody pays for it,
 so it doesn't add to the chunk's gas used or move the next gas price, which
 everyone else pays. An honest chunk producer runs each call before including it
-and leaves out the ones that would be rejected. An accepted call's fees and gas
-are burnt, and count toward the chunk's gas like any other.
+and leaves out the ones that would be rejected. An accepted call's fees and the
+gas it burns count toward the chunk's gas like any other.
 
 Since a rejected call costs nobody anything, further limits bound the work
 validators do on external calls, per call and per chunk. Besides
@@ -246,14 +271,15 @@ validators do on external calls, per call and per chunk. Besides
 - the storage proof its run records: at most
   `max_external_call_recorded_size`, 20 KiB. A read that records the trie node
   crossing the limit fails the call with `RecordedStorageExceeded`, and a value
-  whose length would cross it isn't read at all. The limit applies to the run
-  only, not to reading the contract's account before it.
+  whose length would cross it isn't read at all. The limit applies to the
+  install of a state init and the run, not to reading the contract's account
+  before them.
 
   Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
   proof limit uses too, even for a key that isn't there. So removals are costly
   in an external call: it can remove no more than ten keys, and fewer, as the
   trie nodes it reads count as well. Larger cleanups belong in the receipts the
-  call creates, once external calls can create them.
+  call creates.
 
 All the external calls of a chunk together get a share of the chunk's limits:
 
@@ -328,8 +354,14 @@ memtrie, so its reads come from the store and are slower. Signed transactions
 still read what the parent wrote from the pending changes, which records
 nothing.
 
-For now, a call that creates a promise or resumes a yielded one is rejected:
-external calls can't create receipts yet. This will be resolved in future work on this feature.
+An accepted call's promises become receipts, as a function call's do. Every
+receipt in the chain they start has the contract as its signer and names the
+external call as what authorized it, so gas refunds go to the contract's
+balance and `signer_account_pk` fails. Only the fees and the gas the call burnt
+count as burnt; the gas attached to the receipts travels with them. A call that
+creates a yielded promise is rejected, since the yield's id would differ
+between the chunk producer's run and apply; a call that resumes a yield is
+accepted.
 
 ### Contract Reward
 

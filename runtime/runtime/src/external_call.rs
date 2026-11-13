@@ -1,49 +1,63 @@
 //! Running external contract calls (ECCs) while applying a chunk.
 //!
 //! An external call runs the contract's reserved method in `ExecutionMode::External`, with the
-//! call's payload as input. A clean return accepts the call: the run's writes stay and the
-//! contract pays for the call's fees and the gas the run used. Any failure refuses the call:
-//! the caller rolls the run's writes back and nobody pays.
+//! call's payload as input. A clean return accepts the call: the run's writes stay, its promises
+//! become receipts, and the contract pays for the call's fees and the gas the run used. Any
+//! failure refuses the call: the caller rolls the run's writes back and nobody pays.
 //!
 //! `process_external_call` takes a call through all its steps, from the check of the chunk's
 //! shares for ECCs to counting what it used toward them. It doesn't depend on the chunk's
 //! processing state, so the chunk producer can call it to run a call before packing it, and
 //! make the same decision as apply.
 
-use crate::config::{EccCost, ecc_cost, safe_add_balance, safe_add_compute, safe_gas_to_balance};
+use crate::config::{
+    EccCost, ecc_cost, receipt_gas_price, safe_add_balance, safe_add_compute, safe_gas_to_balance,
+};
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
 };
 use crate::conversions::Convert;
 use crate::ext::RuntimeExt;
-use crate::function_call::{execute_function_call, record_contract_call};
+use crate::function_call::{
+    NewReceiptSigner, execute_function_call, new_receipts, record_contract_call,
+};
 use crate::receipt_manager::ReceiptManager;
-use crate::verifier::{StorageStakingError, check_storage_stake, verify_ecc_ephemeral};
-use crate::{ApplyState, PrevBlockContext};
+use crate::universal_account_id::install_universal_state_init;
+use crate::verifier::{
+    StorageStakingError, ValidateReceiptMode, check_storage_stake, ecc_cost_for_account,
+    state_init_to_install, validate_external_call, validate_receipt, verify_ecc_ephemeral,
+};
+use crate::{ActionResult, ApplyState, PrevBlockContext};
 use ahash::RandomState as AHashRandomState;
+use bytesize::ByteSize;
 use dashmap::DashMap;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{Account, AccountContract};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, CompilationError, ExternalCallChunkLimit, FunctionCallError,
-    InvalidTxError, RuntimeError, StorageError, TxExecutionError,
+    ActionError, ActionErrorKind, ExternalCallChunkLimit, IntegerOverflowError, InvalidTxError,
+    RuntimeError, StorageError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::profile_data_v3::ProfileDataV3;
+use near_primitives::receipt::{AuthorizationContext, Receipt, VersionedReceiptEnum};
 use near_primitives::transaction::{
     ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
     ExecutionOutcomeWithId, ExecutionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, Compute, EpochId, EpochInfoProvider, Gas, ShardId, StateChangeCause,
-    VmGeneration,
+    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, ShardId,
+    StateChangeCause, VmGeneration,
 };
-use near_primitives::utils::create_ecc_outcome_id;
+use near_primitives::utils::{
+    create_action_hash_from_receipt_id, create_ecc_outcome_id, create_receipt_id_from_receipt_id,
+};
 use near_primitives::version::ProtocolVersion;
 use near_store::trie::AccessOptions;
 use near_store::{TrieUpdate, get_account, set_account};
-use near_vm_runner::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
+use near_vm_runner::logic::errors::FunctionCallError;
+use near_vm_runner::logic::{ExecutionMode, HostError, ReturnData, VMContext, VMOutcome};
 use near_vm_runner::{CompilePriority, ContractRuntimeCache};
+use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -122,6 +136,10 @@ pub struct ProcessedExternalCall {
     pub outcome: ExecutionOutcomeWithId,
     /// Whether the contract accepted and paid for the call.
     pub accepted: bool,
+    /// The receipts an accepted call sends, with their ids, for the caller to send out.
+    pub receipts: Vec<Receipt>,
+    /// Whether the call installed its state init, which it does only on an uninitialized account.
+    pub installed_state_init: bool,
 }
 
 /// Processes an external contract call of a chunk: checks the chunk's shares for ECCs, reads
@@ -155,10 +173,12 @@ pub fn process_external_call<'a>(
     ecc: &'a EccTransaction,
     validation_error: Option<InvalidTxError>,
 ) -> Result<ProcessedExternalCall, RuntimeError> {
-    let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
+    let outcome_id = create_ecc_outcome_id(ecc.hash_without_state_init(), apply_state.block_height);
     let refuse = |error: TxExecutionError, compute: Compute| ProcessedExternalCall {
         outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
         accepted: false,
+        receipts: vec![],
+        installed_state_init: false,
     };
     let cost = match ecc_cost(&apply_state.config, ecc, apply_state.gas_price) {
         Ok(cost) => cost,
@@ -214,6 +234,9 @@ pub struct EccDryRunContext {
     pub epoch_id: EpochId,
     pub protocol_version: ProtocolVersion,
     pub config: Arc<RuntimeConfig>,
+    /// The Runtime configs of all protocol versions. `config` must be its config of
+    /// `protocol_version`.
+    pub config_store: Arc<RuntimeConfigStore>,
     pub vm_generation: VmGeneration,
     pub gas_price: Balance,
     /// The chunk's parent block, which the run sees.
@@ -225,7 +248,13 @@ pub struct EccDryRunContext {
 #[derive(Debug)]
 pub enum EccDryRun {
     /// The contract accepts the call and pays for it. `account` is its account after the call.
-    Accepted { account: Account, gas_burnt: Gas, compute_usage: Compute },
+    Accepted {
+        account: Account,
+        gas_burnt: Gas,
+        compute_usage: Compute,
+        /// Whether the call installed its state init.
+        installed_state_init: bool,
+    },
     /// The call fails or the contract refuses it, and nobody pays.
     Refused(TxExecutionError),
 }
@@ -255,15 +284,21 @@ pub fn dry_run_external_call(
     if let Some(account) = loaded_account {
         accounts.insert(contract_id, Ok(Some(account)));
     }
-    let ProcessedExternalCall { outcome, accepted } = process_external_call(
-        state_update,
-        &apply_state,
-        epoch_info_provider,
-        external_calls,
-        &accounts,
-        ecc,
-        None,
-    )?;
+    // A call can reach the pool without its validity checked, such as one put back after a
+    // reorg. Apply checks it, so the dry run does too.
+    let validation_error =
+        validate_external_call(&apply_state.config, ecc, apply_state.current_protocol_version)
+            .err();
+    let ProcessedExternalCall { outcome, accepted, receipts: _, installed_state_init } =
+        process_external_call(
+            state_update,
+            &apply_state,
+            epoch_info_provider,
+            external_calls,
+            &accounts,
+            ecc,
+            validation_error,
+        )?;
     let outcome = outcome.outcome;
     if !accepted {
         let ExecutionStatus::Failure(error) = outcome.status else {
@@ -276,7 +311,8 @@ pub fn dry_run_external_call(
         .and_then(|entry| entry.value().as_ref().ok().cloned().flatten())
         .expect("an accepted call leaves its contract's account in the map");
     let compute_usage = outcome.compute_usage.expect("an ECC outcome reports its compute");
-    Ok(EccDryRun::Accepted { account, gas_burnt: outcome.gas_burnt, compute_usage })
+    let gas_burnt = outcome.gas_burnt;
+    Ok(EccDryRun::Accepted { account, gas_burnt, compute_usage, installed_state_init })
 }
 
 /// Processes an external contract call that passed the check of the chunk's shares for ECCs,
@@ -290,10 +326,6 @@ fn process_admitted_external_call<'a>(
     outcome_id: CryptoHash,
     cost: &EccCost,
 ) -> Result<ProcessedExternalCall, RuntimeError> {
-    let refuse = |error: TxExecutionError| ProcessedExternalCall {
-        outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, cost.compute_burnt),
-        accepted: false,
-    };
     // Read and update the contract's account through the chunk's working copy, which signed
     // transactions later in the chunk start from. Otherwise a later transaction from the
     // contract would overwrite the charge and the storage usage of an accepted call. A signed
@@ -304,42 +336,91 @@ fn process_admitted_external_call<'a>(
     }
     let mut entry = accounts.get_mut(contract_id).expect("the contract account was read above");
     let contract = entry.value_mut().as_mut().map_err(|err| err.clone())?;
-    let account = match verify_ecc_ephemeral(contract.as_mut(), ecc, cost) {
-        Ok(account) => account,
-        Err(err) => return Ok(refuse(err.into())),
+    let refuse = |error: TxExecutionError, compute: Compute| ProcessedExternalCall {
+        outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
+        accepted: false,
+        receipts: vec![],
+        installed_state_init: false,
     };
-    // The contract is both the sender and the receiver of the call, so an account with no
-    // contract is refused like a missing account, without loading anything.
-    if matches!(account.contract().as_ref(), AccountContract::None) {
-        let account_id = contract_id.clone();
-        let error =
-            FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id });
-        let kind = ActionErrorKind::FunctionCallError(error);
-        return Ok(refuse(ActionError { index: Some(0), kind }.into()));
+    // A call that installs its state init pays the install's fees too, so its contract must
+    // cover them before the run.
+    let config = &apply_state.config;
+    let call_compute = cost.compute_burnt;
+    let cost = match ecc_cost_for_account(config, ecc, contract.as_ref(), apply_state.gas_price) {
+        Ok(cost) => cost,
+        Err(err) => return Ok(refuse(InvalidTxError::from(err).into(), call_compute)),
+    };
+    // The fees come out of the call's gas budget, so a call whose fees use it all can never run.
+    // Its refusal counts the compute of the call without the install, as other refusals do.
+    if cost.gas_burnt >= config.wasm_config.limit_config.max_gas_burnt_external {
+        return Ok(refuse(gas_exceeded(), call_compute));
     }
+    let state_init = contract.as_ref().and_then(|account| state_init_to_install(account, ecc));
+    let account = match verify_ecc_ephemeral(contract.as_mut(), ecc, &cost) {
+        Ok(account) => account,
+        Err(err) => return Ok(refuse(err.into(), cost.compute_burnt)),
+    };
 
     // The state update may hold changes staged before the call, such as the outgoing buffer pops
-    // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its run.
-    let cause = StateChangeCause::TransactionProcessing { tx_hash: outcome_id };
+    // of `forward_from_buffer`. Commit them so that refusing the call rolls back only its install
+    // and run.
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: outcome_id };
     state_update.commit(cause.clone());
-    let run = run_external_call(
+    // The install and the run change a copy of the account, which replaces the chunk's working
+    // copy only if the call is accepted.
+    let mut run_account = account.clone();
+    let read_budget =
+        match prepare_account_for_call(state_update, apply_state, &mut run_account, ecc)? {
+            Ok(read_budget) => read_budget,
+            Err(error) => {
+                state_update.rollback();
+                return Ok(refuse(error, cost.compute_burnt));
+            }
+        };
+    let mut run = run_external_call(
         state_update,
         apply_state,
         epoch_info_provider,
-        account,
+        &mut run_account,
         ecc,
         &outcome_id,
-        cost,
+        &cost,
+        read_budget,
     )?;
     let accepted = run.verdict.is_ok();
     if accepted {
+        *account = run_account;
         set_account(state_update, contract_id.clone(), account);
         state_update.commit(cause);
     } else {
         state_update.rollback();
     }
-    let outcome = run.into_outcome(outcome_id, ecc, account);
-    Ok(ProcessedExternalCall { outcome, accepted })
+    let mut receipts = std::mem::take(&mut run.new_receipts);
+    let receipt_ids = set_ecc_receipt_ids(apply_state, &outcome_id, &mut receipts);
+    let outcome = run.into_outcome(outcome_id, apply_state.block_height, ecc, account, receipt_ids);
+    let installed_state_init = accepted && state_init.is_some();
+    Ok(ProcessedExternalCall { outcome, accepted, receipts, installed_state_init })
+}
+
+/// Gives the receipts of an external call their ids, derived from the call's outcome id the way a
+/// receipt's new receipts get theirs. Returns the ids of the action receipts.
+fn set_ecc_receipt_ids(
+    apply_state: &ApplyState,
+    outcome_id: &CryptoHash,
+    receipts: &mut [Receipt],
+) -> Vec<CryptoHash> {
+    let mut receipt_ids = vec![];
+    for (receipt_index, receipt) in receipts.iter_mut().enumerate() {
+        let receipt_id = apply_state.create_receipt_id(outcome_id, receipt_index);
+        receipt.set_receipt_id(receipt_id);
+        if matches!(
+            receipt.versioned_receipt(),
+            VersionedReceiptEnum::Action(_) | VersionedReceiptEnum::PromiseYield(_)
+        ) {
+            receipt_ids.push(receipt_id);
+        }
+    }
+    receipt_ids
 }
 
 /// What an external call did, and whether the contract accepts and pays for it.
@@ -350,26 +431,27 @@ pub(crate) struct ExternalCallRun {
     /// Compute used by the call's fees and its run. It counts toward the chunk's compute whether
     /// or not the call is accepted.
     pub compute_usage: Compute,
-    /// The amount the contract pays if it accepts the call, or why the call is refused. The
-    /// whole amount is reported as burnt, in the outcome and in the chunk's stats.
-    // TODO(ecc): once external calls can create receipts, carry the burnt amount separately from
-    // the charge. The contract still pays for the used gas, but only the fees and the burnt gas
-    // are burnt: the gas attached to the receipts goes with them. Until then the two amounts are
-    // the same.
+    /// The amount the call burns if the contract accepts it, or why the call is refused. The
+    /// contract also pays for the gas attached to the receipts, which goes with them.
     pub verdict: Result<Balance, TxExecutionError>,
+    /// The receipts of an accepted call, without receipt ids.
+    pub new_receipts: Vec<Receipt>,
     outcome: VMOutcome,
 }
 
 impl ExternalCallRun {
-    /// The execution outcome of the call. `account` is the contract's account after the call.
+    /// The execution outcome of the call. `account` is the contract's account after the call, and
+    /// `receipt_ids` the ids of the action receipts it created.
     pub fn into_outcome(
         self,
         id: CryptoHash,
+        block_height: BlockHeight,
         ecc: &EccTransaction,
         account: &Account,
+        receipt_ids: Vec<CryptoHash>,
     ) -> ExecutionOutcomeWithId {
-        let charge = match self.verdict {
-            Ok(charge) => charge,
+        let burnt = match self.verdict {
+            Ok(burnt) => burnt,
             // TODO(ecc): include the logs of a refused call in its outcome.
             Err(error) => {
                 return ExecutionOutcomeWithId::refused_ecc(id, ecc, error, self.compute_usage);
@@ -378,10 +460,9 @@ impl ExternalCallRun {
         let status = match self.outcome.return_data {
             ReturnData::Value(data) => ExecutionStatus::SuccessValue(data),
             ReturnData::None => ExecutionStatus::SuccessValue(vec![]),
-            ReturnData::ReceiptIndex(_) => {
-                // TODO(ecc): allow ECC to create receipts
-                unreachable!("an external call that returns a promise is refused")
-            }
+            ReturnData::ReceiptIndex(index) => ExecutionStatus::SuccessReceiptId(
+                create_receipt_id_from_receipt_id(&id, block_height, index as usize),
+            ),
         };
         let profile = ProfileDataV3::convert(self.outcome.profile);
         let metadata = {
@@ -393,15 +474,82 @@ impl ExternalCallRun {
             outcome: ExecutionOutcome {
                 status,
                 logs: self.outcome.logs,
-                receipt_ids: vec![],
+                receipt_ids,
                 gas_burnt: self.gas_burnt,
                 compute_usage: Some(self.compute_usage),
-                tokens_burnt: charge,
+                tokens_burnt: burnt,
                 executor_id: ecc.contract_id().clone(),
                 metadata,
             },
         }
     }
+}
+
+/// Makes `account` ready for `ecc` to run: installs the state init the account takes, uncommitted,
+/// then checks for a contract. Returns what the run may still record, or why the call is refused.
+fn prepare_account_for_call(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    account: &mut Account,
+    ecc: &EccTransaction,
+) -> Result<Result<usize, TxExecutionError>, RuntimeError> {
+    let contract_id = ecc.contract_id();
+    let max_recorded_size = apply_state.config.external_calls_config.max_call_recorded_size;
+    let mut read_budget = max_recorded_size;
+    if let Some(state_init) = state_init_to_install(account, ecc) {
+        // Unlike the action, the call creates no account and carries no deposit to settle: the
+        // check that ends the run covers the installed state's storage staking.
+        let mut result = ActionResult::default();
+        let recorded_before = state_update.trie.recorded_storage_size_upper_bound();
+        let mut budgeted = state_update
+            .with_recording_budget(max_recorded_size)
+            .ok_or(RuntimeError::ExternalCallWithoutRecorder)?;
+        let installed = install_universal_state_init(
+            &mut budgeted,
+            account,
+            contract_id,
+            state_init,
+            &mut result,
+            &apply_state.config.fees,
+            apply_state.block_height,
+            apply_state.current_protocol_version,
+        );
+        drop(budgeted);
+        match installed {
+            Err(RuntimeError::StorageError(StorageError::RecordingBudgetExceeded { limit })) => {
+                return Ok(Err(recorded_storage_exceeded(limit)));
+            }
+            installed => installed?,
+        }
+        if let Err(error) = result.result {
+            return Ok(Err(error.into()));
+        }
+        let recorded =
+            state_update.trie.recorded_storage_size_upper_bound().saturating_sub(recorded_before);
+        read_budget = max_recorded_size.saturating_sub(recorded);
+    }
+    // The contract is both the sender and the receiver of the call, so an account with no
+    // contract is refused like a missing account, without loading anything.
+    if matches!(account.contract().as_ref(), AccountContract::None) {
+        let error = InvalidTxError::ContractNotFound { contract_id: contract_id.clone() }.into();
+        return Ok(Err(error));
+    }
+    Ok(Ok(read_budget))
+}
+
+/// The error of a call whose state init install records more than a call may.
+fn recorded_storage_exceeded(limit: u64) -> TxExecutionError {
+    let limit = ByteSize::b(limit);
+    let error = FunctionCallError::HostError(HostError::RecordedStorageExceeded { limit });
+    let kind = ActionErrorKind::FunctionCallError(Convert::convert(error));
+    ActionError { index: Some(0), kind }.into()
+}
+
+/// The error of a call whose fees use all of its gas budget before the run.
+fn gas_exceeded() -> TxExecutionError {
+    let error = FunctionCallError::HostError(HostError::GasExceeded);
+    let kind = ActionErrorKind::FunctionCallError(Convert::convert(error));
+    ActionError { index: Some(0), kind }.into()
 }
 
 /// Runs the reserved method of the contract of `ecc`, whose account is `account`, and decides
@@ -421,6 +569,7 @@ pub(crate) fn run_external_call(
     ecc: &EccTransaction,
     outcome_id: &CryptoHash,
     cost: &EccCost,
+    read_budget: usize,
 ) -> Result<ExternalCallRun, RuntimeError> {
     let config = &apply_state.config;
     let contract_id = ecc.contract_id();
@@ -445,7 +594,7 @@ pub(crate) fn run_external_call(
     // the run, at the same trie node in the chunk producer's run and in a replay from the proof,
     // and a value past it is never fetched. The cap is lifted when `budgeted` is dropped.
     let mut budgeted = state_update
-        .with_recording_budget(config.external_calls_config.max_call_recorded_size)
+        .with_recording_budget(read_budget)
         .ok_or(RuntimeError::ExternalCallWithoutRecorder)?;
     let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
@@ -453,7 +602,8 @@ pub(crate) fn run_external_call(
         &mut receipt_manager,
         contract_id.clone(),
         account.clone(),
-        *outcome_id,
+        // Data ids are salted like the action hash of a receipt, so they differ from receipt ids.
+        create_action_hash_from_receipt_id(outcome_id, apply_state.block_height, 0),
         // The validator stake host functions see the epoch of the chunk's parent block, as the
         // rest of the run does. Data ids are derived from the chunk's height, like the outcome id.
         apply_state.prev_block.epoch_id,
@@ -502,19 +652,26 @@ pub(crate) fn run_external_call(
     // `FUNCTION_CALL_PROCESSED*` metrics that `action_function_call` reports or in metrics of
     // their own.
 
-    let verdict = verdict(
-        config,
-        apply_state.gas_price,
-        contract_id,
-        account,
-        &outcome,
-        &receipt_manager,
-        cost,
-    )?;
+    let receipt_gas_price = receipt_gas_price(config, apply_state.gas_price);
+    let mut receipts = vec![];
+    if outcome.aborted.is_none() {
+        let signer = NewReceiptSigner {
+            signer_id: contract_id,
+            authorization_context: Cow::Owned(AuthorizationContext::ExternalContractCall),
+            gas_price: receipt_gas_price,
+        };
+        receipts = new_receipts(state_update, apply_state, contract_id, receipt_manager, &signer)?;
+    }
+    let verdict =
+        verdict(apply_state, receipt_gas_price, contract_id, account, &outcome, &receipts, cost)?;
+    if verdict.is_err() {
+        receipts.clear();
+    }
     Ok(ExternalCallRun {
         gas_burnt: cost.gas_burnt.checked_add_result(outcome.burnt_gas)?,
         compute_usage: safe_add_compute(cost.compute_burnt, outcome.compute_usage)?,
         verdict,
+        new_receipts: receipts,
         outcome,
     })
 }
@@ -534,7 +691,7 @@ fn external_call_context(
         // host functions either return the current account instead or fail, so these fields
         // are never read.
         signer_account_id: contract_id.clone(),
-        signer_account_pk: vec![],
+        signer_account_pk: None,
         predecessor_account_id: contract_id.clone(),
         refund_to_account_id: contract_id.clone(),
         input: Rc::from(ecc.payload()),
@@ -559,43 +716,54 @@ fn external_call_context(
     }
 }
 
-/// Decides whether `contract_id` accepts the call that produced `outcome`, and charges it if so.
+/// Decides whether `contract_id` accepts the call that produced `outcome` and `receipts`, and
+/// charges it if so.
 ///
 /// On acceptance, `account` gets the balance the run left minus the charge, and the storage
-/// usage the run left, and the charge is returned. On refusal `account` is unchanged.
+/// usage the run left, and the burnt amount is returned. On refusal `account` is unchanged.
 fn verdict(
-    config: &RuntimeConfig,
-    gas_price: Balance,
+    apply_state: &ApplyState,
+    receipt_gas_price: Balance,
     contract_id: &AccountId,
     account: &mut Account,
     outcome: &VMOutcome,
-    receipt_manager: &ReceiptManager,
+    receipts: &[Receipt],
     cost: &EccCost,
 ) -> Result<Result<Balance, TxExecutionError>, RuntimeError> {
+    let config = &apply_state.config;
     if let Some(err) = &outcome.aborted {
         let kind = ActionErrorKind::FunctionCallError(Convert::convert(err.clone()));
         return Ok(Err(ActionError { index: Some(0), kind }.into()));
     }
-
-    // TODO(ecc): turn the receipts the run created into outgoing receipts (promises and yield
-    // resumes) instead of refusing the call. A run that creates a yielded promise stays refused:
-    // the yield's data id is derived from the height of the chunk that includes the call.
-    let created_receipts = !receipt_manager.action_receipts.is_empty()
-        || !receipt_manager.data_receipts.is_empty()
-        || matches!(outcome.return_data, ReturnData::ReceiptIndex(_));
-    if created_receipts {
-        return Ok(Err(InvalidTxError::InvalidTransactionVersion.into()));
+    for receipt in receipts {
+        if let Err(err) = validate_receipt(
+            &config.wasm_config.limit_config,
+            receipt,
+            apply_state.current_protocol_version,
+            ValidateReceiptMode::NewReceipt,
+        ) {
+            let kind = ActionErrorKind::NewReceiptValidationError(err);
+            return Ok(Err(ActionError { index: Some(0), kind }.into()));
+        }
     }
 
-    // The used gas includes the gas attached to the receipts the run created, which the contract
-    // pays for too.
-    let gas_cost = safe_gas_to_balance(gas_price, outcome.used_gas)?;
-    let charge = safe_add_balance(cost.burnt_amount, gas_cost)?;
-    let Some(balance) = outcome.balance.checked_sub(charge) else {
+    // The used gas includes the gas attached to the receipts, which the contract pays for too.
+    let attached_gas =
+        outcome.used_gas.checked_sub(outcome.burnt_gas).ok_or(IntegerOverflowError)?;
+    let burnt = safe_add_balance(
+        cost.burnt_amount,
+        safe_gas_to_balance(apply_state.gas_price, outcome.burnt_gas)?,
+    )?;
+    let charge = safe_add_balance(burnt, safe_gas_to_balance(receipt_gas_price, attached_gas)?)?;
+    // The VM lets a run attach a deposit its balance cannot cover and reports it as subsidized.
+    // An external call has nothing to cover it, so the contract lacks that amount too.
+    let balance =
+        outcome.balance.checked_sub(charge).filter(|_| outcome.subsidized_amount == Balance::ZERO);
+    let Some(balance) = balance else {
         return Ok(Err(InvalidTxError::NotEnoughBalance {
             signer_id: contract_id.clone(),
             balance: outcome.balance,
-            cost: charge,
+            cost: safe_add_balance(charge, outcome.subsidized_amount)?,
         }
         .into()));
     };
@@ -620,7 +788,7 @@ fn verdict(
         }
     }
     *account = charged;
-    Ok(Ok(charge))
+    Ok(Ok(burnt))
 }
 
 #[cfg(test)]

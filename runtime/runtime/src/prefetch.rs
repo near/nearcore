@@ -109,9 +109,8 @@ impl TriePrefetcher {
             if self.prefetch_api.enable_receipt_prefetching {
                 let trie_key = TrieKey::Account { account_id: account_id.clone() };
                 self.prefetch_trie_key(trie_key)?;
-                if is_refund {
-                    let trie_key =
-                        TrieKey::access_key(account_id.clone(), action_receipt.signer_public_key());
+                if is_refund && let Some(signer_public_key) = action_receipt.signer_public_key() {
+                    let trie_key = TrieKey::access_key(account_id.clone(), signer_public_key);
                     self.prefetch_trie_key(trie_key)?;
                 }
                 for action in action_receipt.actions() {
@@ -273,7 +272,7 @@ mod tests {
     use near_primitives::transaction::Action;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{AccountId, Balance, Gas};
-    use near_primitives::version::ProtocolFeature;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::adapter::StoreAdapter;
     use near_store::flat::FlatStorageManager;
     use near_store::test_utils::{create_test_store, test_populate_trie};
@@ -503,6 +502,7 @@ mod tests {
                 signer.public_key(),
                 Balance::ZERO,
                 vec![action],
+                PROTOCOL_VERSION,
             )
         };
         let enqueued_before = prefetcher.prefetch_enqueued.get();

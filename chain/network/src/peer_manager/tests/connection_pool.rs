@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Disconnect, PeerMessage};
+use crate::network_protocol::{Disconnect, Encoding, PeerMessage};
 use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo, to_unix_nanos};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
@@ -21,6 +21,12 @@ use std::sync::Arc;
 // request for that peer.
 #[tokio::test]
 async fn expected_tier3_accepted() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        expected_tier3_accepted_with_encoding(encoding).await;
+    }
+}
+
+async fn expected_tier3_accepted_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853234);
     let rng = &mut rng;
@@ -52,7 +58,7 @@ async fn expected_tier3_accepted() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier3Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -85,6 +91,12 @@ async fn expected_tier3_accepted() {
 // so the keepalive attempt itself terminates the session.
 #[tokio::test]
 async fn duplicate_handshake_closes_tier3() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        duplicate_handshake_closes_tier3_with_encoding(encoding).await;
+    }
+}
+
+async fn duplicate_handshake_closes_tier3_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853235);
     let rng = &mut rng;
@@ -115,7 +127,7 @@ async fn duplicate_handshake_closes_tier3() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     let handshake = Handshake {
         protocol_version: PROTOCOL_VERSION,
         oldest_supported_version: PROTOCOL_VERSION,
@@ -160,6 +172,12 @@ async fn duplicate_handshake_closes_tier3() {
 // (not rejected as a disallowed message).
 #[tokio::test]
 async fn t3_disconnect() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        t3_disconnect_with_encoding(encoding).await;
+    }
+}
+
+async fn t3_disconnect_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -190,7 +208,7 @@ async fn t3_disconnect() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier3Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -277,6 +295,12 @@ async fn slow_test_connection_spam_security_test() {
 
 #[tokio::test]
 async fn loop_connection() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        loop_connection_with_encoding(encoding).await;
+    }
+}
+
+async fn loop_connection_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -307,7 +331,7 @@ async fn loop_connection() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -344,6 +368,12 @@ async fn loop_connection() {
 
 #[tokio::test]
 async fn owned_account_mismatch() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        owned_account_mismatch_with_encoding(encoding).await;
+    }
+}
+
+async fn owned_account_mismatch_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -365,7 +395,7 @@ async fn owned_account_mismatch() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     let cfg = chain.make_config(rng);
     let signer = cfg.validator.signer.get().unwrap();
     stream
@@ -445,6 +475,12 @@ async fn owned_account_conflict() {
 
 #[tokio::test]
 async fn invalid_edge() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        invalid_edge_with_encoding(encoding).await;
+    }
+}
+
+async fn invalid_edge_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -493,7 +529,7 @@ async fn invalid_edge() {
             let stream_id = stream.id();
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
-            let mut stream = Stream::new(stream);
+            let mut stream = Stream::new_with_encoding(stream, encoding);
             let signer = cfg.validator.signer.get().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,
@@ -554,7 +590,7 @@ async fn invalid_edge() {
         let stream_id = stream.id();
         let port = stream.local_addr.port();
         let mut events = pm.events.from_now();
-        let mut stream = Stream::new(stream);
+        let mut stream = Stream::new_with_encoding(stream, encoding);
         let signer = cfg.validator.signer.get().unwrap();
         let handshake = Handshake {
             protocol_version: PROTOCOL_VERSION,

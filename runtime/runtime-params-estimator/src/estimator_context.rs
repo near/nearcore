@@ -202,6 +202,7 @@ impl<'c> EstimatorContext<'c> {
             random_seed: Default::default(),
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config_store: Arc::new(RuntimeConfigStore::with_one_config(runtime_config.clone())),
             config: Arc::new(runtime_config),
             next_wasm_config: None,
             vm_generation: Default::default(),

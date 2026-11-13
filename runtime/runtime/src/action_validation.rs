@@ -5,14 +5,14 @@ use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::VersionedDelegateActionRef;
 use near_primitives::action::{
     AddKeyAction, DeployGlobalContractAction, DeterministicStateInitAction,
-    GlobalContractIdentifier, StateInitCounts, UniversalStateInitAction, UseGlobalContractAction,
+    GlobalContractIdentifier, StateInitCounts, UseGlobalContractAction,
 };
 use near_primitives::errors::ActionsValidationError;
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, FunctionCallAction, StakeAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::universal_state_init::{DecodeMode, UniversalStateInit};
+use near_primitives::universal_state_init::{DecodeMode, RawStateInit, UniversalStateInit};
 use near_primitives::utils::{derive_near_deterministic_account_id, derive_universal_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives_core::account::id::AccountType;
@@ -67,6 +67,21 @@ fn validate_state_init_counts(
         });
     }
 
+    Ok(())
+}
+
+fn validate_number_of_gas_key_nonces_added(
+    actions: &[Action],
+    max_gas_key_nonces_added_per_receipt: u64,
+) -> Result<(), ActionsValidationError> {
+    let number_of_nonces =
+        actions.iter().map(Action::num_gas_key_nonces_added).fold(0, u64::saturating_add);
+    if number_of_nonces > max_gas_key_nonces_added_per_receipt {
+        return Err(ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded {
+            number_of_nonces,
+            limit: max_gas_key_nonces_added_per_receipt,
+        });
+    }
     Ok(())
 }
 
@@ -134,6 +149,15 @@ pub(crate) fn validate_actions_with_mode(
         validate_action_with_mode(limit_config, action, receiver, current_protocol_version, mode)?;
     }
 
+    // After the per-action checks, so an action with an invalid number of nonces
+    // reports `GasKeyInvalidNumNonces`. New receipts only, since gas keys predate the limit.
+    if mode == ValidateReceiptMode::NewReceipt {
+        validate_number_of_gas_key_nonces_added(
+            actions,
+            limit_config.max_gas_key_nonces_added_per_receipt,
+        )?;
+    }
+
     let total_prepaid_gas =
         total_prepaid_gas(actions).map_err(|_| ActionsValidationError::IntegerOverflow)?;
     if total_prepaid_gas > limit_config.max_total_prepaid_gas {
@@ -195,9 +219,13 @@ fn validate_action_with_mode(
         Action::DeterministicStateInit(a) => {
             validate_deterministic_state_init(limit_config, a, receiver)
         }
-        Action::UniversalStateInit(a) => {
-            validate_universal_state_init(limit_config, a, receiver, current_protocol_version, mode)
-        }
+        Action::UniversalStateInit(a) => validate_universal_state_init(
+            limit_config,
+            &a.state_init,
+            receiver,
+            current_protocol_version,
+            mode,
+        ),
         Action::TransferToGasKey(_) => Ok(()),
         Action::WithdrawFromGasKey(_) => Ok(()),
     }
@@ -503,9 +531,9 @@ fn validate_deterministic_state_init(
     Ok(())
 }
 
-fn validate_universal_state_init(
+pub(crate) fn validate_universal_state_init(
     limit_config: &LimitConfig,
-    action: &UniversalStateInitAction,
+    state_init: &RawStateInit,
     receiver_id: &AccountId,
     current_protocol_version: ProtocolVersion,
     mode: ValidateReceiptMode,
@@ -518,7 +546,7 @@ fn validate_universal_state_init(
 
     // The account id must be exactly the one derived from the bytes the producer
     // serialized, so this hashes the wire form rather than any decoded view of it.
-    let derived_id = derive_universal_account_id(&action.state_init);
+    let derived_id = derive_universal_account_id(state_init);
     if derived_id != *receiver_id {
         return Err(ActionsValidationError::InvalidUniversalStateInitReceiver {
             derived_id,
@@ -535,7 +563,7 @@ fn validate_universal_state_init(
         mode == ValidateReceiptMode::NewReceipt
             && ProtocolFeature::CanonicalUniversalStateInit.enabled(current_protocol_version),
     );
-    let state_init = UniversalStateInit::from_raw(&action.state_init, decode_mode)
+    let state_init = UniversalStateInit::from_raw(state_init, decode_mode)
         .map_err(|_| ActionsValidationError::MalformedUniversalStateInit)?;
 
     if let Some(code) = state_init.code() {
@@ -593,7 +621,8 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_parameters::RuntimeConfigStore;
+    use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
         VersionedSignedDelegateAction,
@@ -607,6 +636,7 @@ mod tests {
     use near_primitives::transaction::{
         AddKeyAction, CreateAccountAction, DeleteKeyAction, TransactionNonce, TransferAction,
     };
+    use near_primitives::types::NonceIndex;
     use near_primitives::universal_state_init::{
         RawStateInit, UniversalStateInit, UniversalStateInitV1,
     };
@@ -1899,5 +1929,92 @@ mod tests {
                 limit: limit_length
             }
         );
+    }
+
+    fn add_gas_key(num_nonces: NonceIndex) -> Action {
+        Action::AddKey(Box::new(AddKeyAction {
+            public_key: PublicKey::empty(KeyType::ED25519),
+            access_key: AccessKey::gas_key_full_access(num_nonces),
+        }))
+    }
+
+    fn delegate_adding_gas_key(num_nonces: NonceIndex) -> Action {
+        Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: alice_account(),
+                receiver_id: alice_account(),
+                actions: vec![add_gas_key(num_nonces).try_into().unwrap()],
+                nonce: 1,
+                max_block_height: 1000,
+                public_key: PublicKey::empty(KeyType::ED25519),
+            },
+            signature: Signature::empty(KeyType::ED25519),
+        }))
+    }
+
+    fn limit_config_at(protocol_version: ProtocolVersion) -> LimitConfig {
+        RuntimeConfigStore::new().get_config(protocol_version).wasm_config.limit_config.clone()
+    }
+
+    #[test]
+    fn test_validate_two_gas_keys_with_max_nonces_rejected_at_limit_version() {
+        use ValidateReceiptMode::{ExistingReceipt, NewReceipt};
+        let gas_key_nonce_limits_protocol_version = 89;
+        let limit_config = limit_config_at(gas_key_nonce_limits_protocol_version);
+        let check = |actions: &[Action], mode| {
+            validate_actions_with_mode(
+                &limit_config,
+                actions,
+                &alice_account(),
+                gas_key_nonce_limits_protocol_version,
+                mode,
+            )
+        };
+        let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+        let limit = limit_config.max_gas_key_nonces_added_per_receipt;
+        let over_limit = Err(ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded {
+            number_of_nonces: 2 * limit,
+            limit,
+        });
+
+        let one_gas_key_with_max_nonces = [add_gas_key(max_nonces)];
+        assert_eq!(check(&one_gas_key_with_max_nonces, NewReceipt), Ok(()));
+        let too_many_nonces = max_nonces + 1;
+        let one_gas_key_with_too_many_nonces = [add_gas_key(too_many_nonces)];
+        assert_eq!(
+            check(&one_gas_key_with_too_many_nonces, NewReceipt),
+            Err(ActionsValidationError::GasKeyInvalidNumNonces {
+                requested_nonces: too_many_nonces,
+                limit: max_nonces,
+            })
+        );
+        let two_gas_keys_with_max_nonces = [add_gas_key(max_nonces), add_gas_key(max_nonces)];
+        assert_eq!(check(&two_gas_keys_with_max_nonces, NewReceipt), over_limit);
+        assert_eq!(check(&two_gas_keys_with_max_nonces, ExistingReceipt), Ok(()));
+        let gas_key_and_delegate_with_max_nonces =
+            [add_gas_key(max_nonces), delegate_adding_gas_key(max_nonces)];
+        assert_eq!(check(&gas_key_and_delegate_with_max_nonces, NewReceipt), over_limit);
+    }
+
+    #[test]
+    fn test_validate_two_gas_keys_with_max_nonces_accepted_before_limit_version() {
+        let protocol_version_before_gas_key_nonce_limits = 88;
+        let limit_config = limit_config_at(protocol_version_before_gas_key_nonce_limits);
+        let check = |actions: &[Action]| {
+            validate_actions_with_mode(
+                &limit_config,
+                actions,
+                &alice_account(),
+                protocol_version_before_gas_key_nonce_limits,
+                ValidateReceiptMode::NewReceipt,
+            )
+        };
+        let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+
+        let two_gas_keys_with_max_nonces = [add_gas_key(max_nonces), add_gas_key(max_nonces)];
+        assert_eq!(check(&two_gas_keys_with_max_nonces), Ok(()));
+        let gas_key_and_delegate_with_max_nonces =
+            [add_gas_key(max_nonces), delegate_adding_gas_key(max_nonces)];
+        assert_eq!(check(&gas_key_and_delegate_with_max_nonces), Ok(()));
     }
 }

@@ -69,7 +69,7 @@ otherwise it's added to the list of new outgoing receipts.
 
 Receipts are processed one by one in the following order:
 
-1. New local receipts. They come from transactions where the signer and the receiver are the same account.
+1. New local receipts. They come from signed transactions where the signer and the receiver are the same account.
 1. Previously delayed receipts from the state.
 1. New incoming receipts.
 

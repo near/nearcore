@@ -6,10 +6,10 @@ use crate::access_keys::{
 };
 use crate::actions::*;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
+    safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
-use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::congestion_control::{DelayedReceiptQueueWrapper, IteratedReceipt};
 pub use crate::external_call::{
     EccDryRun, EccDryRunContext, ExternalCallsInChunk, ProcessedExternalCall,
     dry_run_external_call, process_external_call,
@@ -22,9 +22,10 @@ use crate::verifier::{
 };
 pub use crate::verifier::{
     TxAuthorization, TxAuthorizationRef, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
-    account_holds_contract, get_signer_and_authorization, is_bootstrap, set_tx_state_changes,
-    validate_envelope, validate_transaction, verify_and_charge_access_key_tx_ephemeral,
-    verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
+    call_can_run_at_account, ecc_cost_for_account, get_signer_and_authorization, is_bootstrap,
+    set_tx_state_changes, validate_envelope, validate_transaction,
+    verify_and_charge_access_key_tx_ephemeral, verify_and_charge_tx_ephemeral,
+    verify_ecc_ephemeral,
 };
 use ahash::RandomState as AHashRandomState;
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
@@ -40,7 +41,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_crypto::PublicKey;
 use near_parameters::vm::Config as VmConfig;
-use near_parameters::{ActionCosts, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig, RuntimeConfigStore};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
@@ -58,11 +59,13 @@ use near_primitives::receipt::{
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
-    Action, ECC_METHOD_NAME, ExecutionMetadata, ExecutionMetadataV4, ExecutionOutcome,
-    ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope, TransferAction,
+    Action, ECC_METHOD_NAME, EccTransaction, ExecutionMetadata, ExecutionMetadataV4,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, TransactionEnvelope,
+    TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::PromiseYieldStatus;
@@ -98,6 +101,7 @@ use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
+use receipt_runtime_configs::ReceiptRuntimeConfigs;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
@@ -130,6 +134,7 @@ pub mod metrics;
 mod pipelining;
 mod prefetch;
 pub mod receipt_manager;
+mod receipt_runtime_configs;
 pub mod state_viewer;
 #[cfg(test)]
 mod tests;
@@ -227,6 +232,10 @@ pub struct ApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
+    /// The Runtime configs of all protocol versions. Receipts created at an older protocol version
+    /// pay their static fees with the config of that version, see `ReceiptRuntimeConfigs`.
+    /// `config` must be its config of `current_protocol_version`.
+    pub config_store: Arc<RuntimeConfigStore>,
     /// If `Some`, the next epoch's `wasm_config` differs from the current one
     /// in ways that would invalidate the compiled-contract cache (e.g., a VM-kind
     /// upgrade is scheduled for the next epoch boundary). Hooks throughout the
@@ -266,6 +275,7 @@ impl ApplyState {
             epoch_id,
             protocol_version,
             config,
+            config_store,
             vm_generation,
             gas_price,
             prev_block,
@@ -285,6 +295,7 @@ impl ApplyState {
             prev_block,
             current_protocol_version: protocol_version,
             config,
+            config_store,
             next_wasm_config: None,
             vm_generation,
             cache,
@@ -485,6 +496,8 @@ pub struct ApplyResult {
     pub contract_updates: ContractUpdates,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
     pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// The unique id and the hash of each external call that got an outcome.
+    pub external_calls: Vec<(CryptoHash, CryptoHash)>,
 }
 
 #[derive(Debug)]
@@ -506,6 +519,7 @@ pub struct ActionResult {
     pub current_contract: AccountContract,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
+    pub gas_key_nonces_removed: u64,
 }
 
 impl Default for ActionResult {
@@ -523,6 +537,7 @@ impl Default for ActionResult {
             current_contract: AccountContract::None,
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
+            gas_key_nonces_removed: 0,
         }
     }
 }
@@ -543,6 +558,7 @@ pub struct ActionReceiptResult {
     pub current_contracts: Vec<AccountContract>,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
+    pub gas_key_nonces_removed: u64,
 }
 
 impl ActionReceiptResult {
@@ -560,6 +576,7 @@ impl ActionReceiptResult {
             current_contracts: vec![],
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
+            gas_key_nonces_removed: 0,
         }
     }
 
@@ -578,6 +595,8 @@ impl ActionReceiptResult {
             .ok_or(IntegerOverflowError)?;
         self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
+        self.gas_key_nonces_removed =
+            self.gas_key_nonces_removed.saturating_add(next_result.gas_key_nonces_removed);
         // Profile aggregates by summing; each per-action `ActionResult`
         // contributes exactly one entry to the receipt-level contract list.
         self.profile.merge(&next_result.profile);
@@ -657,6 +676,7 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
+        receipt_runtime_configs: &ReceiptRuntimeConfigs,
         promise_results: Arc<[PromiseResult]>,
         action_hash: &CryptoHash,
         action_index: usize,
@@ -664,7 +684,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         storage_proof_size_before_receipt: Option<usize>,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id())?;
+        let exec_fees = receipt_runtime_configs.exec_fee(action, receipt.receiver_id())?;
         let mut result = ActionResult::default();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
@@ -859,6 +879,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -872,6 +893,7 @@ impl Runtime {
                     account_id,
                     delete_account,
                     &apply_state.config,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {
@@ -880,6 +902,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
+                    receipt_runtime_configs,
                     account_id,
                     signed_delegate_action.as_ref().into(),
                     &mut result,
@@ -891,6 +914,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     action_receipt,
+                    receipt_runtime_configs,
                     account_id,
                     signed_delegate_action.as_ref().into(),
                     &mut result,
@@ -1004,7 +1028,8 @@ impl Runtime {
         let account_did_not_exist = account.is_none();
         let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionReceiptResult::new();
-        let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
+        let receipt_runtime_configs = ReceiptRuntimeConfigs::new(apply_state, &action_receipt);
+        let exec_fees = receipt_runtime_configs.new_action_receipt_exec_fee();
         result.gas_used = exec_fees.gas;
         result.gas_burnt = exec_fees.gas;
         result.compute_usage = exec_fees.compute;
@@ -1037,6 +1062,8 @@ impl Runtime {
                             .limit_config
                             .per_receipt_storage_proof_size_limit
                     });
+            let max_gas_key_nonces_removed_per_receipt =
+                apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
 
             // Executing actions one by one
             for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -1054,6 +1081,7 @@ impl Runtime {
                     &mut actor_id,
                     receipt,
                     &action_receipt,
+                    &receipt_runtime_configs,
                     Arc::clone(&promise_results),
                     &action_hash,
                     action_index,
@@ -1092,6 +1120,17 @@ impl Runtime {
                             .into(),
                         );
                     }
+                }
+                if result.result.is_ok()
+                    && result.gas_key_nonces_removed > max_gas_key_nonces_removed_per_receipt
+                {
+                    result.set_error(
+                        ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                            number_of_nonces: result.gas_key_nonces_removed,
+                            limit: max_gas_key_nonces_removed_per_receipt,
+                        }
+                        .into(),
+                    );
                 }
                 // TODO storage error
                 if let Err(ref mut res) = result.result {
@@ -1155,8 +1194,9 @@ impl Runtime {
                 receipt,
                 &action_receipt,
                 &mut result,
-                &apply_state.config,
+                &receipt_runtime_configs,
                 created_new_account,
+                apply_state.current_protocol_version,
             )?
         };
         stats.balance.gas_deficit_amount =
@@ -1245,6 +1285,10 @@ impl Runtime {
                     | ReceiptEnum::PromiseYieldV2(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers()),
+                    ReceiptEnum::ActionV3(new_action_receipt)
+                    | ReceiptEnum::PromiseYieldV3(new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers()),
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
@@ -1296,6 +1340,8 @@ impl Runtime {
                         | ReceiptEnum::PromiseYield(_)
                         | ReceiptEnum::ActionV2(_)
                         | ReceiptEnum::PromiseYieldV2(_)
+                        | ReceiptEnum::ActionV3(_)
+                        | ReceiptEnum::PromiseYieldV3(_)
                 );
 
                 if new_receipt.is_instant_receipt() {
@@ -1355,6 +1401,12 @@ impl Runtime {
     ///
     /// In this configuration, gas price changes do not affect refunds, either.
     /// Thus, we only create refunds for unspent gas and for deposits.
+    ///
+    /// The refund is computed with the creation config of
+    /// `receipt_runtime_configs`, which priced the static fees of the receipt
+    /// when it was created. Then the prepaid gas is the gas purchased for the
+    /// receipt, and the refund never exceeds it. The refund receipts are
+    /// created at `current_protocol_version`.
     fn refund_unspent_gas_and_deposits(
         &self,
         gas_burn_price: Balance,
@@ -1362,9 +1414,11 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &VersionedActionReceipt,
         result: &mut ActionReceiptResult,
-        config: &RuntimeConfig,
+        receipt_runtime_configs: &ReceiptRuntimeConfigs,
         created_account: bool,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<GasRefundResult, RuntimeError> {
+        let config = receipt_runtime_configs.creation_config();
         let total_deposit = total_deposit(&action_receipt.actions())?;
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions())?
             .checked_add(total_prepaid_send_fees(config, &action_receipt.actions())?.gas)
@@ -1445,8 +1499,15 @@ impl Runtime {
             );
 
             // sanity check: as long as the purchase price is high enough, there should always be
-            // enough refund balance to cover the cost of creating an account.
-            if gas_purchase_price >= config.min_gas_purchase_price {
+            // enough refund balance to cover the cost of creating an account. Only when the
+            // creation config is the current one: under another creation config, a transfer
+            // priced as a plain transfer can create an account, e.g. when `universal_accounts`
+            // was turned on in between.
+            let creation_config = receipt_runtime_configs.creation_config();
+            let current_config = receipt_runtime_configs.current_config();
+            if gas_purchase_price >= config.min_gas_purchase_price
+                && creation_config == current_config
+            {
                 debug_assert!(burned_gas_refund >= amount_to_charge);
             }
 
@@ -1460,10 +1521,12 @@ impl Runtime {
         let gas_balance_refund = safe_add_balance(unused_gas_balance_refund, burned_gas_refund)?;
 
         if deposit_refund > Balance::ZERO {
-            result.new_receipts.push(Receipt::new_balance_refund(
+            let receipt = Receipt::new_balance_refund(
                 receipt.balance_refund_receiver(),
                 deposit_refund,
-            ));
+                current_protocol_version,
+            );
+            result.new_receipts.push(receipt);
         }
         if gas_balance_refund > Balance::ZERO {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
@@ -1471,7 +1534,8 @@ impl Runtime {
             result.new_receipts.push(Receipt::new_gas_refund(
                 &action_receipt.signer_id(),
                 gas_balance_refund,
-                action_receipt.signer_public_key().clone(),
+                action_receipt.authorization_context().into_owned(),
+                current_protocol_version,
             ));
         }
 
@@ -2082,8 +2146,16 @@ impl Runtime {
             ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
         let (maybe_expired_txs, tx_expiration_flags) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+        let shard_layout =
+            if ProtocolFeature::SkipForeignShardTransactions.enabled(protocol_version) {
+                Some(processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?)
+            } else {
+                None
+            };
+        let shard_layout_and_id =
+            shard_layout.as_ref().map(|layout| (layout, apply_state.shard_id));
         // Decided before anything is read from the state, so that nothing is read for them.
-        let skipped = find_skipped_transactions(maybe_expired_txs);
+        let skipped = find_skipped_transactions(maybe_expired_txs, shard_layout_and_id);
         let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
@@ -2191,7 +2263,7 @@ impl Runtime {
                         ecc,
                         maybe_validation_error,
                     )?;
-                    record_external_call(processing_state, processed)?;
+                    record_external_call(processing_state, receipt_sink, ecc, processed)?;
                     continue;
                 }
             };
@@ -2292,6 +2364,10 @@ impl Runtime {
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
                 TxVerdict::DepositFailed { result, error } => {
+                    debug_assert!(
+                        error.uses_nonce(),
+                        "deposit failure must use the nonce: {error:?}"
+                    );
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,
@@ -2319,6 +2395,7 @@ impl Runtime {
                         pubkey.clone(),
                         result.receipt_gas_price,
                         tx.transaction.actions().to_vec(),
+                        processing_state.apply_state.current_protocol_version,
                     );
                     let outcome = ExecutionOutcomeWithId {
                         id: tx.get_hash(),
@@ -2335,32 +2412,18 @@ impl Runtime {
                             metadata: ExecutionMetadata::V1,
                         },
                     };
-                    if processing_state.apply_state.save_receipt_to_tx {
-                        processing_state.receipt_to_tx.push((
-                            receipt_id,
-                            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
-                                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
-                                    tx_hash: *tx_hash,
-                                    sender_account_id: signer_id.clone(),
-                                }),
-                                receiver_account_id: tx.transaction.receiver_id().clone(),
-                                shard_id: processing_state.apply_state.shard_id,
-                            }),
-                        ));
-                    }
-                    if receipt.receiver_id() == signer_id {
-                        processing_state.local_receipts.push_back(receipt);
-                    } else {
-                        receipt_sink.forward_or_buffer_receipt(
-                            receipt,
-                            &processing_state.apply_state,
-                            &mut processing_state.state_update,
-                        )?;
-                    }
+                    send_transaction_receipt(
+                        processing_state,
+                        receipt_sink,
+                        receipt,
+                        *tx_hash,
+                        signer_id,
+                    )?;
                     metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                     (outcome, result)
                 }
                 TxVerdict::Failed(error) => {
+                    debug_assert!(!error.uses_nonce(), "failure must not use the nonce: {error:?}");
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                     let outcome = ExecutionOutcomeWithId::failed(tx, error);
@@ -2533,7 +2596,7 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(back);
         }
 
-        let mut prep_lookahead_iter = local_receipts.iter();
+        let mut prep_lookahead_iter = local_receipts.iter().map(IteratedReceipt::ForThisShard);
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
         let mut next_schedule_after = schedule_contract_preparation(
@@ -2711,7 +2774,8 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
         }
 
-        let mut prep_lookahead_iter = processing_state.incoming_receipts.iter();
+        let mut prep_lookahead_iter =
+            processing_state.incoming_receipts.iter().map(IteratedReceipt::ForThisShard);
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
         let mut next_schedule_after = schedule_contract_preparation(
@@ -2895,6 +2959,7 @@ impl Runtime {
             prefetcher,
             processed_receipts,
             receipt_to_tx,
+            external_calls,
             ..
         } = processing_state;
         let ProcessReceiptsResult { promise_yield_result, .. } = process_receipts_result;
@@ -3054,6 +3119,7 @@ impl Runtime {
             bandwidth_scheduler_state_hash,
             contract_updates,
             receipt_to_tx,
+            external_calls,
         })
     }
 }
@@ -3074,31 +3140,45 @@ impl ApplyState {
     }
 }
 
-/// Finds the transactions that apply skips, with no outcome. Outcomes are committed keyed by
-/// their id, which is derived from the hash: a signed transaction's id is its hash, and an ECC's
-/// is its hash with the height of the block the chunk is included in. So processing the same
-/// hash twice in a chunk would commit two conflicting outcomes under one id. So a repeat of a
-/// hash is skipped. (A repeated ECC is two calls to one contract, which makes a chunk invalid.)
-fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
+/// Finds the transactions that apply skips with no outcome. A repeat of an earlier transaction in
+/// the chunk would commit a second outcome under the same id. An ECC's id leaves out its state
+/// init. A transaction whose routing account is not in `shard_layout_and_id`, the chunk's shard
+/// under the block's layout, may be included by its own shard in the same block. With `None`, no
+/// transaction is skipped for its shard.
+fn find_skipped_transactions(
+    txs: &[TransactionEnvelope],
+    shard_layout_and_id: Option<(&ShardLayout, ShardId)>,
+) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
     txs.iter()
         .map(|tx| {
-            let repeated = !seen_tx_hashes.insert(*tx.hash());
+            let repeated = !seen_tx_hashes.insert(*tx.id_hash());
             if repeated {
                 tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
+                return true;
             }
-            repeated
+            let foreign = shard_layout_and_id.is_some_and(|(shard_layout, shard_id)| {
+                shard_layout.account_id_to_shard_id(tx.routing_account_id()) != shard_id
+            });
+            if foreign {
+                tracing::debug!(tx_hash = ?tx.hash(), "skipping transaction of another shard");
+            }
+            foreign
         })
         .collect()
 }
 
-/// Records the outcome of an external contract call that `process_external_call` processed, and
-/// counts what it reports toward the chunk's gas, compute and burnt tokens.
+/// Records the outcome of an external contract call that `process_external_call` processed, counts
+/// what it reports toward the chunk's gas, compute and burnt tokens, and sends out its receipts.
 fn record_external_call(
     processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    ecc: &EccTransaction,
     processed: ProcessedExternalCall,
 ) -> Result<(), RuntimeError> {
-    let ProcessedExternalCall { outcome, accepted } = processed;
+    let ProcessedExternalCall { outcome, accepted, receipts, installed_state_init: _ } = processed;
+    // Every call that gets here gets an outcome.
+    processing_state.external_calls.push((outcome.id, *ecc.hash()));
     let compute = outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     processing_state.total.add(outcome.outcome.gas_burnt.as_gas(), compute)?;
     let stats = &mut processing_state.stats.balance;
@@ -3108,7 +3188,78 @@ fn record_external_call(
     } else {
         metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
     }
+    send_ecc_receipts(processing_state, receipt_sink, &outcome.id, ecc.contract_id(), receipts)?;
     processing_state.outcomes.push(outcome);
+    Ok(())
+}
+
+/// Records that `receipt` comes from the transaction `tx_hash` of `sender_id`, and sends it: to the
+/// chunk's local receipts if the sender receives it, otherwise out through `receipt_sink`.
+fn send_transaction_receipt(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    receipt: Receipt,
+    tx_hash: CryptoHash,
+    sender_id: &AccountId,
+) -> Result<(), RuntimeError> {
+    record_transaction_receipt(processing_state, &receipt, tx_hash, sender_id);
+    if receipt.receiver_id() == sender_id {
+        processing_state.local_receipts.push_back(receipt);
+    } else {
+        receipt_sink.forward_or_buffer_receipt(
+            receipt,
+            &processing_state.apply_state,
+            &mut processing_state.state_update,
+        )?;
+    }
+    Ok(())
+}
+
+/// Records that `receipt` comes from the transaction or external call whose outcome id is
+/// `tx_hash`, sent by `sender_id`.
+fn record_transaction_receipt(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt: &Receipt,
+    tx_hash: CryptoHash,
+    sender_id: &AccountId,
+) {
+    if processing_state.apply_state.save_receipt_to_tx {
+        processing_state.receipt_to_tx.push((
+            *receipt.receipt_id(),
+            ReceiptToTxInfo::V1(ReceiptToTxInfoV1 {
+                origin: ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
+                    tx_hash,
+                    sender_account_id: sender_id.clone(),
+                }),
+                receiver_account_id: receipt.receiver_id().clone(),
+                shard_id: processing_state.apply_state.shard_id,
+            }),
+        ));
+    }
+}
+
+/// Sends out the receipts of an accepted external call, which carry their ids already, through
+/// `receipt_sink`, as a receipt's run does, none local, and commits what sending them wrote.
+fn send_ecc_receipts(
+    processing_state: &mut ApplyProcessingReceiptState,
+    receipt_sink: &mut ReceiptSink,
+    outcome_id: &CryptoHash,
+    contract_id: &AccountId,
+    receipts: Vec<Receipt>,
+) -> Result<(), RuntimeError> {
+    if receipts.is_empty() {
+        return Ok(());
+    }
+    for receipt in receipts {
+        record_transaction_receipt(processing_state, &receipt, *outcome_id, contract_id);
+        receipt_sink.forward_or_buffer_receipt(
+            receipt,
+            &processing_state.apply_state,
+            &mut processing_state.state_update,
+        )?;
+    }
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: *outcome_id };
+    processing_state.state_update.commit(cause);
     Ok(())
 }
 
@@ -3124,26 +3275,22 @@ fn action_transfer_or_implicit_account_creation(
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         let is_gas_refund = is_refund && action_receipt.signer_id() == receipt.receiver_id();
+        let gas_refund_key = action_receipt.signer_public_key().filter(|_| is_gas_refund);
         // For gas refunds, try to refund to the gas key first. If the signer key is a gas key,
         // the refund goes to the gas key balance and we skip crediting the account balance.
-        if is_gas_refund
+        if let Some(signer_public_key) = gas_refund_key
             && try_refund_gas_key_balance(
                 state_update,
                 receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
+                signer_public_key,
                 deposit,
             )?
         {
             return Ok(());
         }
         action_transfer(account, deposit)?;
-        if is_gas_refund {
-            try_refund_allowance(
-                state_update,
-                receipt.receiver_id(),
-                &action_receipt.signer_public_key(),
-                deposit,
-            )?;
+        if let Some(signer_public_key) = gas_refund_key {
+            try_refund_allowance(state_update, receipt.receiver_id(), signer_public_key, deposit)?;
         }
     } else {
         debug_assert!(!is_refund);
@@ -3208,6 +3355,7 @@ fn missing_chunk_apply_result(
         bandwidth_scheduler_state_hash: bandwidth_scheduler_output.scheduler_state_hash,
         contract_updates,
         receipt_to_tx: vec![],
+        external_calls: vec![],
     });
 }
 
@@ -3424,6 +3572,7 @@ impl<'a> ApplyProcessingState<'a> {
             delayed_receipts,
             processed_receipts: Vec::new(),
             receipt_to_tx: Vec::new(),
+            external_calls: Vec::new(),
         }
     }
 }
@@ -3449,6 +3598,8 @@ struct ApplyProcessingReceiptState<'a> {
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
     processed_receipts: Vec<ProcessedReceipt>,
     receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// The unique id and the hash of each external call that got an outcome.
+    external_calls: Vec<(CryptoHash, CryptoHash)>,
 }
 
 trait MaybeRefReceipt {
@@ -3479,6 +3630,13 @@ impl<'a> MaybeRefReceipt for &'a StateStoredReceipt<'a> {
     }
 }
 
+/// Receipts one call to `schedule_contract_preparation` inspects before it stops.
+///
+/// The reads are invisible to gas, to compute and to the proof size counter, so one
+/// call must not cost more as the delayed receipt queue grows. A chunk makes many
+/// calls, and on the delayed path each one starts at the queue front.
+const MAX_RECEIPTS_SCANNED_FOR_PREPARATION: usize = 1024;
+
 /// Schedule a one receipt for contract preparation.
 ///
 /// The caller should call this method again after the returned number of receipts from `iterator`
@@ -3486,72 +3644,78 @@ impl<'a> MaybeRefReceipt for &'a StateStoredReceipt<'a> {
 fn schedule_contract_preparation<R: MaybeRefReceipt>(
     pipeline_manager: &mut pipelining::ReceiptPreparationPipeline,
     state_update: &TrieUpdate,
-    mut iterator: impl Iterator<Item = R>,
+    iterator: &mut impl Iterator<Item = IteratedReceipt<R>>,
 ) -> Option<usize> {
-    let scheduled_receipt_offset = iterator.position(|peek| {
-        let peek = peek.as_ref();
-        let account_id = peek.receiver_id();
-        // We need to inspect each receipt recursively in case these are data receipts, thus a
-        // function.
-        fn handle_receipt(
-            mgr: &mut ReceiptPreparationPipeline,
-            state_update: &TrieUpdate,
-            account_id: &AccountId,
-            receipt: &Receipt,
-        ) -> bool {
-            match receipt.receipt() {
-                ReceiptEnum::Action(_)
-                | ReceiptEnum::PromiseYield(_)
-                | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_) => {
-                    // This returns `true` if work may have been scheduled (thus we currently
-                    // prepare actions in at most 2 "interesting" receipts in parallel due to
-                    // staggering.)
-                    mgr.submit(receipt, state_update)
-                }
-                ReceiptEnum::Data(dr) => {
-                    let key = TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: dr.data_id,
-                    };
-                    let Ok(Some(rid)) = get_pure::<CryptoHash>(state_update, &key) else {
-                        return false;
-                    };
-                    let key = TrieKey::PendingDataCount {
-                        receiver_id: account_id.clone(),
-                        receipt_id: rid,
-                    };
-                    let Ok(Some(data_count)) = get_pure::<u32>(state_update, &key) else {
-                        return false;
-                    };
-                    if data_count > 1 {
-                        return false;
-                    }
-                    let key = TrieKey::PostponedReceipt {
-                        receiver_id: account_id.clone(),
-                        receipt_id: rid,
-                    };
-                    let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
-                        return false;
-                    };
-                    return handle_receipt(mgr, state_update, account_id, &pr);
-                }
-                ReceiptEnum::PromiseResume(dr) => {
-                    let key = TrieKey::PromiseYieldReceipt {
-                        receiver_id: account_id.clone(),
-                        data_id: dr.data_id,
-                    };
-                    let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
-                        return false;
-                    };
-                    return handle_receipt(mgr, state_update, account_id, &yr);
-                }
-                ReceiptEnum::GlobalContractDistribution(_) => false,
+    // We need to inspect each receipt recursively in case these are data receipts, thus a
+    // function.
+    fn handle_receipt(
+        mgr: &mut ReceiptPreparationPipeline,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        receipt: &Receipt,
+    ) -> bool {
+        match receipt.receipt() {
+            ReceiptEnum::Action(_)
+            | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::ActionV2(_)
+            | ReceiptEnum::PromiseYieldV2(_)
+            | ReceiptEnum::ActionV3(_)
+            | ReceiptEnum::PromiseYieldV3(_) => {
+                // This returns `true` if work may have been scheduled (thus we currently
+                // prepare actions in at most 2 "interesting" receipts in parallel due to
+                // staggering.)
+                mgr.submit(receipt, state_update)
             }
+            ReceiptEnum::Data(dr) => {
+                let key = TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: dr.data_id,
+                };
+                let Ok(Some(rid)) = get_pure::<CryptoHash>(state_update, &key) else {
+                    return false;
+                };
+                let key =
+                    TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id: rid };
+                let Ok(Some(data_count)) = get_pure::<u32>(state_update, &key) else {
+                    return false;
+                };
+                if data_count > 1 {
+                    return false;
+                }
+                let key =
+                    TrieKey::PostponedReceipt { receiver_id: account_id.clone(), receipt_id: rid };
+                let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
+                    return false;
+                };
+                return handle_receipt(mgr, state_update, account_id, &pr);
+            }
+            ReceiptEnum::PromiseResume(dr) => {
+                let key = TrieKey::PromiseYieldReceipt {
+                    receiver_id: account_id.clone(),
+                    data_id: dr.data_id,
+                };
+                let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
+                    return false;
+                };
+                return handle_receipt(mgr, state_update, account_id, &yr);
+            }
+            ReceiptEnum::GlobalContractDistribution(_) => false,
         }
-        handle_receipt(pipeline_manager, state_update, account_id, peek)
-    })?;
-    Some(scheduled_receipt_offset.saturating_add(1))
+    }
+
+    let mut receipts_iterated = 0usize;
+    for _ in 0..MAX_RECEIPTS_SCANNED_FOR_PREPARATION {
+        let Some(entry) = iterator.next() else { return None };
+        let IteratedReceipt::ForThisShard(peek) = entry else { continue };
+        receipts_iterated += 1;
+        let peek = peek.as_ref();
+        if handle_receipt(pipeline_manager, state_update, peek.receiver_id(), peek) {
+            return Some(receipts_iterated);
+        }
+    }
+    // The bound stopped the loop, not the end of the receipts, so ask the caller to
+    // come back. At least one, so that the caller keeps asking.
+    Some(receipts_iterated.max(1))
 }
 
 #[cfg(feature = "estimator")]

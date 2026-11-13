@@ -206,7 +206,7 @@ impl TransactionPool {
         self.eccs.remove_items(
             txs.iter()
                 .filter_map(|tx| tx.as_unsigned())
-                .map(|tx| (tx.get_hash(), ecc::group_id(tx))),
+                .map(|tx| (*tx.hash_without_state_init(), ecc::group_id(tx))),
         );
     }
 
@@ -294,6 +294,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::{EccTransaction, SignedTransaction, TransactionNonce};
     use near_primitives::types::{AccountId, Balance, NonceIndex};
+    use near_primitives::universal_state_init::RawStateInit;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rand::seq::SliceRandom;
@@ -1312,6 +1313,27 @@ mod tests {
         }
     }
 
+    /// A copy of a call with its state init and a copy without are one call to the pool: the
+    /// second is a duplicate, and either one landing in a chunk removes the pooled one.
+    #[test]
+    fn test_ecc_copies_with_and_without_state_init_are_one_call() {
+        let without = EccTransaction::new("a.near".parse().unwrap(), vec![1]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![2])),
+        );
+        let with = ValidatedEcc::new_for_test(with);
+        let without = ValidatedEcc::new_for_test(without);
+        for (pooled, landed) in [(&with, &without), (&without, &with)] {
+            let mut pool = TransactionPool::new(TEST_SEED, None, "");
+            insert_all(&mut pool, [pooled.clone()]);
+            assert_eq!(pool.insert_transaction(landed.clone()), InsertTransactionResult::Duplicate);
+            pool.remove_transactions(&[to_envelope(landed)]);
+            assert_eq!(pool.len(), 0);
+        }
+    }
+
     /// The share is a cap, not a reservation: a pool full of signed transactions refuses ECCs
     /// even if they would fit in the share.
     #[test]
@@ -1437,5 +1459,51 @@ mod tests {
         assert_eq!(pool.reintroduce_transactions(transactions), 2);
 
         assert_eq!(drain(&mut pool), vec![Drained::Signed(vec![1, 2])]);
+    }
+
+    /// A copy of a call, and the same call with a state init: one call to the pool, of two sizes.
+    fn ecc_copies(init_len: usize) -> (ValidatedEcc, ValidatedEcc) {
+        let without = EccTransaction::new("a.near".parse().unwrap(), vec![1]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![2; init_len])),
+        );
+        (ValidatedEcc::new_for_test(without), ValidatedEcc::new_for_test(with))
+    }
+
+    /// Reintroducing a copy of a call over a pooled copy of another size, either way round, leaves
+    /// the pool counting the copy it keeps, and removing that copy empties the pool.
+    #[test]
+    fn test_reintroduce_ecc_copy_of_another_size_over_pooled_copy() {
+        let (without, with) = ecc_copies(100);
+        assert!(with.get_size() > without.get_size());
+        for (pooled, reintroduced) in [(&without, &with), (&with, &without)] {
+            let mut pool = TransactionPool::new(TEST_SEED, None, "");
+            insert_all(&mut pool, [pooled.clone()]);
+
+            assert_eq!(pool.reintroduce_transactions([reintroduced.clone()]), 1);
+            assert_eq!(pool.len(), 1);
+            assert_eq!(pool.ecc_size(), reintroduced.get_size());
+
+            pool.remove_transactions(&[to_envelope(reintroduced)]);
+            assert_eq!(pool.len(), 0);
+            assert_eq!(pool.ecc_size(), 0);
+        }
+    }
+
+    /// A reorg puts back the copy with the state init over the stripped copy in the pool, and the
+    /// next chunk producer takes the call out without the size count going below zero.
+    #[test]
+    fn test_reintroduce_ecc_copy_with_state_init_over_stripped_copy_then_take_it() {
+        let (without, with) = ecc_copies(100);
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        insert_all(&mut pool, [without]);
+
+        pool.reintroduce_transactions([with]);
+
+        assert_eq!(drain(&mut pool), vec![Drained::Eccs(vec![1])]);
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.ecc_size(), 0);
     }
 }

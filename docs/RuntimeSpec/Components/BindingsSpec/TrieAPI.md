@@ -5,14 +5,15 @@ not follow the specification are considered to be bugs that need to be fixed.
 
 In an external call (see [Context API](ContextAPI.md)), the storage functions below can also panic with
 `RecordedStorageExceeded`: the trie nodes and values the call reads go into the chunk's storage proof, and an external
-call may add at most `max_external_call_recorded_size` (20 KiB) to it. A read that would record a value past the limit
+call may add at most `max_external_call_recorded_size` (20 KiB) to it, including what installing its state init
+records. A read that would record a value past the limit
 fails without reading it. A read that records the trie node that crosses the limit fails after recording it, and so does
 a `storage_remove` that crosses it. The call is then rejected, and nobody pays for it (see
 [Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)).
 
 Removals are costly in an external call. Each `storage_remove` counts toward the limit with a fixed estimate of 2000
 bytes, even for a key that isn't present, so a call can remove no more than ten keys, and fewer, as the trie nodes it
-reads count as well. Larger cleanups belong in the receipts the call creates, once external calls can create them.
+reads count as well. Larger cleanups belong in the receipts the call creates.
 
 ---
 

@@ -69,6 +69,12 @@ impl PartialEncodedStateWitness {
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
+        // Reject a cross-type replay where a peer's serialization of a different signed
+        // struct happens to decode as this inner: the differentiator, always the last
+        // field, would carry the source type's constant instead of ours.
+        if self.inner.signature_differentiator != PartialEncodedStateWitnessInner::DIFFERENTIATOR {
+            return false;
+        }
         let data = borsh::to_vec(&self.inner).unwrap();
         self.signature.verify(&data, public_key)
     }
@@ -102,6 +108,8 @@ pub struct PartialEncodedStateWitnessInner {
 }
 
 impl PartialEncodedStateWitnessInner {
+    const DIFFERENTIATOR: &'static str = "PartialEncodedStateWitness";
+
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
@@ -116,7 +124,7 @@ impl PartialEncodedStateWitnessInner {
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,
-            signature_differentiator: "PartialEncodedStateWitness".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }
@@ -181,6 +189,10 @@ impl PartialEncodedStateWitnessV2 {
     }
 
     pub fn verify(&self, public_key: &PublicKey) -> bool {
+        if self.inner.signature_differentiator != PartialEncodedStateWitnessInnerV2::DIFFERENTIATOR
+        {
+            return false;
+        }
         let data = borsh::to_vec(&self.inner).unwrap();
         self.signature.verify(&data, public_key)
     }
@@ -219,6 +231,9 @@ pub struct PartialEncodedStateWitnessInnerV2 {
 }
 
 impl PartialEncodedStateWitnessInnerV2 {
+    // Distinct from V1 so a V1 signature cannot be grafted onto a V2 struct.
+    const DIFFERENTIATOR: &'static str = "PartialEncodedStateWitnessV2";
+
     fn new(
         epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
@@ -236,7 +251,7 @@ impl PartialEncodedStateWitnessInnerV2 {
             part_ord,
             part: part.into_boxed_slice(),
             encoded_length,
-            signature_differentiator: "PartialEncodedStateWitnessV2".to_owned(),
+            signature_differentiator: Self::DIFFERENTIATOR.to_owned(),
         }
     }
 }

@@ -362,6 +362,39 @@ pub enum InvalidTxError {
     } = 22,
 }
 
+impl InvalidTxError {
+    /// Whether a transaction that fails with this error still uses its nonce. Only a gas key
+    /// transaction whose deposit fails does: it pays for its gas. Any other failure leaves the
+    /// state as it was.
+    pub fn uses_nonce(&self) -> bool {
+        match self {
+            InvalidTxError::NotEnoughBalanceForDeposit { .. } => true,
+            InvalidTxError::InvalidAccessKeyError(_)
+            | InvalidTxError::InvalidSignerId { .. }
+            | InvalidTxError::SignerDoesNotExist { .. }
+            | InvalidTxError::InvalidNonce { .. }
+            | InvalidTxError::NonceTooLarge { .. }
+            | InvalidTxError::InvalidReceiverId { .. }
+            | InvalidTxError::InvalidSignature
+            | InvalidTxError::NotEnoughBalance { .. }
+            | InvalidTxError::LackBalanceForState { .. }
+            | InvalidTxError::CostOverflow
+            | InvalidTxError::InvalidChain
+            | InvalidTxError::Expired
+            | InvalidTxError::ActionsValidation(_)
+            | InvalidTxError::TransactionSizeExceeded { .. }
+            | InvalidTxError::InvalidTransactionVersion
+            | InvalidTxError::StorageError(_)
+            | InvalidTxError::ShardCongested { .. }
+            | InvalidTxError::ShardStuck { .. }
+            | InvalidTxError::InvalidNonceIndex { .. }
+            | InvalidTxError::NotEnoughGasKeyBalance { .. }
+            | InvalidTxError::ContractNotFound { .. }
+            | InvalidTxError::ExternalCallChunkShareReached { .. } => false,
+        }
+    }
+}
+
 impl From<StorageError> for InvalidTxError {
     fn from(error: StorageError) -> Self {
         InvalidTxError::StorageError(error)
@@ -560,6 +593,12 @@ pub enum ActionsValidationError {
     TransferToUniversalAccountNotAllowed {
         account_id: AccountId,
     } = 30,
+    /// The `AddKey` actions in one receipt add more gas key nonces in total than
+    /// allowed.
+    TotalNumberOfGasKeyNoncesAddedExceeded {
+        number_of_nonces: u64,
+        limit: u64,
+    } = 31,
 }
 
 /// Describes the error for validating a receipt.
@@ -824,6 +863,15 @@ impl Display for ActionsValidationError {
             ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
                 write!(f, "transfers to the universal account {account_id} are not allowed yet")
             }
+            ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded {
+                number_of_nonces,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the actions in this receipt add {number_of_nonces} gas key nonces in total but at most {limit} is allowed",
+                )
+            }
         }
     }
 }
@@ -1023,6 +1071,12 @@ pub enum ActionErrorKind {
     ReservedMethodName {
         method_name: String,
     } = 31,
+    /// The actions in the receipt removed more gas key nonces than
+    /// `max_gas_key_nonces_removed_per_receipt` allows.
+    TotalNumberOfGasKeyNoncesRemovedExceeded {
+        number_of_nonces: u64,
+        limit: u64,
+    } = 32,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1407,6 +1461,14 @@ impl Display for ActionErrorKind {
                 "Method {:?} is reserved for external contract calls and can't be called by a FunctionCall action",
                 method_name
             ),
+            ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces,
+                limit,
+            } => write!(
+                f,
+                "Receipt removed {} gas key nonces but at most {} is allowed",
+                number_of_nonces, limit
+            ),
         }
     }
 }
@@ -1719,7 +1781,7 @@ pub enum HostError {
     /// otherwise well-sized inputs return 0 from the host function instead of
     /// aborting.
     MlDsaVerifyInvalidInput { msg: String } = 34,
-    /// `method_name` is not allowed in external contract calls
+    /// `method_name` is not allowed in external contract calls, or in the receipts they lead to
     ProhibitedInExternalCall { method_name: String } = 35,
     /// An external contract call has an attached deposit, which it cannot have
     DepositInExternalCall = 36,

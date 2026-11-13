@@ -754,11 +754,11 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
     // With ReshardingV3, it's possible for a chunk to have delayed receipts that technically
     // belong to the sibling shard before a resharding event.
-    // Here, we filter all the receipts that don't belong to the current shard_id.
+    // Here, we answer whether a receipt belongs to the current shard_id.
     //
-    // The function follows the guidelines of standard iterator filter function
-    // We return true if we should retain the receipt and false if we should filter it.
-    fn receipt_filter_fn(&self, receipt: &StateStoredReceipt) -> bool {
+    // TODO(perf) - read the shard layout once per queue read, not per receipt,
+    // to avoid cloning it every time.
+    fn is_for_this_shard(&self, receipt: &StateStoredReceipt) -> bool {
         let shard_layout = self.epoch_info_provider.shard_layout(&self.epoch_id).unwrap();
         let receipt_shard_id = receipt.get_receipt().receiver_shard_id(&shard_layout).unwrap();
         receipt_shard_id == self.shard_id
@@ -788,21 +788,25 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
                 .ok_or(IntegerOverflowError)?;
 
             // Track gas and bytes for receipt above and return only receipt that belong to the shard.
-            if self.receipt_filter_fn(&receipt) {
+            if self.is_for_this_shard(&receipt) {
                 return Ok(Some(receipt));
             }
         }
         Ok(None)
     }
 
+    /// Yields one item per queue entry read, so that a caller which bounds how
+    /// many entries it reads counts the entries left to a sibling shard too.
     pub(crate) fn peek_iter(
         &'a self,
         trie_update: &'a TrieUpdate,
-    ) -> impl Iterator<Item = StateStoredReceipt<'static>> + 'a {
-        self.queue
-            .iter(trie_update, false)
-            .map_while(Result::ok)
-            .filter(|receipt| self.receipt_filter_fn(receipt))
+    ) -> impl Iterator<Item = IteratedReceipt<StateStoredReceipt<'static>>> + 'a {
+        self.queue.iter(trie_update, false).map_while(Result::ok).map(|receipt| {
+            match self.is_for_this_shard(&receipt) {
+                true => IteratedReceipt::ForThisShard(receipt),
+                false => IteratedReceipt::ForOtherShard,
+            }
+        })
     }
 
     /// This function returns the maximum length of the delayed receipt queue.
@@ -824,6 +828,15 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         congestion.remove_receipt_bytes(self.removed_delayed_bytes)?;
         Ok(())
     }
+}
+
+/// One entry read from a receipt source.
+///
+/// A resharding leaves the delayed receipt queue of the parent in both children, so
+/// an entry read from the queue can belong to the sibling shard.
+pub(crate) enum IteratedReceipt<R> {
+    ForThisShard(R),
+    ForOtherShard,
 }
 
 fn int_overflow_to_storage_err(_err: IntegerOverflowError) -> StorageError {

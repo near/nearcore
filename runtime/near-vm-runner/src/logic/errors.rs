@@ -306,7 +306,7 @@ pub enum HostError {
     ProhibitedInView {
         method_name: String,
     },
-    /// `method_name` is not allowed in external contract calls
+    /// `method_name` is not allowed in external contract calls, or in the receipts they lead to
     ProhibitedInExternalCall {
         method_name: String,
     },
