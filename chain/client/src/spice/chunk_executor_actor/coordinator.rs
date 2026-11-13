@@ -405,8 +405,7 @@ impl ChunkExecutorActor {
                 continue;
             }
 
-            // The shard never applies a block at or below the sync block, and one left parked
-            // would hold back the blocks after it.
+            // The shard never applies a block at or below the sync block, which is final here.
             executor.parked_blocks.drop_up_to_height(sync_header.height());
             let mut block_hash = sync_hash;
             let mut parents = Vec::new();

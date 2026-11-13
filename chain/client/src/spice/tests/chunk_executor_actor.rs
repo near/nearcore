@@ -2614,7 +2614,7 @@ fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
 fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
     // The shard's catchup is still running, and a block below the sync block, which the shard never
     // applies, is still parked, as after a restart that changed the tracked shards. The node has
-    // processed the sync block, which waits behind it.
+    // processed the sync block.
     let mut catch_up = CatchUpTest::setup();
     let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
     let stale_block = catch_up
@@ -2629,6 +2629,40 @@ fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
 
     // The catchup finishes.
     catch_up.finish_catchup();
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
+
+    // The shard is applied at the block after the sync block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_shard_caught_up_before_the_final_execution_head_passes_its_sync_block() {
+    // Restarted early in the epoch with changed tracked shards, the node has a block below the sync
+    // block parked, which the shard never applies, and its final execution head is below that
+    // block. While the shard's catchup ran, the node processed the sync block and the block after
+    // it.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    let chain = &catch_up.test_actor.chain;
+    let stale_block = chain.get_block_header(catch_up.sync_block.header().prev_hash()).unwrap();
+    let final_execution_head = chain.get_block_header(stale_block.prev_hash()).unwrap();
+    let mut store_update = chain.chain_store.store().store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(&final_execution_head));
+    store_update.commit();
+    catch_up.test_actor.actor.park_block(catch_up.shard_uid, &stale_block);
+    for block_hash in [*catch_up.sync_block.hash(), *block.hash()] {
+        catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash });
+    }
+
+    // The catchup finishes before the final execution head passes the sync block.
+    catch_up.finish_catchup();
+    let final_execution_head =
+        catch_up.test_actor.actor.chain_store.spice_final_execution_head().unwrap();
+    assert!(final_execution_head.height <= catch_up.sync_block.header().height());
     catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The shard is applied at the block after the sync block.

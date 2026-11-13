@@ -313,10 +313,11 @@ impl PerShardChunkExecutor {
         let Some(&parent) = self.parked_blocks.parents.get(&entry) else {
             return;
         };
-        // A block needs its parent applied first.
-        if self.parked_blocks.parents.contains_key(&parent)
-            || self.blocks_in_execution.contains(&parent.1)
-        {
+        // A block needs its parent applied first, unless it is applied already: state sync applies
+        // a sync block, whose parent the shard may never apply.
+        let parent_pending = self.parked_blocks.parents.contains_key(&parent)
+            || self.blocks_in_execution.contains(&parent.1);
+        if parent_pending && !self.chunk_extra_exists(&entry.1, &self.shard_uid).unwrap_or(false) {
             return;
         }
 
