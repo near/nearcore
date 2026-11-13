@@ -187,3 +187,39 @@ fn read_trie_paths(trie: Trie, keys: &[Vec<u8>], next_key: &AtomicUsize) {
             trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::NO_SIDE_EFFECTS);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::BatchTrieUpdate;
+    use near_primitives::shard_layout::ShardUId;
+    use near_store::Trie;
+    use near_store::test_utils::{TestTriesBuilder, test_populate_trie};
+    use near_store::trie::AccessOptions;
+
+    /// Reading ahead keeps every node on the keys' paths in memory, and reads through the
+    /// batch return what the store holds.
+    #[test]
+    fn test_read_ahead_keeps_the_paths_of_the_keys() {
+        let tries = TestTriesBuilder::new().build();
+        let shard_uid = ShardUId::single_shard();
+        let mut changes = Vec::new();
+        for index in 0u32..200 {
+            changes.push((index.to_be_bytes().to_vec(), Some(index.to_le_bytes().to_vec())));
+        }
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
+        let keys: Vec<Vec<u8>> = changes.iter().map(|(key, _)| key.clone()).collect();
+
+        let update = BatchTrieUpdate::new(&tries, shard_uid, root);
+        update.read_ahead(&keys);
+
+        let committed_cache = update.storage.committed_cache.lock();
+        assert!(committed_cache.contains_key(&root));
+        // Each key ends at its own leaf, so every leaf was read ahead too.
+        assert!(committed_cache.len() > keys.len());
+        drop(committed_cache);
+        let batch_trie = Trie::new(update.storage.clone(), root, None);
+        for (key, value) in &changes {
+            assert_eq!(batch_trie.get(key, AccessOptions::DEFAULT).unwrap(), *value);
+        }
+    }
+}
