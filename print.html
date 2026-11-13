@@ -1196,6 +1196,16 @@ block_outcome_root = compute_root(sha256(borsh(shard_outcome_root)), outcome_roo
 block_merkle_root = compute_root(block_hash, block_proof)
 </code></pre>
 <p>which must match the block merkle root in the light client block of the light client head.</p>
+<h4 id="what-a-proof-shows"><a class="header" href="#what-a-proof-shows">What a Proof Shows</a></h4>
+<p>A verified proof shows that the outcome was committed in block <code>H</code>. It does not show that the outcome is the only one
+with its <code>id</code>.</p>
+<p>A receipt has exactly one outcome on the canonical chain. A chunk receives receipts only through the incoming receipt
+proofs that validators check, so no chunk producer can add a receipt to a chunk. A receipt outcome can be relied on
+whether it succeeded or failed.</p>
+<p>A transaction can have several. A transaction outcome that succeeded shows that the transaction ran, but one that
+failed does not show that the transaction never ran. To act on the result of a transaction, verify the outcomes of the
+receipts it produced, for example the receipt that ran on a bridge contract and logged an event. Do not treat a failed
+transaction outcome as proof that the transaction did not happen.</p>
 <h2 id="rpc-end-points"><a class="header" href="#rpc-end-points">RPC end-points</a></h2>
 <h3 id="light-client-block"><a class="header" href="#light-client-block">Light Client Block</a></h3>
 <p>There's a single end-point that full nodes exposed that light clients can use to fetch new <code>LightClientBlockView</code>s:</p>
