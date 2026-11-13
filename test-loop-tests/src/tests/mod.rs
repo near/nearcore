@@ -2,6 +2,7 @@ mod account_cost_increase;
 mod backfill_receipt_to_tx;
 mod ban_universal_account_transfer;
 mod bandwidth_scheduler;
+mod block_challenges;
 #[cfg(feature = "test_features")]
 mod block_chunk_signature;
 mod block_header_v7_before_spice;
