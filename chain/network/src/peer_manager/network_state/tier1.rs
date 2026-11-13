@@ -197,7 +197,7 @@ impl super::NetworkState {
     }
 
     /// Warns when this validator advertises itself as a TIER1 proxy, has no inbound TIER1
-    /// connection, and some validators remain unreachable from it. Validators dial every
+    /// connection, and some validators have no TIER1 connection with it. Validators dial every
     /// validator they aren't connected to, so this suggests that they can't reach the
     /// advertised address.
     pub fn tier1_check_reachability(&self) {
@@ -226,17 +226,12 @@ impl super::NetworkState {
         if has_inbound {
             return;
         }
-        let unreachable = accounts_data
+        let has_disconnected = accounts_data
             .data
             .values()
-            .filter(|d| {
-                d.account_key != my_key
-                    && !d.proxies.is_empty()
-                    && self.get_tier1_proxy(d).is_none()
-            })
-            .count();
-        if unreachable > 0 {
-            tracing::warn!(target: "network", advertised_addr = %my_addr.addr, unreachable, "no validator has connected to this node over TIER1 and some validators are unreachable from it; other validators may be unable to reach its advertised address, check that the address is correct and that its port accepts inbound connections");
+            .any(|d| d.account_key != my_key && self.get_tier1_proxy(d).is_none());
+        if has_disconnected {
+            tracing::warn!(target: "network", "other validators may be unable to reach our advertised TIER1 address {}; check that the address is correct and that its port accepts inbound TCP connections from the internet", my_addr.addr);
         }
     }
 
