@@ -701,6 +701,29 @@ fn test_bad_orphan() {
         assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
+        let mut block = env.clients[0].produce_block(11).unwrap().unwrap();
+        let mut_block = Arc::make_mut(&mut block);
+        {
+            let chunk = mut_block.mut_chunks()[0].get_mut();
+            match &mut chunk.inner {
+                ShardChunkHeaderInner::V1(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V2(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V3(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V4(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V5(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V6(inner) => inner.height_created = u64::MAX,
+            }
+            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+        }
+        mut_block.recompute_fields_derived_from_chunks();
+        mut_block.mut_header().set_prev_hash(CryptoHash([5; 32]));
+        mut_block.mut_header().resign(&*signer);
+        let orphans_len = env.clients[0].chain.orphans_len();
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
+        assert_matches!(res.unwrap_err(), Error::InvalidChunk(_));
+        assert_eq!(env.clients[0].chain.orphans_len(), orphans_len);
+    }
+    {
         // Orphan block that's too far ahead: 20 * epoch_length
         let mut block = block.clone();
         let mut_block = Arc::make_mut(&mut block);
