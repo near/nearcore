@@ -6,11 +6,13 @@ use super::per_shard::{
     PerShardChunkExecutor, PerShardDeps, is_canonical, is_catching_up,
     is_descendant_of_final_execution_head,
 };
-use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
+use crate::spice::data_distributor_actor::{
+    SpiceDataDistributorAdapter, SpiceShardFinalExecutionHead, SpiceTrackBlockData,
+};
 use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::IntoSender as _;
-use near_async::messaging::{Handler, Sender};
+use near_async::messaging::{CanSend, Handler, Sender};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::{
     apply_block_postprocessing, apply_shard_postprocessing,
@@ -33,7 +35,7 @@ use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::types::{NumBlocks, ShardId, SpiceChunkId};
+use near_primitives::types::{BlockHeight, NumBlocks, ShardId, SpiceChunkId};
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -68,6 +70,9 @@ pub struct ChunkExecutorActor {
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
     /// Each owns its own network-receipt buffer (no coordinator-side receipt state).
     per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
+    /// The shards whose executor was evicted, with the height and hash of the block that evicted
+    /// it, until that block is final, see [`Self::report_stopped_shards`].
+    stopped_shards: HashMap<ShardUId, (BlockHeight, CryptoHash)>,
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
@@ -137,6 +142,7 @@ impl ChunkExecutorActor {
             apply_chunks_spawner,
             myself_sender,
             per_shard_executors: HashMap::new(),
+            stopped_shards: HashMap::new(),
             validator_signer,
             core_reader,
             data_distributor_adapter,
@@ -243,14 +249,42 @@ impl ChunkExecutorActor {
     /// a shard rotating in next epoch must keep executing through the boundary
     /// so it can endorse, otherwise certification stalls at the rotation.
     /// Eviction is immediate; the apply-done handler's graceful-drop guard covers
-    /// any in-flight apply that lands after eviction.
-    fn reconcile_tracked_shards(&mut self, prev_hash: &CryptoHash) -> Result<(), Error> {
-        let tracked = self.shard_tracker.tracked_shard_uids_this_or_next_epoch(prev_hash)?;
+    /// any in-flight apply that lands after eviction. An evicted shard is reported to the data
+    /// distributor once the block that evicted it is final, see [`Self::report_stopped_shards`].
+    fn reconcile_tracked_shards(&mut self, block: &Block) -> Result<(), Error> {
+        let tracked =
+            self.shard_tracker.tracked_shard_uids_this_or_next_epoch(block.header().prev_hash())?;
         for shard_uid in &tracked {
             self.get_or_create_per_shard_executor(*shard_uid);
         }
         let tracked_set: HashSet<ShardUId> = tracked.iter().copied().collect();
-        self.per_shard_executors.retain(|shard_uid, _| tracked_set.contains(shard_uid));
+        let evicted: Vec<ShardUId> = self
+            .per_shard_executors
+            .keys()
+            .filter(|shard_uid| !tracked_set.contains(shard_uid))
+            .copied()
+            .collect();
+        for shard_uid in evicted {
+            self.per_shard_executors.remove(&shard_uid);
+            self.stopped_shards.insert(shard_uid, (block.header().height(), *block.hash()));
+        }
+        Ok(())
+    }
+
+    /// Reports the block that evicted a shard's executor as the shard's final execution head, once
+    /// that block is final and canonical: the node applies the shard at no block from there on.
+    fn report_stopped_shards(&mut self) -> Result<(), Error> {
+        let final_height = self.chain_store.final_head()?.height;
+        self.stopped_shards.retain(|shard_uid, &mut (height, hash)| {
+            if height > final_height {
+                return true;
+            }
+            if is_canonical(&self.chain_store, height, &hash) {
+                self.data_distributor_adapter
+                    .send(SpiceShardFinalExecutionHead { shard_id: shard_uid.shard_id(), height });
+            }
+            false
+        });
         Ok(())
     }
 
@@ -267,8 +301,7 @@ impl ChunkExecutorActor {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
-        let prev_block_hash = *block.header().prev_hash();
-        self.reconcile_tracked_shards(&prev_block_hash)?;
+        self.reconcile_tracked_shards(&block)?;
         for executor in self.per_shard_executors.values_mut() {
             executor.handle_processed_block(&block);
         }
@@ -277,6 +310,9 @@ impl ChunkExecutorActor {
         // restart or an executor eviction, needs it.
         if let Err(err) = self.replay_caught_up_shards(block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
+        }
+        if let Err(err) = self.report_stopped_shards() {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to report the shards this node stopped applying");
         }
         // A node tracking zero shards schedules no applies, so the apply-done
         // postprocess trigger never fires; postprocess the block here instead.
@@ -354,6 +390,7 @@ impl ChunkExecutorActor {
             // would hold back the blocks after it.
             executor.parked_blocks.drop_up_to_height(sync_header.height());
             let mut block_hash = sync_hash;
+            let mut parents = Vec::new();
             while block_hash != final_execution_head.last_block_hash {
                 let Ok(next) = self.chain_store.get_next_block_hash(&block_hash) else {
                     break;
@@ -366,7 +403,11 @@ impl ChunkExecutorActor {
                 }
 
                 executor.park_block(&header);
+                parents.push(*header.prev_hash());
                 block_hash = next;
+            }
+            if !parents.is_empty() {
+                self.data_distributor_adapter.send(SpiceTrackBlockData { block_hashes: parents });
             }
 
             executor.replayed_after_sync_block = Some(sync_hash);
@@ -420,7 +461,7 @@ impl ChunkExecutorActor {
         let header = self.chain_store.get_block_header(block_hash)?;
         if !self.shard_tracker.tracked_shard_uids(header.prev_hash())?.contains(&shard_uid) {
             if is_descendant_of_final_execution_head(&self.chain_store, &header)
-                || !is_canonical(&self.chain_store, &header)
+                || !is_canonical(&self.chain_store, header.height(), header.hash())
             {
                 return Ok(());
             }
@@ -501,11 +542,6 @@ impl ChunkExecutorActor {
             &self.chain_store,
             &block,
         )?;
-        // The final execution head may have advanced; drop the receipts buffered against source
-        // blocks at or below it that the receiving shard can no longer apply.
-        for executor in self.per_shard_executors.values_mut() {
-            executor.prune_unverified_receipts(&self.shard_tracker)?;
-        }
 
         if let Err(err) = self.advertise_snapshot_if_certified() {
             tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to announce the state snapshot");

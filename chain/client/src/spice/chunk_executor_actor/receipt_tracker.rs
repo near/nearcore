@@ -1,11 +1,11 @@
 //! Per-shard buffer of network-path receipt proofs awaiting verification.
 
 use super::storage::save_receipt_proof;
+use near_chain::Error;
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::{BlockHeader, Error};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::types::{ChunkExecutionResult, ShardId};
+use near_primitives::types::{BlockHeight, ChunkExecutionResult, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::HashMap;
@@ -72,16 +72,16 @@ impl UnverifiedReceiptTracker {
         Ok(())
     }
 
-    /// Drops the receipts buffered against source blocks for which `still_needed` is false.
-    pub(crate) fn prune(
+    /// Drops the receipts buffered against source blocks below `height`.
+    pub(crate) fn prune_below(
         &mut self,
         chain_store: &ChainStoreAdapter,
-        still_needed: impl Fn(&BlockHeader) -> bool,
+        height: BlockHeight,
     ) -> Result<(), Error> {
         let mut stale = Vec::new();
         for source_block in self.proofs_by_source_block.keys().copied() {
             match chain_store.get_block_header(&source_block) {
-                Ok(header) if !still_needed(&header) => stale.push(source_block),
+                Ok(header) if header.height() < height => stale.push(source_block),
                 Ok(_) => {}
                 // Source block not on disk yet: a receipt can outrun its block, so the
                 // block may still arrive and the receipt still apply — keep it. (A block
