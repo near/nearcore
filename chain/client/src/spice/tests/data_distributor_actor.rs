@@ -83,6 +83,7 @@ use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
+use near_primitives::utils::get_contract_accesses_key;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
@@ -3019,6 +3020,43 @@ fn test_contract_accesses_served_from_store_on_catchup() {
     assert!(found_accesses, "expected contract accesses message to be sent from store fallback");
 }
 
+/// Witness GC can delete the contract accesses after the witness was read for a request. The
+/// request is then dropped instead of panicking.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_handling_data_request_with_contract_accesses_garbage_collected() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let state_witness = new_test_witness(&block);
+    let shard_id = state_witness.chunk_id().shard_id;
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        shard_id,
+        &state_witness,
+        &HashSet::new(),
+    );
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update
+        .delete(DBCol::contract_accesses(), &get_contract_accesses_key(block.hash(), shard_id));
+    store_update.commit();
+
+    let mut producers = witness_producer_accounts(&chain, &block, &state_witness);
+    let total_parts = producers.len();
+    let producer = producers.swap_remove(0);
+    let (_incoming_data, recipient) = witness_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    let data_id = SpiceDataIdentifier::Witness { block_hash: *block.hash(), shard_id };
+    actor.handle(SpiceDataRequestMessage {
+        request: SpiceDataRequest::new(want_all_parts(data_id, total_parts), recipient),
+        recv_permit: RecvMessagePermit::none(),
+    });
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_duplicate_contract_code_request_is_dropped() {
@@ -3682,6 +3720,36 @@ fn test_witness_is_pushed_only_once() {
 
     let next_block = produce_block(&mut chain, &head_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
+}
+
+/// Witness GC can delete the contract accesses after the witness was read for the push. The chunk
+/// is then skipped instead of panicking.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_is_not_pushed_with_contract_accesses_garbage_collected() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_until_fallback_opens(&mut chain, shard_id);
+    save_test_witness_for_chunk(&chain, &chunk_id);
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update.delete(
+        DBCol::contract_accesses(),
+        &get_contract_accesses_key(&chunk_id.block_hash, shard_id),
+    );
+    store_update.commit();
+
+    let head_block = latest_block(&chain);
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(head_block.header().epoch_id(), shard_id)
+        .unwrap()
+        .swap_remove(0);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 }
 

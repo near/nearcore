@@ -85,8 +85,8 @@ fn test_spice_garbage_collection_witnesses() {
     assert_witness_gc_invariant(&env.node(0), &tracked_shards);
 }
 
-/// Verifies witness GC invariant, as seen from the final head: witnesses of certified blocks are
-/// gone, witnesses of uncertified blocks are still there.
+/// Verifies witness GC invariant, as seen from the final head: witnesses and contract accesses of
+/// certified blocks are gone, those of uncertified blocks are still there.
 fn assert_witness_gc_invariant(node: &TestLoopNode, tracked_shards: &[ShardId]) {
     let chain_store = &node.client().chain.chain_store;
     let final_head = chain_store.final_head().unwrap();
@@ -95,23 +95,25 @@ fn assert_witness_gc_invariant(node: &TestLoopNode, tracked_shards: &[ShardId]) 
     let execution_head = chain_store.spice_execution_head().unwrap();
     let store = node.store();
 
-    for (key, _) in store.iter(DBCol::witnesses()) {
-        let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
-        let block_height = chain_store.get_block_height(&block_hash).unwrap();
-        assert!(
-            // Note we allow 1 block difference here since GC is async.
-            block_height > last_certified_height - 1,
-            "witness at height {block_height} shard {shard_id} should have been GC'd (last_certified_height = {last_certified_height})"
-        );
-    }
-
-    for height in (last_certified_height + 1)..=execution_head.height {
-        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-        for &shard_id in tracked_shards {
+    for col in [DBCol::witnesses(), DBCol::contract_accesses()] {
+        for (key, _) in store.iter(col) {
+            let (block_hash, shard_id) = get_block_shard_id_rev(&key).unwrap();
+            let block_height = chain_store.get_block_height(&block_hash).unwrap();
             assert!(
-                store.get(DBCol::witnesses(), &get_block_shard_id(&block_hash, shard_id)).is_some(),
-                "witness at height {height} shard {shard_id} should exist"
+                // Note we allow 1 block difference here since GC is async.
+                block_height > last_certified_height - 1,
+                "{col} at height {block_height} shard {shard_id} should have been GC'd (last_certified_height = {last_certified_height})"
             );
+        }
+
+        for height in (last_certified_height + 1)..=execution_head.height {
+            let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+            for &shard_id in tracked_shards {
+                assert!(
+                    store.get(col, &get_block_shard_id(&block_hash, shard_id)).is_some(),
+                    "{col} at height {height} shard {shard_id} should exist"
+                );
+            }
         }
     }
 }
