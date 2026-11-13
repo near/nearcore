@@ -5,6 +5,7 @@ use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MalformedDataRequest,
     SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    SpiceShardFinalExecutionHead, SpiceTrackBlockData,
 };
 use crate::spice::data_manager::{
     AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, SenderFault,
@@ -2148,13 +2149,9 @@ fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
     }
 }
 
-/// After a restart, a node catching up a shard it applies from next epoch tracks again the proofs
-/// into that shard below the final execution head, which does not wait on the shard: startup hands
-/// the data manager the blocks of the head's epoch again, not only the ones after the head.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_restart_tracks_again_the_proofs_into_a_catching_up_shard_below_the_final_execution_head()
-{
+fn test_tracking_again_the_proofs_of_a_block_the_executor_parks_again() {
     init_test_logger();
     let genesis = TestGenesisBuilder::new()
         .shard_layout(ShardLayout::multi_shard(2, 0))
@@ -2199,15 +2196,34 @@ fn test_a_restart_tracks_again_the_proofs_into_a_catching_up_shard_below_the_fin
     assert_eq!(head.header().epoch_id(), first.header().epoch_id());
     save_final_execution_head(&chain, &head);
 
-    let (outgoing_sc, _outgoing_rc) = unbounded_channel();
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = ActorBuilder::new(Some(me))
         .tracked_shards_config(tracked_shards_config)
         .build(outgoing_sc, &chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.run_queued_actions(&mut actor);
+    drain_outgoing_data_requests(&mut outgoing_rc);
+    // Startup hands over the blocks from the final execution head on: the block below it is not
+    // tracked until the chunk executor parks again the block applying its proofs.
+    let proof_id = DataId::receipt_proof(*source.hash(), from_shard_id, to_shard_id);
+    assert!(!actor.is_tracking(&proof_id));
 
-    assert!(actor.is_tracking(&DataId::receipt_proof(*source.hash(), from_shard_id, to_shard_id)));
+    actor.handle(SpiceTrackBlockData { block_hashes: vec![*source.hash()] });
+
+    assert!(actor.is_tracking(&proof_id));
+    // `head` certified the source chunk.
+    let requested = requested_receipt_proofs(&mut outgoing_rc);
+    let producers = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(source.header().epoch_id(), from_shard_id)
+        .unwrap();
+    for producer in producers {
+        assert!(
+            requested.contains(&(producer.clone(), SpiceDataIdentifier::from(&proof_id))),
+            "{producer} was not asked for the proof: {requested:?}"
+        );
+    }
 }
 
 #[test]
@@ -3523,10 +3539,11 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(witness_blocks.contains(next_block.hash()));
     assert!(!proof_blocks.contains(fork_block.hash()));
 
-    // The canonical block's proof expires once the final execution head passes it.
-    save_final_execution_head(&chain, &head);
-    actor.handle(ProcessedBlock { block_hash: *head.hash() });
-    fake_runner.run_queued_actions(&mut actor);
+    // The canonical block's proof expires once the head of the shard it goes to passes it.
+    actor.handle(SpiceShardFinalExecutionHead {
+        shard_id: to_shard_id,
+        height: head.header().height(),
+    });
     assert!(!actor.is_tracking(&proof_id(&next_block)));
 }
 

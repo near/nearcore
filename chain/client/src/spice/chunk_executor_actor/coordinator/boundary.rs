@@ -17,8 +17,7 @@ impl ChunkExecutorActor {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
-        let prev_hash = block.header().prev_hash();
-        self.reconcile_tracked_shards(prev_hash)?;
+        self.reconcile_tracked_shards(&block)?;
         let applied_itself = shards_applied_itself(
             &self.shard_tracker,
             self.epoch_manager.as_ref(),

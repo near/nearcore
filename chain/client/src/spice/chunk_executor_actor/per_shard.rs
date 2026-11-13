@@ -7,6 +7,7 @@ use super::storage::{save_receipt_proof, save_witness_and_contract_accesses};
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    SpiceShardFinalExecutionHead,
 };
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
@@ -26,11 +27,9 @@ use near_chain::{
 };
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::types::PeerManagerAdapter;
-use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardLayout;
@@ -96,6 +95,10 @@ pub(crate) struct PerShardChunkExecutor {
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
+    /// Height of the shard's final execution head: the last final block of the highest block this
+    /// executor applied. Kept in memory and reported to the data distributor as it moves, see
+    /// [`SpiceShardFinalExecutionHead`].
+    final_execution_head: Option<BlockHeight>,
     /// For a shard the node catches up for the next epoch, the sync block after which the canonical
     /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
     pub(super) replayed_after_sync_block: Option<CryptoHash>,
@@ -201,6 +204,7 @@ impl PerShardChunkExecutor {
             blocks_in_execution: HashSet::new(),
             parked_blocks: ParkedBlocks::default(),
             replayed_after_sync_block: None,
+            final_execution_head: None,
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
     }
@@ -270,27 +274,6 @@ impl PerShardChunkExecutor {
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)?;
         self.try_apply_children(source_block);
         Ok(())
-    }
-
-    /// Drops the receipts buffered against source blocks whose receipts this shard can no longer
-    /// apply, see [`may_still_apply_receipts`].
-    pub(crate) fn prune_unverified_receipts(
-        &mut self,
-        shard_tracker: &ShardTracker,
-    ) -> Result<(), Error> {
-        let final_execution_head = self.chain_store.spice_final_execution_head()?;
-        let epoch_manager = self.epoch_manager.as_ref();
-        let shard_id = self.shard_uid.shard_id();
-        self.unverified_receipts.prune(&self.chain_store, |source| {
-            may_still_apply_receipts(
-                epoch_manager,
-                shard_tracker,
-                &final_execution_head,
-                source.hash(),
-                source.height(),
-                shard_id,
-            )
-        })
     }
 
     /// Hashes of the parked blocks (test accessor).
@@ -531,7 +514,41 @@ impl PerShardChunkExecutor {
             Ok(result) => result,
             Err(err) => panic!("failed to apply block {block_hash:?}: {err}"),
         };
-        self.apply_chunk_postprocessing_and_emit(block_hash, result)
+        let receipt_proofs = self.apply_chunk_postprocessing_and_emit(block_hash, result)?;
+        // An apply discarded for a block that can no longer become canonical leaves no chunk extra.
+        match self.chunk_extra_exists(&block_hash, &self.shard_uid) {
+            Ok(true) => {
+                if let Err(err) = self.advance_final_execution_head(&block_hash) {
+                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to advance the shard's final execution head");
+                }
+            }
+            Ok(false) => {}
+            Err(err) => {
+                tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to read the chunk extra of an applied block");
+            }
+        }
+        Ok(receipt_proofs)
+    }
+
+    /// Moves the shard's final execution head to the last final block of `block_hash`, which the
+    /// shard applied, reports it to the data distributor, and drops the receipts buffered from the
+    /// blocks below it. The head is a final block, as the final execution head is: below it no fork
+    /// can become canonical, and the shard applied every canonical block.
+    fn advance_final_execution_head(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let last_final_block = *self.chain_store.get_block_header(block_hash)?.last_final_block();
+        if last_final_block == CryptoHash::default() {
+            return Ok(());
+        }
+        let last_final_height = self.chain_store.get_block_header(&last_final_block)?.height();
+        if self.final_execution_head.is_some_and(|head| head >= last_final_height) {
+            return Ok(());
+        }
+        self.final_execution_head = Some(last_final_height);
+        self.data_distributor_adapter.send(SpiceShardFinalExecutionHead {
+            shard_id: self.shard_uid.shard_id(),
+            height: last_final_height,
+        });
+        self.unverified_receipts.prune_below(&self.chain_store, last_final_height)
     }
 
     fn send_outgoing_receipts(&self, block: &Block, receipt_proofs: Vec<ReceiptProof>) {
@@ -919,9 +936,13 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
-/// Whether `header` is on the canonical chain.
-pub(super) fn is_canonical(chain_store: &ChainStoreAdapter, header: &BlockHeader) -> bool {
-    chain_store.get_block_hash_by_height(header.height()).is_ok_and(|hash| &hash == header.hash())
+/// Whether the block `hash` at `height` is on the canonical chain.
+pub(super) fn is_canonical(
+    chain_store: &ChainStoreAdapter,
+    height: BlockHeight,
+    hash: &CryptoHash,
+) -> bool {
+    chain_store.get_block_hash_by_height(height).is_ok_and(|canonical| &canonical == hash)
 }
 
 /// Whether `header` is the final execution head, a block before it on the canonical chain, or a
@@ -934,7 +955,7 @@ fn is_canonical_or_descends_from_final_execution_head(
         .spice_final_execution_head()
         .expect("spice final execution head is seeded at genesis or at spice activation");
     if header.height() <= final_execution_head.height {
-        return is_canonical(chain_store, header);
+        return is_canonical(chain_store, header.height(), header.hash());
     }
     is_descendant_of_final_execution_head(chain_store, header)
 }
@@ -977,37 +998,6 @@ pub(crate) fn is_catching_up(
     let state_sync_info: Option<StateSyncInfo> =
         chain_store.store().get_ser(DBCol::StateDlInfos, epoch_first_block.as_ref());
     Ok(state_sync_info.is_some_and(|info| info.shards().contains(&shard_id)))
-}
-
-/// Whether this node can still apply, in `to_shard`, the receipts that the block `source_hash` at
-/// `source_height` sends it, given the final execution head.
-///
-/// Above the head it can, and from the head's own block too: the block applying them is above the
-/// head. Below it, the head means that block was applied for every shard this node tracks in that
-/// block's epoch. A shard the node applies there without tracking it, to have it next epoch, is
-/// not waited on by the head: one being caught up, or one kept from the epoch before. Its receipts
-/// stay needed until the head leaves that epoch.
-pub(crate) fn may_still_apply_receipts(
-    epoch_manager: &dyn EpochManagerAdapter,
-    shard_tracker: &ShardTracker,
-    final_execution_head: &Tip,
-    source_hash: &CryptoHash,
-    source_height: BlockHeight,
-    to_shard: ShardId,
-) -> bool {
-    if source_height > final_execution_head.height
-        || source_hash == &final_execution_head.last_block_hash
-    {
-        return true;
-    }
-    if shard_tracker.cares_about_shard(source_hash, to_shard) {
-        return false;
-    }
-    // Below the head, the block applying the receipts is at or below it as well, so an epoch other
-    // than the head's is an earlier one.
-    epoch_manager
-        .get_epoch_id_from_prev_block(source_hash)
-        .is_ok_and(|epoch_id| epoch_id == final_execution_head.epoch_id)
 }
 
 #[cfg(test)]

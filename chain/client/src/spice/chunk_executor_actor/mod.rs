@@ -13,7 +13,6 @@ pub mod testonly;
 pub use coordinator::{
     ChunkExecutorActor, ExecutorApplyChunksDone, ExecutorIncomingUnverifiedReceipts,
 };
-pub(crate) use per_shard::may_still_apply_receipts;
 pub(crate) use storage::get_contract_accesses;
 pub use storage::{get_receipt_proof, get_witness, receipt_proof_exists};
 // Re-exported for the test modules under `spice/tests/`.

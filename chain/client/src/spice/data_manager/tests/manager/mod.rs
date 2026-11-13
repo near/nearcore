@@ -157,6 +157,11 @@ impl TestManager {
         set_final_execution_head(&self.store, block);
     }
 
+    /// Reports `block` as the final execution head of `shard`, as the chunk executor does.
+    fn set_shard_final_execution_head(&mut self, shard: u64, block: &Block) {
+        self.manager.on_shard_final_execution_head(ShardId::new(shard), block.header().height());
+    }
+
     /// Writes `block` to the store as the consensus final head.
     fn set_final_head(&self, block: &Block) {
         let mut store_update = self.store.store_update();
