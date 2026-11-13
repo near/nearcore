@@ -66,7 +66,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash, Nonce,
     NonceIndex, ShardId, StateChangeCause,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
@@ -84,6 +84,7 @@ use near_store::{
     KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
     TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
     get_received_data, has_promise_yield_receipt, remove_account, set_access_key, set_account,
+    set_gas_key_nonce,
 };
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
@@ -103,7 +104,7 @@ mod contract_compilation_status;
 
 const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
-fn setup_runtime(
+pub(super) fn setup_runtime(
     initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
     initial_locked: Balance,
@@ -3783,7 +3784,8 @@ fn test_apply_eccs_before_the_feature_get_outcomes() {
     }
 }
 
-/// What apply skips is found before anything is read from the state: a repeat of a hash.
+/// What apply skips is found before anything is read from the state: a repeat of a hash, and a
+/// transaction routed to another shard.
 #[test]
 fn test_find_skipped_transactions() {
     let signer = InMemorySigner::test_signer(&alice_account());
@@ -3800,7 +3802,21 @@ fn test_find_skipped_transactions() {
     let ecc = EccTransaction::new(bob_account(), vec![1]);
     let txs = [transfer1.clone().into(), ecc.into(), transfer1.into(), transfer2.into()];
 
-    assert_eq!(find_skipped_transactions(&txs), vec![false, false, true, false]);
+    assert_eq!(find_skipped_transactions(&txs, None), vec![false, false, true, false]);
+
+    // Alice and bob are in different shards. In alice's shard the ECC to bob is skipped, and in
+    // bob's shard the transfers alice signed are.
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let bob_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, alice_shard))),
+        vec![false, true, true, false]
+    );
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, bob_shard))),
+        vec![true, false, true, true]
+    );
 }
 
 #[test]
@@ -5146,6 +5162,99 @@ fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
             hash,
         })) if hash == value_hash
     );
+}
+
+fn setup_gas_key_test_with_distinct_nonces(num_nonces: NonceIndex) -> GasKeyTestSetup {
+    // Distinct values keep the nonce leaves from sharing one hash in the recorded proof.
+    const FIRST_DISTINCT_NONCE: Nonce = 1_000_000;
+    let mut setup = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        num_nonces,
+        Balance::ZERO,
+    );
+    let gas_key_pk = setup.gas_key_signer.public_key();
+    let mut state_update = setup.tries.new_trie_update(setup.shard_uid, setup.root);
+    for index in 0..num_nonces {
+        let nonce = FIRST_DISTINCT_NONCE + index as Nonce;
+        set_gas_key_nonce(&mut state_update, alice_account(), gas_key_pk.clone(), index, nonce);
+    }
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = setup.tries.store_update();
+    setup.root = setup.tries.apply_all(&trie_changes, setup.shard_uid, &mut store_update);
+    store_update.commit();
+    setup
+}
+
+#[test]
+fn test_delete_gas_key_nonces_exceed_receipt_storage_proof_limit() {
+    // Far below the recorded size of the nonce paths, far above what the limit sees without reads.
+    const PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT: usize = 10_000;
+
+    let feature_version = ProtocolFeature::ReadGasKeyNoncesBeforeRemoval.protocol_version();
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test_with_distinct_nonces(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY);
+    let gas_key_pk = gas_key_signer.public_key();
+    let mut runtime_config = RuntimeConfig::test();
+    Arc::make_mut(&mut runtime_config.wasm_config)
+        .limit_config
+        .per_receipt_storage_proof_size_limit = PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT;
+    apply_state.config = Arc::new(runtime_config);
+
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_key_receipt = create_receipt_with_actions(
+        alice_account(),
+        alice_signer,
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: gas_key_pk.clone() }))],
+    );
+    let apply_receipt = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
+                &None,
+                apply_state,
+                from_ref(&delete_key_receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result_before = apply_receipt(&apply_state);
+    assert_matches!(
+        apply_result_before.outcomes[0].outcome.status,
+        ExecutionStatus::SuccessValue(_)
+    );
+    let PartialState::TrieValues(recorded_values) = apply_result_before.proof.unwrap().nodes;
+    let recorded_storage_proof_size: usize = recorded_values.iter().map(|value| value.len()).sum();
+    assert!(recorded_storage_proof_size > PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT);
+
+    apply_state.current_protocol_version = feature_version;
+    let apply_result_after = apply_receipt(&apply_state);
+    let delete_key_action_index = 0;
+    assert_eq!(
+        apply_result_after.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(delete_key_action_index),
+            kind: ActionErrorKind::ReceiptStorageProofSizeExceeded {
+                limit: PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT as u64,
+            },
+        }))
+    );
+    let root = commit_apply_result(&apply_result_after, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    assert!(get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().is_some());
 }
 
 /// Deploys a contract, records a witness for a call to it (which excludes the
@@ -7046,7 +7155,7 @@ fn test_congestion_buffering() {
 
 // Apply trie changes in `ApplyResult` and update `ApplyState` with new
 // congestion info for the next call to apply().
-fn commit_apply_result(
+pub(super) fn commit_apply_result(
     apply_result: &ApplyResult,
     apply_state: &mut ApplyState,
     tries: &ShardTries,
@@ -7774,6 +7883,101 @@ fn test_duplicate_transaction_in_chunk_skipped() {
     assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
 }
 
+/// Transactions of a chunk of alice's shard, where bob is in another shard: a transfer alice
+/// signed, a transfer bob signed, an ECC to alice and an ECC to bob.
+struct ForeignShardChunk {
+    /// The height of the block the chunk is applied in.
+    block_height: BlockHeight,
+    alice_transfer: SignedTransaction,
+    bob_transfer: SignedTransaction,
+    alice_ecc: EccTransaction,
+    bob_ecc: EccTransaction,
+}
+
+/// Applies a `ForeignShardChunk` in alice's shard at `protocol_version`.
+fn apply_foreign_shard_chunk(
+    protocol_version: ProtocolVersion,
+) -> (ForeignShardChunk, ApplyResult) {
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let shard_uid = ShardUId::new(3, alice_shard);
+    let alice_signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![alice_signer.clone()])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
+    );
+    apply_state.current_protocol_version = protocol_version;
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    let bob_signer = InMemorySigner::test_signer(&bob_account());
+    let transfer = |signer_id: AccountId, receiver_id: AccountId, signer: &Signer| {
+        let amount = Balance::from_near(1);
+        let block_hash = CryptoHash::default();
+        SignedTransaction::send_money(1, signer_id, receiver_id, signer, amount, block_hash)
+    };
+    let chunk = ForeignShardChunk {
+        block_height: apply_state.block_height,
+        alice_transfer: transfer(alice_account(), bob_account(), alice_signer.as_ref()),
+        bob_transfer: transfer(bob_account(), alice_account(), &bob_signer),
+        alice_ecc: EccTransaction::new(alice_account(), vec![1]),
+        bob_ecc: EccTransaction::new(bob_account(), vec![2]),
+    };
+    let transactions: Vec<TransactionEnvelope> = vec![
+        chunk.bob_transfer.clone().into(),
+        chunk.bob_ecc.clone().into(),
+        chunk.alice_transfer.clone().into(),
+        chunk.alice_ecc.clone().into(),
+    ];
+    let num_transactions = transactions.len();
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    (chunk, apply_result)
+}
+
+#[test]
+fn test_transactions_routed_to_another_shard_are_skipped_with_no_outcome() {
+    let (chunk, apply_result) =
+        apply_foreign_shard_chunk(ProtocolFeature::SkipForeignShardTransactions.protocol_version());
+
+    let outcome_ids = apply_result.outcomes.iter().map(|outcome| outcome.id).collect::<Vec<_>>();
+    assert_eq!(
+        outcome_ids,
+        vec![
+            chunk.alice_transfer.get_hash(),
+            create_ecc_outcome_id(chunk.alice_ecc.hash(), chunk.block_height)
+        ]
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_transaction_routed_to_another_shard_fails_with_an_outcome_before_the_skip() {
+    let feature_version = ProtocolFeature::SkipForeignShardTransactions.protocol_version();
+    let (chunk, apply_result) = apply_foreign_shard_chunk(feature_version - 1);
+
+    let bob_outcome = &apply_result.outcomes[0];
+    assert_eq!(bob_outcome.id, chunk.bob_transfer.get_hash());
+    assert_eq!(
+        bob_outcome.outcome.status,
+        ExecutionStatus::Failure(
+            InvalidTxError::InvalidSignerId { signer_id: bob_account().to_string() }.into()
+        )
+    );
+    assert_eq!(apply_result.outcomes.len(), 4);
+}
+
 #[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -7868,6 +8072,215 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let state = tries.new_trie_update(ShardUId::single_shard(), root);
     let access_key = get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().unwrap();
     assert_eq!(access_key.gas_key_info().unwrap().balance, deposit_amount);
+}
+
+struct MultipleGasKeysSetup {
+    runtime: Runtime,
+    tries: ShardTries,
+    root: CryptoHash,
+    apply_state: ApplyState,
+    epoch_info_provider: MockEpochInfoProvider,
+    gas_key_pks: Vec<PublicKey>,
+}
+
+fn setup_multiple_gas_keys(
+    protocol_version: ProtocolVersion,
+    num_nonces: &[NonceIndex],
+) -> MultipleGasKeysSetup {
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_uid = ShardUId::single_shard();
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _signers) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![alice_signer])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &ShardLayout::single_shard(),
+    );
+    apply_state.current_protocol_version = protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(protocol_version));
+
+    let gas_key_pks = (0..num_nonces.len())
+        .map(|index| {
+            InMemorySigner::from_seed(
+                alice_account(),
+                KeyType::ED25519,
+                &format!("gas_key_{index}"),
+            )
+            .public_key()
+        })
+        .collect_vec();
+    let mut state_update = tries.new_trie_update(shard_uid, root);
+    let mut account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    for (gas_key_pk, num_nonces) in gas_key_pks.iter().zip(num_nonces) {
+        action_add_key(
+            &apply_state,
+            &mut state_update,
+            &mut account,
+            &mut ActionResult::default(),
+            &alice_account(),
+            &AddKeyAction {
+                public_key: gas_key_pk.clone(),
+                access_key: AccessKey::gas_key_full_access(*num_nonces),
+            },
+        )
+        .unwrap();
+    }
+    set_account(&mut state_update, alice_account(), &account);
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    MultipleGasKeysSetup { runtime, tries, root, apply_state, epoch_info_provider, gas_key_pks }
+}
+
+fn apply_and_commit_actions(
+    setup: &mut MultipleGasKeysSetup,
+    signer: Arc<Signer>,
+    actions: Vec<Action>,
+) -> ApplyResult {
+    let receipt = create_receipt_with_actions(signer.get_account_id(), signer, actions);
+    let shard_uid = ShardUId::single_shard();
+    let apply_result = setup
+        .runtime
+        .apply(
+            setup.tries.get_trie_for_shard(shard_uid, setup.root),
+            &None,
+            &setup.apply_state,
+            &[receipt],
+            SignedValidPeriodTransactions::empty(),
+            &setup.epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    setup.root =
+        commit_apply_result(&apply_result, &mut setup.apply_state, &setup.tries, shard_uid);
+    apply_result
+}
+
+fn delete_key(public_key: &PublicKey) -> Action {
+    Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))
+}
+
+#[test]
+fn test_delete_one_gas_key_with_max_nonces_succeeds_at_limit_version() {
+    let gas_key_nonce_limits_protocol_version = 89;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let mut setup =
+        setup_multiple_gas_keys(gas_key_nonce_limits_protocol_version, &[max_nonces, max_nonces]);
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let first_gas_key_pk = setup.gas_key_pks[0].clone();
+    let apply_result =
+        apply_and_commit_actions(&mut setup, alice_signer, vec![delete_key(&first_gas_key_pk)]);
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    assert!(get_access_key(&state, &alice_account(), &first_gas_key_pk).unwrap().is_none());
+}
+
+#[test]
+fn test_delete_two_gas_keys_with_max_nonces_in_one_receipt_fails_at_limit_version() {
+    let gas_key_nonce_limits_protocol_version = 89;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let mut setup =
+        setup_multiple_gas_keys(gas_key_nonce_limits_protocol_version, &[max_nonces, max_nonces]);
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_both = setup.gas_key_pks.iter().map(delete_key).collect();
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_both);
+
+    let limit =
+        setup.apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
+    let second_action_index = 1;
+    assert_eq!(
+        apply_result.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(second_action_index),
+            kind: ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces: 2 * limit,
+                limit,
+            },
+        }))
+    );
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    for gas_key_pk in &setup.gas_key_pks {
+        assert!(get_access_key(&state, &alice_account(), gas_key_pk).unwrap().is_some());
+    }
+}
+
+#[test]
+fn test_delete_two_gas_keys_with_max_nonces_in_one_receipt_succeeds_before_limit_version() {
+    let protocol_version_before_gas_key_nonce_limits = 88;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let mut setup = setup_multiple_gas_keys(
+        protocol_version_before_gas_key_nonce_limits,
+        &[max_nonces, max_nonces],
+    );
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_both = setup.gas_key_pks.iter().map(delete_key).collect();
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_both);
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    for gas_key_pk in &setup.gas_key_pks {
+        assert!(get_access_key(&state, &alice_account(), gas_key_pk).unwrap().is_none());
+    }
+}
+
+#[test]
+fn test_delete_gas_key_with_max_nonces_and_account_fails_at_limit_version() {
+    let gas_key_nonce_limits_protocol_version = 89;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let min_nonces = 1;
+    let mut setup =
+        setup_multiple_gas_keys(gas_key_nonce_limits_protocol_version, &[max_nonces, min_nonces]);
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let first_gas_key_pk = setup.gas_key_pks[0].clone();
+    let delete_key_and_account = vec![
+        delete_key(&first_gas_key_pk),
+        Action::DeleteAccount(DeleteAccountAction { beneficiary_id: bob_account() }),
+    ];
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_key_and_account);
+
+    let limit =
+        setup.apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
+    let delete_account_action_index = 1;
+    assert_eq!(
+        apply_result.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(delete_account_action_index),
+            kind: ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces: max_nonces as u64 + min_nonces as u64,
+                limit,
+            },
+        }))
+    );
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    assert!(get_account(&state, &alice_account()).unwrap().is_some());
+}
+
+#[test]
+fn test_delete_gas_key_with_max_nonces_and_account_succeeds_before_limit_version() {
+    let protocol_version_before_gas_key_nonce_limits = 88;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let min_nonces = 1;
+    let mut setup = setup_multiple_gas_keys(
+        protocol_version_before_gas_key_nonce_limits,
+        &[max_nonces, min_nonces],
+    );
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let first_gas_key_pk = setup.gas_key_pks[0].clone();
+    let delete_key_and_account = vec![
+        delete_key(&first_gas_key_pk),
+        Action::DeleteAccount(DeleteAccountAction { beneficiary_id: bob_account() }),
+    ];
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_key_and_account);
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    assert!(get_account(&state, &alice_account()).unwrap().is_none());
 }
 
 const GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;

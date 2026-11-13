@@ -1582,15 +1582,16 @@ impl Chain {
                 *header.random_value(),
             )?;
             chain_store_update.merge(epoch_manager_update.store_update.into());
+
+            if header.height() > chain_store_update.header_head()?.height {
+                let tip = Tip::from_header(header);
+                chain_store_update.save_header_head(&tip)?;
+                metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
+            }
             chain_store_update.commit()?;
         }
 
-        let mut chain_update = self.chain_update();
-        if let Some(header) = headers.last() {
-            // Update header_head if it's the new tip
-            chain_update.update_header_head(header)?;
-        }
-        chain_update.commit()
+        Ok(())
     }
 
     /// Returns if given block header is on the current chain.
@@ -4313,17 +4314,36 @@ impl Chain {
 
     /// Get transaction result for given hash of transaction or receipt id
     /// Chain may not be canonical yet
+    ///
+    /// An id can have outcomes in several canonical blocks. One that changed state is returned, or
+    /// the earliest when none did.
     pub fn get_execution_outcome(
         &self,
         id: &CryptoHash,
     ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
-        let outcomes = self.chain_store.get_outcomes_by_id(id)?;
-        outcomes
-            .into_iter()
-            .find(|outcome| match self.get_block_header(&outcome.block_hash) {
-                Ok(header) => self.is_on_current_chain(&header).unwrap_or(false),
-                Err(_) => false,
-            })
+        let mut rejected = Vec::new();
+        for outcome in self.chain_store.get_outcomes_by_id(id)? {
+            if !outcome.outcome_with_id.outcome.status.has_changed_state() {
+                rejected.push(outcome);
+                continue;
+            }
+            let Ok(header) = self.get_block_header(&outcome.block_hash) else { continue };
+            if self.is_on_current_chain(&header).unwrap_or(false) {
+                return Ok(outcome);
+            }
+        }
+        let mut earliest: Option<(BlockHeight, ExecutionOutcomeWithIdAndProof)> = None;
+        for outcome in rejected {
+            let Ok(header) = self.get_block_header(&outcome.block_hash) else { continue };
+            if !self.is_on_current_chain(&header).unwrap_or(false) {
+                continue;
+            }
+            if earliest.as_ref().is_none_or(|(height, _)| header.height() < *height) {
+                earliest = Some((header.height(), outcome));
+            }
+        }
+        earliest
+            .map(|(_, outcome)| outcome)
             .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
     }
 

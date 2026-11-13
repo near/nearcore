@@ -1732,14 +1732,21 @@ impl Client {
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
-        self.chain.sync_block_headers(headers)?;
+        let head_before = self.chain.head().unwrap();
+        let header_head_before = self.chain.header_head().unwrap();
+
+        // sync_block_headers can move the head even if it fails halfway through the batch.
+        let result = self.chain.sync_block_headers(headers);
+
         let head = self.chain.head().unwrap();
         let header_head = self.chain.header_head().unwrap();
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-            head: Tip::clone(&head),
-            header_head: Tip::clone(&header_head),
-        });
-        Ok(())
+        if head != head_before || header_head != header_head_before {
+            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+                head: Tip::clone(&head),
+                header_head: Tip::clone(&header_head),
+            });
+        }
+        result
     }
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
@@ -2634,6 +2641,8 @@ impl Client {
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts);
+
+                        self.catchup_state_syncs.remove(&sync_hash);
                     }
                 }
             }

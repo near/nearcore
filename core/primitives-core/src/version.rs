@@ -118,6 +118,13 @@ pub enum ProtocolFeature {
     /// This ensures that the fees prepaid at creation match the fees that are
     /// charged during execution.
     PinReceiptFees,
+    /// Read each gas key nonce before `DeleteKey` removes it, so the storage
+    /// proof limits count the trie nodes that the removal records.
+    ReadGasKeyNoncesBeforeRemoval,
+    /// Apply skips, with no outcome, a chunk's transaction whose routing account (the signer, or
+    /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
+    /// shares its id with the outcome of the same transaction in its own shard.
+    SkipForeignShardTransactions,
 }
 
 impl ProtocolFeature {
@@ -146,6 +153,8 @@ impl ProtocolFeature {
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
             ProtocolFeature::FixRegisterInputCharging => 89,
             ProtocolFeature::PinReceiptFees => 89,
+            ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
+            ProtocolFeature::SkipForeignShardTransactions => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

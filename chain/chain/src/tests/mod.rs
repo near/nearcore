@@ -1,5 +1,6 @@
 mod chunk_producers;
 mod doomslug;
+mod execution_outcome;
 mod garbage_collection;
 mod simple_chain;
 mod sync_chain;

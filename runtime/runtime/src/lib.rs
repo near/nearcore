@@ -59,6 +59,7 @@ use near_primitives::receipt::{
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
@@ -518,6 +519,7 @@ pub struct ActionResult {
     pub current_contract: AccountContract,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
+    pub gas_key_nonces_removed: u64,
 }
 
 impl Default for ActionResult {
@@ -535,6 +537,7 @@ impl Default for ActionResult {
             current_contract: AccountContract::None,
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
+            gas_key_nonces_removed: 0,
         }
     }
 }
@@ -555,6 +558,7 @@ pub struct ActionReceiptResult {
     pub current_contracts: Vec<AccountContract>,
     pub tokens_burnt: Balance,
     pub subsidized_amount: Balance,
+    pub gas_key_nonces_removed: u64,
 }
 
 impl ActionReceiptResult {
@@ -572,6 +576,7 @@ impl ActionReceiptResult {
             current_contracts: vec![],
             tokens_burnt: Balance::ZERO,
             subsidized_amount: Balance::ZERO,
+            gas_key_nonces_removed: 0,
         }
     }
 
@@ -590,6 +595,8 @@ impl ActionReceiptResult {
             .ok_or(IntegerOverflowError)?;
         self.gas_used = self.gas_used.checked_add_result(next_result.gas_used)?;
         self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
+        self.gas_key_nonces_removed =
+            self.gas_key_nonces_removed.saturating_add(next_result.gas_key_nonces_removed);
         // Profile aggregates by summing; each per-action `ActionResult`
         // contributes exactly one entry to the receipt-level contract list.
         self.profile.merge(&next_result.profile);
@@ -872,6 +879,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_key,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
@@ -1054,6 +1062,8 @@ impl Runtime {
                             .limit_config
                             .per_receipt_storage_proof_size_limit
                     });
+            let max_gas_key_nonces_removed_per_receipt =
+                apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
 
             // Executing actions one by one
             for (action_index, action) in action_receipt.actions().iter().enumerate() {
@@ -1110,6 +1120,17 @@ impl Runtime {
                             .into(),
                         );
                     }
+                }
+                if result.result.is_ok()
+                    && result.gas_key_nonces_removed > max_gas_key_nonces_removed_per_receipt
+                {
+                    result.set_error(
+                        ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                            number_of_nonces: result.gas_key_nonces_removed,
+                            limit: max_gas_key_nonces_removed_per_receipt,
+                        }
+                        .into(),
+                    );
                 }
                 // TODO storage error
                 if let Err(ref mut res) = result.result {
@@ -2125,8 +2146,16 @@ impl Runtime {
             ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
         let (maybe_expired_txs, tx_expiration_flags) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+        let shard_layout =
+            if ProtocolFeature::SkipForeignShardTransactions.enabled(protocol_version) {
+                Some(processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?)
+            } else {
+                None
+            };
+        let shard_layout_and_id =
+            shard_layout.as_ref().map(|layout| (layout, apply_state.shard_id));
         // Decided before anything is read from the state, so that nothing is read for them.
-        let skipped = find_skipped_transactions(maybe_expired_txs);
+        let skipped = find_skipped_transactions(maybe_expired_txs, shard_layout_and_id);
         let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
@@ -2335,6 +2364,10 @@ impl Runtime {
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
                 TxVerdict::DepositFailed { result, error } => {
+                    debug_assert!(
+                        error.uses_nonce(),
+                        "deposit failure must use the nonce: {error:?}"
+                    );
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,
@@ -2390,6 +2423,7 @@ impl Runtime {
                     (outcome, result)
                 }
                 TxVerdict::Failed(error) => {
+                    debug_assert!(!error.uses_nonce(), "failure must not use the nonce: {error:?}");
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                     let outcome = ExecutionOutcomeWithId::failed(tx, error);
@@ -3106,17 +3140,30 @@ impl ApplyState {
     }
 }
 
-/// Finds the repeats of an earlier transaction in the chunk, which apply skips with no outcome: a
-/// repeat would commit a second outcome under the same id. An ECC's id leaves out its state init.
-fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
+/// Finds the transactions that apply skips with no outcome. A repeat of an earlier transaction in
+/// the chunk would commit a second outcome under the same id. An ECC's id leaves out its state
+/// init. A transaction whose routing account is not in `shard_layout_and_id`, the chunk's shard
+/// under the block's layout, may be included by its own shard in the same block. With `None`, no
+/// transaction is skipped for its shard.
+fn find_skipped_transactions(
+    txs: &[TransactionEnvelope],
+    shard_layout_and_id: Option<(&ShardLayout, ShardId)>,
+) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
     txs.iter()
         .map(|tx| {
             let repeated = !seen_tx_hashes.insert(*tx.id_hash());
             if repeated {
                 tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
+                return true;
             }
-            repeated
+            let foreign = shard_layout_and_id.is_some_and(|(shard_layout, shard_id)| {
+                shard_layout.account_id_to_shard_id(tx.routing_account_id()) != shard_id
+            });
+            if foreign {
+                tracing::debug!(tx_hash = ?tx.hash(), "skipping transaction of another shard");
+            }
+            foreign
         })
         .collect()
 }

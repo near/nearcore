@@ -138,7 +138,7 @@ pub async fn build_streamer_message(
             .filter_map(|transaction| {
                 let outcome = transaction.id().and_then(|id| outcomes.remove(&id));
                 if outcome.is_none() {
-                    tracing::error!(
+                    tracing::warn!(
                         target: INDEXER,
                         tx_hash = ?transaction.id(),
                         shard_id = %header.shard_id,
