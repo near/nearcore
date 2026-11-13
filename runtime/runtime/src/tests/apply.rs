@@ -2,7 +2,6 @@ use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, exec_fee, safe_gas_to_balance, total_send_fees, tx_cost};
 use crate::conversions::Convert;
-use crate::find_skipped_transactions;
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions, set_config,
     set_sha256_cost,
@@ -19,6 +18,7 @@ use crate::{
     PostStateReadyCallback, dry_run_external_call,
 };
 use crate::{SignedValidPeriodTransactions, total_prepaid_exec_fees};
+use crate::{external_call_verdict, find_skipped_transactions};
 use assert_matches::assert_matches;
 use bytesize::ByteSize;
 use itertools::Itertools;
@@ -1078,6 +1078,8 @@ struct RefusedEcc {
     error: TxExecutionError,
     /// The compute the call's outcome reports, which counts toward the chunk's compute.
     compute_usage: Compute,
+    /// The logs the call's outcome keeps.
+    logs: Vec<String>,
 }
 
 /// Applies the ECC from `ecc_to_bob` on top of `root`, and checks that it is refused: the run's
@@ -1108,7 +1110,6 @@ fn apply_refused_ecc(
     assert_eq!(outcome.outcome.gas_burnt, Gas::ZERO);
     assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
     assert_eq!(apply_result.stats.balance.tx_burnt_amount, Balance::ZERO);
-    assert!(outcome.outcome.logs.is_empty());
     assert!(outcome.outcome.receipt_ids.is_empty());
     assert!(apply_result.outgoing_receipts.is_empty());
     assert!(apply_result.receipt_to_tx.is_empty());
@@ -1118,7 +1119,11 @@ fn apply_refused_ecc(
     let ExecutionStatus::Failure(error) = outcome.outcome.status.clone() else {
         panic!("expected the ECC to be refused, got {:?}", outcome.outcome.status);
     };
-    RefusedEcc { error, compute_usage: outcome.outcome.compute_usage.unwrap() }
+    RefusedEcc {
+        error,
+        compute_usage: outcome.outcome.compute_usage.unwrap(),
+        logs: outcome.outcome.logs.clone(),
+    }
 }
 
 /// Applies an ECC to a funded contract that accepts it, and returns the charge and bob's storage
@@ -1233,6 +1238,19 @@ fn test_apply_ecc_refused_panic() {
             kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(_)),
         })
     );
+}
+
+/// A refused ECC keeps the logs its run wrote before it failed.
+#[test]
+fn test_apply_ecc_refused_keeps_logs() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let code = ecc_contract("(call $log_utf8 (i64.const 8) (i64.const 8)) unreachable");
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
+    let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
+    assert_eq!(refused.logs, vec!["accepted".to_string()]);
 }
 
 /// An ECC whose run reads the random seed is refused. The seed of an external call would be
@@ -1985,6 +2003,7 @@ fn dry_run_ecc_to_bob_on_trie(
         gas_price: apply_state.gas_price,
         prev_block: apply_state.prev_block.clone(),
         cache: None,
+        apply_reason: ApplyChunkReason::UpdateTrackedShard,
     };
     let dry_run = dry_run_external_call(
         &mut state,
@@ -11787,6 +11806,7 @@ mod ecc_state_init {
                 gas_price: apply_state.gas_price,
                 prev_block: apply_state.prev_block.clone(),
                 cache: None,
+                apply_reason: ApplyChunkReason::UpdateTrackedShard,
             };
             let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, None);
             let dry_run = dry_run_external_call(
@@ -11908,6 +11928,7 @@ mod ecc_state_init {
             gas_price: apply_state.gas_price,
             prev_block: apply_state.prev_block.clone(),
             cache: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
         };
         let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, None);
         let dry_run = dry_run_external_call(
@@ -11934,4 +11955,21 @@ mod ecc_state_init {
         let EccDryRun::Refused(error) = dry_run else { panic!("{dry_run:?}") };
         assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error));
     }
+}
+
+/// An applied external call counts as accepted, as its VM error when its run failed, and
+/// otherwise as the kind of its refusal.
+#[test]
+fn test_external_call_verdict() {
+    let accepted = ExecutionStatus::SuccessValue(vec![]);
+    assert_eq!(external_call_verdict(&accepted, None), "accepted");
+    let contract_id = "alice.near".parse().unwrap();
+    let not_found = InvalidTxError::ContractNotFound { contract_id };
+    let refused = ExecutionStatus::Failure(not_found.into());
+    assert_eq!(external_call_verdict(&refused, None), "ContractNotFound");
+    let run_failure = FunctionCallError::ExecutionError("GasExceeded".to_string());
+    let kind = ActionErrorKind::FunctionCallError(run_failure);
+    let failed_run = ExecutionStatus::Failure(ActionError { index: Some(0), kind }.into());
+    assert_eq!(external_call_verdict(&failed_run, Some("GasExceeded")), "GasExceeded");
+    assert_eq!(external_call_verdict(&failed_run, None), "FunctionCallError");
 }
