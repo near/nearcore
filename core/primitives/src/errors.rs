@@ -362,6 +362,39 @@ pub enum InvalidTxError {
     } = 22,
 }
 
+impl InvalidTxError {
+    /// Whether a transaction that fails with this error still uses its nonce. Only a gas key
+    /// transaction whose deposit fails does: it pays for its gas. Any other failure leaves the
+    /// state as it was.
+    pub fn uses_nonce(&self) -> bool {
+        match self {
+            InvalidTxError::NotEnoughBalanceForDeposit { .. } => true,
+            InvalidTxError::InvalidAccessKeyError(_)
+            | InvalidTxError::InvalidSignerId { .. }
+            | InvalidTxError::SignerDoesNotExist { .. }
+            | InvalidTxError::InvalidNonce { .. }
+            | InvalidTxError::NonceTooLarge { .. }
+            | InvalidTxError::InvalidReceiverId { .. }
+            | InvalidTxError::InvalidSignature
+            | InvalidTxError::NotEnoughBalance { .. }
+            | InvalidTxError::LackBalanceForState { .. }
+            | InvalidTxError::CostOverflow
+            | InvalidTxError::InvalidChain
+            | InvalidTxError::Expired
+            | InvalidTxError::ActionsValidation(_)
+            | InvalidTxError::TransactionSizeExceeded { .. }
+            | InvalidTxError::InvalidTransactionVersion
+            | InvalidTxError::StorageError(_)
+            | InvalidTxError::ShardCongested { .. }
+            | InvalidTxError::ShardStuck { .. }
+            | InvalidTxError::InvalidNonceIndex { .. }
+            | InvalidTxError::NotEnoughGasKeyBalance { .. }
+            | InvalidTxError::ContractNotFound { .. }
+            | InvalidTxError::ExternalCallChunkShareReached { .. } => false,
+        }
+    }
+}
+
 impl From<StorageError> for InvalidTxError {
     fn from(error: StorageError) -> Self {
         InvalidTxError::StorageError(error)

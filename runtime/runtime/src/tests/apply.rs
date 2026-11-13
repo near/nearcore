@@ -3784,7 +3784,8 @@ fn test_apply_eccs_before_the_feature_get_outcomes() {
     }
 }
 
-/// What apply skips is found before anything is read from the state: a repeat of a hash.
+/// What apply skips is found before anything is read from the state: a repeat of a hash, and a
+/// transaction routed to another shard.
 #[test]
 fn test_find_skipped_transactions() {
     let signer = InMemorySigner::test_signer(&alice_account());
@@ -3801,7 +3802,21 @@ fn test_find_skipped_transactions() {
     let ecc = EccTransaction::new(bob_account(), vec![1]);
     let txs = [transfer1.clone().into(), ecc.into(), transfer1.into(), transfer2.into()];
 
-    assert_eq!(find_skipped_transactions(&txs), vec![false, false, true, false]);
+    assert_eq!(find_skipped_transactions(&txs, None), vec![false, false, true, false]);
+
+    // Alice and bob are in different shards. In alice's shard the ECC to bob is skipped, and in
+    // bob's shard the transfers alice signed are.
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let bob_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, alice_shard))),
+        vec![false, true, true, false]
+    );
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, bob_shard))),
+        vec![true, false, true, true]
+    );
 }
 
 #[test]
@@ -7866,6 +7881,101 @@ fn test_duplicate_transaction_in_chunk_skipped() {
     assert_matches!(tx_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
     assert_eq!(other_outcomes.len(), 1, "distinct transaction must not be skipped");
     assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+/// Transactions of a chunk of alice's shard, where bob is in another shard: a transfer alice
+/// signed, a transfer bob signed, an ECC to alice and an ECC to bob.
+struct ForeignShardChunk {
+    /// The height of the block the chunk is applied in.
+    block_height: BlockHeight,
+    alice_transfer: SignedTransaction,
+    bob_transfer: SignedTransaction,
+    alice_ecc: EccTransaction,
+    bob_ecc: EccTransaction,
+}
+
+/// Applies a `ForeignShardChunk` in alice's shard at `protocol_version`.
+fn apply_foreign_shard_chunk(
+    protocol_version: ProtocolVersion,
+) -> (ForeignShardChunk, ApplyResult) {
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let shard_uid = ShardUId::new(3, alice_shard);
+    let alice_signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![alice_signer.clone()])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
+    );
+    apply_state.current_protocol_version = protocol_version;
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    let bob_signer = InMemorySigner::test_signer(&bob_account());
+    let transfer = |signer_id: AccountId, receiver_id: AccountId, signer: &Signer| {
+        let amount = Balance::from_near(1);
+        let block_hash = CryptoHash::default();
+        SignedTransaction::send_money(1, signer_id, receiver_id, signer, amount, block_hash)
+    };
+    let chunk = ForeignShardChunk {
+        block_height: apply_state.block_height,
+        alice_transfer: transfer(alice_account(), bob_account(), alice_signer.as_ref()),
+        bob_transfer: transfer(bob_account(), alice_account(), &bob_signer),
+        alice_ecc: EccTransaction::new(alice_account(), vec![1]),
+        bob_ecc: EccTransaction::new(bob_account(), vec![2]),
+    };
+    let transactions: Vec<TransactionEnvelope> = vec![
+        chunk.bob_transfer.clone().into(),
+        chunk.bob_ecc.clone().into(),
+        chunk.alice_transfer.clone().into(),
+        chunk.alice_ecc.clone().into(),
+    ];
+    let num_transactions = transactions.len();
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    (chunk, apply_result)
+}
+
+#[test]
+fn test_transactions_routed_to_another_shard_are_skipped_with_no_outcome() {
+    let (chunk, apply_result) =
+        apply_foreign_shard_chunk(ProtocolFeature::SkipForeignShardTransactions.protocol_version());
+
+    let outcome_ids = apply_result.outcomes.iter().map(|outcome| outcome.id).collect::<Vec<_>>();
+    assert_eq!(
+        outcome_ids,
+        vec![
+            chunk.alice_transfer.get_hash(),
+            create_ecc_outcome_id(chunk.alice_ecc.hash(), chunk.block_height)
+        ]
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_transaction_routed_to_another_shard_fails_with_an_outcome_before_the_skip() {
+    let feature_version = ProtocolFeature::SkipForeignShardTransactions.protocol_version();
+    let (chunk, apply_result) = apply_foreign_shard_chunk(feature_version - 1);
+
+    let bob_outcome = &apply_result.outcomes[0];
+    assert_eq!(bob_outcome.id, chunk.bob_transfer.get_hash());
+    assert_eq!(
+        bob_outcome.outcome.status,
+        ExecutionStatus::Failure(
+            InvalidTxError::InvalidSignerId { signer_id: bob_account().to_string() }.into()
+        )
+    );
+    assert_eq!(apply_result.outcomes.len(), 4);
 }
 
 #[test]

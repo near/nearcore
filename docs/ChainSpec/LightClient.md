@@ -257,6 +257,20 @@ block_merkle_root = compute_root(block_hash, block_proof)
 
 which must match the block merkle root in the light client block of the light client head.
 
+#### What a Proof Shows
+
+A verified proof shows that the outcome was committed in block `H`. It does not show that the outcome is the only one
+with its `id`.
+
+A receipt has exactly one outcome on the canonical chain. A chunk receives receipts only through the incoming receipt
+proofs that validators check, so no chunk producer can add a receipt to a chunk. A receipt outcome can be relied on
+whether it succeeded or failed.
+
+A transaction can have several. A transaction outcome that succeeded shows that the transaction ran, but one that
+failed does not show that the transaction never ran. To act on the result of a transaction, verify the outcomes of the
+receipts it produced, for example the receipt that ran on a bridge contract and logged an event. Do not treat a failed
+transaction outcome as proof that the transaction did not happen.
+
 ## RPC end-points
 
 ### Light Client Block
