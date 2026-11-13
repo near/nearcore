@@ -30,7 +30,6 @@ use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::archive::cloud_storage::config::test_cloud_archival_config;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{TestNodeStorage, create_test_node_storage};
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -585,7 +584,6 @@ impl TestLoopBuilder {
             warmup_pending,
             bucket_config: self.bucket_config.clone(),
             task_delay_fn: self.task_delay_fn.clone(),
-            spice_endorsement_delay: Arc::new(Mutex::new(Default::default())),
             network_rules: NetworkRules::default(),
             spice_partial_data_faults: Default::default(),
         };

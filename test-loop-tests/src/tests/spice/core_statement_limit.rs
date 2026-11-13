@@ -17,7 +17,7 @@ fn slow_test_spice_core_statement_limit_binds_and_chain_catches_up() {
     let num_shards = 8;
     let epoch_length = 200;
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .num_shards(num_shards)
         .validators(2, 0)
