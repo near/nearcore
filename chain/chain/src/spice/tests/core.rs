@@ -1,15 +1,9 @@
-use crate::spice::boundary::{boundary_uncertified_chunks, write_boundary_uncertified_chunks};
 use crate::spice::core::{
-    CertificationWindow, MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, certification_window,
-    compute_spice_endorsement_stats, credit_chunk_endorsement_stats,
-    find_newly_certified_block_hashes, fold_endorsement_stats,
-    record_uncertified_chunks_by_replaying_certification_window,
+    MAX_REFERENCED_CHUNKS_PER_BLOCK, SpiceCoreReader, compute_spice_endorsement_stats,
+    credit_chunk_endorsement_stats, find_newly_certified_block_hashes, fold_endorsement_stats,
     record_uncertified_chunks_for_block,
 };
 use crate::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
-use crate::spice::tests::pre_spice::{
-    grow_to_last_pre_spice_block, save_and_record_block, setup_pre_spice_chain_with_epoch_length,
-};
 use crate::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
 };
@@ -47,7 +41,7 @@ use near_primitives::types::{
     ShardId, SpiceChunkEndorsementStats, SpiceChunkId, SpiceUncertifiedChunkInfo,
 };
 use near_primitives::utils::get_execution_results_key;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use std::collections::{HashMap, HashSet};
@@ -805,7 +799,7 @@ fn test_credit_chunk_endorsement_stats_skips_departed_validators() {
     // `departed` was ignored: it touched no slot and caused no panic.
 }
 
-fn run_record_uncertified_chunks_for_block(chain: &mut Chain, block: &Block) {
+pub(super) fn run_record_uncertified_chunks_for_block(chain: &mut Chain, block: &Block) {
     let mut chain_store_update = chain.chain_store.store_update();
     assert!(
         record_uncertified_chunks_for_block(
