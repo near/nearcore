@@ -1,5 +1,5 @@
 #!/bin/bash
-# cspell:words czvf objcopy debuglink dsymutil
+# cspell:words czvf objcopy debuglink dsymutil cosign sigstore
 set -xeo pipefail
 
 release_type="${1:?Release type is required as the first argument}"
@@ -83,6 +83,20 @@ function upload_s3 {
   run_cmd aws s3 cp --acl public-read ${src} s3://build.nearprotocol.com/nearcore/${path}
 }
 
+# Sign a release artifact with Sigstore keyless signing (cosign). The signing
+# identity is the GitHub Actions workflow running this script, obtained through
+# OIDC (needs `id-token: write`), so there is no private key to manage. Writes a
+# `<file>.sigstore.json` bundle (signature, certificate and transparency log
+# proof) next to the file. Verify with:
+#   cosign verify-blob <file> --bundle <file>.sigstore.json \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     --certificate-identity-regexp '^https://github.com/near/nearcore/\.github/workflows/neard_release\.yml@refs/tags/'
+function sign_artifact {
+  local src="$1"
+
+  run_cmd cosign sign-blob --yes --bundle "${src}.sigstore.json" "${src}"
+}
+
 function upload_release_binary {
   local binary="$1"
 
@@ -108,6 +122,17 @@ function upload_release_binary {
   if [[ -f "target/release/${binary}.debug" ]]; then
     sources+=("target/release/${binary}.debug")
     destinations+=("${binary}.debug")
+  fi
+
+  # Only Linux binaries built for a published GitHub release or pre-release (rc)
+  # are signed. Builds from master pushes, manual runs and macOS builds are
+  # uploaded unsigned.
+  if [ "${GITHUB_EVENT_NAME}" = "release" ] && [ "${os}" = "Linux" ]; then
+    for i in "${!sources[@]}"; do
+      sign_artifact "${sources[$i]}"
+      sources+=("${sources[$i]}.sigstore.json")
+      destinations+=("${destinations[$i]}.sigstore.json")
+    done
   fi
 
   for i in "${!sources[@]}"; do
