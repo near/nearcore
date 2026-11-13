@@ -1,12 +1,17 @@
 use crate::config;
+use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, T1MessageBody, TieredMessageBody};
+use crate::network_protocol::{
+    PeerAddr, PeerMessage, PeersRequest, PeersResponse, T1MessageBody, TieredMessageBody,
+};
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::stun;
 use crate::tcp;
 use crate::testonly::{Rng, make_rng};
+use crate::types::ReasonForBan;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner};
@@ -353,6 +358,169 @@ async fn proxy_change() {
     drop(v0);
     drop(v1);
     drop(p0);
+}
+
+// When a node leaves the TIER1 set, a TIER1 node closes its TIER1 connection
+// to that node and keeps the TIER2 connection between them.
+#[tokio::test]
+async fn leaving_tier1_keeps_tier2_connection() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let v0 = start_pm(clock.clone(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v1 = start_pm(clock.clone(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v1_id = v1.cfg.node_id();
+    let tier2_stream = v0.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "v0 and v1 are TIER1 nodes and connect over TIER1");
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg]);
+    for pm in [&v0, &v1] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    establish_connections(&clock, &[&v0, &v1]).await;
+    assert!(v0.tcp.tier1.load().ready.contains_key(&v1_id));
+
+    tracing::info!(target:"test", "v1 leaves the TIER1 set, so v0 closes its TIER1 connection to v1");
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg]);
+    for pm in [&v0, &v1] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    let mut events = v0.events.from_now();
+    v0.tier1_connect(&clock).await;
+    while v0.tcp.tier1.load().ready.contains_key(&v1_id) {
+        events
+            .recv_until(|ev| match ev {
+                Event::ConnectionClosed(_) => Some(()),
+                _ => None,
+            })
+            .await;
+    }
+
+    tracing::info!(target:"test", "v0 exchanges a PeersRequest and PeersResponse with v1 over TIER2");
+    // Each connection handles its messages in order, so a close of the TIER2
+    // connection issued by tier1_connect() takes effect before this request.
+    let mut events = v0.events.from_now();
+    let sent = v0
+        .with_state_and_transport(move |_, transport| async move {
+            let msg =
+                PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None });
+            transport.send_message(tcp::Tier::T2, v1_id, Arc::new(msg))
+        })
+        .await;
+    assert!(sent, "v0 has no TIER2 connection to v1");
+    events
+        .recv_until(|ev| match ev {
+            Event::MessageProcessed(tcp::Tier::T2, PeerMessage::PeersResponse(_)) => Some(()),
+            Event::ConnectionClosed(ev) if ev.stream_id == tier2_stream => {
+                panic!("the TIER2 connection closed: {}", ev.reason)
+            }
+            _ => None,
+        })
+        .await;
+}
+
+// Banning a peer whose only connection to this node is over TIER1 closes that
+// connection and records the ban.
+#[tokio::test]
+async fn ban_closes_tier1_connection() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let v0 = start_pm(clock.clone(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v1 = start_pm(clock.clone(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v1_id = v1.cfg.node_id();
+    v0.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "v0 and v1 are TIER1 nodes and connect over TIER1");
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg]);
+    for pm in [&v0, &v1] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    establish_connections(&clock, &[&v0, &v1]).await;
+    assert!(v0.tcp.tier1.load().ready.contains_key(&v1_id));
+
+    tracing::info!(target:"test", "the TIER2 connection between v0 and v1 closes");
+    let mut events = v0.events.from_now();
+    v0.disconnect(&v1_id).await;
+    events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(_) => Some(()),
+            _ => None,
+        })
+        .await;
+    assert!(!v0.tcp.tier2.load().ready.contains_key(&v1_id));
+    assert!(v0.tcp.tier1.load().ready.contains_key(&v1_id));
+
+    tracing::info!(target:"test", "v0 bans v1 and closes its TIER1 connection to v1");
+    let reason = ReasonForBan::Abusive;
+    let mut events = v0.events.from_now();
+    v0.disconnect_and_ban(&clock, &v1_id, reason).await;
+    events
+        .recv_until(|ev| match ev {
+            Event::ConnectionClosed(ev) if ev.reason == ClosingReason::Ban(reason) => Some(()),
+            _ => None,
+        })
+        .await;
+    assert!(!v0.tcp.tier1.load().ready.contains_key(&v1_id));
+    assert!(v0.with_state(move |s| async move { s.peer_store.is_banned(&v1_id) }).await);
+}
+
+// A ban for a message received over TIER2 closes the peer's TIER1 connection
+// too, and records the ban.
+#[tokio::test]
+async fn ban_on_tier2_closes_tier1_connection() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let v0 = start_pm(clock.clone(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v1 = start_pm(clock.clone(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let v0_id = v0.cfg.node_id();
+    let v1_id = v1.cfg.node_id();
+    v0.connect_to(&v1.peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "v0 and v1 are TIER1 nodes and connect over TIER1");
+    let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&v0.cfg, &v1.cfg]);
+    for pm in [&v0, &v1] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    establish_connections(&clock, &[&v0, &v1]).await;
+    assert!(v0.tcp.tier1.load().ready.contains_key(&v1_id));
+
+    tracing::info!(target:"test", "v1 sends v0 a PeersResponse over the size limit");
+    let peers = (0..=PEERS_RESPONSE_MAX_PEERS).map(|_| data::make_peer_info(rng)).collect();
+    let msg = PeerMessage::PeersResponse(PeersResponse { peers, direct_peers: vec![] });
+    let mut events = v0.events.from_now();
+    let sent = v1
+        .with_state_and_transport(move |_, transport| async move {
+            transport.send_message(tcp::Tier::T2, v0_id, Arc::new(msg))
+        })
+        .await;
+    assert!(sent, "v1 has no TIER2 connection to v0");
+
+    tracing::info!(target:"test", "v0 bans v1 and closes its TIER1 and TIER2 connections to v1");
+    while v0.tcp.tier1.load().ready.contains_key(&v1_id)
+        || v0.tcp.tier2.load().ready.contains_key(&v1_id)
+    {
+        events
+            .recv_until(|ev| match ev {
+                Event::ConnectionClosed(_) => Some(()),
+                _ => None,
+            })
+            .await;
+    }
+    assert!(v0.with_state(move |s| async move { s.peer_store.is_banned(&v1_id) }).await);
 }
 
 #[tokio::test]

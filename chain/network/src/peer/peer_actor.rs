@@ -559,6 +559,13 @@ impl PeerActor {
         self.handle.stop();
     }
 
+    /// Bans `peer_id`: records the ban and closes the peer's connections on
+    /// every tier, including this one.
+    fn ban(&mut self, peer_id: &PeerId, reason: ReasonForBan) {
+        self.network_state.disconnect_and_ban(&self.clock, peer_id, reason, self.tcp.as_ref());
+        self.stop(ClosingReason::Ban(reason));
+    }
+
     /// `PeerId` of the current node.
     fn my_node_id(&self) -> &PeerId {
         &self.my_node_info.id
@@ -674,7 +681,9 @@ impl PeerActor {
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
             if let Err(_) = owned_account.verify() {
-                self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                // Bans need a verified peer id. `sender_peer_id` is verified later, when
+                // registration checks the edge signature, so this just closes the connection.
+                self.stop(ClosingReason::HandshakeFailed);
                 return;
             }
             if owned_account.peer_id != handshake.sender_peer_id {
@@ -1112,14 +1121,14 @@ impl PeerActor {
             "handle message",
             async move {
                 let result = network_state
-                    .handle_peer_message(&clock, peer_id, msg, was_requested, recv_permit)
+                    .handle_peer_message(&clock, peer_id.clone(), msg, was_requested, recv_permit)
                     .await;
-                handle.run_later("message handle result", Duration::ZERO, |act, _| {
+                handle.run_later("message handle result", Duration::ZERO, move |act, _| {
                     match result {
                         // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
                         Ok(Some(resp)) => act.send_message(&resp),
                         Ok(None) => {}
-                        Err(ban_reason) => act.stop(ClosingReason::Ban(ban_reason)),
+                        Err(ban_reason) => act.ban(&peer_id, ban_reason),
                     }
                     #[cfg(test)]
                     message_processed_event();
@@ -1202,12 +1211,12 @@ impl PeerActor {
 
                 // Check for abusive behavior (sending too many peers)
                 if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
-                    self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                    self.ban(&conn.peer_info.id, ReasonForBan::Abusive);
                     return;
                 }
                 // Check for abusive behavior (sending too many direct peers)
                 if direct_peers.len() > MAX_TIER2_PEERS {
-                    self.stop(ClosingReason::Ban(ReasonForBan::Abusive));
+                    self.ban(&conn.peer_info.id, ReasonForBan::Abusive);
                     return;
                 }
 
@@ -1251,7 +1260,12 @@ impl PeerActor {
                             %err,
                             "bad nonce, disconnecting"
                         );
-                        conn.stop(Some(ReasonForBan::InvalidEdge));
+                        network_state.disconnect_and_ban(
+                            &clock,
+                            &conn.peer_info.id,
+                            ReasonForBan::InvalidEdge,
+                            transport.as_ref(),
+                        );
                         return;
                     }
                     let peer_id = &conn.peer_info.id;
@@ -1276,7 +1290,12 @@ impl PeerActor {
                                 )
                                 .await
                             {
-                                conn.stop(Some(ban_reason));
+                                network_state.disconnect_and_ban(
+                                    &clock,
+                                    peer_id,
+                                    ban_reason,
+                                    transport.as_ref(),
+                                );
                             }
                         }
                     };
@@ -1339,14 +1358,21 @@ impl PeerActor {
                 self.handle.spawn("handle sync accounts data", async move {
                     // capture recv_permit for the whole duration of message handling
                     let _recv_permit = recv_permit;
-                    if let Some(err) =
-                        network_state.add_accounts_data(&clock, msg.accounts_data, tcp).await
+                    if let Some(err) = network_state
+                        .add_accounts_data(&clock, msg.accounts_data, tcp.clone())
+                        .await
                     {
-                        conn.stop(Some(match err {
+                        let ban_reason = match err {
                             AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
                             AccountDataError::DataTooLarge => ReasonForBan::Abusive,
                             AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
-                        }));
+                        };
+                        network_state.disconnect_and_ban(
+                            &clock,
+                            &conn.peer_info.id,
+                            ban_reason,
+                            tcp.as_ref(),
+                        );
                     }
                     #[cfg(test)]
                     message_processed_event();
@@ -1361,12 +1387,15 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
                 let tcp = self.tcp.clone();
                 self.handle.spawn("handle sync snapshot hosts", async move {
                     // capture recv_permit for the whole duration of message handling
                     let _recv_permit = recv_permit;
-                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts, tcp).await {
-                        conn.stop(Some(match err {
+                    if let Some(err) =
+                        network_state.add_snapshot_hosts(msg.hosts, tcp.clone()).await
+                    {
+                        let ban_reason = match err {
                             SnapshotHostInfoError::VerificationError(
                                 SnapshotHostInfoVerificationError::InvalidSignature,
                             ) => ReasonForBan::InvalidSignature,
@@ -1374,7 +1403,13 @@ impl PeerActor {
                                 SnapshotHostInfoVerificationError::TooManyShards(_),
                             )
                             | SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
-                        }));
+                        };
+                        network_state.disconnect_and_ban(
+                            &clock,
+                            &conn.peer_info.id,
+                            ban_reason,
+                            tcp.as_ref(),
+                        );
                     }
                     #[cfg(test)]
                     message_processed_event();
@@ -1420,7 +1455,7 @@ impl PeerActor {
 
                 if !msg.verify() {
                     // Received invalid routed message from peer.
-                    self.stop(ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                    self.ban(&conn.peer_info.id, ReasonForBan::InvalidSignature);
                     return;
                 }
                 match self.network_state.process_incoming_routed(
@@ -1513,11 +1548,11 @@ impl PeerActor {
             .add_edges(
                 &clock,
                 EdgesWithSource::Remote { edges: rtu.edges, source: conn.peer_info.id.clone() },
-                tcp,
+                tcp.clone(),
             )
             .await
         {
-            conn.stop(Some(ban_reason));
+            network_state.disconnect_and_ban(clock, &conn.peer_info.id, ban_reason, tcp.as_ref());
         }
     }
 }

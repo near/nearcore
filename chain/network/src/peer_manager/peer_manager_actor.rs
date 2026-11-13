@@ -591,7 +591,7 @@ impl PeerManagerActor {
                 ideal_connections_hi = self.state.config.ideal_connections_hi,
                 "stopping active connection"
             );
-            self.transport.disconnect_peer(id, None);
+            self.transport.disconnect_peer(tcp::Tier::T2, id);
         }
     }
 
