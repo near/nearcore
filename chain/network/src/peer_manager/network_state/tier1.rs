@@ -118,7 +118,7 @@ impl super::NetworkState {
                 }
                 // Check that we have received non-zero responses and that they are consistent.
                 if node_ips.is_empty() || !node_ips.iter().all(|ip| ip == &node_ips[0]) {
-                    tracing::warn!(target: "network", ?node_ips, "stun servers returned no consistent public ip, so this validator can't advertise its own address on TIER1; consider setting public_addrs in config.json");
+                    tracing::warn!(target: "network", ?node_ips, "stun servers returned no consistent public ip, so public address discovery failed; consider setting public_addrs in config.json");
                     vec![]
                 } else {
                     vec![PeerAddr {
