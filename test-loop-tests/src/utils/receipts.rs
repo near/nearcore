@@ -11,8 +11,8 @@ use near_client::client_actor::ClientActor;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV3, BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, Receipt,
-    ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    ActionReceiptV3, BufferedReceiptIndices, CreationProtocolVersion, DelayedReceiptIndices,
+    PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
@@ -182,7 +182,7 @@ pub fn action_receipt_v1_to_latest(input: &Receipt) -> Receipt {
         refund_to: versioned.refund_to().clone(),
         authorization_context: versioned.authorization_context().into_owned(),
         gas_price: versioned.gas_price(),
-        creation_protocol_version: PROTOCOL_VERSION,
+        creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION),
         output_data_receivers: versioned.output_data_receivers().to_vec(),
         input_data_ids: versioned.input_data_ids().to_vec(),
         actions: versioned.actions().to_vec(),

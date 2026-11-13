@@ -51,7 +51,7 @@ use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV3, AuthorizationContext, DataReceipt,
+    ActionReceipt, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion, DataReceipt,
     GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptOrigin,
     ReceiptOriginTransaction, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0,
 };
@@ -1426,7 +1426,9 @@ fn test_apply_ecc_promise() {
             refund_to: None,
             authorization_context: AuthorizationContext::ExternalContractCall,
             gas_price: receipt_gas_price,
-            creation_protocol_version: apply_state.current_protocol_version,
+            creation_protocol_version: CreationProtocolVersion(
+                apply_state.current_protocol_version
+            ),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::function_call("who", vec![], CAROL_CALL_GAS)],
@@ -1533,7 +1535,9 @@ fn test_apply_ecc_promise_unused_gas_refund() {
                 refund_to: None,
                 authorization_context: AuthorizationContext::ExternalContractCall,
                 gas_price: Balance::ZERO,
-                creation_protocol_version: apply_state.current_protocol_version,
+                creation_protocol_version: CreationProtocolVersion(
+                    apply_state.current_protocol_version
+                ),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -11243,7 +11247,7 @@ fn pinned_receipt(gas_price: Balance, actions: Vec<Action>) -> Receipt {
         refund_to: None,
         authorization_context: AuthorizationContext::AccessKey(signer_public_key),
         gas_price,
-        creation_protocol_version: PINNED_CREATION_VERSION,
+        creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
         output_data_receivers: vec![],
         input_data_ids: vec![],
         actions,
@@ -11397,7 +11401,7 @@ fn test_pin_receipt_fees_delegate_action() {
     assert_matches!(
         inner_receipt.receipt(),
         ReceiptEnum::ActionV3(ActionReceiptV3 {
-            creation_protocol_version: PINNED_CREATION_VERSION,
+            creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
             ..
         })
     );
@@ -11437,7 +11441,7 @@ fn test_pin_receipt_fees_transaction_records_creation_version() {
     assert_matches!(
         receipt.receipt(),
         ReceiptEnum::ActionV3(ActionReceiptV3 {
-            creation_protocol_version: PINNED_CREATION_VERSION,
+            creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
             ..
         })
     );
