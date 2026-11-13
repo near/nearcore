@@ -286,6 +286,7 @@ impl NightshadeRuntime {
                 group,
                 state_update,
                 skip_tx_hashes,
+                &|call_hash| self.external_call_cache.is_repeat(call_hash),
                 &mut external_calls,
                 self.epoch_manager.as_ref(),
                 runtime_config,
@@ -2311,8 +2312,8 @@ struct EccGroupVisit {
 }
 
 /// Goes through a group of ECCs to one contract, in the order they came, and takes the first one
-/// that can go into the chunk. The ones before it are dropped if nobody can run them, or put
-/// aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
+/// that can go into the chunk. The ones before it are dropped if nobody can run them or they
+/// repeat a call that ran, or put aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
 /// that does not fit in `size_left`, the room left in the chunk, or would break the rules on
 /// the chunk's ECCs taken together (`external_calls`). Takes nothing if the chunk holds an ECC
 /// to the contract already. The ECC it takes is not added to `external_calls`: the caller adds it
@@ -2321,6 +2322,7 @@ fn take_ecc_from_group(
     group: &mut EccGroup,
     state_update: &dyn TrieAccess,
     skip_tx_hashes: &HashSet<CryptoHash>,
+    is_recent_repeat: &dyn Fn(&CryptoHash) -> bool,
     external_calls: &mut ExternalCallsValidity,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_config: &RuntimeConfig,
@@ -2354,6 +2356,13 @@ fn take_ecc_from_group(
         }
         if skip_tx_hashes.contains(ecc.hash_without_state_init()) {
             visit.skipped.extend(group.next());
+            continue;
+        }
+        // A repeat of a call that already ran leaves the pool unpacked.
+        if is_recent_repeat(ecc.hash_without_state_init()) {
+            let ecc =
+                group.next().expect("peek_next() returned Some, so next() should return Some");
+            tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding a repeat of an ECC that ran");
             continue;
         }
         // Only the chunk that has room for it takes it. The others in the group wait behind it.

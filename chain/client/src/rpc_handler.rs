@@ -157,6 +157,14 @@ impl RpcHandlerActor {
         is_forwarded: bool,
         check_only: bool,
     ) -> Result<ProcessTxResponse, near_client_primitives::types::Error> {
+        // A repeat of an external call that already ran goes nowhere, before any check that the
+        // call's own run may have changed. A sender that waits finds the earlier inclusion.
+        if let TransactionEnvelope::Unsigned(ecc) = tx
+            && self.runtime.external_call_cache().is_repeat(ecc.hash_without_state_init())
+        {
+            tracing::debug!(target: "client", tx_hash = ?tx.get_hash(), "repeat of an ECC that ran");
+            return Ok(ProcessTxResponse::ValidTx);
+        }
         let head = self.chain_store.head()?;
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|vs| vs.validator_id());
