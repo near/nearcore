@@ -16,7 +16,7 @@ use near_parameters::{ActionCosts, Fee, RuntimeConfigStore};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum;
+use near_primitives::receipt::{CreationProtocolVersion, ReceiptEnum};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, TransferAction};
@@ -348,6 +348,7 @@ fn test_contract_receipt_after_fee_increase() {
     let ReceiptEnum::ActionV3(action_receipt) = contract_receipt.receipt() else {
         panic!("expected an ActionV3 receipt, got {contract_receipt:?}");
     };
-    assert_eq!(action_receipt.creation_protocol_version, fee_change.new_version);
+    let creation_protocol_version = CreationProtocolVersion(fee_change.new_version);
+    assert_eq!(action_receipt.creation_protocol_version, creation_protocol_version);
     assert_eq!(created, 0);
 }
