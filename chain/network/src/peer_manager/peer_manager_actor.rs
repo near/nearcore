@@ -1,7 +1,6 @@
 use crate::client::{
-    ClientSenderForNetwork, GetCurrentEpochHeight, SetNetworkInfo, SpiceChunkEndorsementMessage,
-    StateRequestHeader, StateRequestPart, StateRequestResponse, StateRequestUpdate,
-    StateRequestUpdateMessage,
+    ClientSenderForNetwork, SetNetworkInfo, SpiceChunkEndorsementMessage, StateRequestHeader,
+    StateRequestPart, StateRequestResponse, StateRequestUpdate, StateRequestUpdateMessage,
 };
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config;
@@ -387,19 +386,6 @@ impl PeerManagerActor {
             tracing::info!(target: "network", %addr, "using configured tier3 public address");
             metrics::TIER3_PUBLIC_ADDR.with_label_values(&[&addr.to_string()]).set(1);
         }
-        handle.spawn("PeerManagerActor epoch height fetch", {
-            let state = state.clone();
-            async move {
-                if let Ok(Some(epoch_height)) = state
-                    .client
-                    .current_epoch_height_request
-                    .send_async(GetCurrentEpochHeight)
-                    .await
-                {
-                    state.snapshot_hosts.set_current_epoch_height(epoch_height);
-                }
-            }
-        });
         // Build the transport and start the TCP listener. The listener
         // lives inside TcpTransport so that PMA only ever holds
         // `Arc<dyn NetworkTransport>`, never the concrete type.
