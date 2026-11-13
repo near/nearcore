@@ -937,19 +937,15 @@ impl PartialWitnessActor {
             Err(err) => return Err(err),
         }
         let key = accesses.chunk_production_key();
-        let contracts_cache = self.runtime.compiled_contract_cache();
-        let runtime_config = self
-            .runtime
-            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&key.epoch_id)?);
-        let missing_contract_hashes = HashSet::from_iter(
-            accesses
-                .contracts()
-                .iter()
-                .filter(|&hash| {
-                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
-                })
-                .cloned(),
-        );
+        let Some(missing_contract_hashes) = self.uncached_accessed_contracts(&accesses)? else {
+            tracing::debug!(
+                target: "client",
+                ?key,
+                main_transition = ?accesses.main_transition(),
+                "dropping chunk contract accesses: main transition block is unknown and not the chunk's parent",
+            );
+            return Ok(());
+        };
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
@@ -974,6 +970,49 @@ impl PartialWitnessActor {
             NetworkRequests::ContractCodeRequest(random_chunk_producer, request),
         ));
         Ok(())
+    }
+
+    /// Accessed contracts not compiled under the config the main transition runs with: that of
+    /// the epoch of the block holding the replayed chunk, which can precede the epoch of the
+    /// chunk being validated.
+    ///
+    /// For V1 accesses, all of them when that block is not processed yet. V2 accesses passed
+    /// the anchor check, so the grandparent is processed, and a block holding the replayed chunk
+    /// that is still unknown must be the chunk's parent. `None` when it is not.
+    pub(super) fn uncached_accessed_contracts(
+        &self,
+        accesses: &ChunkContractAccesses,
+    ) -> Result<Option<HashSet<CodeHash>>, Error> {
+        let main_transition_block_hash = &accesses.main_transition().block_hash;
+        let epoch_id = match self.epoch_manager.get_epoch_id(main_transition_block_hash) {
+            Ok(epoch_id) => epoch_id,
+            Err(EpochError::MissingBlock(_)) => {
+                match (accesses.prev_block_hash(), accesses.prev_prev_block_hash()) {
+                    (Some(prev_block_hash), Some(prev_prev_block_hash)) => {
+                        if main_transition_block_hash != prev_block_hash {
+                            return Ok(None);
+                        }
+                        self.epoch_manager.get_epoch_id_from_prev_block(prev_prev_block_hash)?
+                    }
+                    _ => return Ok(Some(accesses.contracts().iter().cloned().collect())),
+                }
+            }
+            Err(err) => return Err(err.into()),
+        };
+        let runtime_config = self
+            .runtime
+            .get_runtime_config(self.epoch_manager.get_epoch_protocol_version(&epoch_id)?);
+        let contracts_cache = self.runtime.compiled_contract_cache();
+        Ok(Some(
+            accesses
+                .contracts()
+                .iter()
+                .filter(|&hash| {
+                    !contracts_cache_contains_contract(contracts_cache, hash, &runtime_config)
+                })
+                .cloned()
+                .collect(),
+        ))
     }
 
     /// Sends the contract accesses to the same chunk validators
