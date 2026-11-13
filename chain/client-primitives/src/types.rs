@@ -459,6 +459,14 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("The contract refused the external call: {error:?}")]
+    ExternalCallRefused {
+        error: Box<near_primitives::errors::TxExecutionError>,
+        /// The logs of the contract's run. Empty for a call refused before its run.
+        logs: Vec<String>,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
     #[error(

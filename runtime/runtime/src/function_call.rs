@@ -439,7 +439,10 @@ pub(crate) fn execute_function_call(
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
-            if !context.is_view() {
+            // A view call of the external call method runs as an external call, not in view mode.
+            let is_view =
+                context.is_view() || apply_state.apply_reason == ApplyChunkReason::ViewTrackedShard;
+            if !is_view {
                 // Internal and external calls change state. Do not commit a
                 // potentially nondeterministic error on chain.
                 panic!("wasm compilation unknown error: {debug_message}");

@@ -11,8 +11,8 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 pub use crate::external_call::{
-    EccDryRun, EccDryRunContext, ExternalCallsInChunk, ProcessedExternalCall,
-    dry_run_external_call, process_external_call,
+    EccDryRun, EccDryRunContext, EccDryRunOutput, ExternalCallsInChunk, ProcessedExternalCall,
+    dry_run_external_call, dry_run_external_call_with_output, process_external_call,
 };
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
@@ -279,10 +279,10 @@ impl ApplyState {
             gas_price,
             prev_block,
             cache,
+            apply_reason,
         } = context;
         Self {
-            // The producer tracks the shard, so this is the reason apply runs the call with.
-            apply_reason: ApplyChunkReason::UpdateTrackedShard,
+            apply_reason,
             block_height: prev_block.height + 1,
             shard_id,
             epoch_id,

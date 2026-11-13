@@ -33,6 +33,7 @@ use bytesize::ByteSize;
 use dashmap::DashMap;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::{Account, AccountContract};
+use near_primitives::apply::ApplyChunkReason;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ExternalCallChunkLimit, IntegerOverflowError, InvalidTxError,
     RuntimeError, StorageError, TxExecutionError,
@@ -242,6 +243,9 @@ pub struct EccDryRunContext {
     /// The chunk's parent block, which the run sees.
     pub prev_block: PrevBlockContext,
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
+    /// `UpdateTrackedShard` for the producer, `ViewTrackedShard` for a view call. A view call
+    /// compiles at view priority, and a compiler failure fails the call instead of the node.
+    pub apply_reason: ApplyChunkReason,
 }
 
 /// What a dry run of an ECC found.
@@ -278,6 +282,36 @@ pub fn dry_run_external_call(
     loaded_account: Option<Account>,
     ecc: &EccTransaction,
 ) -> Result<EccDryRun, RuntimeError> {
+    let output = dry_run_external_call_with_output(
+        state_update,
+        context,
+        epoch_info_provider,
+        external_calls,
+        loaded_account,
+        ecc,
+    )?;
+    Ok(output.dry_run)
+}
+
+/// A dry run's verdict, with what the contract's run returned and logged.
+#[derive(Debug)]
+pub struct EccDryRunOutput {
+    pub dry_run: EccDryRun,
+    /// The value an accepted call returns. Empty for a refused call.
+    pub return_value: Vec<u8>,
+    /// The logs of the contract's run. Empty for a call refused before its run.
+    pub logs: Vec<String>,
+}
+
+/// `dry_run_external_call`, which also returns what the contract's run returned and logged.
+pub fn dry_run_external_call_with_output(
+    state_update: &mut TrieUpdate,
+    context: EccDryRunContext,
+    epoch_info_provider: &dyn EpochInfoProvider,
+    external_calls: &mut ExternalCallsInChunk,
+    loaded_account: Option<Account>,
+    ecc: &EccTransaction,
+) -> Result<EccDryRunOutput, RuntimeError> {
     let apply_state = ApplyState::for_ecc_dry_run(context);
     let contract_id = ecc.contract_id();
     let accounts = DashMap::with_hasher(AHashRandomState::new());
@@ -289,22 +323,28 @@ pub fn dry_run_external_call(
     let validation_error =
         validate_external_call(&apply_state.config, ecc, apply_state.current_protocol_version)
             .err();
-    let ProcessedExternalCall { outcome, accepted, receipts: _, installed_state_init } =
-        process_external_call(
-            state_update,
-            &apply_state,
-            epoch_info_provider,
-            external_calls,
-            &accounts,
-            ecc,
-            validation_error,
-        )?;
+    let ProcessedExternalCall {
+        outcome,
+        accepted,
+        receipts: _,
+        installed_state_init,
+        run_error: _,
+    } = process_external_call(
+        state_update,
+        &apply_state,
+        epoch_info_provider,
+        external_calls,
+        &accounts,
+        ecc,
+        validation_error,
+    )?;
     let outcome = outcome.outcome;
     if !accepted {
         let ExecutionStatus::Failure(error) = outcome.status else {
             unreachable!("a refused external call has a failed outcome");
         };
-        return Ok(EccDryRun::Refused(error));
+        let dry_run = EccDryRun::Refused(error);
+        return Ok(EccDryRunOutput { dry_run, return_value: vec![], logs: outcome.logs });
     }
     let account = accounts
         .get(contract_id)
@@ -312,7 +352,13 @@ pub fn dry_run_external_call(
         .expect("an accepted call leaves its contract's account in the map");
     let compute_usage = outcome.compute_usage.expect("an ECC outcome reports its compute");
     let gas_burnt = outcome.gas_burnt;
-    Ok(EccDryRun::Accepted { account, gas_burnt, compute_usage, installed_state_init })
+    // A call that returns a promise has no value of its own.
+    let return_value = match outcome.status {
+        ExecutionStatus::SuccessValue(value) => value,
+        _ => vec![],
+    };
+    let dry_run = EccDryRun::Accepted { account, gas_burnt, compute_usage, installed_state_init };
+    Ok(EccDryRunOutput { dry_run, return_value, logs: outcome.logs })
 }
 
 /// Processes an external contract call that passed the check of the chunk's shares for ECCs,
@@ -397,9 +443,29 @@ fn process_admitted_external_call<'a>(
     }
     let mut receipts = std::mem::take(&mut run.new_receipts);
     let receipt_ids = set_ecc_receipt_ids(apply_state, &outcome_id, &mut receipts);
+    let run_error = run.outcome.aborted.as_ref().map(vm_error_name);
     let outcome = run.into_outcome(outcome_id, apply_state.block_height, ecc, account, receipt_ids);
     let installed_state_init = accepted && state_init.is_some();
-    Ok(ProcessedExternalCall { outcome, accepted, receipts, installed_state_init })
+    Ok(ProcessedExternalCall { outcome, accepted, receipts, installed_state_init, run_error })
+}
+
+/// The priority to compile the contract of a call with: a view call yields to chunk application.
+fn compile_priority(apply_reason: &ApplyChunkReason) -> CompilePriority {
+    match apply_reason {
+        ApplyChunkReason::ViewTrackedShard => CompilePriority::Interactive,
+        ApplyChunkReason::UpdateTrackedShard | ApplyChunkReason::ValidateChunkStateWitness => {
+            CompilePriority::Critical
+        }
+    }
+}
+
+/// The name of a VM error for metrics, down to the kind of trap or host error.
+fn vm_error_name(error: &FunctionCallError) -> &'static str {
+    match error {
+        FunctionCallError::HostError(error) => error.into(),
+        FunctionCallError::WasmTrap(trap) => trap.into(),
+        error => error.into(),
+    }
 }
 
 /// Gives the receipts of an external call their ids, derived from the call's outcome id the way a
@@ -452,9 +518,12 @@ impl ExternalCallRun {
     ) -> ExecutionOutcomeWithId {
         let burnt = match self.verdict {
             Ok(burnt) => burnt,
-            // TODO(ecc): include the logs of a refused call in its outcome.
+            // A refused call keeps its run's logs, so the sender sees why it was refused.
             Err(error) => {
-                return ExecutionOutcomeWithId::refused_ecc(id, ecc, error, self.compute_usage);
+                let mut outcome =
+                    ExecutionOutcomeWithId::refused_ecc(id, ecc, error, self.compute_usage);
+                outcome.outcome.logs = self.outcome.logs;
+                return outcome;
             }
         };
         let status = match self.outcome.return_data {
@@ -631,7 +700,7 @@ pub(crate) fn run_external_call(
                 Arc::clone(&config.wasm_config),
                 gas_counter,
                 ECC_METHOD_NAME,
-                CompilePriority::Critical,
+                compile_priority(&apply_state.apply_reason),
             );
             execute_function_call(
                 contract,

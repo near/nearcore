@@ -509,6 +509,12 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 },
+                near_chain::near_chain_primitives::error::QueryError::ExternalCallRefused {
+                    error,
+                    logs,
+                    block_height,
+                    block_hash,
+                } => QueryError::ExternalCallRefused { error, logs, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::TooLargeContractState {
                     requested_account_id,
                     block_height,
