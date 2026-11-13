@@ -25,18 +25,21 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
 
     steps:
-      # secrets are not allowed in step-level `if:` expressions, so record the
-      # key's presence as a step output for the review step's condition. Kept
-      # as a dedicated step before checkout so the secret is never exposed to
-      # steps that execute code from the checked-out ref.
-      - name: Check for API key
+      # secrets are not allowed in step-level `if:` expressions, so record
+      # whether a credential exists as a step output for the review step's
+      # condition. Kept as a dedicated step before checkout so the secrets are
+      # never exposed to steps that execute code from the checked-out ref.
+      - name: Check for Claude credentials
         id: key-check
         env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: echo "present=${ANTHROPIC_API_KEY:+true}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
@@ -97,7 +100,11 @@ jobs:
           # without github_token the action tries to mint a token via the
           # Claude Code GitHub App, which is not installed on this repo
           github_token: ${{ github.token }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A Claude subscription token (from `claude setup-token`) is used when
+          # the CLAUDE_CODE_OAUTH_TOKEN secret exists. The API key is passed only
+          # without it, because in headless mode an API key always wins.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN == '' && secrets.ANTHROPIC_API_KEY || '' }}
           prompt: ${{ env.REVIEW_PROMPT }}
           claude_args: >-
             --model opus
