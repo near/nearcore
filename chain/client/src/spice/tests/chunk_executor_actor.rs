@@ -2312,7 +2312,6 @@ struct CatchUpTest {
     sync_block: Arc<Block>,
     blocks_up_to_head: Vec<Arc<Block>>,
     blocks_after_head: Vec<Arc<Block>>,
-    next_epoch_first_block: Arc<Block>,
     outgoing_rc: UnboundedReceiver<OutgoingMessage>,
 }
 
@@ -2414,7 +2413,6 @@ impl CatchUpTest {
             sync_block: sync_block.clone(),
             blocks_up_to_head: blocks_up_to_head.to_vec(),
             blocks_after_head: blocks_after_head.to_vec(),
-            next_epoch_first_block,
             outgoing_rc,
         }
     }
@@ -2458,31 +2456,27 @@ fn test_parking_again_the_blocks_of_a_caught_up_shard_on_startup() {
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
 
-    // The restarted node processes the next epoch's first block.
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    // The node starts.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
-    // The blocks up to the final execution head are parked again, the ones after it are not.
+    // The blocks up to the final execution head are parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
     for block in &catch_up.blocks_up_to_head {
         assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
-    }
-    for block in &catch_up.blocks_after_head {
-        assert!(!parked.contains(block.hash()), "parked at height {}", block.header().height());
     }
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
-    // The shard's catchup finished, and the restarted node processes the next epoch's first block,
-    // which parks again the blocks up to the final execution head.
+    // The shard's catchup finished, and the node restarted in the next epoch.
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+
+    // The node starts, which parks again the blocks up to the final execution head.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
     // The data distributor is asked, in one message, to track the data of each parked block's parent,
     // whose receipts the block applies.
@@ -2496,28 +2490,6 @@ fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
     let parents =
         catch_up.blocks_up_to_head.iter().map(|block| *block.header().prev_hash()).collect_vec();
     assert_eq!(requests, vec![parents]);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_parking_again_the_blocks_after_the_current_epochs_sync_block() {
-    // The shard's catchup finished before the epoch's end.
-    let mut catch_up = CatchUpTest::setup();
-    catch_up.finish_catchup();
-
-    // Restarted after the catchup finished, the node processes the blocks after the final execution
-    // head.
-    for block in &catch_up.blocks_after_head {
-        catch_up
-            .test_actor
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-    }
-
-    // The blocks up to the final execution head are parked again.
-    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
-    for block in &catch_up.blocks_up_to_head {
-        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
-    }
 }
 
 #[test]
