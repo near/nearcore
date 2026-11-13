@@ -216,6 +216,7 @@ pub(crate) fn apply_batch_state_changes(
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
     let start_height = from_height.max(shard_batch.start_height());
     let mut update = BatchTrieUpdate::new(tries, shard_uid, state_root);
+    update.read_ahead(&batch_trie_keys(shard_batch, start_height));
     for height in start_height..=shard_batch.end_height() {
         let Some(shard_data) = shard_batch.get_data_at_height(height) else {
             continue;
@@ -234,6 +235,20 @@ pub(crate) fn apply_batch_state_changes(
     // TODO(cloud_archival): consider one commit per window, so a retry refcounts once.
     update.commit();
     Ok(state_root)
+}
+
+/// The distinct trie keys `shard_batch` changes at or above `start_height`.
+fn batch_trie_keys(shard_batch: &ShardBatch, start_height: BlockHeight) -> Vec<Vec<u8>> {
+    let mut keys = HashSet::new();
+    for height in start_height..=shard_batch.end_height() {
+        let Some(shard_data) = shard_batch.get_data_at_height(height) else {
+            continue;
+        };
+        for change in shard_data.state_changes() {
+            keys.insert(change.trie_key.to_vec());
+        }
+    }
+    keys.into_iter().collect()
 }
 
 /// The state root `shard_uid` stands at under `block_hash`, which is the root the height

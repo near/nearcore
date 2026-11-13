@@ -8,7 +8,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::flat::FlatStorageManager;
-use near_store::trie::AccessOptions;
+use near_store::trie::{AccessOptions, KeyLookupMode};
 use near_store::{
     ShardTries, ShardUId, StateSnapshotConfig, Store, Trie, TrieChanges, TrieConfig, TrieDBStorage,
     TrieStorage,
@@ -16,6 +16,8 @@ use near_store::{
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 
 /// The tries a reader applies recorded state changes into.
 pub fn build_shard_tries(store: &Store) -> ShardTries {
@@ -56,6 +58,10 @@ pub(crate) async fn install_state_snapshot(
     Ok(())
 }
 
+/// Threads that read a batch's trie paths before it is applied. The reads wait on the
+/// disk rather than the CPU, so more threads than cores still shorten the wait.
+const READ_AHEAD_THREADS: usize = 16;
+
 /// Trie storage for one batch: the nodes that batch has applied, over the nodes the store
 /// already holds. A height reads what the height below it wrote, and a store read does
 /// not see an uncommitted store update.
@@ -63,6 +69,9 @@ struct BatchTrieStorage {
     /// Behind a lock because `retrieve_raw_bytes` takes `&self` and the trie holds this
     /// storage as `Arc<dyn TrieStorage>`, which is `Sync`.
     uncommitted: Mutex<HashMap<CryptoHash, Arc<[u8]>>>,
+    /// Store nodes this batch has read, so a later height or a read-ahead thread finds
+    /// them without another disk read.
+    committed_cache: Mutex<HashMap<CryptoHash, Arc<[u8]>>>,
     committed: TrieDBStorage,
 }
 
@@ -73,7 +82,11 @@ impl BatchTrieStorage {
         let committed = TrieDBStorage::new(store, shard_uid);
         // TODO(cloud_archival): consider serving the batch's own nodes out of the pending
         // transaction, so an inserted node is held once.
-        Self { uncommitted: Mutex::new(HashMap::new()), committed }
+        Self {
+            uncommitted: Mutex::new(HashMap::new()),
+            committed_cache: Mutex::new(HashMap::new()),
+            committed,
+        }
     }
 
     /// Serves the nodes `trie_changes` inserted to every read that follows.
@@ -90,7 +103,12 @@ impl TrieStorage for BatchTrieStorage {
         if let Some(bytes) = self.uncommitted.lock().get(hash) {
             return Ok(bytes.clone());
         }
-        self.committed.retrieve_raw_bytes(hash)
+        if let Some(bytes) = self.committed_cache.lock().get(hash) {
+            return Ok(bytes.clone());
+        }
+        let bytes = self.committed.retrieve_raw_bytes(hash)?;
+        self.committed_cache.lock().insert(*hash, bytes.clone());
+        Ok(bytes)
     }
 }
 
@@ -121,6 +139,19 @@ impl BatchTrieUpdate {
         }
     }
 
+    /// Reads the trie path of each of `keys` at the batch's starting root, on several
+    /// threads, so the heights applied next find those nodes in memory.
+    pub(crate) fn read_ahead(&self, keys: &[Vec<u8>]) {
+        let next_key = AtomicUsize::new(0);
+        let num_threads = keys.len().min(READ_AHEAD_THREADS);
+        thread::scope(|scope| {
+            for _ in 0..num_threads {
+                let trie = Trie::new(self.storage.clone(), self.state_root, None);
+                scope.spawn(|| read_trie_paths(trie, keys, &next_key));
+            }
+        });
+    }
+
     /// Applies one height's recorded state changes and returns the root they leave.
     pub(crate) fn apply(
         &mut self,
@@ -145,5 +176,14 @@ impl BatchTrieUpdate {
     /// Commits the batch.
     pub(crate) fn commit(self) {
         self.store_update.commit();
+    }
+}
+
+/// Reads the trie path of each key `next_key` hands out until none is left.
+fn read_trie_paths(trie: Trie, keys: &[Vec<u8>], next_key: &AtomicUsize) {
+    while let Some(key) = keys.get(next_key.fetch_add(1, Ordering::Relaxed)) {
+        // A failed read is left to `apply`, which reads the same node and reports it.
+        let _ =
+            trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::NO_SIDE_EFFECTS);
     }
 }
