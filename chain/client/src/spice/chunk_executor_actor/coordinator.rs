@@ -272,18 +272,26 @@ impl ChunkExecutorActor {
     }
 
     /// Reports the block that evicted a shard's executor as the shard's final execution head, once
-    /// that block is final and canonical: the node applies the shard at no block from there on.
-    fn report_stopped_shards(&mut self) -> Result<(), Error> {
+    /// that block is final and canonical: the node applies the shard at no block from there on. A
+    /// fork block gives its place to `block`, the one being processed, if that one does not apply
+    /// the shard either.
+    fn report_stopped_shards(&mut self, block: &Block) -> Result<(), Error> {
         let final_height = self.chain_store.final_head()?.height;
-        self.stopped_shards.retain(|shard_uid, &mut (height, hash)| {
+        self.stopped_shards.retain(|shard_uid, stopped_at| {
+            let (height, hash) = *stopped_at;
             if height > final_height {
                 return true;
             }
             if is_canonical(&self.chain_store, height, &hash) {
                 self.data_distributor_adapter
                     .send(SpiceShardFinalExecutionHead { shard_id: shard_uid.shard_id(), height });
+                return false;
             }
-            false
+            if self.per_shard_executors.contains_key(shard_uid) {
+                return false;
+            }
+            *stopped_at = (block.header().height(), *block.hash());
+            true
         });
         Ok(())
     }
@@ -311,7 +319,7 @@ impl ChunkExecutorActor {
         if let Err(err) = self.replay_caught_up_shards(block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
         }
-        if let Err(err) = self.report_stopped_shards() {
+        if let Err(err) = self.report_stopped_shards(&block) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to report the shards this node stopped applying");
         }
         // A node tracking zero shards schedules no applies, so the apply-done
