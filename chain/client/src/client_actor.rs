@@ -1258,6 +1258,7 @@ impl ClientActor {
                     height,
                     &self.client.chain.chain_store(),
                     prev_block_hash,
+                    head_header.height(),
                     head_header.raw_timestamp(),
                 )?
             } else {
