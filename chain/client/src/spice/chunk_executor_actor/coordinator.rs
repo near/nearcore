@@ -375,13 +375,10 @@ impl ChunkExecutorActor {
 
         let chunk_store = self.chain_store.chunk_store();
         for (shard_uid, executor) in &mut self.per_shard_executors {
-            // Skip a shard already replayed for this sync block, one not caught up there, for the
-            // epoch after the sync block's, one tracked in the sync block's epoch, which is
-            // applied block by block, and one that has applied the final execution head already.
+            // Skip a shard already replayed for this sync block, one tracked in the sync block's
+            // epoch, which is applied block by block, and one that has applied the final
+            // execution head already.
             if executor.replayed_after_sync_block == Some(sync_hash)
-                || !self
-                    .shard_tracker
-                    .will_care_about_shard(sync_header.prev_hash(), shard_uid.shard_id())
                 || self
                     .shard_tracker
                     .cares_about_shard(sync_header.prev_hash(), shard_uid.shard_id())
