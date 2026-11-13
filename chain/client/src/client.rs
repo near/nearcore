@@ -2740,7 +2740,7 @@ impl Client {
     /// The TIER1 accounts to feed to PeerManager. They normally come from the last processed
     /// block, `head`. That is important because a validator which is still processing the final
     /// blocks of an epoch while the header head has moved into the next one should not update
-    /// its TIER1 peerset yet.
+    /// its TIER1 peer set yet.
     ///
     /// A node that is syncing can be many epochs behind on blocks, though, so the accounts come
     /// from the latest header instead if it's ahead by two or more epochs.
