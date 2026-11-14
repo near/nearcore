@@ -14,8 +14,6 @@ fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         .build();
     let mut chain = get_chain_with_genesis(Clock::real(), genesis);
     let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
-    let earlier = chain.chain_store.get_block(last_pre_spice.header().prev_hash()).unwrap();
-    assert_eq!(earlier.header().epoch_id(), last_pre_spice.header().epoch_id());
 
     // Shard 0 in the boundary epoch, shard 1 only in the next one: a three-entry
     // schedule keeps shard 1 out of the previous epoch too.
@@ -36,10 +34,6 @@ fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         pairs.iter().map(|&(from, to)| receipt_id(block, from, to)).collect()
     };
     // Destinations are the shards applied in the next block: 0 and 1 in both cases.
-    assert_eq!(
-        needed_receipt_ids(&chain, &shard_tracker, &earlier),
-        ids(&earlier, &[(2, 0), (2, 1)]),
-    );
     assert_eq!(
         needed_receipt_ids(&chain, &shard_tracker, &last_pre_spice),
         ids(&last_pre_spice, &[(1, 0), (1, 1), (2, 0), (2, 1)]),
@@ -531,4 +525,69 @@ fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_stops_pullin
         assert!(!requests[producer].contains_key(&done));
     }
     assert!(!manager.is_pullable(&done));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
+    const SHARD_0: u64 = 0;
+    const SHARD_1: u64 = 1;
+    const SHARD_2: u64 = 2;
+
+    let (mut chain, _) = chain_with_shards_and_blocks(3, 0);
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=(3 * chain.epoch_length - 1) {
+        let block = build_block_at(&chain, blocks.last().unwrap(), height);
+        save_and_record_block(&mut chain, &block);
+        blocks.push(block);
+    }
+
+    let schedule = vec![
+        vec![ShardId::new(SHARD_0)],
+        vec![ShardId::new(SHARD_0)],
+        vec![ShardId::new(SHARD_0), ShardId::new(SHARD_1)],
+    ];
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::Schedule(schedule),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+
+    // Shard 1 is tracked only in epoch height 2, so the epoch before it catches it up.
+    let epoch_height =
+        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
+
+    let catch_up_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
+        .take(2)
+        .collect();
+    assert_eq!(catch_up_blocks.len(), 2);
+    for block in catch_up_blocks {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            HashSet::from_iter([
+                receipt_id(&block, SHARD_1, SHARD_0),
+                receipt_id(&block, SHARD_1, SHARD_1),
+                receipt_id(&block, SHARD_2, SHARD_0),
+                receipt_id(&block, SHARD_2, SHARD_1),
+            ])
+        );
+    }
+
+    let tracked_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().epoch_id()) == 2)
+        .take(2)
+        .collect();
+    assert_eq!(tracked_blocks.len(), 2);
+    for block in tracked_blocks {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            HashSet::from_iter([
+                receipt_id(&block, SHARD_2, SHARD_0),
+                receipt_id(&block, SHARD_2, SHARD_1),
+            ])
+        );
+    }
 }

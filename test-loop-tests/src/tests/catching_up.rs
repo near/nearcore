@@ -1,10 +1,13 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
 use near_async::messaging::{CanSend as _, Handler as _};
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess as _;
+use near_chain::near_chain_primitives::ApplyChunksMode;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::{ProcessTxRequest, Query};
 use near_network::types::NetworkRequests;
@@ -14,7 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
@@ -27,8 +30,6 @@ use std::rc::Rc;
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -41,8 +42,6 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
 // It causes all the receipts to be applied only on height 25, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: true,
@@ -52,8 +51,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_skip_24() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -64,8 +61,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_send_24() {
 
 // Make sure that transactions are at least applied.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -76,8 +71,6 @@ fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
 
 // Use another height to send txs.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn ultra_slow_test_catchup_random_single_part_sync_height_9() {
     test_catchup_random_single_part_sync_common(RandomSinglePartTest {
         skip_24: false,
@@ -266,6 +259,7 @@ fn test_catchup_random_single_part_sync_common(
             }
         }
     }
+    assert_execution_kept_up(&env);
 }
 
 /// Makes sure that consecutive blocks are produced by 12 validators split into three epochs.
@@ -274,8 +268,6 @@ fn test_catchup_random_single_part_sync_common(
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_catchup_sanity_blocks_produced() {
     let validators: Vec<Vec<AccountId>> = [
         vec!["test1.1", "test1.2", "test1.3", "test1.4"],
@@ -360,11 +352,10 @@ fn slow_test_catchup_sanity_blocks_produced() {
         },
         Duration::seconds(120),
     );
+    assert_execution_kept_up(&env);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_all_chunks_accepted() {
     init_test_logger();
 
@@ -447,4 +438,74 @@ fn slow_test_all_chunks_accepted() {
         },
         Duration::seconds(last_height as i64),
     );
+    assert_execution_kept_up(&env);
+}
+
+/// How far a node's execution head may fall behind its head at the end of a test.
+const MAX_EXECUTION_LAG: BlockHeight = 3;
+
+/// Asserts that every node's execution head is within `MAX_EXECUTION_LAG` blocks of its head, and
+/// that every node applied the shards it caught up.
+fn assert_execution_kept_up(env: &TestLoopEnv) {
+    for (idx, node_data) in env.node_datas.iter().enumerate() {
+        let node = env.node(idx);
+        let head = node.head().height;
+        let executed = node.last_executed().height;
+        assert!(
+            executed + MAX_EXECUTION_LAG >= head,
+            "execution of {} fell behind the head: head {head}, executed {executed}",
+            node_data.account_id
+        );
+    }
+    assert_caught_up_shards_applied(env);
+}
+
+/// Asserts that every node applied each shard it caught up for an epoch in every canonical block of
+/// that epoch after the epoch's first block, where spice syncs the shard, for the epochs its
+/// execution has moved past and garbage collection has not reached yet, and that there was at
+/// least one such shard to check.
+fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
+    if !cfg!(feature = "protocol_feature_spice") {
+        return;
+    }
+    let mut num_checked = 0;
+    for idx in 0..env.node_datas.len() {
+        let node = env.node(idx);
+        let client = node.client();
+        let chain_store = client.chain.chain_store();
+        let executed = node.last_executed();
+        for height in chain_store.tail() + 1..=executed.height {
+            let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+                continue;
+            };
+            let header = chain_store.get_block_header(&block_hash).unwrap();
+            // The epoch data of a parent at the garbage collection tail can be gone already.
+            let Ok(is_epoch_start) =
+                client.epoch_manager.is_next_block_epoch_start(header.prev_hash())
+            else {
+                continue;
+            };
+            if is_epoch_start || header.epoch_id() == &executed.epoch_id {
+                continue;
+            }
+            let shard_layout = client.epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
+            for shard_uid in shard_layout.shard_uids() {
+                if !client.shard_tracker.should_apply_chunk(
+                    ApplyChunksMode::OnlyCatchupShards,
+                    header.prev_hash(),
+                    shard_uid.shard_id(),
+                ) {
+                    continue;
+                }
+                num_checked += 1;
+                assert!(
+                    chain_store.get_chunk_extra(&block_hash, &shard_uid).is_ok(),
+                    "{} did not apply caught-up shard {} at height {height}",
+                    env.node_datas[idx].account_id,
+                    shard_uid.shard_id()
+                );
+            }
+        }
+    }
+    assert!(num_checked > 0, "no node caught up a shard in an epoch its execution moved past");
 }
