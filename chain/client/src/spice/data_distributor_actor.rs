@@ -225,6 +225,8 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
 pub struct SpiceDataDistributorAdapter {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
+    pub shard_final_execution_head: Sender<SpiceShardFinalExecutionHead>,
+    pub track_block_data: Sender<SpiceTrackBlockData>,
 }
 
 struct DataPartsEntry {
@@ -259,6 +261,21 @@ pub struct SpiceDistributorOutgoingReceipts {
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
     pub contract_accesses: HashSet<CodeHash>,
+}
+
+/// The final execution head of `shard_id` moved to `height`: the receipts into the shard from
+/// blocks below it are not needed.
+#[derive(Debug)]
+pub struct SpiceShardFinalExecutionHead {
+    pub shard_id: ShardId,
+    pub height: BlockHeight,
+}
+
+/// The chunk executor parked blocks again for a shard caught up for the next epoch: track again
+/// the data of `block_hashes`, the blocks whose receipts they apply, lowest first.
+#[derive(Debug)]
+pub struct SpiceTrackBlockData {
+    pub block_hashes: Vec<CryptoHash>,
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -393,6 +410,23 @@ impl Handler<SpiceChunkContractAccessesMessage> for SpiceDataDistributorActor {
 impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
     fn handle(&mut self, msg: SpiceContractCodeResponseMessage) {
         self.contract_code_response_validator_sender.send(msg);
+    }
+}
+
+impl Handler<SpiceShardFinalExecutionHead> for SpiceDataDistributorActor {
+    fn handle(
+        &mut self,
+        SpiceShardFinalExecutionHead { shard_id, height }: SpiceShardFinalExecutionHead,
+    ) {
+        self.data_manager.on_shard_final_execution_head(shard_id, height);
+    }
+}
+
+impl Handler<SpiceTrackBlockData> for SpiceDataDistributorActor {
+    fn handle(&mut self, SpiceTrackBlockData { block_hashes }: SpiceTrackBlockData) {
+        if let Err(err) = self.track_block_data_again(&block_hashes) {
+            tracing::error!(target: "spice_data_distribution", ?err, "failed to track again the data of blocks parked again");
+        }
     }
 }
 
@@ -1630,6 +1664,22 @@ impl SpiceDataDistributorActor {
 
     fn start_waiting_on_missing_data(&mut self) -> Result<(), Error> {
         let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        // The block after the head applies the head's receipts, so the head is handed over too,
+        // unless it is genesis, which is never processed, or a block before this node's sync
+        // point, which has a header only. The blocks below the head that a shard being caught up
+        // still applies come from the chunk executor, which parks them again, see
+        // `SpiceTrackBlockData`.
+        let block_hash = final_execution_head.last_block_hash;
+        if final_execution_head.height != self.chain_store.get_genesis_height()
+            && self.chain_store.block_exists(&block_hash)
+            && is_spice_or_last_pre_spice_block(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                &block_hash,
+            )?
+        {
+            self.process_block_in_data_manager(&block_hash);
+        }
         self.start_waiting_on_data_for_descendants(&final_execution_head)
     }
 
@@ -1667,12 +1717,46 @@ impl SpiceDataDistributorActor {
     /// Hands a processed block to the data manager, sends the pulls it asks for and delivers the
     /// data it decoded.
     fn process_block_in_data_manager(&mut self, block_hash: &CryptoHash) {
+        let output = self.data_manager.on_block_processed(block_hash, self.clock.now());
+        self.handle_data_manager_output(output);
+    }
+
+    /// Hands the data manager again `block_hashes`, whose data the chunk executor needs again, each
+    /// with the shards whose chunks of it the chain head has certified.
+    fn track_block_data_again(&mut self, block_hashes: &[CryptoHash]) -> Result<(), Error> {
+        let head = self.chain_store.head()?;
+        let uncertified_chunks = self.core_reader.get_uncertified_chunks(&head.last_block_hash)?;
+        for block_hash in block_hashes {
+            if !is_spice_or_last_pre_spice_block(
+                &self.chain_store,
+                self.epoch_manager.as_ref(),
+                block_hash,
+            )? {
+                continue;
+            }
+            let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            let certified_shards = shard_layout
+                .shard_ids()
+                .filter(|&shard_id| {
+                    let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
+                    uncertified_chunks.iter().all(|chunk_info| chunk_info.chunk_id != chunk_id)
+                })
+                .collect_vec();
+            let output =
+                self.data_manager.handle_block(block_hash, &certified_shards, self.clock.now());
+            self.handle_data_manager_output(output);
+        }
+        Ok(())
+    }
+
+    /// Sends the pull requests the data manager issued and delivers the data it decoded.
+    fn handle_data_manager_output(&self, output: ProcessedBlockOutput) {
         // TODO(spice): Allow requesting data without signer using route back. Until then the
         // manager records the requests below as outstanding on a node that cannot send them.
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
-        let ProcessedBlockOutput { pull_requests, decoded } =
-            self.data_manager.on_block_processed(block_hash, self.clock.now());
+        let ProcessedBlockOutput { pull_requests, decoded } = output;
         if let Some(requester) = me {
             self.send_pull_requests(requester, pull_requests);
         }

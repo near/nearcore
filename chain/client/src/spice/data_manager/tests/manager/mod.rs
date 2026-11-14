@@ -114,6 +114,14 @@ impl TestManager {
     }
 
     fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
+        Self::with_shard_tracker(chain, applying_shard_tracker(chain, shard), pull_config)
+    }
+
+    fn with_shard_tracker(
+        chain: &Chain,
+        shard_tracker: ShardTracker,
+        pull_config: PullConfig,
+    ) -> Self {
         let store = chain.chain_store.store();
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         Self {
@@ -121,7 +129,7 @@ impl TestManager {
                 pull_config,
                 store.chain_store(),
                 chain.epoch_manager.clone(),
-                applying_shard_tracker(chain, shard),
+                shard_tracker,
             ),
             clock: FakeClock::default(),
             store,
@@ -147,6 +155,11 @@ impl TestManager {
 
     fn set_final_execution_head(&self, block: &Block) {
         set_final_execution_head(&self.store, block);
+    }
+
+    /// Reports `block` as the final execution head of `shard`, as the chunk executor does.
+    fn set_shard_final_execution_head(&mut self, shard: u64, block: &Block) {
+        self.manager.on_shard_final_execution_head(ShardId::new(shard), block.header().height());
     }
 
     /// Writes `block` to the store as the consensus final head.
@@ -260,8 +273,13 @@ fn needed_receipt_ids(
     shard_tracker: &ShardTracker,
     block: &Block,
 ) -> HashSet<DataId> {
-    receipt_proof::needed_items(chain.epoch_manager.as_ref(), shard_tracker, block.header())
-        .unwrap()
-        .into_iter()
-        .collect()
+    receipt_proof::needed_items(
+        &chain.chain_store().chain_store(),
+        chain.epoch_manager.as_ref(),
+        shard_tracker,
+        block.header(),
+    )
+    .unwrap()
+    .into_iter()
+    .collect()
 }

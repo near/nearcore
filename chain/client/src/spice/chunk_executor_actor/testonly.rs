@@ -94,6 +94,8 @@ impl TestonlySyncChunkExecutorActor {
                 move |message| produced_receipt_proofs.write().push_back(message)
             }),
             witness: noop().into_sender(),
+            shard_final_execution_head: noop().into_sender(),
+            track_block_data: noop().into_sender(),
         };
         Self {
             actor: ChunkExecutorActor::new(
