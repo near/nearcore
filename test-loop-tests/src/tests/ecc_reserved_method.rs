@@ -46,7 +46,8 @@ fn ecc_method_tx(env: &TestLoopEnv, signer: &AccountId, contract: &AccountId) ->
 /// Test that the `ExternalContractCalls` protocol feature reserves the ECC method name. Before the
 /// upgrade, a `FunctionCall` action runs the method like any other. After it, the action fails,
 /// while a view call can still run the method.
-// TODO(ecc): Remove the protocol-upgrade part of this test once `ExternalContractCalls` is stabilized.
+// TODO(ecc): Remove the protocol-upgrade part of this test once protocol version 89 is below
+// `MIN_SUPPORTED_PROTOCOL_VERSION`.
 #[test]
 fn test_ecc_reserved_method_protocol_upgrade() {
     init_test_logger();
