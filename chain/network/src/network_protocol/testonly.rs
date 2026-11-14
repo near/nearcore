@@ -273,7 +273,7 @@ impl Chain {
                 let peer_id = make_peer_id(rng);
                 Arc::new(
                     make_account_data(rng, 1, clock.now_utc(), v.public_key(), peer_id)
-                        .sign(&v.clone().into())
+                        .sign(&v.clone().into(), Encoding::Proto)
                         .unwrap(),
                 )
             })
@@ -356,18 +356,30 @@ pub fn make_account_data(
     }
 }
 
-pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
+pub fn make_signed_account_data(
+    rng: &mut impl Rng,
+    clock: &time::Clock,
+    encoding: Encoding,
+) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let peer_id = make_peer_id(rng);
-    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
+    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id)
+        .sign(&signer, encoding)
+        .unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData
 impl SignedAccountData {
     pub(crate) fn payload_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.payload.payload
+        match &mut self.signature {
+            AccountKeySignature::Proto { payload, .. } => payload,
+            AccountKeySignature::Borsh(_) => panic!("data signed over borsh has no payload"),
+        }
     }
     pub(crate) fn signature_mut(&mut self) -> &mut near_crypto::Signature {
-        &mut self.payload.signature
+        match &mut self.signature {
+            AccountKeySignature::Proto { signature, .. }
+            | AccountKeySignature::Borsh(signature) => signature,
+        }
     }
 }

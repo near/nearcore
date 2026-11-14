@@ -43,6 +43,7 @@ mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
+use crate::config::NetworkTransitionConfig;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
@@ -292,7 +293,7 @@ pub const MAX_SHARDS_PER_SNAPSHOT_HOST_INFO: usize = 512;
 pub const MAX_TRACKED_SHARDS_PER_PEER: usize = 128;
 
 impl VersionedAccountData {
-    /// Serializes AccountData to proto and signs it using `signer`.
+    /// Serializes AccountData using `encoding` and signs it using `signer`.
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),
     /// as this would likely be a bug.
     /// Returns an error if the serialized data is too large to be broadcasted.
@@ -301,25 +302,34 @@ impl VersionedAccountData {
     /// due to account_id mismatch. Then instead of panicking we could return an error
     /// and the caller (who constructs the arguments) would do an unwrap(). This would
     /// constitute a cleaner never-panicking interface.
-    pub fn sign(self, signer: &ValidatorSigner) -> anyhow::Result<SignedAccountData> {
+    pub fn sign(
+        self,
+        signer: &ValidatorSigner,
+        encoding: Encoding,
+    ) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
             signer.public_key(),
             "AccountData.account_key doesn't match the signer's account_key"
         );
-        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
+        let signed_bytes = match encoding {
+            Encoding::Proto => proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap(),
+            Encoding::Borsh => self.borsh_signed_bytes(),
+        };
+        if signed_bytes.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
             anyhow::bail!(
                 "payload size = {}, max is {}",
-                payload.len(),
+                signed_bytes.len(),
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        let signature = signer.sign_bytes(&payload);
-        Ok(SignedAccountData {
-            account_data: self,
-            payload: AccountKeySignedPayload { payload, signature },
-        })
+        let signature = AccountKeySignature::new(encoding, signed_bytes, signer);
+        Ok(SignedAccountData { account_data: self, signature })
+    }
+
+    /// Bytes signed in `AccountKeySignature::Borsh`.
+    fn borsh_signed_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(&(ACCOUNT_DATA_SIGNATURE_DIFFERENTIATOR, self)).unwrap()
     }
 
     /// `timestamp` as UTC time.
@@ -335,23 +345,38 @@ impl std::ops::Deref for VersionedAccountData {
     }
 }
 
+/// Signature differentiators are prepended to the borsh encoding of the signed structs, which
+/// keeps their signatures from being valid for other data signed with the same account key.
+const ACCOUNT_DATA_SIGNATURE_DIFFERENTIATOR: &str = "AccountData";
+const OWNED_ACCOUNT_SIGNATURE_DIFFERENTIATOR: &str = "OwnedAccount";
+
+/// Signature of a struct, made with an account key.
 #[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
-pub struct AccountKeySignedPayload {
-    payload: Vec<u8>,
-    signature: near_crypto::Signature,
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+enum AccountKeySignature {
+    /// Signature of `payload`, the protobuf encoding of the struct. Protobuf encoding is not
+    /// canonical, so the encoding is kept: it is needed to verify the signature and to relay the
+    /// struct unchanged. The struct itself is kept as well, and it has to match the encoding.
+    Proto { payload: Vec<u8>, signature: Signature } = 0,
+    /// Signature of the borsh encoding of the struct, preceded by its signature differentiator.
+    Borsh(Signature) = 1,
 }
 
-impl AccountKeySignedPayload {
-    pub fn len(&self) -> usize {
-        self.payload.len()
+impl AccountKeySignature {
+    /// Signs `signed_bytes`, the encoding of the struct with `encoding`.
+    fn new(encoding: Encoding, signed_bytes: Vec<u8>, signer: &ValidatorSigner) -> Self {
+        let signature = signer.sign_bytes(&signed_bytes);
+        match encoding {
+            Encoding::Proto => Self::Proto { payload: signed_bytes, signature },
+            Encoding::Borsh => Self::Borsh(signature),
+        }
     }
-    pub fn signature(&self) -> &near_crypto::Signature {
-        &self.signature
-    }
-    fn verify(&self, key: &PublicKey) -> Result<(), ()> {
-        match self.signature.verify(&self.payload, key) {
-            true => Ok(()),
-            false => Err(()),
+
+    fn encoding(&self) -> Encoding {
+        match self {
+            Self::Proto { .. } => Encoding::Proto,
+            Self::Borsh(_) => Encoding::Borsh,
         }
     }
 }
@@ -362,9 +387,7 @@ impl AccountKeySignedPayload {
 #[derive(PartialEq, Eq, Debug, Hash, Clone, BorshSerialize, BorshDeserialize)]
 pub struct SignedAccountData {
     account_data: VersionedAccountData,
-    // Serialized and signed AccountData. It is kept together with the account data, so
-    // verifying the signature checks that it encodes the account data.
-    payload: AccountKeySignedPayload,
+    signature: AccountKeySignature,
 }
 
 impl std::ops::Deref for SignedAccountData {
@@ -375,18 +398,37 @@ impl std::ops::Deref for SignedAccountData {
 }
 
 impl SignedAccountData {
-    pub fn payload(&self) -> &AccountKeySignedPayload {
-        &self.payload
+    /// Encoding of the data covered by the signature.
+    pub fn encoding(&self) -> Encoding {
+        self.signature.encoding()
+    }
+
+    /// Size of the data covered by the signature, see `MAX_ACCOUNT_DATA_SIZE_BYTES`.
+    pub fn signed_len(&self) -> usize {
+        match &self.signature {
+            AccountKeySignature::Proto { payload, .. } => payload.len(),
+            AccountKeySignature::Borsh(_) => self.account_data.borsh_signed_bytes().len(),
+        }
     }
 
     /// Verifies the signature with the account key, and that it covers the account data.
-    pub fn verify(&self) -> Result<(), ()> {
-        if VersionedAccountData::from_proto_bytes(&self.payload.payload).ok().as_ref()
-            != Some(&self.account_data)
-        {
+    /// Data signed in an encoding which `transition_config` doesn't accept is invalid.
+    pub fn verify(&self, transition_config: &NetworkTransitionConfig) -> Result<(), ()> {
+        if !transition_config.accepts_signed_encoding(self.encoding()) {
             return Err(());
         }
-        self.payload.verify(&self.account_key)
+        let valid = match &self.signature {
+            AccountKeySignature::Proto { payload, signature } => {
+                // The signed protobuf bytes have to encode the account data.
+                VersionedAccountData::from_proto_bytes(payload).ok().as_ref()
+                    == Some(&self.account_data)
+                    && signature.verify(payload, &self.account_key)
+            }
+            AccountKeySignature::Borsh(signature) => {
+                signature.verify(&self.account_data.borsh_signed_bytes(), &self.account_key)
+            }
+        };
+        if valid { Ok(()) } else { Err(()) }
     }
 }
 
@@ -401,30 +443,33 @@ pub struct OwnedAccount {
 }
 
 impl OwnedAccount {
-    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Serializes OwnedAccount using `encoding` and signs it using `signer`.
     /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
     /// as this would likely be a bug.
-    pub fn sign(self, signer: &ValidatorSigner) -> SignedOwnedAccount {
+    pub fn sign(self, signer: &ValidatorSigner, encoding: Encoding) -> SignedOwnedAccount {
         assert_eq!(
             self.account_key,
             signer.public_key(),
             "OwnedAccount.account_key doesn't match the signer's account_key"
         );
-        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        let signature = signer.sign_bytes(&payload);
-        SignedOwnedAccount {
-            owned_account: self,
-            payload: AccountKeySignedPayload { payload, signature },
-        }
+        let signed_bytes = match encoding {
+            Encoding::Proto => proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap(),
+            Encoding::Borsh => self.borsh_signed_bytes(),
+        };
+        let signature = AccountKeySignature::new(encoding, signed_bytes, signer);
+        SignedOwnedAccount { owned_account: self, signature }
+    }
+
+    /// Bytes signed in `AccountKeySignature::Borsh`.
+    fn borsh_signed_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(&(OWNED_ACCOUNT_SIGNATURE_DIFFERENTIATOR, self)).unwrap()
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct SignedOwnedAccount {
     owned_account: OwnedAccount,
-    // Serialized and signed OwnedAccount. It is kept together with the owned account, so
-    // verifying the signature checks that it encodes the owned account.
-    payload: AccountKeySignedPayload,
+    signature: AccountKeySignature,
 }
 
 impl std::ops::Deref for SignedOwnedAccount {
@@ -435,18 +480,28 @@ impl std::ops::Deref for SignedOwnedAccount {
 }
 
 impl SignedOwnedAccount {
-    pub fn payload(&self) -> &AccountKeySignedPayload {
-        &self.payload
+    /// Encoding of the data covered by the signature.
+    pub fn encoding(&self) -> Encoding {
+        self.signature.encoding()
     }
 
     /// Verifies the signature with the account key, and that it covers the owned account.
-    pub fn verify(&self) -> Result<(), ()> {
-        if OwnedAccount::from_proto_bytes(&self.payload.payload).ok().as_ref()
-            != Some(&self.owned_account)
-        {
+    /// An owned account signed in an encoding which `transition_config` doesn't accept is invalid.
+    pub fn verify(&self, transition_config: &NetworkTransitionConfig) -> Result<(), ()> {
+        if !transition_config.accepts_signed_encoding(self.encoding()) {
             return Err(());
         }
-        self.payload.verify(&self.account_key)
+        let valid = match &self.signature {
+            AccountKeySignature::Proto { payload, signature } => {
+                // The signed protobuf bytes have to encode the owned account.
+                OwnedAccount::from_proto_bytes(payload).ok().as_ref() == Some(&self.owned_account)
+                    && signature.verify(payload, &self.account_key)
+            }
+            AccountKeySignature::Borsh(signature) => {
+                signature.verify(&self.owned_account.borsh_signed_bytes(), &self.account_key)
+            }
+        };
+        if valid { Ok(()) } else { Err(()) }
     }
 }
 

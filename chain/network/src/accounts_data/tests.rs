@@ -1,6 +1,6 @@
 use crate::accounts_data::*;
-use crate::network_protocol::SignedAccountData;
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::{Encoding, SignedAccountData};
 use crate::testonly::{AsSet as _, Rng, assert_is_superset, make_rng};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
@@ -17,7 +17,7 @@ fn make_account_data(
 ) -> SignedAccountData {
     let peer_id = data::make_peer_id(rng);
     data::make_account_data(rng, version, clock.now_utc(), signer.public_key(), peer_id)
-        .sign(&signer)
+        .sign(&signer, Encoding::Proto)
         .unwrap()
 }
 
@@ -45,7 +45,7 @@ async fn happy_path() {
     let e0 = Arc::new(data::make_account_keys(&signers[0..5]));
     let e1 = Arc::new(data::make_account_keys(&signers[2..7]));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(NetworkTransitionConfig::default()));
     assert_eq!(cache.load().data.values().count(), 0); // initially empty
     assert!(cache.set_keys(e0.clone()));
     assert_eq!(cache.load().data.values().count(), 0); // empty after initial set_keys.
@@ -109,7 +109,7 @@ async fn data_too_large() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(NetworkTransitionConfig::default()));
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
@@ -148,7 +148,7 @@ async fn invalid_signature() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(NetworkTransitionConfig::default()));
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let mut a1 = make_account_data(rng, &clock.clock(), 1, &signers[1]);
@@ -186,7 +186,7 @@ async fn single_account_multiple_data() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(NetworkTransitionConfig::default()));
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
@@ -219,7 +219,7 @@ async fn set_local() {
     let e0 = Arc::new(data::make_account_keys(&signers[0..2]));
     let e1 = Arc::new(data::make_account_keys(&signers[1..3]));
 
-    let cache = Arc::new(AccountDataCache::new());
+    let cache = Arc::new(AccountDataCache::new(NetworkTransitionConfig::default()));
     assert!(cache.set_keys(e0.clone()));
 
     // Set local while local.signer is in cache.keys.
@@ -281,4 +281,60 @@ async fn set_local() {
     };
     assert_eq!(None, cache.set_local(&clock.clock(), local));
     assert_eq!([&a1, &got].as_set(), cache.load().data.values().collect::<HashSet<_>>());
+}
+
+/// Data signed in an encoding which is not accepted is dropped, without treating the sender as
+/// malicious. The local data is signed in the configured encoding.
+#[tokio::test]
+async fn signed_encoding() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+    let clock = time::FakeClock::default();
+    let sign = |rng: &mut Rng, signer: &ValidatorSigner, encoding| {
+        let peer_id = data::make_peer_id(rng);
+        Arc::new(
+            data::make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id)
+                .sign(signer, encoding)
+                .unwrap(),
+        )
+    };
+
+    // (config, whether protobuf-signed data is accepted, whether borsh-signed data is accepted,
+    // encoding used to sign the local data)
+    let cases = [
+        (NetworkTransitionConfig::PROTOBUF_ONLY, true, false, Encoding::Proto),
+        (NetworkTransitionConfig::RELEASE_2_15, true, true, Encoding::Proto),
+        (NetworkTransitionConfig::RELEASE_2_16, true, true, Encoding::Borsh),
+        (NetworkTransitionConfig::RELEASE_2_17, false, true, Encoding::Borsh),
+    ];
+    for (transition, accepts_proto, accepts_borsh, signing_encoding) in cases {
+        let signers = make_signers(rng, 3);
+        let e = Arc::new(data::make_account_keys(&signers));
+        let cache = Arc::new(AccountDataCache::new(transition));
+        cache.set_keys(e);
+
+        let proto_signed = sign(rng, &signers[0], Encoding::Proto);
+        let borsh_signed = sign(rng, &signers[1], Encoding::Borsh);
+        let mut want = vec![];
+        if accepts_proto {
+            want.push(proto_signed.clone());
+        }
+        if accepts_borsh {
+            want.push(borsh_signed.clone());
+        }
+        let res = cache
+            .clone()
+            .insert(&clock.clock(), vec![proto_signed.clone(), borsh_signed.clone()])
+            .await;
+        assert_eq!(want.as_set(), unwrap(&res).as_set(), "{transition:?}");
+
+        let local = LocalAccountData {
+            signer: Arc::new(signers[2].clone().into()),
+            data: Arc::new(sign(rng, &signers[2], Encoding::Proto).data.clone()),
+        };
+        let got = cache.set_local(&clock.clock(), local).unwrap();
+        assert_eq!(got.encoding(), signing_encoding, "{transition:?}");
+        got.verify(&transition).unwrap();
+    }
 }

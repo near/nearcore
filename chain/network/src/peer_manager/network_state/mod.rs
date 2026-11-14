@@ -343,7 +343,7 @@ impl NetworkState {
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
-            accounts_data: Arc::new(AccountDataCache::new()),
+            accounts_data: Arc::new(AccountDataCache::new(config.transition)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(

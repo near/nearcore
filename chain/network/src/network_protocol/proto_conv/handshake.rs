@@ -1,9 +1,11 @@
 /// Conversion functions for `Handshake` messages.
 use super::*;
+use crate::network_protocol::Encoding;
 use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
 use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
+use near_o11y::log_assert_fail;
 use near_primitives::genesis::GenesisId;
 use protobuf::MessageField as MF;
 
@@ -103,7 +105,23 @@ impl From<&Handshake> for proto::Handshake {
             sender_listen_port: x.sender_listen_port.unwrap_or(0).into(),
             sender_chain_info: MF::some((&x.sender_chain_info).into()),
             partial_edge_info: MF::some((&x.partial_edge_info).into()),
-            owned_account: x.owned_account.as_ref().map(Into::into).into(),
+            owned_account: x
+                .owned_account
+                .as_ref()
+                .and_then(|a| {
+                    match a.encoding() {
+                        Encoding::Borsh => {
+                            // An owned account signed over its borsh encoding can't be expressed in
+                            // protobuf. A node sends only its own owned account, and a node which signs
+                            // with borsh doesn't send protobuf (see `NetworkConfig::verify`), so this
+                            // is a bug.
+                            log_assert_fail!("borsh-signed owned account in a protobuf handshake");
+                            None
+                        }
+                        Encoding::Proto => a.to_proto(),
+                    }
+                })
+                .into(),
             ..Self::default()
         }
     }
