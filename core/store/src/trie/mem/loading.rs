@@ -302,7 +302,7 @@ mod tests {
                 let serialized_node =
                     borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap();
                 let expected_serialized_node =
-                    trie.internal_retrieve_trie_node(&node_hash, false, opts).unwrap();
+                    trie.internal_retrieve_trie_node(&node_hash, opts).unwrap();
                 assert_eq!(&*expected_serialized_node, &serialized_node);
             }
         }

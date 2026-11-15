@@ -2650,8 +2650,8 @@ fn test_shared_trie_nodes_in_two_receipts_from_storage_proof() {
     // of `apply_state`, standing in for contract distribution.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     let proof = apply_result.proof.clone().unwrap();
-    let trie = Trie::from_recorded_storage(proof, root);
-    let replay_result = apply(trie.recording_reads_new_recorder(), &apply_state, &receipts);
+    let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
+    let replay_result = apply(trie, &apply_state, &receipts);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
     assert_eq!(replay_result.proof, apply_result.proof);

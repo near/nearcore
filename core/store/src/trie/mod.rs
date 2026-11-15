@@ -133,6 +133,11 @@ impl<'a> AccessOptions<'a> {
         Self { trie_node_counter: Some(trie_node_counter), enable_state_witness_recording: true }
     }
 
+    /// The same options, without counting trie nodes.
+    fn without_trie_node_counter(self) -> Self {
+        Self { trie_node_counter: None, ..self }
+    }
+
     fn count_trie_node(&self) {
         if let Some(counter) = self.trie_node_counter {
             counter.set(counter.get() + 1);
@@ -761,20 +766,13 @@ impl Trie {
 
     /// All access to trie nodes or values must go through this method, so it
     /// can be properly counted and recorded.
-    ///
-    /// count_node can be false to skip counting. This is used when we're
-    /// generating a state proof, but the value is supposed to fetched from
-    /// flat storage.
     fn internal_retrieve_trie_node(
         &self,
         hash: &CryptoHash,
-        count_node: bool,
         access_options: AccessOptions,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = self.storage.retrieve_raw_bytes(hash)?;
-        if count_node {
-            access_options.count_trie_node();
-        }
+        access_options.count_trie_node();
         if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
                 recorder.record(hash, result.clone());
@@ -810,7 +808,7 @@ impl Trie {
             GenericNodeOrIndex::Updated(h) => trie_update.get_node_ref(h).clone(),
             GenericNodeOrIndex::Old(h) => {
                 let raw_node = self
-                    .retrieve_raw_node(&h, false, AccessOptions::NO_SIDE_EFFECTS)
+                    .retrieve_raw_node(&h, AccessOptions::NO_SIDE_EFFECTS)
                     .expect("storage failure")
                     .expect("node cannot be Empty")
                     .1;
@@ -1046,7 +1044,7 @@ impl Trie {
 
         let opts = AccessOptions::DEFAULT;
 
-        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true, opts) {
+        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, opts) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
             Ok(None) => return writeln!(f, "{spaces}EmptyNode"),
             Err(err) => return writeln!(f, "{spaces}error {err}"),
@@ -1152,13 +1150,12 @@ impl Trie {
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
-        count_node: bool,
         operation_options: AccessOptions,
     ) -> Result<Option<(Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let bytes = self.internal_retrieve_trie_node(hash, count_node, operation_options)?;
+        let bytes = self.internal_retrieve_trie_node(hash, operation_options)?;
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
@@ -1173,7 +1170,7 @@ impl Trie {
         hash: &CryptoHash,
     ) -> Result<NodeOrValue, StorageError> {
         let op_opts = AccessOptions::DEFAULT;
-        let bytes = self.internal_retrieve_trie_node(hash, true, op_opts)?;
+        let bytes = self.internal_retrieve_trie_node(hash, op_opts)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
             Ok(_) => Ok(NodeOrValue::Node),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
@@ -1186,7 +1183,7 @@ impl Trie {
         hash: &CryptoHash,
         opts: AccessOptions,
     ) -> Result<StorageHandle, StorageError> {
-        match self.retrieve_raw_node(hash, true, opts)? {
+        match self.retrieve_raw_node(hash, opts)? {
             None => Ok(trie_update.store(UpdatedTrieStorageNodeWithSize::empty())),
             Some((_, node)) => {
                 let result = trie_update
@@ -1199,7 +1196,7 @@ impl Trie {
 
     pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {
         let opts = AccessOptions::DEFAULT;
-        match self.retrieve_raw_node(&self.root, true, opts)? {
+        match self.retrieve_raw_node(&self.root, opts)? {
             None => Ok(StateRootNode::empty()),
             Some((bytes, node)) => {
                 Ok(StateRootNode { data: bytes, memory_usage: node.memory_usage })
@@ -1233,8 +1230,9 @@ impl Trie {
             // as they are needed to prove the value. Also, it's important that this lookup
             // is done even if the key was not found, because intermediate trie nodes may be
             // needed to prove the non-existence of the key.
+            let options = operation_options.without_trie_node_counter();
             let value_ref_from_trie =
-                self.lookup_from_state_column(NibbleSlice::new(key), false, operation_options)?;
+                self.lookup_from_state_column(NibbleSlice::new(key), options)?;
             debug_assert_eq!(
                 &value_ref_from_trie,
                 &value.as_ref().map(|value| value.to_value_ref())
@@ -1246,18 +1244,14 @@ impl Trie {
     /// Looks up the given key by walking the trie nodes stored in the
     /// `DBCol::State` column in the database (but still going through
     /// applicable caches).
-    ///
-    /// The `count_nodes` parameter controls whether the
-    /// lookup incurs any gas.
     fn lookup_from_state_column(
         &self,
         mut key: NibbleSlice<'_>,
-        count_nodes: bool,
         operation_options: AccessOptions,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, count_nodes, operation_options)? {
+            let node = match self.retrieve_raw_node(&hash, operation_options)? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
@@ -1308,15 +1302,12 @@ impl Trie {
     /// to the state column. This method will return whichever the in-memory trie has.
     /// Refer to `get_optimized_ref` for the semantics of using the returned type.
     ///
-    /// `count_nodes` is used to control whether Trie node accesses are counted for TTN.
-    ///
     /// The storage of memtries and the data therein are behind a lock, as thus unlike many other
     /// functions here, the access to the value reference is provided as an argument to the
     /// `map_result` closure.
     fn lookup_from_memory<R: 'static>(
         &self,
         key: &[u8],
-        count_nodes: bool,
         access_options: AccessOptions,
         map_result: impl FnOnce(ValueView<'_>) -> R,
     ) -> Result<Option<R>, StorageError> {
@@ -1325,13 +1316,13 @@ impl Trie {
         }
 
         let lock = self.memtries.as_ref().unwrap().read();
-        let mem_value = if count_nodes || access_options.enable_state_witness_recording {
+        let mem_value = if access_options.trie_node_counter.is_some()
+            || access_options.enable_state_witness_recording
+        {
             let mut accessed_nodes = Vec::new();
             let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
             for node_view in accessed_nodes {
-                if count_nodes {
-                    access_options.count_trie_node();
-                }
+                access_options.count_trie_node();
                 if access_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
                         recorder.record_with(&node_view.node_hash(), || {
@@ -1382,7 +1373,7 @@ impl Trie {
         // The rest of the logic is very similar to the standard lookup() function, except
         // we return the raw node and don't expect to hit a leaf.
         let opts = AccessOptions::DEFAULT;
-        let mut node = self.retrieve_raw_node(&self.root, true, opts)?;
+        let mut node = self.retrieve_raw_node(&self.root, opts)?;
         while !key.is_empty() {
             match node {
                 Some((_, raw_node)) => match raw_node.node {
@@ -1394,7 +1385,7 @@ impl Trie {
                         let child = children[key.at(0)];
                         match child {
                             Some(child) => {
-                                node = self.retrieve_raw_node(&child, true, opts)?;
+                                node = self.retrieve_raw_node(&child, opts)?;
                                 key = key.mid(1);
                             }
                             None => return Ok(None),
@@ -1403,7 +1394,7 @@ impl Trie {
                     RawTrieNode::Extension(existing_key, child) => {
                         let existing_key = NibbleSlice::from_encoded(&existing_key).0;
                         if key.starts_with(&existing_key) {
-                            node = self.retrieve_raw_node(&child, true, opts)?;
+                            node = self.retrieve_raw_node(&child, opts)?;
                             key = key.mid(existing_key.len());
                         } else {
                             return Ok(None);
@@ -1426,7 +1417,7 @@ impl Trie {
         hash: &CryptoHash,
         opts: AccessOptions,
     ) -> Result<Vec<u8>, StorageError> {
-        let bytes = self.internal_retrieve_trie_node(hash, true, opts)?;
+        let bytes = self.internal_retrieve_trie_node(hash, opts)?;
         Ok(bytes.to_vec())
     }
 
@@ -1448,9 +1439,10 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<bool, StorageError> {
-        let count_nodes = mode == KeyLookupMode::MemOrTrie;
+        let opts =
+            if mode == KeyLookupMode::MemOrTrie { opts } else { opts.without_trie_node_counter() };
         if self.memtries.is_some() {
-            return Ok(self.lookup_from_memory(key, count_nodes, opts, |_| ())?.is_some());
+            return Ok(self.lookup_from_memory(key, opts, |_| ())?.is_some());
         }
 
         'flat: {
@@ -1462,14 +1454,15 @@ impl Trie {
                 // as they are needed to prove the value. Also, it's important that this lookup
                 // is done even if the key was not found, because intermediate trie nodes may be
                 // needed to prove the non-existence of the key.
+                let opts = opts.without_trie_node_counter();
                 let value_ref_from_trie =
-                    self.lookup_from_state_column(NibbleSlice::new(key), false, opts)?;
+                    self.lookup_from_state_column(NibbleSlice::new(key), opts)?;
                 debug_assert_eq!(&value_ref_from_trie.is_some(), &value);
             }
             return Ok(value);
         }
 
-        Ok(self.lookup_from_state_column(NibbleSlice::new(key), count_nodes, opts)?.is_some())
+        Ok(self.lookup_from_state_column(NibbleSlice::new(key), opts)?.is_some())
     }
 
     /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
@@ -1489,14 +1482,15 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
-        let count_nodes = mode == KeyLookupMode::MemOrTrie;
+        let opts =
+            if mode == KeyLookupMode::MemOrTrie { opts } else { opts.without_trie_node_counter() };
         if self.memtries.is_some() {
-            self.lookup_from_memory(key, count_nodes, opts, |v| v.to_optimized_value_ref())
+            self.lookup_from_memory(key, opts, |v| v.to_optimized_value_ref())
         } else if mode == KeyLookupMode::MemOrFlatOrTrie && self.flat_storage_chunk_view.is_some() {
             self.lookup_from_flat_storage(key, opts)
         } else {
             Ok(self
-                .lookup_from_state_column(NibbleSlice::new(key), count_nodes, opts)?
+                .lookup_from_state_column(NibbleSlice::new(key), opts)?
                 .map(OptimizedValueRef::Ref))
         }
     }

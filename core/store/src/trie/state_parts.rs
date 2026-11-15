@@ -488,7 +488,7 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<TrieStorageNodeWithSize, StorageError> {
-        let node = self.retrieve_raw_node(hash, true, AccessOptions::DEFAULT)?;
+        let node = self.retrieve_raw_node(hash, AccessOptions::DEFAULT)?;
         Ok(match node.map(|node| node.1) {
             Some(node) => TrieStorageNodeWithSize::from_raw_trie_node_with_size(node),
             None => Default::default(),
