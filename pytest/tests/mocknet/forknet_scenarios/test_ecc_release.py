@@ -17,7 +17,9 @@ class TestEccRelease(TestSetup):
         - Short epochs and an upgrade vote pinned at 9999/10000, so the
           protocol upgrade lands as soon as every block producer runs the
           new binary.
-        - Binary rolled out in 4 batches, `upgrade_interval_minutes` apart.
+        - Binary rolled out in 4 batches, `upgrade_interval_minutes` apart, starting
+          `upgrade_delay_minutes` after the test starts, which leaves time to test
+          external calls before the upgrade and while the network runs both versions.
 
     Required arguments:
         - neard_binary_url: The URL of the starting neard binary.
@@ -34,8 +36,8 @@ class TestEccRelease(TestSetup):
         self.has_archival = True
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"
 
-        self.upgrade_interval_minutes = 5
-        self.upgrade_delay_minutes = 20
+        self.upgrade_interval_minutes = 10
+        self.upgrade_delay_minutes = 90
 
     def amend_epoch_config(self):
         super().amend_epoch_config()
