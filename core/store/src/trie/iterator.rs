@@ -44,7 +44,7 @@ impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTri
         ptr: TrieStorageNodePtr,
         opts: AccessOptions,
     ) -> Result<TrieStorageNodeWithSize, StorageError> {
-        let Some((bytes, node)) = self.trie.retrieve_raw_node(&ptr, true, opts)? else {
+        let Some((bytes, node)) = self.trie.retrieve_raw_node(&ptr, opts)? else {
             return Ok(Default::default());
         };
         if opts.enable_state_witness_recording {

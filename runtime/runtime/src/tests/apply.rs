@@ -2591,7 +2591,7 @@ fn trie_node_gas(outcome: &ExecutionOutcomeWithId) -> (Gas, Gas) {
 /// the same outcomes, gas included, state root and proof.
 ///
 /// Reads charge trie nodes only when the trie counts them for every lookup mode, as without flat
-/// storage, so both tries here do.
+/// storage. Both tries here do: the replay's because its proof says flat storage wasn't used.
 #[test]
 fn test_same_key_in_two_receipts_from_storage_proof() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -2654,9 +2654,8 @@ fn test_same_key_in_two_receipts_from_storage_proof() {
     // of `apply_state`, standing in for contract distribution.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     let proof = apply_result.proof.clone().unwrap();
-    let mut trie = Trie::from_recorded_storage(proof, root, false);
-    trie.set_use_trie_accounting_cache(true);
-    let replay_result = apply(trie.recording_reads_new_recorder(), &apply_state, &receipts);
+    let trie = Trie::from_recorded_storage(proof, root, false).recording_reads_new_recorder();
+    let replay_result = apply(trie, &apply_state, &receipts);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
     assert_eq!(replay_result.proof, apply_result.proof);
