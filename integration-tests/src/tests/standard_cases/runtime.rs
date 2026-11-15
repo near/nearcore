@@ -351,24 +351,24 @@ fn test_contract_write_key_value_cost_runtime() {
 }
 
 #[test]
-fn test_accounting_cache_same_common_parent() {
+fn test_trie_nodes_common_parent_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().runtime_config.clone();
-    test_accounting_cache_common_parent(node, runtime_config);
+    test_trie_nodes_common_parent(node, runtime_config);
 }
 
 #[test]
-fn test_accounting_cache_branch_value_runtime() {
+fn test_trie_nodes_branch_value_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().runtime_config.clone();
-    test_accounting_cache_branch_value(node, runtime_config);
+    test_trie_nodes_branch_value(node, runtime_config);
 }
 
 #[test]
-fn test_accounting_cache_mode_runtime() {
+fn test_trie_nodes_deploy_between_calls_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().runtime_config.clone();
-    test_accounting_cache_mode(node, runtime_config);
+    test_trie_nodes_deploy_between_calls(node, runtime_config);
 }
 
 #[test]

@@ -686,7 +686,6 @@ pub(crate) fn run_external_call(
         apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
-        Arc::clone(&apply_state.trie_access_tracker_state),
         // The per-receipt storage proof limit counts from the start of the run. The recording
         // budget set around the run caps it far lower.
         None,

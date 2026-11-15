@@ -23,15 +23,12 @@ pub(super) struct CacheStats {
     /// Sum of all storage writes sizes. (can only be from inside guest program)
     total_size_write: u64,
 
-    /// Hits in the accounting cache. (can only be from inside guest program)
-    num_tn_accounting_cache_hit: u64,
     /// Hits in the shard cache, from inside guest program.
     num_tn_shard_cache_hit_guest: u64,
     /// Misses in the shard cache, from inside guest program.
     num_tn_shard_cache_miss_guest: u64,
-    /// All trie node accesses that the user pays for as being fetched from DB.
-    /// Includes shard cache misses and hits, but no accounting cache hits.
-    num_tn_db_paid: u64,
+    /// All trie node accesses that the user pays for.
+    num_tn_charged: u64,
 
     /// Hits in the shard cache, requested by host.
     num_tn_shard_cache_hit_host: u64,
@@ -75,10 +72,6 @@ impl CacheStats {
             .get("tn_db_reads")
             .map(|s| s.parse().unwrap())
             .context("no tn_db_reads on storage op")?;
-        let mut tn_mem_reads: u64 = dict
-            .get("tn_mem_reads")
-            .map(|s| s.parse().unwrap())
-            .context("no tn_mem_reads on storage op")?;
 
         let tn_shard_cache_hits =
             dict.get("shard_cache_hit").map(|s| s.parse().unwrap()).unwrap_or(0);
@@ -92,14 +85,11 @@ impl CacheStats {
                 self.num_read += 1;
                 self.total_size_read += size;
                 // We are currently counting one node too little, see
-                // https://github.com/near/nearcore/issues/6225. But we don't
-                // know where, could be either tn_db_reads or tn_mem_reads. But
-                // we know that tn_db_reads = shard_cache_hits +
-                // shard_cache_misses. So we can correct for it here.
+                // https://github.com/near/nearcore/issues/6225. But we know
+                // that tn_db_reads = shard_cache_hits + shard_cache_misses. So
+                // we can correct for it here.
                 if tn_db_reads < tn_shard_cache_misses + tn_shard_cache_hits {
                     tn_db_reads += 1;
-                } else {
-                    tn_mem_reads += 1;
                 }
                 debug_assert_eq!(tn_db_reads, tn_shard_cache_misses + tn_shard_cache_hits)
             }
@@ -110,9 +100,8 @@ impl CacheStats {
             _ => {}
         }
 
-        self.num_tn_accounting_cache_hit += tn_mem_reads;
         self.num_tn_shard_cache_hit_guest += tn_shard_cache_hits;
-        self.num_tn_db_paid += tn_db_reads;
+        self.num_tn_charged += tn_db_reads;
         self.num_tn_shard_cache_too_large += tn_shard_cache_too_large;
         self.num_tn_shard_cache_miss_guest += tn_shard_cache_misses;
 
@@ -132,7 +121,6 @@ impl CacheStats {
         let tn_shard_cache_too_large =
             dict.get("shard_cache_too_large").map(|s| s.parse().unwrap()).unwrap_or(0);
 
-        // there is no accounting cache update here, as we are not in a smart contract execution
         self.num_tn_shard_cache_hit_host += tn_shard_cache_hits;
         self.num_tn_shard_cache_too_large += tn_shard_cache_too_large;
         self.num_tn_shard_cache_miss_host += tn_shard_cache_misses;
@@ -161,9 +149,9 @@ impl CacheStats {
         )?;
         writeln!(
             out,
-            "{:indent$}TRIE NODES (guest) {:>4} /{:>4} /{:>4}  (chunk-cache/shard-cache/DB)",
+            "{:indent$}TRIE NODES (guest) {:>4} /{:>4} /{:>4}  (charged/shard-cache/DB)",
             "",
-            self.num_tn_accounting_cache_hit,
+            self.num_tn_charged,
             self.num_tn_shard_cache_hit_guest,
             self.num_tn_shard_cache_miss_guest
         )?;
@@ -179,15 +167,6 @@ impl CacheStats {
             self.num_tn_shard_cache_hit_guest + self.num_tn_shard_cache_hit_host,
             self.num_tn_shard_cache_miss_guest + self.num_tn_shard_cache_miss_host,
             Some((self.num_tn_shard_cache_too_large, "too large nodes")),
-        )?;
-        // TODO(#9054): Rename this to ACCOUNTING CACHE.
-        Self::print_cache_rate(
-            out,
-            indent,
-            "CHUNK CACHE",
-            self.num_tn_accounting_cache_hit,
-            self.num_tn_db_paid,
-            None,
         )?;
         Ok(())
     }

@@ -246,8 +246,6 @@ pub struct ApplyState {
     pub vm_generation: VmGeneration,
     /// Cache for compiled contracts.
     pub cache: Option<Box<dyn ContractRuntimeCache>>,
-    /// Cache for trie node accesses.
-    pub trie_access_tracker_state: Arc<ext::AccountingState>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
     /// Whether to record receipt-to-transaction origin mappings.
@@ -299,7 +297,6 @@ impl ApplyState {
             next_wasm_config: None,
             vm_generation,
             cache,
-            trie_access_tracker_state: Default::default(),
             is_new_chunk: true,
             save_receipt_to_tx: false,
             congestion_info: BlockCongestionInfo::default(),

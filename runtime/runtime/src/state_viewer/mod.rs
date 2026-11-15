@@ -543,7 +543,6 @@ impl TrieViewer {
             save_receipt_to_tx: false,
             congestion_info: Default::default(),
             bandwidth_requests: BlockBandwidthRequests::empty(),
-            trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         };
         let function_call = FunctionCallAction {
@@ -586,7 +585,6 @@ impl TrieViewer {
             view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
-            Arc::clone(&apply_state.trie_access_tracker_state),
             None,
         );
         let context = function_call_context(

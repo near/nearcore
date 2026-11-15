@@ -230,11 +230,8 @@ impl IoTraceLayer {
                     .unwrap_or_else(|| String::from("?"));
                 let size = FormattedSize(visitor.size);
                 let tn_db_reads = visitor.tn_db_reads.unwrap();
-                let tn_mem_reads = visitor.tn_mem_reads.unwrap();
 
-                let span_info = format!(
-                    "{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}"
-                );
+                let span_info = format!("{storage_op} key={key}{size} tn_db_reads={tn_db_reads}");
 
                 let span =
                     ctx.event_span(event).expect("storage operations must happen inside span");
@@ -256,7 +253,6 @@ struct IoEventVisitor {
     size: Option<u64>,
     evicted_len: Option<u64>,
     tn_db_reads: Option<u64>,
-    tn_mem_reads: Option<u64>,
 }
 
 impl tracing::field::Visit for IoEventVisitor {
@@ -265,7 +261,6 @@ impl tracing::field::Visit for IoEventVisitor {
             "size" => self.size = Some(value),
             "evicted_len" => self.evicted_len = Some(value),
             "tn_db_reads" => self.tn_db_reads = Some(value),
-            "tn_mem_reads" => self.tn_mem_reads = Some(value),
             _ => { /* Ignore other values, likely they are used in logging. */ }
         }
     }

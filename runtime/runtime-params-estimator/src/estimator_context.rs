@@ -28,7 +28,6 @@ use near_store::flat::{
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
-use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -211,7 +210,6 @@ impl<'c> EstimatorContext<'c> {
             save_receipt_to_tx: false,
             congestion_info,
             bandwidth_requests: BlockBandwidthRequests::empty(),
-            trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         }
     }
@@ -366,23 +364,7 @@ impl Testbed<'_> {
         assert_eq!(block_latency, extra_blocks);
     }
 
-    pub(crate) fn trie_caching_storage(&self) -> TrieCachingStorage {
-        let store = self.tries.store();
-        let is_view = false;
-        let prefetcher = None;
-        let caching_storage = TrieCachingStorage::new(
-            store,
-            TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
-            ShardUId::single_shard(),
-            is_view,
-            prefetcher,
-        );
-        caching_storage
-    }
-
-    pub(crate) fn clear_caches(&mut self) {
-        // Clear trie access tracker state
-        self.apply_state.trie_access_tracker_state = Default::default();
+    pub(crate) fn clear_caches(&self) {
         // Flush out writes hanging in memtable
         self.tries.store().store().flush();
 

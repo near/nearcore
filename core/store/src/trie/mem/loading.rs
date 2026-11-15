@@ -215,12 +215,12 @@ mod tests {
         TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
         test_populate_trie,
     };
+    use crate::trie::AccessOptions;
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::memtrie_update::TrackingMode;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
     use crate::trie::update::TrieUpdateResult;
-    use crate::trie::{AccessOptions, AccessTracker};
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
@@ -230,6 +230,7 @@ mod tests {
     use near_primitives::types::{StateChangeCause, StateRoot};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
+    use std::cell::Cell;
     use std::thread::Builder;
 
     fn check_maybe_parallelize(keys: Vec<Vec<u8>>, parallelize: bool) {
@@ -270,17 +271,6 @@ mod tests {
             false,
         ));
 
-        #[derive(Debug, Default)]
-        struct Tracker(std::cell::Cell<u64>);
-        impl AccessTracker for Tracker {
-            fn track_mem_lookup(&self, _: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
-                None
-            }
-
-            fn track_disk_lookup(&self, _: CryptoHash, _: std::sync::Arc<[u8]>) {
-                self.0.set(self.0.get() + 1);
-            }
-        }
         let trie = trie_update.trie();
         let root = in_memory_trie.get_root(&state_root).unwrap();
         let opts = AccessOptions::DEFAULT;
@@ -296,12 +286,12 @@ mod tests {
 
             // Do another access with the trie to see how many nodes we're supposed to
             // have accessed.
-            let trk = Tracker::default();
-            let track_opts = AccessOptions { trie_access_tracker: &trk, ..AccessOptions::DEFAULT };
+            let nodes_counted = Cell::new(0);
+            let track_opts = AccessOptions::contract_runtime(&nodes_counted);
             let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
             temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, track_opts).unwrap();
             assert_eq!(
-                trk.0.get(),
+                nodes_counted.get(),
                 nodes_accessed.len() as u64,
                 "Number of accessed nodes does not equal number of trie nodes along the way"
             );

@@ -644,19 +644,6 @@ pub enum Cost {
     /// the longest key. The gas estimation difference is divided by the
     /// difference of actually touched nodes.
     TouchingTrieNode,
-    /// It is similar to `TouchingTrieNode`, but it is charged instead of this
-    /// cost when we can guarantee that trie node is cached in memory, which
-    /// allows us to charge less costs.
-    ///
-    /// Estimation: Since this is a small cost, it cannot be measured accurately
-    /// through the normal process of measuring several transactions and
-    /// calculating the difference. Instead, the estimation directly
-    /// instantiates the caching storage and reads nodes of the largest possible
-    /// size from it. This is done in a pessimistic setup and the 90th
-    /// percentile of measured samples is taken as the final cost. The details
-    /// for this are a bit involved but roughly speaking, it just forces values
-    /// out of CPU caches so that they are always read from memory.
-    ReadCachedTrieNode,
     /// Estimates the cost of accessing a trie node by iterating the trie and
     /// dividing the total cost by the number of nodes accessed.
     ///

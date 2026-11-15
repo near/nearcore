@@ -58,7 +58,7 @@ use near_primitives::receipt::{
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
-use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
+use near_primitives::test_utils::{MockEpochInfoProvider, account_new, encode};
 use near_primitives::transaction::{
     AddKeyAction, CreateAccountAction, DeleteKeyAction, DeployContractAction, ECC_METHOD_NAME,
     EccTransaction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -230,7 +230,6 @@ fn setup_runtime_for_shard(
         save_receipt_to_tx: false,
         congestion_info,
         bandwidth_requests: BlockBandwidthRequests::empty(),
-        trie_access_tracker_state: Default::default(),
         on_post_state_ready: None,
     };
 
@@ -2565,14 +2564,97 @@ fn test_apply_eccs_from_storage_proof() {
     // The storage proof doesn't include contract code. Validators get it through contract
     // distribution; here the replay finds it in the compiled-contract cache of `apply_state`.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
-    // A validator applies the chunk with fresh trie access accounting, like any apply. Reusing
-    // the first run's would count its trie reads as cached in the gas profiles.
-    apply_state.trie_access_tracker_state = Default::default();
     let proof = apply_result.proof.clone().unwrap();
     let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
     let replay_result = apply(trie, &apply_state);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
+}
+
+/// The gas `outcome` charged for trie nodes, as `touching_trie_node` and as
+/// `read_cached_trie_node`.
+fn trie_node_gas(outcome: &ExecutionOutcomeWithId) -> (Gas, Gas) {
+    let profile = match &outcome.outcome.metadata {
+        ExecutionMetadata::V3(profile) => profile.as_ref(),
+        ExecutionMetadata::V4(v4) => &v4.profile,
+        metadata => panic!("no gas profile in {metadata:?}"),
+    };
+    (
+        profile.get_ext_cost(ExtCosts::touching_trie_node),
+        profile.get_ext_cost(ExtCosts::read_cached_trie_node),
+    )
+}
+
+/// Two receipts in one chunk write two contract keys whose paths share trie nodes. The second is
+/// charged for the shared nodes as `touching_trie_node`, although the first already touched them.
+/// A validator replaying the chunk from its storage proof alone gets the same outcomes, gas
+/// included, state root and proof.
+#[test]
+fn test_shared_trie_nodes_in_two_receipts_from_storage_proof() {
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1_000),
+    );
+    let receipt =
+        |actions| create_receipt_with_actions(alice_account(), signers[0].clone(), actions);
+    let call = |method: &str, args: &[u64]| {
+        receipt(vec![Action::function_call(method, encode(args), Gas::from_teragas(100))])
+    };
+    let apply = |trie: Trie, apply_state: &ApplyState, receipts: &[Receipt]| {
+        runtime
+            .apply(
+                trie,
+                &None,
+                apply_state,
+                receipts,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let apply_and_commit = |root, receipts: &[Receipt]| {
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+        let apply_result = apply(trie, &apply_state, receipts);
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
+        store_update.commit();
+        root
+    };
+    let code = near_test_contracts::rs_contract().to_vec();
+    let root = apply_and_commit(root, &[receipt(vec![DeployContractAction { code }.into()])]);
+    let root = apply_and_commit(
+        root,
+        &[call("write_key_value", &[1, 10]), call("write_key_value", &[2, 10])],
+    );
+
+    let receipts = [call("write_key_value", &[1, 20]), call("write_key_value", &[2, 20])];
+    apply_state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
+    let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+    let apply_result = apply(trie.recording_reads_new_recorder(), &apply_state, &receipts);
+    let [first, second] = apply_result.outcomes.as_slice() else { panic!("expected two outcomes") };
+    assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_matches!(second.outcome.status, ExecutionStatus::SuccessValue(_));
+    let (first_touched, first_cached) = trie_node_gas(first);
+    assert!(first_touched > Gas::ZERO);
+    assert_eq!(first_cached, Gas::ZERO);
+    assert_eq!(trie_node_gas(second), (first_touched, Gas::ZERO));
+
+    // The proof doesn't include contract code. The replay finds it in the compiled-contract cache
+    // of `apply_state`, standing in for contract distribution.
+    apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
+    let proof = apply_result.proof.clone().unwrap();
+    let trie = Trie::from_recorded_storage(proof, root);
+    let replay_result = apply(trie.recording_reads_new_recorder(), &apply_state, &receipts);
+    assert_eq!(replay_result.outcomes, apply_result.outcomes);
+    assert_eq!(replay_result.state_root, apply_result.state_root);
+    assert_eq!(replay_result.proof, apply_result.proof);
 }
 
 /// The key of entry `index` of the contract data in the recording budget tests: `index` as 8
@@ -2865,10 +2947,7 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
             .unwrap()
     };
 
-    // Fresh trie access accounting, as every apply has: the setup's would count some of the
-    // chunk's trie reads as cached.
     apply_state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
-    apply_state.trie_access_tracker_state = Default::default();
     let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
     let apply_result = apply(trie.recording_reads_new_recorder(), &apply_state);
 
@@ -2882,11 +2961,10 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
     let PartialState::TrieValues(nodes) = &proof.nodes;
     assert!(nodes.iter().all(|node| hash(node) != hash(&large)), "the large value is in the proof");
 
-    // A validator replays the chunk from the proof, recording its reads as every apply does,
-    // with fresh trie access accounting. The contract code isn't in the proof: the replay finds
-    // it in the compiled-contract cache of `apply_state`, standing in for contract distribution.
+    // A validator replays the chunk from the proof, recording its reads as every apply does. The
+    // contract code isn't in the proof: the replay finds it in the compiled-contract cache of
+    // `apply_state`, standing in for contract distribution.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
-    apply_state.trie_access_tracker_state = Default::default();
     let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
     let replay_result = apply(trie, &apply_state);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
@@ -2937,9 +3015,6 @@ fn apply_eccs_under_shares(
     for (account_id, data) in data {
         root = set_contract_data(&tries, root, &account_id, data);
     }
-    // Fresh trie access accounting, as every apply has: the setup's would count some of the
-    // chunk's trie reads as cached.
-    apply_state.trie_access_tracker_state = Default::default();
     change_apply_state(&mut apply_state);
     let transactions = callees
         .iter()
@@ -3025,7 +3100,6 @@ fn test_apply_ecc_refused_for_state_init_counts_toward_compute_share() {
     let contracts = vec![funded_ecc_contract(&bob_account(), ecc_accepting_contract())];
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
         setup_ecc_contracts(contracts);
-    apply_state.trie_access_tracker_state = Default::default();
     let gas_limit = apply_state.gas_limit.unwrap();
     let config = Arc::make_mut(&mut apply_state.config);
     config.external_calls_config.chunk_compute_share = tiny_share(gas_limit.as_gas());
@@ -3122,7 +3196,6 @@ fn test_apply_ecc_refused_past_storage_proof_share() {
 
     // A validator replays the chunk from the proof alone.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
-    apply_state.trie_access_tracker_state = Default::default();
     let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
     let transactions: Vec<TransactionEnvelope> = callees
         .iter()
@@ -7666,7 +7739,6 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         save_receipt_to_tx: false,
         congestion_info: BlockCongestionInfo::new(shards_congestion_info),
         bandwidth_requests: BlockBandwidthRequests::empty(),
-        trie_access_tracker_state: Default::default(),
         on_post_state_ready: None,
     };
 
@@ -9539,7 +9611,6 @@ mod self_signed_state_init {
             save_receipt_to_tx: false,
             congestion_info: BlockCongestionInfo::new(shards_congestion_info),
             bandwidth_requests: BlockBandwidthRequests::empty(),
-            trie_access_tracker_state: Default::default(),
             on_post_state_ready: None,
         };
         (runtime, tries, root, apply_state, epoch_info_provider)

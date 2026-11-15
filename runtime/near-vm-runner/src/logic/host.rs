@@ -5133,7 +5133,7 @@ fn read_and_parse_account_id(
 ///
 /// If a value was evicted it costs additional `storage_write_evicted_byte * num_evicted_bytes + internal_write_register_cost`.
 ///
-/// It also charges `touching_trie_node` or `read_cached_trie_node` for each trie node read on the
+/// It also charges `touching_trie_node` for each trie node read on the
 /// key's path.
 pub fn storage_write(
     ctx: &mut HostCtx,
@@ -5315,7 +5315,7 @@ pub fn storage_read(
 /// `base + storage_remove_base + storage_remove_key_byte * num_key_bytes + storage_remove_ret_value_byte * num_value_bytes
 /// + cost to read the key + cost to write the value`.
 ///
-/// It also charges `touching_trie_node` or `read_cached_trie_node` for each trie node read on the
+/// It also charges `touching_trie_node` for each trie node read on the
 /// key's path, also when the key is not present.
 pub fn storage_remove(
     ctx: &mut HostCtx,
