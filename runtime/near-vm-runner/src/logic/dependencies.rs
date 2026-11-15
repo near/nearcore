@@ -62,15 +62,10 @@ pub(super) mod sealed {
 /// The trait is sealed and is only implementable by types inside the the contract runtime
 /// implementation.
 pub trait StorageAccessTracker: sealed::StorageAccessTrackerSeal {
-    /// Indicate to the contract runtime that a trie node in database has been touched.
+    /// Indicate to the contract runtime that trie nodes or values have been touched.
     ///
     /// Calling this method will charge the `touching_trie_node` fee.
     fn trie_node_touched(&mut self, count: u64) -> Result<()>;
-
-    /// Indicate to the contract runtime that a cached trie node has been accessed.
-    ///
-    /// Calling this method will charge the `read_cached_trie_node` fee.
-    fn cached_trie_node_access(&mut self, count: u64) -> Result<()>;
 
     /// Indicate to the contract runtime that the specified number of storage bytes are being
     /// dereferenced as a result of a previous value being evicted during write.

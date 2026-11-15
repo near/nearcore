@@ -256,7 +256,7 @@ apply_transactions shard_id=0
                 input
                 register_len
                 read_register
-                storage_read READ key=StorageKey0 size=1000 tn_db_reads=20 tn_mem_reads=0 shard_cache_hit=19 shard_cache_miss=1
+                storage_read READ key=StorageKey0 size=1000 tn_db_reads=20 shard_cache_hit=19 shard_cache_miss=1
                     GET State "'stateKey7'" size=5
             process_receipt receipt_id=id3 predecessor=utiha.near receiver=alice.near id=id3 shard_cache_miss=0 shard_cache_hit=15
             GET State "'stateKey8'" size=300
@@ -270,7 +270,7 @@ GET State "'stateKey10'" size=500
     }
 
     #[test]
-    fn test_accounting_cache_stats() {
+    fn test_chunk_cache_stats() {
         check_replay_mode(ReplayMode::ChunkCacheStats);
     }
 

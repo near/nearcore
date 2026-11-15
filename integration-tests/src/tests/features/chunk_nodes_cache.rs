@@ -13,7 +13,6 @@ use near_primitives::transaction::{Action, ExecutionMetadata, SignedTransaction}
 use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
-use near_store::trie::TrieNodesCount;
 
 fn process_transaction(
     env: &mut TestEnv,
@@ -51,12 +50,7 @@ fn process_transaction(
     tx_hash
 }
 
-/// NOTE: The comment below is no longer valid as we are now only checking for the latest protocol version.
-///
-/// Compare charged node accesses before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
-/// This upgrade during chunk processing saves each node for which we charge touching trie node cost to a special
-/// accounting cache (used to be called "chunk cache"), and such cost is charged only once on the first access.
-/// This effect doesn't persist across chunks.
+/// Checks that trie node accesses are charged per access, with no per-chunk cache.
 ///
 /// We run the same transaction 4 times and compare resulting costs. This transaction writes two different key-value
 /// pairs to the contract storage.
@@ -66,10 +60,8 @@ fn process_transaction(
 /// (Extension) -> (Branch) -> (Extension) -> (Branch) |
 ///                                                    --> (Leaf) -> (Value 2)
 ///
-/// 2nd run should count 12 regular db reads - for 6 nodes per each value, because protocol is not upgraded yet.
-/// 3nd run follows the upgraded protocol and it should count 8 db and 4 memory reads, which comes from 6 db reads
-/// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the accounting
-/// cache. 4nd run should give the same results, because caching must not affect different chunks.
+/// Later runs should count 12 nodes: 6 nodes per value, although the first 4 nodes are the same for both values.
+/// No access is charged as `read_cached_trie_node`.
 #[test]
 fn compare_node_counts() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -91,14 +83,12 @@ fn compare_node_counts() {
     );
 
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
-    let tx_node_counts: Vec<TrieNodesCount> = (0..4)
+    let tx_node_counts: Vec<u64> = (0..4)
         .map(|i| {
             let runtime_config =
                 env.clients[0].runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
             let touching_trie_node_cost: Gas =
                 runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node);
-            let read_cached_trie_node_cost: Gas =
-                runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::read_cached_trie_node);
             let num_blocks = if i < 1 { num_blocks } else { 2 * epoch_length };
             let tx_hash = process_transaction(&mut env, &signer, num_blocks, PROTOCOL_VERSION);
 
@@ -116,23 +106,12 @@ fn compare_node_counts() {
                 ExecutionMetadata::V3(profile_data) => *profile_data,
                 ExecutionMetadata::V4(v4) => v4.profile,
             };
-            TrieNodesCount {
-                db_reads: {
-                    let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
-                    assert_eq!(cost.as_gas() % touching_trie_node_cost.as_gas(), 0);
-                    cost.checked_div(touching_trie_node_cost.as_gas()).unwrap().as_gas()
-                },
-                mem_reads: {
-                    let cost = profile_data.get_ext_cost(ExtCosts::read_cached_trie_node);
-                    assert_eq!(cost.as_gas() % read_cached_trie_node_cost.as_gas(), 0);
-                    cost.checked_div(read_cached_trie_node_cost.as_gas()).unwrap().as_gas()
-                },
-            }
+            assert_eq!(profile_data.get_ext_cost(ExtCosts::read_cached_trie_node), Gas::ZERO);
+            let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
+            assert_eq!(cost.as_gas() % touching_trie_node_cost.as_gas(), 0);
+            cost.checked_div(touching_trie_node_cost.as_gas()).unwrap().as_gas()
         })
         .collect();
 
-    assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 2, mem_reads: 2 });
-    assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+    assert_eq!(tx_node_counts, [4, 12, 12, 12]);
 }

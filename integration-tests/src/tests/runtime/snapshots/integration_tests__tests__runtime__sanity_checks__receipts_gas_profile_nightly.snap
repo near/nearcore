@@ -153,11 +153,6 @@ snapshot_kind: text
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
-            cost: "READ_CACHED_TRIE_NODE",
-            gas_used: 4560000000,
-        },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
             cost: "READ_MEMORY_BASE",
             gas_used: 187910150400,
         },
@@ -259,7 +254,7 @@ snapshot_kind: text
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "TOUCHING_TRIE_NODE",
-            gas_used: 4560000000,
+            gas_used: 9120000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

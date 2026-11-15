@@ -58,9 +58,6 @@ impl StorageAccessTracker for FreeGasCounter {
     fn trie_node_touched(&mut self, _: u64) -> Result<()> {
         Ok(())
     }
-    fn cached_trie_node_access(&mut self, _: u64) -> Result<()> {
-        Ok(())
-    }
     fn deref_write_evicted_value_bytes(&mut self, _: u64) -> Result<()> {
         Ok(())
     }
@@ -404,10 +401,6 @@ impl StorageAccessTrackerSeal for GasCounter {}
 impl StorageAccessTracker for GasCounter {
     fn trie_node_touched(&mut self, count: u64) -> Result<()> {
         self.pay_per(ExtCosts::touching_trie_node, count)
-    }
-
-    fn cached_trie_node_access(&mut self, count: u64) -> Result<()> {
-        self.pay_per(ExtCosts::read_cached_trie_node, count)
     }
 
     fn deref_write_evicted_value_bytes(&mut self, bytes: u64) -> Result<()> {

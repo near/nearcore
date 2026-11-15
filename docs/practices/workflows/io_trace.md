@@ -124,7 +124,7 @@ apply_transactions shard_id=3
         input 
         register_len 
         read_register 
-        storage_read READ key='STATE' size=70 tn_db_reads=20 tn_mem_reads=0 shard_cache_hit=21
+        storage_read READ key='STATE' size=70 tn_db_reads=20 shard_cache_hit=21
         register_len 
         read_register 
         attached_deposit 
@@ -133,13 +133,13 @@ apply_transactions shard_id=3
         read_register 
         sha256 
         read_register 
-        storage_read READ key=dAAxagYMOEb01+56sl9vOM0yHbZRPSaYSL3zBXIfCOi7ow== size=16 tn_db_reads=10 tn_mem_reads=19 shard_cache_hit=11
+        storage_read READ key=dAAxagYMOEb01+56sl9vOM0yHbZRPSaYSL3zBXIfCOi7ow== size=16 tn_db_reads=29 shard_cache_hit=11
           GET FlatState "CXRva2VuLnN3ZWF0LHQAMWoGDDhG9NfuerJfbzjNMh22UT0mmEi98wVyHwjou6M=" size=36
         register_len 
         read_register 
         sha256 
         read_register 
-        storage_write WRITE key=dAAxagYMOEb01+56sl9vOM0yHbZRPSaYSL3zBXIfCOi7ow== size=16 tn_db_reads=0 tn_mem_reads=30
+        storage_write WRITE key=dAAxagYMOEb01+56sl9vOM0yHbZRPSaYSL3zBXIfCOi7ow== size=16 tn_db_reads=30
         ...
 ```
 
@@ -201,7 +201,7 @@ receipt.
     input 
     register_len 
     read_register 
-    storage_read READ key='STATE' size=70 tn_db_reads=20 tn_mem_reads=0 shard_cache_hit=21
+    storage_read READ key='STATE' size=70 tn_db_reads=20 shard_cache_hit=21
     register_len 
     read_register 
 ```
@@ -217,10 +217,9 @@ check the function call arguments and copies it from a register into WASM
 memory.
 
 Then the SDK reads the serialized contract state from the hardcoded key
-`"STATE"`. Note that we charge 20 `tn_db_reads` for it, since we missed the
-accounting cache, but we hit everything in the shard cache. Thus, there are no DB
-requests. If there were DB requests for this `tn_db_reads`, you would see them
-listed.
+`"STATE"`. Note that we charge 20 `tn_db_reads` for it, and we hit everything in
+the shard cache. Thus, there are no DB requests. If there were DB requests for
+this `tn_db_reads`, you would see them listed.
 
 The returned 70 bytes are again copied into WASM memory. Knowing the SDK code a
 little bit, we can guess that the data is then deserialized into the struct used
@@ -236,10 +235,10 @@ The `sha256` call here is used to shorten implicit account ids.
 
 <!-- cspell:words Sweatcoin -->
 Afterwards, a value with 16 bytes (a `u128`) is fetched from the trie state.
-To serve this, it required reading 30 trie nodes, 19 of them were cached in the
-accounting cache and were not charged the full gas cost. And the remaining 11
-missed the accounting cache but they hit the shard cache. Nothing needed to be
-fetched from DB because the Sweatcoin specific prefetcher has already loaded
+To serve this, it required reading 29 trie nodes, each charged as
+`touching_trie_node`. 11 of them hit the shard cache, and the trace was recorded
+with an older binary that served the other 18 from a per-chunk cache. Nothing
+needed to be fetched from DB because the Sweatcoin specific prefetcher has already loaded
 everything into the shard cache.
 
 *Note: We see trie node requests despite flat state being used. This is because
@@ -253,7 +252,7 @@ flat state to do some correctness checks.*
     read_register 
     sha256 
     read_register 
-    storage_read READ key=dAAxagYMOEb01+56sl9vOM0yHbZRPSaYSL3zBXIfCOi7ow== size=16 tn_db_reads=10 tn_mem_reads=19 shard_cache_hit=11
+    storage_read READ key=dAAxagYMOEb01+56sl9vOM0yHbZRPSaYSL3zBXIfCOi7ow== size=16 tn_db_reads=29 shard_cache_hit=11
         GET FlatState "CXRva2VuLnN3ZWF0LHQAMWoGDDhG9NfuerJfbzjNMh22UT0mmEi98wVyHwjou6M=" size=36
 ```
 
