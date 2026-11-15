@@ -491,7 +491,14 @@ impl Client {
             pending_approvals: lru::LruCache::new(
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
-            sync_handler: SyncHandler::new(config, epoch_sync, header_sync, state_sync, block_sync),
+            sync_handler: SyncHandler::new(
+                config,
+                epoch_sync,
+                header_sync,
+                state_sync,
+                block_sync,
+                rng_seed,
+            ),
             catchup_state_syncs: HashMap::new(),
             state_sync_future_spawner,
             chain_sender_for_state_sync,
@@ -1219,18 +1226,15 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// A height that fails this test cannot change the sync decision, so it needs no proof.
-    pub(crate) fn peer_height_requires_sync(
-        &self,
-        peer_height: BlockHeight,
-        head_height: BlockHeight,
-    ) -> bool {
+    /// A peer must advertise above this height to start or continue sync. A height at
+    /// or below it cannot change the sync decision, so it needs no proof.
+    pub(crate) fn sync_trigger_height(&self, head_height: BlockHeight) -> BlockHeight {
         let threshold = if self.sync_handler.sync_status.is_syncing() {
             0
         } else {
             self.config.sync_height_threshold
         };
-        peer_height > head_height + threshold
+        head_height + threshold
     }
 
     /// Record `peer_id`'s verified height if the relayed block's approvals verify as
@@ -1240,7 +1244,7 @@ impl Client {
         let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
         self.verified_peer_heights.prune_at_or_below(head_height);
         let height = block.header().height();
-        if !self.peer_height_requires_sync(height, head_height) {
+        if height <= self.sync_trigger_height(head_height) {
             return;
         }
         self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
@@ -1732,14 +1736,21 @@ impl Client {
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
-        self.chain.sync_block_headers(headers)?;
+        let head_before = self.chain.head().unwrap();
+        let header_head_before = self.chain.header_head().unwrap();
+
+        // sync_block_headers can move the head even if it fails halfway through the batch.
+        let result = self.chain.sync_block_headers(headers);
+
         let head = self.chain.head().unwrap();
         let header_head = self.chain.header_head().unwrap();
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-            head: Tip::clone(&head),
-            header_head: Tip::clone(&header_head),
-        });
-        Ok(())
+        if head != head_before || header_head != header_head_before {
+            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+                head: Tip::clone(&head),
+                header_head: Tip::clone(&header_head),
+            });
+        }
+        result
     }
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
@@ -2634,6 +2645,8 @@ impl Client {
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts);
+
+                        self.catchup_state_syncs.remove(&sync_hash);
                     }
                 }
             }
@@ -2737,6 +2750,24 @@ impl Client {
         Ok(account_keys)
     }
 
+    /// The TIER1 accounts to feed to PeerManager. They normally come from the last processed
+    /// block, `head`. That is important because a validator which is still processing the final
+    /// blocks of an epoch while the header head has moved into the next one should not update
+    /// its TIER1 peer set yet.
+    ///
+    /// A node that is syncing can be many epochs behind on blocks, though, so the accounts come
+    /// from the latest header instead if it's ahead by two or more epochs.
+    fn get_network_tier1_accounts(&mut self, head: &Tip) -> Result<Arc<AccountKeys>, Error> {
+        let header_head = self.chain.header_head()?;
+        if header_head.epoch_id == head.epoch_id || header_head.epoch_id == head.next_epoch_id {
+            return self.get_tier1_accounts(head);
+        }
+        self.get_tier1_accounts(&header_head).or_else(|err| {
+            tracing::debug!(target: "client", ?err, "tier1 accounts of header head are not known yet");
+            self.get_tier1_accounts(head)
+        })
+    }
+
     /// We send the optimistic block to the chunk producers of the current and next epochs.
     pub(crate) fn get_optimistic_block_targets(
         &mut self,
@@ -2791,7 +2822,7 @@ impl Client {
             // and if the issue described above has been resolved.
             vec![]
         };
-        let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        let tier1_accounts = self.get_network_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.send(SetChainInfo(ChainInfo {
             block,

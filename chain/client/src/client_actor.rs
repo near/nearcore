@@ -20,6 +20,7 @@ use crate::stateless_validation::chunk_validation_actor::{
 };
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
+use crate::sync::header::MAX_BLOCK_HEADERS;
 use crate::sync::peers::{PeerAdvertisedHead, SyncPeers};
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
@@ -67,7 +68,7 @@ use near_network::client::{
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
 };
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::Tip;
@@ -75,7 +76,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
@@ -324,6 +325,8 @@ pub struct ClientActor {
     sync_timer_next_attempt: near_async::time::Utc,
     sync_started: bool,
     sync_jobs_sender: SyncJobsSenderForClient,
+    /// Epoch of the latest block header, as last reported to the network.
+    reported_header_head_epoch_height: Option<EpochHeight>,
 
     /// The target block height we're waiting for during fast-forward.
     /// Some iff sandbox fast forward is in progress.
@@ -469,6 +472,7 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             sync_started: false,
+            reported_header_head_epoch_height: None,
             #[cfg(feature = "sandbox")]
             fastforward_target_height: None,
             shutdown_signal,
@@ -664,6 +668,16 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
 impl Handler<SpanWrapped<BlockHeadersResponse>, Result<(), ReasonForBan>> for ClientActor {
     fn handle(&mut self, msg: SpanWrapped<BlockHeadersResponse>) -> Result<(), ReasonForBan> {
         let BlockHeadersResponse(headers, peer_id) = msg.span_unwrap();
+        if headers.len() > MAX_BLOCK_HEADERS as usize {
+            tracing::warn!(
+                target: "client",
+                num_headers = headers.len(),
+                max_headers = MAX_BLOCK_HEADERS,
+                ?peer_id,
+                "received more block headers than requested"
+            );
+            return Err(ReasonForBan::Abusive);
+        }
         if self.receive_headers(headers, peer_id) {
             Ok(())
         } else {
@@ -726,7 +740,7 @@ impl Handler<SpanWrapped<StateRequestUpdateMessage>> for ClientActor {
             return;
         }
 
-        tracing::error!(target: "sync", ?hash, "state sync received hash that we're not expecting, potential malicious peer or a very delayed response");
+        tracing::debug!(target: "sync", ?hash, %peer_id, "state sync received hash that we're not expecting, potential malicious peer or a very delayed response");
     }
 }
 
@@ -1680,7 +1694,7 @@ impl ClientActor {
 
     /// Check whether need to (continue) sync.
     /// Also return the height to sync to, from a peer or from our own header head.
-    fn syncing_info(&mut self) -> Result<SyncRequirement, near_chain::Error> {
+    fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
         if self.adv.disable_header_sync() {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
         }
@@ -1690,8 +1704,8 @@ impl ClientActor {
 
         let from_peers = if self.head_is_stale(&head)? {
             // Head hasn't advanced in ~1 epoch: we really are behind (a peer can't
-            // fake this), so use the unvalidated claimed heights to pick who to sync
-            // from; the proof and downstream checks re-validate the target.
+            // fake this), so use the unvalidated claimed heights to decide how far
+            // behind we are; the proof and downstream checks re-validate the target.
             self.sync_requirement_from_claimed_peers(head.clone())?
         } else {
             // Head is recent, so we still know the validator set for nearby heights
@@ -1764,14 +1778,17 @@ impl ClientActor {
     /// Sync decision from unverified advertised heights. Used only once our own
     /// clock already shows we are behind.
     fn sync_requirement_from_claimed_peers(
-        &mut self,
+        &self,
         head: Tip,
     ) -> Result<SyncRequirement, near_chain::Error> {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let eligible_peers = self.peers_advertising_above(head.height);
         let now = self.clock.now_utc();
-        let selector = &mut self.client.sync_handler.peer_selector;
-        let Some(peer_info) = selector.pick(&eligible_peers, now) else {
+        let selector = &self.client.sync_handler.peer_selector;
+        let trigger_height = self.client.sync_trigger_height(head.height);
+        let Some(peer_info) =
+            selector.sync_target_from_claimed_peers(&eligible_peers, trigger_height, now)
+        else {
             return Ok(SyncRequirement::NoPeers);
         };
         let peer_id = peer_info.peer_info.id.clone();
@@ -1824,7 +1841,7 @@ impl ClientActor {
         highest_height: BlockHeight,
         head: Tip,
     ) -> SyncRequirement {
-        if self.client.peer_height_requires_sync(highest_height, head.height) {
+        if highest_height > self.client.sync_trigger_height(head.height) {
             SyncRequirement::SyncNeeded {
                 source: HighestHeightSource::Peer(peer_id),
                 highest_height,
@@ -1904,7 +1921,7 @@ impl ClientActor {
         now + delay
     }
 
-    fn sync_wait_period(&mut self) -> Duration {
+    fn sync_wait_period(&self) -> Duration {
         if let Ok(sync) = self.syncing_info() {
             if !sync.sync_needed() {
                 // If we don't need syncing - retry the sync call rarely.
@@ -1933,6 +1950,11 @@ impl ClientActor {
             }
         };
         self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
+        let highest_height = match &sync {
+            SyncRequirement::SyncNeeded { highest_height, .. }
+            | SyncRequirement::AlreadyCaughtUp { highest_height, .. } => Some(*highest_height),
+            SyncRequirement::NoPeers | SyncRequirement::AdvHeaderSyncDisabled => None,
+        };
 
         match sync {
             SyncRequirement::AlreadyCaughtUp { .. }
@@ -1952,6 +1974,48 @@ impl ClientActor {
 
                 self.handle_sync_needed(highest_height);
             }
+        }
+
+        if let Some(highest_height) = highest_height {
+            self.report_header_head_epoch(highest_height);
+        }
+    }
+
+    /// Reports the epoch of the latest block header to the network once header sync has brought
+    /// it within an epoch of `highest_height`, and again whenever that epoch changes. Headers
+    /// are verified, so the network can rely on this epoch to discard snapshot host infos that
+    /// claim epochs which don't exist yet. The epoch of the last processed block can't serve:
+    /// on a node that is still syncing it lags the network by many epochs.
+    fn report_header_head_epoch(&mut self, highest_height: BlockHeight) {
+        let header_head = match self.client.chain.header_head() {
+            Ok(header_head) => header_head,
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, "failed to read header head");
+                return;
+            }
+        };
+        // Within an epoch of the tip, the latest header is at most one epoch behind the network,
+        // which is the slack the network allows for infos ahead of the reported epoch.
+        if header_head.height.saturating_add(self.client.chain.epoch_length) < highest_height {
+            return;
+        }
+        let epoch_height = match self.client.epoch_manager.get_epoch_info(&header_head.epoch_id) {
+            Ok(epoch_info) => epoch_info.epoch_height(),
+            Err(err) => {
+                tracing::debug!(target: "sync", ?err, "epoch of header head is not known yet");
+                return;
+            }
+        };
+        if self.reported_header_head_epoch_height == Some(epoch_height) {
+            return;
+        }
+        self.reported_header_head_epoch_height = Some(epoch_height);
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::SnapshotHostEvent(SnapshotHostEvent::ChainProgressed { epoch_height }),
+        ));
+        // Until we start processing blocks, the TIER1 accounts are derived from the header head.
+        if let Err(err) = self.client.send_network_chain_info() {
+            tracing::error!(target: "client", ?err, "failed to update network chain info");
         }
     }
 

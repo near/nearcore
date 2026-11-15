@@ -51,6 +51,13 @@ impl Stream {
         self.write_frames(msg.serialize_with_encoding(self.encoding)).await;
     }
 
+    /// Writes `msg` only in the encoding of the stream, even if it is the initial handshake, like
+    /// a node which accepts a single encoding.
+    pub async fn write_single_encoding(&mut self, msg: &PeerMessage) {
+        self.first_message = false;
+        self.write_frames(msg.serialize_with_encoding(self.encoding)).await;
+    }
+
     async fn write_frames(&mut self, frames: PeerMessageFrames) {
         if let Some(header) = frames.header {
             self.write_encoded(&header).await;

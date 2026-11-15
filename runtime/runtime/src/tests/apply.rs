@@ -51,7 +51,7 @@ use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV3, AuthorizationContext, DataReceipt,
+    ActionReceipt, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion, DataReceipt,
     GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptOrigin,
     ReceiptOriginTransaction, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0,
 };
@@ -1447,7 +1447,9 @@ fn test_apply_ecc_promise() {
             refund_to: None,
             authorization_context: AuthorizationContext::ExternalContractCall,
             gas_price: receipt_gas_price,
-            creation_protocol_version: apply_state.current_protocol_version,
+            creation_protocol_version: CreationProtocolVersion(
+                apply_state.current_protocol_version
+            ),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::function_call("who", vec![], CAROL_CALL_GAS)],
@@ -1554,7 +1556,9 @@ fn test_apply_ecc_promise_unused_gas_refund() {
                 refund_to: None,
                 authorization_context: AuthorizationContext::ExternalContractCall,
                 gas_price: Balance::ZERO,
-                creation_protocol_version: apply_state.current_protocol_version,
+                creation_protocol_version: CreationProtocolVersion(
+                    apply_state.current_protocol_version
+                ),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -3860,7 +3864,8 @@ fn test_apply_eccs_before_the_feature_get_outcomes() {
     }
 }
 
-/// What apply skips is found before anything is read from the state: a repeat of a hash.
+/// What apply skips is found before anything is read from the state: a repeat of a hash, and a
+/// transaction routed to another shard.
 #[test]
 fn test_find_skipped_transactions() {
     let signer = InMemorySigner::test_signer(&alice_account());
@@ -3877,7 +3882,21 @@ fn test_find_skipped_transactions() {
     let ecc = EccTransaction::new(bob_account(), vec![1]);
     let txs = [transfer1.clone().into(), ecc.into(), transfer1.into(), transfer2.into()];
 
-    assert_eq!(find_skipped_transactions(&txs), vec![false, false, true, false]);
+    assert_eq!(find_skipped_transactions(&txs, None), vec![false, false, true, false]);
+
+    // Alice and bob are in different shards. In alice's shard the ECC to bob is skipped, and in
+    // bob's shard the transfers alice signed are.
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let bob_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, alice_shard))),
+        vec![false, true, true, false]
+    );
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, bob_shard))),
+        vec![true, false, true, true]
+    );
 }
 
 #[test]
@@ -7944,6 +7963,101 @@ fn test_duplicate_transaction_in_chunk_skipped() {
     assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
 }
 
+/// Transactions of a chunk of alice's shard, where bob is in another shard: a transfer alice
+/// signed, a transfer bob signed, an ECC to alice and an ECC to bob.
+struct ForeignShardChunk {
+    /// The height of the block the chunk is applied in.
+    block_height: BlockHeight,
+    alice_transfer: SignedTransaction,
+    bob_transfer: SignedTransaction,
+    alice_ecc: EccTransaction,
+    bob_ecc: EccTransaction,
+}
+
+/// Applies a `ForeignShardChunk` in alice's shard at `protocol_version`.
+fn apply_foreign_shard_chunk(
+    protocol_version: ProtocolVersion,
+) -> (ForeignShardChunk, ApplyResult) {
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let shard_uid = ShardUId::new(3, alice_shard);
+    let alice_signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![alice_signer.clone()])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
+    );
+    apply_state.current_protocol_version = protocol_version;
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    let bob_signer = InMemorySigner::test_signer(&bob_account());
+    let transfer = |signer_id: AccountId, receiver_id: AccountId, signer: &Signer| {
+        let amount = Balance::from_near(1);
+        let block_hash = CryptoHash::default();
+        SignedTransaction::send_money(1, signer_id, receiver_id, signer, amount, block_hash)
+    };
+    let chunk = ForeignShardChunk {
+        block_height: apply_state.block_height,
+        alice_transfer: transfer(alice_account(), bob_account(), alice_signer.as_ref()),
+        bob_transfer: transfer(bob_account(), alice_account(), &bob_signer),
+        alice_ecc: EccTransaction::new(alice_account(), vec![1]),
+        bob_ecc: EccTransaction::new(bob_account(), vec![2]),
+    };
+    let transactions: Vec<TransactionEnvelope> = vec![
+        chunk.bob_transfer.clone().into(),
+        chunk.bob_ecc.clone().into(),
+        chunk.alice_transfer.clone().into(),
+        chunk.alice_ecc.clone().into(),
+    ];
+    let num_transactions = transactions.len();
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    (chunk, apply_result)
+}
+
+#[test]
+fn test_transactions_routed_to_another_shard_are_skipped_with_no_outcome() {
+    let (chunk, apply_result) =
+        apply_foreign_shard_chunk(ProtocolFeature::SkipForeignShardTransactions.protocol_version());
+
+    let outcome_ids = apply_result.outcomes.iter().map(|outcome| outcome.id).collect::<Vec<_>>();
+    assert_eq!(
+        outcome_ids,
+        vec![
+            chunk.alice_transfer.get_hash(),
+            create_ecc_outcome_id(chunk.alice_ecc.hash(), chunk.block_height)
+        ]
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_transaction_routed_to_another_shard_fails_with_an_outcome_before_the_skip() {
+    let feature_version = ProtocolFeature::SkipForeignShardTransactions.protocol_version();
+    let (chunk, apply_result) = apply_foreign_shard_chunk(feature_version - 1);
+
+    let bob_outcome = &apply_result.outcomes[0];
+    assert_eq!(bob_outcome.id, chunk.bob_transfer.get_hash());
+    assert_eq!(
+        bob_outcome.outcome.status,
+        ExecutionStatus::Failure(
+            InvalidTxError::InvalidSignerId { signer_id: bob_account().to_string() }.into()
+        )
+    );
+    assert_eq!(apply_result.outcomes.len(), 4);
+}
+
 #[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -11319,7 +11433,7 @@ fn pinned_receipt(gas_price: Balance, actions: Vec<Action>) -> Receipt {
         refund_to: None,
         authorization_context: AuthorizationContext::AccessKey(signer_public_key),
         gas_price,
-        creation_protocol_version: PINNED_CREATION_VERSION,
+        creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
         output_data_receivers: vec![],
         input_data_ids: vec![],
         actions,
@@ -11473,7 +11587,7 @@ fn test_pin_receipt_fees_delegate_action() {
     assert_matches!(
         inner_receipt.receipt(),
         ReceiptEnum::ActionV3(ActionReceiptV3 {
-            creation_protocol_version: PINNED_CREATION_VERSION,
+            creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
             ..
         })
     );
@@ -11513,7 +11627,7 @@ fn test_pin_receipt_fees_transaction_records_creation_version() {
     assert_matches!(
         receipt.receipt(),
         ReceiptEnum::ActionV3(ActionReceiptV3 {
-            creation_protocol_version: PINNED_CREATION_VERSION,
+            creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
             ..
         })
     );

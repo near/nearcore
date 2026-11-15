@@ -58,9 +58,12 @@ pub trait NetworkTransport: Send + Sync + 'static {
         ConnectHandle::noop()
     }
 
-    /// Close a connection to a peer.
-    /// ban_reason: None = graceful disconnect, Some = ban.
-    fn disconnect_peer(&self, _peer_id: &PeerId, _ban_reason: Option<ReasonForBan>) {}
+    /// Closes the connection to a peer on the given tier.
+    fn disconnect_peer(&self, _tier: tcp::Tier, _peer_id: &PeerId) {}
+
+    /// Closes the connections to a peer on every tier, with `ban_reason`
+    /// as the closing reason.
+    fn ban_peer(&self, _peer_id: &PeerId, _ban_reason: ReasonForBan) {}
 
     /// Close the Tier3 connections on which nothing has been sent or received for longer than
     /// `idle_timeout`.

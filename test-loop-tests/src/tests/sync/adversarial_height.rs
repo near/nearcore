@@ -469,3 +469,68 @@ fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
     run_until_synced(&mut env.test_loop, &env.node_datas, syncer_idx, 0);
     assert!(!env.test_loop.is_denylisted("syncer"), "syncer must not be wiped");
 }
+
+// Scenario: two peers advertise the same fabricated far-ahead height and never
+// answer. They are fewer than half of the candidates, so the median stays at the
+// honest head, and the honest peers stay in the window.
+//
+// Setup:
+//   - 4 validators, epoch_length=10, 4 shards, network past the epoch sync horizon
+//   - Two unresponsive peers advertise a height many epochs ahead
+//   - Add a fresh node with the default epoch sync timeout
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn slow_test_bootstrapping_node_syncs_despite_two_unresponsive_far_ahead_peers() {
+    init_test_logger();
+
+    let epoch_length = 10;
+    let accounts = make_accounts(100);
+    let mut env = TestLoopBuilder::new()
+        .validators(4, 0)
+        .num_shards(4)
+        .epoch_length(epoch_length)
+        .add_user_accounts(&accounts, Balance::from_near(1_000_000))
+        .build();
+
+    execute_money_transfers(&mut env.test_loop, &env.node_datas, &accounts).unwrap();
+    env.node_runner(0).run_until_head_height(far_horizon_height(epoch_length));
+
+    let syncer_account = create_account_id("syncer");
+    let node_state = env
+        .node_state_builder()
+        .account_id(&syncer_account)
+        .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
+            config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
+        })
+        .build();
+    env.add_node("syncer", node_state);
+    let syncer_idx = env.node_datas.len() - 1;
+
+    let head = env.node(0).head();
+    let head_block = env.node(0).client().chain.get_block(&head.last_block_hash).unwrap();
+    let fake_block = block_with_raised_height(&head_block, head.height + 10_000 * epoch_length);
+    for seed in ["far_ahead_peer_one", "far_ahead_peer_two"] {
+        let far_ahead_peer = PeerInfo {
+            id: PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key()),
+            addr: None,
+            account_id: None,
+        };
+        env.shared_state.network_shared_state.mark_unresponsive(&far_ahead_peer.id);
+        relay_block_from_peer(&env.node_datas[syncer_idx], &far_ahead_peer, fake_block.clone());
+    }
+
+    let syncer_handle = env.node_datas[syncer_idx].client_sender.actor_handle();
+    let source_handle = env.node_datas[0].client_sender.actor_handle();
+    let sync_deadline = Duration::minutes(5);
+    env.test_loop.run_until(
+        |data| {
+            let syncer_height = data.get(&syncer_handle).client.chain.head().unwrap().height;
+            let source_height = data.get(&source_handle).client.chain.head().unwrap().height;
+            syncer_height == source_height
+        },
+        sync_deadline,
+    );
+    assert!(!env.test_loop.is_denylisted("syncer"), "syncer must not be wiped");
+}

@@ -24,8 +24,8 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
-    ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext, DataReceipt,
-    DataReceiver, GlobalContractDistributionReceipt, Receipt, ReceiptEnum, ReceiptV0,
+    ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion,
+    DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt, ReceiptEnum, ReceiptV0,
     VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
@@ -2850,7 +2850,9 @@ impl TryFrom<ReceiptView> for Receipt {
                                 refund_to,
                                 authorization_context: AuthorizationContext::ExternalContractCall,
                                 gas_price,
-                                creation_protocol_version: PROTOCOL_VERSION,
+                                creation_protocol_version: CreationProtocolVersion(
+                                    PROTOCOL_VERSION,
+                                ),
                                 output_data_receivers,
                                 input_data_ids,
                                 actions,
@@ -3464,8 +3466,8 @@ mod tests {
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
     use crate::receipt::{
-        ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext, Receipt,
-        ReceiptEnum, ReceiptV0,
+        ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext,
+        CreationProtocolVersion, Receipt, ReceiptEnum, ReceiptV0,
     };
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::{
@@ -3720,7 +3722,7 @@ mod tests {
             refund_to: None,
             authorization_context: AuthorizationContext::ExternalContractCall,
             gas_price: Balance::from_yoctonear(100),
-            creation_protocol_version: PROTOCOL_VERSION,
+            creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],

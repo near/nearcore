@@ -26,6 +26,7 @@
 //!       lot of peers
 use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
+use crate::config::NetworkTransitionConfig;
 use crate::network_protocol;
 use crate::network_protocol::{
     AccountData, SignedAccountData, VersionedAccountData, to_unix_nanos,
@@ -79,6 +80,8 @@ pub struct AccountDataCacheSnapshot {
     pub data: imbl::HashMap<PublicKey, Arc<SignedAccountData>>,
 
     pub local: Option<LocalAccountData>,
+    /// Determines how the local AccountData is signed and which signed data is accepted.
+    transition: NetworkTransitionConfig,
 }
 
 impl AccountDataCacheSnapshot {
@@ -143,7 +146,7 @@ impl AccountDataCacheSnapshot {
                     version: d.version + 1,
                     timestamp: to_unix_nanos(clock.now_utc()),
                 }
-                .sign(local.signer.as_ref())
+                .sign(local.signer.as_ref(), self.transition.signing_encoding())
                 .unwrap(),
             ),
             _ => d,
@@ -181,7 +184,7 @@ impl AccountDataCacheSnapshot {
                         version: self.data.get(&account_key).map_or(0, |d| d.version) + 1,
                         timestamp: to_unix_nanos(clock.now_utc()),
                     }
-                    .sign(local.signer.as_ref())
+                    .sign(local.signer.as_ref(), self.transition.signing_encoding())
                     .unwrap(),
                 );
                 self.data.insert(account_key, d.clone());
@@ -196,12 +199,13 @@ impl AccountDataCacheSnapshot {
 pub(crate) struct AccountDataCache(ArcMutex<AccountDataCacheSnapshot>);
 
 impl AccountDataCache {
-    pub fn new() -> Self {
+    pub fn new(transition: NetworkTransitionConfig) -> Self {
         Self(ArcMutex::new(AccountDataCacheSnapshot {
             keys_by_id: Arc::new(AccountKeys::default()),
             keys: imbl::HashSet::new(),
             data: imbl::HashMap::new(),
             local: None,
+            transition,
         }))
     }
 
@@ -243,7 +247,7 @@ impl AccountDataCache {
         for d in data {
             // There is a limit on the amount of RAM occupied by per-account datasets.
             // Broadcasting larger datasets is considered malicious behavior.
-            if d.payload().len() > network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES {
+            if d.signed_len() > network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES {
                 return (vec![], Some(AccountDataError::DataTooLarge));
             }
             // We want the communication needed for broadcasting per-account data to be minimal.
@@ -251,6 +255,12 @@ impl AccountDataCache {
             // behavior, since all but one are obviously outdated.
             if new_data.contains_key(&d.account_key) {
                 return (vec![], Some(AccountDataError::SingleAccountMultipleData));
+            }
+            // Data signed in an encoding we don't accept is dropped, but it is not considered
+            // malicious: it might have been signed by a node running another release and relayed
+            // by a node which accepts it. It has to be dropped here, as `verify` rejects it.
+            if !inner.transition.accepts_signed_encoding(d.encoding()) {
+                continue;
             }
             // It is fine to broadcast data we already know about.
             // It is fine to broadcast account data that we don't care about.
@@ -261,10 +271,13 @@ impl AccountDataCache {
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
+        let transition = inner.transition;
         let (data, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| match d.verify() {
-                Ok(()) => Some(d),
-                Err(()) => None,
+            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| {
+                match d.verify(&transition) {
+                    Ok(()) => Some(d),
+                    Err(()) => None,
+                }
             })
         })
         .await;

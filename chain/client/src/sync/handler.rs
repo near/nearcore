@@ -10,6 +10,7 @@ use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{EpochSyncStatus, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_store::adapter::StoreAdapter;
@@ -48,12 +49,13 @@ impl SyncHandler {
         header_sync: HeaderSync,
         state_sync: StateSync,
         block_sync: BlockSync,
+        rng_seed: RngSeed,
     ) -> Self {
         Self {
             config,
             peer_selector: PeerSelector::new(
                 Duration::seconds(PEER_FAILURE_COOLDOWN_SECONDS),
-                StdRng::from_entropy(),
+                StdRng::from_seed(rng_seed),
             ),
             sync_status: SyncStatus::AwaitingPeers,
             epoch_sync,

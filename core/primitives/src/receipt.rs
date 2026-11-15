@@ -251,9 +251,10 @@ impl Receipt {
         protocol_version: ProtocolVersion,
     ) -> Self {
         let authorization_context = AuthorizationContext::AccessKey(signer_public_key);
+        let creation_protocol_version = CreationProtocolVersion(protocol_version);
         let receipt = ReceiptEnum::new_action_receipt(
             protocol_version,
-            protocol_version,
+            creation_protocol_version,
             tx_signer_id.clone(),
             authorization_context,
             gas_price,
@@ -423,9 +424,10 @@ impl Receipt {
         let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
         let signer_public_key = PublicKey::empty(KeyType::ED25519);
         let authorization_context = AuthorizationContext::AccessKey(signer_public_key);
+        let creation_protocol_version = CreationProtocolVersion(protocol_version);
         let receipt = ReceiptEnum::new_action_receipt(
             protocol_version,
-            protocol_version,
+            creation_protocol_version,
             "system".parse().unwrap(),
             authorization_context,
             Balance::ZERO,
@@ -456,9 +458,10 @@ impl Receipt {
         protocol_version: ProtocolVersion,
     ) -> Self {
         let actions = vec![Action::Transfer(TransferAction { deposit: refund })];
+        let creation_protocol_version = CreationProtocolVersion(protocol_version);
         let receipt = ReceiptEnum::new_action_receipt(
             protocol_version,
-            protocol_version,
+            creation_protocol_version,
             receiver_id.clone(),
             authorization_context,
             Balance::ZERO,
@@ -523,7 +526,7 @@ impl ReceiptEnum {
     /// an external call.
     pub fn new_action_receipt(
         protocol_version: ProtocolVersion,
-        creation_protocol_version: ProtocolVersion,
+        creation_protocol_version: CreationProtocolVersion,
         signer_id: AccountId,
         authorization_context: AuthorizationContext,
         gas_price: Balance,
@@ -581,6 +584,7 @@ impl ReceiptEnum {
         is_promise_yield: bool,
     ) -> Self {
         let pin_receipt_fees = ProtocolFeature::PinReceiptFees.enabled(protocol_version);
+        let creation_protocol_version = CreationProtocolVersion(protocol_version);
         match authorization_context {
             AuthorizationContext::AccessKey(signer_public_key) if !pin_receipt_fees => {
                 let action_receipt = ActionReceiptV2 {
@@ -604,7 +608,7 @@ impl ReceiptEnum {
                     refund_to,
                     authorization_context,
                     gas_price,
-                    creation_protocol_version: protocol_version,
+                    creation_protocol_version,
                     output_data_receivers,
                     input_data_ids,
                     actions,
@@ -720,7 +724,7 @@ pub struct ActionReceiptV3 {
     /// attached gas at the fees of that version. The receipt of the inner actions of a meta
     /// transaction is the exception: it records the creation version of the receipt that carried
     /// the meta transaction, since the relayer prepaid its static fees with that receipt.
-    pub creation_protocol_version: ProtocolVersion,
+    pub creation_protocol_version: CreationProtocolVersion,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
@@ -732,6 +736,27 @@ pub struct ActionReceiptV3 {
     /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
 }
+
+/// The protocol version at which a receipt was created.
+/// See [`ActionReceiptV3::creation_protocol_version`].
+///
+/// It is a separate type so that it can't be mixed up with the current protocol version. It is
+/// serialized in the same way as a [`ProtocolVersion`].
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(transparent)]
+pub struct CreationProtocolVersion(pub ProtocolVersion);
 
 /// What authorized a chain of receipts: an access key that signed a transaction, or an
 /// external call its contract accepted.
@@ -784,7 +809,7 @@ impl VersionedActionReceipt<'_> {
 
     /// The protocol version at which the receipt was created, if recorded.
     /// See [`ActionReceiptV3::creation_protocol_version`].
-    pub fn creation_protocol_version(&self) -> Option<ProtocolVersion> {
+    pub fn creation_protocol_version(&self) -> Option<CreationProtocolVersion> {
         match self {
             VersionedActionReceipt::V1(_) | VersionedActionReceipt::V2(_) => None,
             VersionedActionReceipt::V3(action_receipt) => {
@@ -1379,7 +1404,7 @@ mod tests {
                 refund_to: None,
                 authorization_context: AuthorizationContext::ExternalContractCall,
                 gas_price: Balance::ZERO,
-                creation_protocol_version: protocol_version,
+                creation_protocol_version: CreationProtocolVersion(protocol_version),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -1390,6 +1415,21 @@ mod tests {
             panic!("expected an action receipt, got {gas_refund:?}");
         };
         assert_eq!(action_receipt.signer_public_key(), None);
+    }
+
+    /// The creation protocol version is serialized in the same way as a plain protocol version.
+    #[test]
+    fn test_creation_protocol_version_serialization() {
+        let protocol_version: ProtocolVersion = 89;
+        let creation_protocol_version = CreationProtocolVersion(protocol_version);
+        assert_eq!(
+            borsh::to_vec(&creation_protocol_version).unwrap(),
+            borsh::to_vec(&protocol_version).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_string(&creation_protocol_version).unwrap(),
+            serde_json::to_string(&protocol_version).unwrap()
+        );
     }
 
     #[test]
