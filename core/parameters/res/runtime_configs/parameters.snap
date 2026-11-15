@@ -13,9 +13,9 @@ per_receipt_storage_proof_size_limit               4_500_000
 new_transactions_validation_state_size_soft_limit             572_864
 combined_transactions_size_limit                   4_194_304
 max_external_call_size                                20_480
-max_external_call_recorded_size                       20_480
+max_external_call_recorded_size                       51_200
 external_calls_chunk_compute_share      2 / 5
-external_calls_chunk_storage_proof_share1 / 20
+external_calls_chunk_storage_proof_share1 / 10
 external_calls_chunk_transactions_size_share1 / 40
 max_external_calls_per_chunk                             100
 min_allowed_top_level_account_length                      65
