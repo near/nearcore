@@ -22,7 +22,7 @@ use near_store::{
     set_promise_yield_status, set_yield_id_mapping,
 };
 use near_vm_runner::logic::HostError;
-use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
+use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
 };
@@ -42,9 +42,6 @@ pub struct RuntimeExt<'a> {
     block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
-    /// The trie nodes and values that storage operations visit. Each one is charged as
-    /// `touching_trie_node`.
-    trie_nodes_counted: Cell<u64>,
     storage_proof_size_before_receipt: Option<usize>,
 }
 
@@ -64,12 +61,11 @@ impl From<ExternalError> for VMLogicError {
     }
 }
 
-pub struct RuntimeExtValuePtr<'a, 'b> {
+pub struct RuntimeExtValuePtr<'a> {
     value_ptr: TrieUpdateValuePtr<'a>,
-    trie_nodes_counted: &'b Cell<u64>,
 }
 
-impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
+impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
     fn len(&self) -> u32 {
         self.value_ptr.len()
     }
@@ -78,10 +74,10 @@ impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
         match &self.value_ptr {
             TrieUpdateValuePtr::MemoryRef(data) => Ok(data.to_vec()),
             TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
-                let start = self.trie_nodes_counted.get();
-                let options = AccessOptions::contract_runtime(self.trie_nodes_counted);
+                let trie_nodes = Cell::new(0);
+                let options = AccessOptions::contract_runtime(&trie_nodes);
                 let result = trie.deref_optimized(options, &optimized_value_ref);
-                charge_trie_nodes_since(self.trie_nodes_counted, start, access_tracker)?;
+                access_tracker.trie_node_touched(trie_nodes.get())?;
                 Ok(result.map_err(wrap_storage_error)?)
             }
         }
@@ -112,7 +108,6 @@ impl<'a> RuntimeExt<'a> {
             block_height,
             epoch_info_provider,
             current_protocol_version,
-            trie_nodes_counted: Cell::new(0),
             storage_proof_size_before_receipt,
         }
     }
@@ -152,21 +147,6 @@ fn wrap_storage_error(error: StorageError) -> VMLogicError {
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
-/// Charges `touching_trie_node` for the trie nodes and values counted since `start`, and returns
-/// how many there were.
-fn charge_trie_nodes_since(
-    trie_nodes_counted: &Cell<u64>,
-    start: u64,
-    access_tracker: &mut dyn StorageAccessTracker,
-) -> ExtResult<u64> {
-    let count = trie_nodes_counted
-        .get()
-        .checked_sub(start)
-        .ok_or(InconsistentStateError::IntegerOverflow)?;
-    access_tracker.trie_node_touched(count)?;
-    Ok(count)
-}
-
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set<'b>(
         &'b mut self,
@@ -180,9 +160,9 @@ impl<'a> External for RuntimeExt<'a> {
         // intents and purposes we need to both account for TTN fees and record the path to the
         // value for the state witness. For that reason the lookup below has to happen through the
         // Trie.
-        let start = self.trie_nodes_counted.get();
+        let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
-        let options = AccessOptions::contract_runtime(&self.trie_nodes_counted);
+        let options = AccessOptions::contract_runtime(&trie_nodes);
         let evicted_ptr = self
             .trie_update
             .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
@@ -194,7 +174,7 @@ impl<'a> External for RuntimeExt<'a> {
                 Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
-        let _count = charge_trie_nodes_since(&self.trie_nodes_counted, start, access_tracker)?;
+        access_tracker.trie_node_touched(trie_nodes.get())?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
@@ -202,7 +182,7 @@ impl<'a> External for RuntimeExt<'a> {
             key = base64(&key),
             size = value.len(),
             evicted_len = evicted.as_ref().map(Vec::len),
-            tn_db_reads = _count,
+            tn_db_reads = trie_nodes.get(),
         );
         self.trie_update.set(storage_key, Vec::from(value));
         Ok(evicted)
@@ -213,25 +193,21 @@ impl<'a> External for RuntimeExt<'a> {
         access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
-        let start = self.trie_nodes_counted.get();
+        let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
         let mode = KeyLookupMode::MemOrFlatOrTrie;
-        let deref_options = AccessOptions::contract_runtime(&self.trie_nodes_counted);
+        let options = AccessOptions::contract_runtime(&trie_nodes);
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
-        let result = self
-            .trie_update
-            .get_ref(&storage_key, mode, deref_options)
-            .map_err(wrap_storage_error)
-            .map(|option| {
-                option.map(|value_ptr| {
-                    Box::new(RuntimeExtValuePtr {
-                        value_ptr,
-                        trie_nodes_counted: &self.trie_nodes_counted,
-                    }) as Box<dyn ValuePtr>
-                })
-            });
-        let _count = charge_trie_nodes_since(&self.trie_nodes_counted, start, access_tracker)?;
+        let result =
+            self.trie_update.get_ref(&storage_key, mode, options).map_err(wrap_storage_error).map(
+                |option| {
+                    option.map(|value_ptr| {
+                        Box::new(RuntimeExtValuePtr { value_ptr }) as Box<dyn ValuePtr>
+                    })
+                },
+            );
+        access_tracker.trie_node_touched(trie_nodes.get())?;
         #[cfg(feature = "io_trace")]
         if let Ok(read) = &result {
             tracing::trace!(
@@ -239,7 +215,7 @@ impl<'a> External for RuntimeExt<'a> {
                 storage_op = "read",
                 key = base64(&key),
                 size = read.as_ref().map(|v| v.len()),
-                tn_db_reads = _count,
+                tn_db_reads = trie_nodes.get(),
             );
         }
 
@@ -257,9 +233,9 @@ impl<'a> External for RuntimeExt<'a> {
         // intents and purposes we need to both account for TTN fees and record the path to the
         // value for the state witness. For that reason the lookup below has to happen through the
         // Trie.
-        let start = self.trie_nodes_counted.get();
+        let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
-        let options = AccessOptions::contract_runtime(&self.trie_nodes_counted);
+        let options = AccessOptions::contract_runtime(&trie_nodes);
         let removed = self
             .trie_update
             .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
@@ -272,7 +248,7 @@ impl<'a> External for RuntimeExt<'a> {
             }
         };
         self.trie_update.remove(storage_key);
-        let _count = charge_trie_nodes_since(&self.trie_nodes_counted, start, access_tracker)?;
+        access_tracker.trie_node_touched(trie_nodes.get())?;
         // A removal grows the recorded storage proof without recording a node, so no read checks
         // it against a recording budget.
         self.trie_update.trie().check_recording_budget().map_err(wrap_storage_error)?;
@@ -282,7 +258,7 @@ impl<'a> External for RuntimeExt<'a> {
             storage_op = "remove",
             key = base64(&key),
             evicted_len = removed.as_ref().map(Vec::len),
-            tn_db_reads = _count,
+            tn_db_reads = trie_nodes.get(),
         );
 
         Ok(removed)
@@ -293,21 +269,21 @@ impl<'a> External for RuntimeExt<'a> {
         access_tracker: &mut dyn StorageAccessTracker,
         key: &[u8],
     ) -> ExtResult<bool> {
-        let start = self.trie_nodes_counted.get();
+        let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
         let mode = KeyLookupMode::MemOrFlatOrTrie;
         let result = self
             .trie_update
-            .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_nodes_counted))
+            .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&trie_nodes))
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
-        let _count = charge_trie_nodes_since(&self.trie_nodes_counted, start, access_tracker)?;
+        access_tracker.trie_node_touched(trie_nodes.get())?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
             storage_op = "exists",
             key = base64(&key),
-            tn_db_reads = _count,
+            tn_db_reads = trie_nodes.get(),
         );
         Ok(result?)
     }
