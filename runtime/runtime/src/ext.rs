@@ -756,7 +756,28 @@ fn base64(s: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{AccountingAccessTracker, AccountingState};
     use near_parameters::{ExtCosts, RuntimeConfig};
+    use near_primitives::hash::CryptoHash;
+    use near_store::trie::AccessTracker;
+    use std::sync::Arc;
+
+    /// A node the chunk visits again counts as a memory read, also through another tracker
+    /// that shares the chunk's state.
+    #[test]
+    fn test_trie_node_visited_twice_in_chunk() {
+        let state = Arc::new(AccountingState::default());
+        let first = AccountingAccessTracker { state: Arc::clone(&state) };
+        let second = AccountingAccessTracker { state: Arc::clone(&state) };
+        let node = CryptoHash::hash_bytes(b"node");
+        let other_node = CryptoHash::hash_bytes(b"other node");
+
+        first.track_trie_node(&node);
+        second.track_trie_node(&node);
+        second.track_trie_node(&other_node);
+        let counts = state.get_counts();
+        assert_eq!((counts.db_reads, counts.mem_reads), (2, 1));
+    }
 
     // This test ensures that the gas and compute costs for touching and reading
     // a trie node remain equal. Please do not remove this check as the code

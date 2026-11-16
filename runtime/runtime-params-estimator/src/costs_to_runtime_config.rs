@@ -205,7 +205,7 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::storage_has_key_base => Cost::StorageHasKeyBase,
         ExtCosts::storage_has_key_byte => Cost::StorageHasKeyByte,
         ExtCosts::touching_trie_node => Cost::TouchingTrieNode,
-        // Never charged, and priced the same as `touching_trie_node`.
+        // Priced the same as `touching_trie_node`, so it reuses that estimation.
         ExtCosts::read_cached_trie_node => Cost::TouchingTrieNode,
         ExtCosts::promise_and_base => Cost::PromiseAndBase,
         ExtCosts::promise_and_per_promise => Cost::PromiseAndPerPromise,
