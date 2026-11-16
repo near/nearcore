@@ -52,7 +52,7 @@ use crate::types::{
 };
 use crate::universal_state_init::RawStateInit;
 use crate::utils::create_ecc_outcome_id;
-use crate::version::{PROTOCOL_VERSION, ProtocolVersion, Version};
+use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
 use near_fmt::{AbbrBytes, Slice};
@@ -2646,6 +2646,9 @@ pub enum ReceiptEnumView {
         /// What authorized the chain, absent in views written before external calls
         #[serde(default, skip_serializing_if = "Option::is_none")]
         authorization_context: Option<AuthorizationContext>,
+        /// The protocol version the receipt was created at, absent if the receipt doesn't record it
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        creation_protocol_version: Option<ProtocolVersion>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2718,6 +2721,12 @@ impl ReceiptEnumView {
         action_receipt: VersionedActionReceipt,
         is_promise_yield: bool,
     ) -> ReceiptEnumView {
+        let creation_protocol_version = match action_receipt.creation_protocol_version() {
+            Some(CreationProtocolVersion(creation_protocol_version)) => {
+                Some(creation_protocol_version)
+            }
+            None => None,
+        };
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
             signer_public_key: action_receipt.signer_public_key().cloned(),
@@ -2741,8 +2750,26 @@ impl ReceiptEnumView {
             is_promise_yield,
             refund_to: action_receipt.refund_to().clone(),
             authorization_context: Some(action_receipt.authorization_context().into_owned()),
+            creation_protocol_version,
         }
     }
+}
+
+/// The version of the receipt that an action receipt view was made from, with the fields that
+/// depend on the version.
+enum ActionReceiptViewVersion {
+    V1 {
+        signer_public_key: PublicKey,
+    },
+    V2 {
+        signer_public_key: PublicKey,
+        refund_to: Option<AccountId>,
+    },
+    V3 {
+        authorization_context: AuthorizationContext,
+        refund_to: Option<AccountId>,
+        creation_protocol_version: CreationProtocolVersion,
+    },
 }
 
 impl TryFrom<ReceiptView> for Receipt {
@@ -2764,31 +2791,60 @@ impl TryFrom<ReceiptView> for Receipt {
                     is_promise_yield,
                     refund_to,
                     authorization_context,
+                    creation_protocol_version,
                 } => {
-                    let authorization_context = match (authorization_context, signer_public_key) {
-                        (Some(authorization_context), None) => authorization_context,
-                        (None, Some(signer_public_key)) => {
-                            AuthorizationContext::AccessKey(signer_public_key)
+                    // Determine the version of the action receipt view based on
+                    // the presence of `creation_protocol_version`,
+                    // `authorization_context`, `signer_public_key` and
+                    // `refund_to`.
+                    let version = match (
+                        creation_protocol_version,
+                        &authorization_context,
+                        &signer_public_key,
+                    ) {
+                        (Some(creation_protocol_version), Some(authorization_context), _) => {
+                            let authorization_context = authorization_context.clone();
+                            let creation_protocol_version =
+                                CreationProtocolVersion(creation_protocol_version);
+                            ActionReceiptViewVersion::V3 {
+                                authorization_context,
+                                refund_to,
+                                creation_protocol_version,
+                            }
                         }
-                        (
-                            Some(AuthorizationContext::AccessKey(public_key)),
-                            Some(signer_public_key),
-                        ) if public_key == signer_public_key => {
-                            AuthorizationContext::AccessKey(public_key)
+                        (Some(_), None, _) => {
+                            return Err("an action receipt view with a creation_protocol_version \
+                                        has no authorization_context"
+                                .into());
                         }
-                        (Some(_), Some(_)) => {
-                            return Err(
-                                "an action receipt view's signer_public_key disagrees with \
-                                        its authorization_context"
-                                    .into(),
-                            );
+                        (None, _, Some(signer_public_key)) => {
+                            let signer_public_key = signer_public_key.clone();
+                            if refund_to.is_some() {
+                                ActionReceiptViewVersion::V2 { signer_public_key, refund_to }
+                            } else {
+                                ActionReceiptViewVersion::V1 { signer_public_key }
+                            }
                         }
-                        (None, None) => {
+                        // Only an ActionReceiptV3 can be without a key, in the chain of an
+                        // external call.
+                        (None, _, None) => {
                             return Err("an action receipt view names no signer key and no \
-                                        authorization context"
+                                        creation_protocol_version"
                                 .into());
                         }
                     };
+                    // A view can name the key that signed the transaction both as
+                    // `signer_public_key` and in `authorization_context`. A view written
+                    // before `authorization_context` existed only has the former.
+                    if let Some(authorization_context) = authorization_context
+                        && let Some(signer_public_key) = signer_public_key
+                        && authorization_context
+                            != AuthorizationContext::AccessKey(signer_public_key)
+                    {
+                        return Err("an action receipt view's signer_public_key disagrees with \
+                                    its authorization_context"
+                            .into());
+                    }
                     let output_data_receivers: Vec<_> = output_data_receivers
                         .into_iter()
                         .map(|data_receiver_view| DataReceiver {
@@ -2802,18 +2858,23 @@ impl TryFrom<ReceiptView> for Receipt {
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<Vec<_>, _>>()?;
-                    // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there a signed chain creates ActionReceiptV2,
-                    // or ActionReceiptV3 since `PinReceiptFees`. Views don't carry
-                    // `creation_protocol_version`, so a V3 receipt authorized by an access key
-                    // becomes V1 or V2, and a receipt of an external call records
-                    // `PROTOCOL_VERSION`. ActionReceiptV2 without refund_to becomes V1 after a
-                    // roundtrip through views. This will be fixed with #14709.
-                    // TODO(ecc): keep such a V3 receipt as V3 before the runtime builds them.
-                    match authorization_context {
-                        AuthorizationContext::AccessKey(signer_public_key)
-                            if refund_to.is_some() =>
-                        {
+                    match version {
+                        ActionReceiptViewVersion::V1 { signer_public_key } => {
+                            let action_receipt = ActionReceipt {
+                                signer_id,
+                                signer_public_key,
+                                gas_price,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYield(action_receipt)
+                            } else {
+                                ReceiptEnum::Action(action_receipt)
+                            }
+                        }
+                        ActionReceiptViewVersion::V2 { signer_public_key, refund_to } => {
                             let action_receipt = ActionReceiptV2 {
                                 signer_id,
                                 signer_public_key,
@@ -2829,30 +2890,17 @@ impl TryFrom<ReceiptView> for Receipt {
                                 ReceiptEnum::ActionV2(action_receipt)
                             }
                         }
-                        AuthorizationContext::AccessKey(signer_public_key) => {
-                            let action_receipt = ActionReceipt {
-                                signer_id,
-                                signer_public_key,
-                                gas_price,
-                                output_data_receivers,
-                                input_data_ids,
-                                actions,
-                            };
-                            if is_promise_yield {
-                                ReceiptEnum::PromiseYield(action_receipt)
-                            } else {
-                                ReceiptEnum::Action(action_receipt)
-                            }
-                        }
-                        AuthorizationContext::ExternalContractCall => {
+                        ActionReceiptViewVersion::V3 {
+                            authorization_context,
+                            refund_to,
+                            creation_protocol_version,
+                        } => {
                             let action_receipt = ActionReceiptV3 {
                                 signer_id,
                                 refund_to,
-                                authorization_context: AuthorizationContext::ExternalContractCall,
+                                authorization_context,
                                 gas_price,
-                                creation_protocol_version: CreationProtocolVersion(
-                                    PROTOCOL_VERSION,
-                                ),
+                                creation_protocol_version,
                                 output_data_receivers,
                                 input_data_ids,
                                 actions,
@@ -3713,16 +3761,16 @@ mod tests {
     }
 
     /// The receipts of an external call's chain use tags 7 and 8, and their view names the
-    /// external call as what authorized them. The view doesn't carry the creation version,
-    /// which comes back as `PROTOCOL_VERSION`.
+    /// external call as what authorized them and the version they were created at.
     #[test]
     fn test_external_call_receipt_view_round_trip() {
+        let creation_protocol_version = CreationProtocolVersion(PROTOCOL_VERSION - 1);
         let action_receipt = ActionReceiptV3 {
             signer_id: "contract.near".parse().unwrap(),
             refund_to: None,
             authorization_context: AuthorizationContext::ExternalContractCall,
             gas_price: Balance::from_yoctonear(100),
-            creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION),
+            creation_protocol_version,
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
@@ -3733,10 +3781,44 @@ mod tests {
         assert_eq!(borsh::to_vec(&promise_yield).unwrap()[0], 8);
 
         for receipt in [action, promise_yield] {
-            let json = assert_receipt_view_round_trip(action_receipt_with(receipt));
-            let view = &json["receipt"]["Action"];
+            let mut json = assert_receipt_view_round_trip(action_receipt_with(receipt));
+            let view = &mut json["receipt"]["Action"];
             assert_eq!(view["authorization_context"], json!("ExternalContractCall"));
+            assert_eq!(view["creation_protocol_version"], json!(PROTOCOL_VERSION - 1));
             assert!(view.get("signer_public_key").is_none());
+
+            // A view of an external call's receipt without the creation version does not convert.
+            view.as_object_mut().unwrap().remove("creation_protocol_version");
+            let view: ReceiptView = serde_json::from_value(json).unwrap();
+            assert!(Receipt::try_from(view).is_err());
+        }
+    }
+
+    /// The V3 receipts of a signed transaction stay V3 through the view, which shows the version
+    /// they were created at.
+    #[test]
+    fn test_signed_v3_receipt_view_round_trip() {
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let refund_tos = [None, Some("refund.near".parse().unwrap())];
+        for refund_to in refund_tos {
+            let action_receipt = ActionReceiptV3 {
+                signer_id: "signer.near".parse().unwrap(),
+                refund_to,
+                authorization_context: AuthorizationContext::AccessKey(signer_public_key.clone()),
+                gas_price: Balance::from_yoctonear(100),
+                creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION - 1),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![],
+            };
+            let action = ReceiptEnum::ActionV3(action_receipt.clone());
+            let promise_yield = ReceiptEnum::PromiseYieldV3(action_receipt);
+            for receipt in [action, promise_yield] {
+                let json = assert_receipt_view_round_trip(action_receipt_with(receipt));
+                let view = &json["receipt"]["Action"];
+                assert_eq!(view["signer_public_key"], json!(signer_public_key));
+                assert_eq!(view["creation_protocol_version"], json!(PROTOCOL_VERSION - 1));
+            }
         }
     }
 
@@ -3768,6 +3850,7 @@ mod tests {
             let view = &mut json["receipt"]["Action"];
             assert_eq!(view["signer_public_key"], json!(signer_public_key));
             assert_eq!(view["authorization_context"], json!({"AccessKey": signer_public_key}));
+            assert!(view.get("creation_protocol_version").is_none());
 
             // A view written before `authorization_context` existed reads back the same.
             view.as_object_mut().unwrap().remove("authorization_context");

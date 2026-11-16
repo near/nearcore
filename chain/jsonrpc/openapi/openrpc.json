@@ -8563,6 +8563,15 @@
                       }
                     ]
                   },
+                  "creation_protocol_version": {
+                    "description": "The protocol version the receipt was created at, absent if the receipt doesn't record it",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
                   },
