@@ -4,6 +4,16 @@ Test case for the release that stabilizes external contract calls.
 from .base import TestSetup, NodeHardware
 
 
+class SameConfigWithSpareHost(NodeHardware.SameConfig):
+    """
+    Same hardware for all hosts, plus one host that is not in the genesis
+    validator set, for running a hostile peer or a second RPC node.
+    """
+
+    def chunk_producers_hosts(self) -> int:
+        return self.num_chunk_validator_seats + 1
+
+
 class TestEccRelease(TestSetup):
     """
     Test case: start on the previous release with the release candidate that
@@ -12,8 +22,10 @@ class TestEccRelease(TestSetup):
     external calls before the upgrade, while both versions run, and after.
 
     Features:
-        - One chunk producer per shard, no shard shuffling, so a modified
-          producer keeps one shard for the whole run.
+        - 12 chunk producers over the shards, so some shards have two and
+          others one, and no shard shuffling, so a modified producer keeps its
+          shard for the whole run.
+        - 2 chunk validators only, and one spare host outside the validator set.
         - Archival node, no state dumper.
         - Short epochs and an upgrade vote pinned at 9999/10000, so the
           protocol upgrade lands as soon as every block producer runs the
@@ -29,8 +41,8 @@ class TestEccRelease(TestSetup):
 
     def __init__(self, args):
         super().__init__(args)
-        self.node_hardware_config = NodeHardware.SameConfig(
-            num_chunk_producer_seats=9, num_chunk_validator_seats=11)
+        self.node_hardware_config = SameConfigWithSpareHost(
+            num_chunk_producer_seats=12, num_chunk_validator_seats=14)
         self.epoch_len = 500
         self.has_state_dumper = False
         self.has_archival = True
