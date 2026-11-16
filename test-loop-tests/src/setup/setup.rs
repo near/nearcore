@@ -1,4 +1,4 @@
-use super::drop_condition::ClientToShardsManagerSender;
+use super::drop_condition::{ClientToShardsManagerSender, DROP_CONDITION_RULE};
 use super::peer_manager_actor::TestLoopPeerManagerActor;
 use super::rpc::{TestLoopRpcTransport, create_testloop_jsonrpc_router};
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
@@ -639,8 +639,17 @@ pub fn setup_client(
     }
 
     // Register all accumulated drop conditions
-    for condition in drop_conditions {
-        node_data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+    // A restarted node's account keeps the rules of the conditions added before, so only
+    // the conditions it has no rule for yet, the newest ones, are installed.
+    let installed = network_rules.tagged(&node_data.account_id, DROP_CONDITION_RULE).len();
+    for (condition, handle) in drop_conditions.iter().skip(installed) {
+        node_data.register_drop_condition(
+            &test_loop.data,
+            chunks_storage.clone(),
+            network_rules,
+            condition,
+            handle,
+        );
     }
 
     node_data

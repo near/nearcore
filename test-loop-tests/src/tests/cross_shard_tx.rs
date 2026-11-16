@@ -1,6 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
 use crate::setup::state::NodeExecutionData;
 use crate::utils::get_node_data;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
@@ -12,7 +11,6 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query, QueryError};
 use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -20,7 +18,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use parking_lot::RwLock;
-use rand::{Rng as _, thread_rng};
+use rand::rngs::StdRng;
+use rand::{Rng as _, SeedableRng as _};
 use std::sync::Arc;
 
 struct Params {
@@ -37,9 +36,9 @@ struct Params {
 fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_chunks }: Params) {
     init_test_logger();
 
-    let seed: u64 = thread_rng().r#gen();
+    let seed: u64 = StdRng::from_entropy().r#gen();
     println!("RNG seed: {seed}. If test fails use it to find the issue.");
-    let rng: rand::rngs::StdRng = rand::SeedableRng::seed_from_u64(seed);
+    let rng = StdRng::seed_from_u64(seed);
     let rng = Arc::new(RwLock::new(rng));
 
     let stake = Balance::from_near(1);
@@ -123,22 +122,17 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
         .epoch_config_store(epoch_config_store)
         .build();
 
-    for node_datas in &env.node_datas {
+    for index in 0..env.node_datas.len() {
         let rng = rng.clone();
-        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
-            let mut rng = rng.write();
-            match &request {
+        env.drop_messages_from(index, move |request| {
+            let is_chunk_message = matches!(
+                request,
                 NetworkRequests::PartialEncodedChunkRequest { .. }
-                | NetworkRequests::PartialEncodedChunkResponse { .. }
-                | NetworkRequests::PartialEncodedChunkMessage { .. }
-                | NetworkRequests::PartialEncodedChunkForward { .. } => {
-                    if drop_chunks && rng.gen_ratio(1, 5) {
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
-                    }
-                }
-                _ => (),
-            }
-            HandlerResult::Unhandled(request)
+                    | NetworkRequests::PartialEncodedChunkResponse { .. }
+                    | NetworkRequests::PartialEncodedChunkMessage { .. }
+                    | NetworkRequests::PartialEncodedChunkForward { .. }
+            );
+            is_chunk_message && drop_chunks && rng.write().gen_ratio(1, 5)
         });
     }
 

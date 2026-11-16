@@ -37,7 +37,7 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
 
     // Two producers (which also endorse); no shard-assignment shuffle, which is
     // not yet supported by spice execution certification across epoch boundaries.
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout.clone())
         .validators(2, 0)

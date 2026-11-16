@@ -1,6 +1,6 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use near_async::time::Duration;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
@@ -55,29 +55,32 @@ struct V7BlockBroadcast {
 /// block and broadcasts a copy with a `BlockHeaderV7` header. That producer builds on its V6
 /// block, so `v7_height` is picked such that another validator produces the next height.
 fn setup_v7_block_broadcast(protocol_version: ProtocolVersion) -> (TestLoopEnv, V7BlockBroadcast) {
-    let mut env =
-        TestLoopBuilder::new().validators(4, 0).protocol_version(protocol_version).build();
+    let env = TestLoopBuilder::new().validators(4, 0).protocol_version(protocol_version).build();
     let head = env.node(0).head();
     let epoch_manager = env.node(0).client().epoch_manager.clone();
     let block_producer = |height| epoch_manager.get_block_producer(&head.epoch_id, height).unwrap();
     let v7_height = (head.height + 3..)
         .find(|&height| block_producer(height) != block_producer(height + 1))
         .unwrap();
-    for node_data in &env.node_datas {
-        let signer = create_test_signer(node_data.account_id.as_str());
-        let peer_actor = env.test_loop.data.get_mut(&node_data.peer_manager_sender.actor_handle());
-        peer_actor.register_override_handler(Box::new(move |request| match request {
-            NetworkRequests::Block { block }
-                if block.header().height() == v7_height
-                    && matches!(block.header(), BlockHeader::BlockHeaderV6(_)) =>
-            {
+    for index in 0..env.node_datas.len() {
+        let signer = create_test_signer(env.node_datas[index].account_id.as_str());
+        env.network_rule(
+            index,
+            move |request| {
+                matches!(request, NetworkRequests::Block { block }
+                    if block.header().height() == v7_height
+                        && matches!(block.header(), BlockHeader::BlockHeaderV6(_)))
+            },
+            Action::Replace(Box::new(move |request| {
+                let NetworkRequests::Block { block } = request else {
+                    unreachable!("the rule matches blocks only");
+                };
                 let mut v7_block = (*block).clone();
                 *v7_block.mut_header() = convert_v6_header_to_v7(block.header());
                 v7_block.mut_header().resign(&signer);
-                HandlerResult::Unhandled(NetworkRequests::Block { block: Arc::new(v7_block) })
-            }
-            other => HandlerResult::Unhandled(other),
-        }));
+                vec![NetworkRequests::Block { block: Arc::new(v7_block) }]
+            })),
+        );
     }
     let v7_producer = block_producer(v7_height);
     (env, V7BlockBroadcast { v7_height, v7_producer })

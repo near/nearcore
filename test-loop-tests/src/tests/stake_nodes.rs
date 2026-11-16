@@ -54,7 +54,7 @@ fn test_stake_nodes_impl(epoch_length: u64, execution_delay: u64) {
         public_key: create_test_signer(accounts[0].as_str()).public_key(),
         amount: TESTING_INIT_STAKE,
     }];
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_non_validator_client(&accounts[1])
@@ -128,7 +128,7 @@ fn test_validator_kickout_impl(epoch_length: u64, execution_delay: u64) {
         .minimum_stake_ratio(Rational32::new(1, 100))
         .build();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .clients(accounts.clone())
         .track_all_shards()
@@ -227,7 +227,7 @@ fn test_validator_join_impl(epoch_length: u64, execution_delay: u64) {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .epoch_length(epoch_length)
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_non_validator_client(&accounts[2])
@@ -314,7 +314,7 @@ fn test_staking_join_and_leave_impl(execution_delay: u64) {
             amount: TESTING_INIT_STAKE,
         })
         .collect();
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators_spec(ValidatorsSpec::raw(validators, 2, 2, 2))
         .add_non_validator_client(&accounts[2])
         .add_user_account(&accounts[2], TESTING_INIT_BALANCE)
@@ -416,7 +416,7 @@ fn test_spice_uncertified_restake_prevents_stake_return() {
     let unstaker = accounts[unstaker_idx].clone();
     let unstaker_key = create_test_signer(unstaker.as_str()).public_key();
 
-    let mut env = TestLoopBuilder::new()
+    let env = TestLoopBuilder::new()
         .validators_spec(validators_spec)
         .epoch_length(epoch_length)
         .add_user_accounts(&accounts, TESTING_INIT_BALANCE)

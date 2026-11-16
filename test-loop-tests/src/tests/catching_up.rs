@@ -1,5 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::HandlerResult;
+use crate::setup::network_rules::Action;
 use crate::utils::rotating_validators_runner::RotatingValidatorsRunner;
 use crate::utils::transactions::get_anchor_hash;
 use itertools::Itertools as _;
@@ -8,7 +8,6 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::{ProcessTxRequest, Query};
 use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -16,10 +15,10 @@ use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockReference, NumSeats, ShardId};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use std::cell::RefCell;
+use parking_lot::Mutex;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Verifies that fetching of random parts works properly by issuing transactions during the
 /// third epoch, and then making sure that the balances are correct for the next three epochs.
@@ -138,20 +137,14 @@ fn test_catchup_random_single_part_sync_common(
         .epoch_config_store(epoch_config_store)
         .build();
 
-    for node_datas in &env.node_datas {
-        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
-            if let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } =
-                &request
-            {
-                if skip_24 {
-                    if partial_encoded_chunk.header.height_created() == 23
-                        || partial_encoded_chunk.header.height_created() == 24
-                    {
-                        return HandlerResult::Handled(NetworkResponses::NoResponse);
-                    }
-                }
-            }
-            HandlerResult::Unhandled(request)
+    for index in 0..env.node_datas.len() {
+        env.drop_messages_from(index, move |request| {
+            let NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } = request
+            else {
+                return false;
+            };
+            let height_created = partial_encoded_chunk.header.height_created();
+            skip_24 && (height_created == 23 || height_created == 24)
         });
     }
 
@@ -317,11 +310,11 @@ fn slow_test_catchup_sanity_blocks_produced() {
         })
         .build();
 
-    let heights = Rc::new(RefCell::new(HashMap::new()));
-    for node_datas in &env.node_datas {
+    let heights = Arc::new(Mutex::new(HashMap::new()));
+    for index in 0..env.node_datas.len() {
         let check_height = {
             let heights = heights.clone();
-            move |hash: CryptoHash, height| match heights.borrow_mut().entry(hash) {
+            move |hash: CryptoHash, height| match heights.lock().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -331,8 +324,13 @@ fn slow_test_catchup_sanity_blocks_produced() {
             }
         };
 
-        node_datas.register_override_handler(&mut env.test_loop.data, move |request| {
-            if let NetworkRequests::Block { block } = &request {
+        env.network_rule(
+            index,
+            |request| matches!(request, NetworkRequests::Block { .. }),
+            Action::Observe(Box::new(move |request| {
+                let NetworkRequests::Block { block } = request else {
+                    return;
+                };
                 check_height(*block.hash(), block.header().height());
 
                 if block.header().height() % 10 == 5 {
@@ -340,13 +338,11 @@ fn slow_test_catchup_sanity_blocks_produced() {
                 } else {
                     check_height(*block.header().prev_hash(), block.header().height() - 1);
                 }
-
-                // Do not propagate blocks at %10=4
-                if block.header().height() % 10 == 4 {
-                    return HandlerResult::Handled(NetworkResponses::NoResponse);
-                }
-            }
-            HandlerResult::Unhandled(request)
+            })),
+        );
+        // Do not propagate blocks at %10=4
+        env.drop_messages_from(index, |request| {
+            matches!(request, NetworkRequests::Block { block } if block.header().height() % 10 == 4)
         });
     }
 
@@ -397,17 +393,19 @@ fn slow_test_all_chunks_accepted() {
 
     let mut env = TestLoopBuilder::new().genesis(genesis).clients(accounts).build();
 
-    let seen_chunk_same_sender = Rc::new(RefCell::new(HashSet::<(AccountId, u64, ShardId)>::new()));
-    for node_datas in &env.node_datas {
+    let seen_chunk_same_sender = Arc::new(Mutex::new(HashSet::<(AccountId, u64, ShardId)>::new()));
+    for index in 0..env.node_datas.len() {
         let seen_chunk_same_sender = seen_chunk_same_sender.clone();
-        node_datas.register_override_handler(&mut env.test_loop.data, move |msg| {
-            match msg {
+        env.network_rule(
+            index,
+            |_| true,
+            Action::Observe(Box::new(move |msg| match msg {
                 NetworkRequests::PartialEncodedChunkMessage {
-                    ref account_id,
-                    ref partial_encoded_chunk,
+                    account_id,
+                    partial_encoded_chunk,
                 } => {
                     let header = &partial_encoded_chunk.header;
-                    if seen_chunk_same_sender.borrow().contains(&(
+                    if seen_chunk_same_sender.lock().contains(&(
                         account_id.clone(),
                         header.height_created(),
                         header.shard_id(),
@@ -415,13 +413,13 @@ fn slow_test_all_chunks_accepted() {
                         println!("=== SAME CHUNK AGAIN!");
                         assert!(false);
                     };
-                    seen_chunk_same_sender.borrow_mut().insert((
+                    seen_chunk_same_sender.lock().insert((
                         account_id.clone(),
                         header.height_created(),
                         header.shard_id(),
                     ));
                 }
-                NetworkRequests::Block { ref block } => {
+                NetworkRequests::Block { block } => {
                     if block.header().chunks_included() != num_shards {
                         println!(
                             "BLOCK WITH {:?} CHUNKS, {:?}",
@@ -432,9 +430,8 @@ fn slow_test_all_chunks_accepted() {
                     }
                 }
                 _ => (),
-            }
-            HandlerResult::Unhandled(msg)
-        });
+            })),
+        );
     }
 
     let client_actor_handle = &env.node_datas[0].client_sender.actor_handle();

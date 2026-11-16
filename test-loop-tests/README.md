@@ -194,6 +194,8 @@ env.network_rule(1, |request| matches!(request, NetworkRequests::Approval { .. }
   observers see them, and also when a delayed request goes out. Dropping a block a node
   only rebroadcasts does not keep it. `Action::Lose` drops a request without keeping its
   block.
+- `add_drop_condition` returns one handle for all accounts, including nodes added later.
+  `network_rule_with_handle` puts several rules under one handle.
 - `chunk_parts_rule` matches every message that carries a chunk's parts.
 - To withhold a block from one recipient only, use `withhold_block_delivery` /
   `deliver_withheld_blocks` on `env.shared_state.network_shared_state`.

@@ -1,106 +1,77 @@
 use crate::setup::env::TestLoopEnv;
-use crate::setup::peer_manager_actor::HandlerResult;
-use crate::setup::state::{NodeExecutionData, SpiceEndorsementDelayState};
-use near_async::messaging::CanSend as _;
-use near_async::test_loop::data::TestLoopData;
-use near_network::client::SpiceChunkEndorsementMessage;
-use near_network::recv_permit::RecvMessagePermit;
+use crate::setup::network_rules::Action;
+use near_chain::ChainStoreAccess;
 use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
 use near_primitives::hash::CryptoHash;
-use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::types::{AccountId, BlockHeight};
-use parking_lot::{Mutex, RwLock};
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use near_primitives::types::BlockHeight;
+use near_store::adapter::StoreAdapter;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
+/// The tag of the hold rule `delay_endorsements_propagation` installs on each account.
+pub const ENDORSEMENT_DELAY_RULE: &str = "endorsement_delay";
+
 impl TestLoopEnv {
-    /// Set the endorsement propagation delay to `delay_height` blocks. Safe
-    /// to call unconditionally; installs the network handler lazily on the
-    /// first non-zero call, and re-running it after `add_node` /
-    /// `restart_node` instruments any node that doesn't have the handler yet.
-    pub fn delay_endorsements_propagation(&mut self, delay_height: u64) {
-        let state = self.shared_state.spice_endorsement_delay.clone();
-        if state.lock().installed_for.is_empty() && delay_height == 0 {
-            return;
-        }
+    /// Set the endorsement propagation delay to `delay_height` blocks.
+    pub fn delay_endorsements_propagation(&self, delay_height: u64) {
         for node in &self.node_datas {
             node.set_expected_execution_delay(delay_height);
         }
-        // Refresh routing so handlers installed earlier can still deliver
-        // endorsements to nodes added since.
-        {
-            let mut state = state.lock();
-            state.senders = self
-                .node_datas
-                .iter()
-                .map(|n| (n.account_id.clone(), n.spice_core_writer_sender.clone()))
-                .collect();
+        let rules = &self.shared_state.network_rules;
+        if delay_height == 0 && rules.all_tagged(ENDORSEMENT_DELAY_RULE).is_empty() {
+            return;
         }
         for node in &self.node_datas {
-            if !state.lock().installed_for.insert(node.identifier.clone()) {
+            if !rules.tagged(&node.account_id, ENDORSEMENT_DELAY_RULE).is_empty() {
                 continue;
             }
-            install_endorsement_delay_handler(&mut self.test_loop.data, node, state.clone());
+            let delay = node.expected_execution_delay_handle();
+            let chain_store = self
+                .test_loop
+                .data
+                .get(&node.client_sender.actor_handle())
+                .client
+                .chain
+                .chain_store
+                .store()
+                .chain_store();
+            let matches = {
+                let delay = delay.clone();
+                move |request: &NetworkRequests| {
+                    delay.load(Ordering::Relaxed) > 0
+                        && matches!(request, NetworkRequests::SpiceChunkEndorsement(..))
+                }
+            };
+            // The endorsed block's height comes from the node's store, so an endorsement of a
+            // block the node has not received yet stays held until it has.
+            // The store is the killed node's after a restart, which is the same one as long as
+            // the restart reuses its storage.
+            let endorsed_heights = Mutex::new(HashMap::<CryptoHash, BlockHeight>::new());
+            let release = move |held: &NetworkRequests, seen_height| {
+                let NetworkRequests::SpiceChunkEndorsement(_, endorsement) = held else {
+                    return true;
+                };
+                let block_hash = *endorsement.block_hash();
+                let mut endorsed_heights = endorsed_heights.lock();
+                let height = match endorsed_heights.get(&block_hash) {
+                    Some(height) => *height,
+                    None => {
+                        let Ok(header) = chain_store.get_block_header(&block_hash) else {
+                            return false;
+                        };
+                        endorsed_heights.insert(block_hash, header.height());
+                        header.height()
+                    }
+                };
+                height + delay.load(Ordering::Relaxed) < seen_height
+            };
+            rules.add_tagged(
+                node.account_id.clone(),
+                ENDORSEMENT_DELAY_RULE,
+                matches,
+                Action::Hold(Box::new(release)),
+            );
         }
     }
-}
-
-fn install_endorsement_delay_handler(
-    data: &mut TestLoopData,
-    node: &NodeExecutionData,
-    state: Arc<Mutex<SpiceEndorsementDelayState>>,
-) {
-    let delay = node.expected_execution_delay_handle();
-    let block_heights: Arc<RwLock<HashMap<CryptoHash, BlockHeight>>> = Default::default();
-    let delayed_endorsements: Arc<
-        RwLock<VecDeque<(CryptoHash, AccountId, SpiceChunkEndorsement)>>,
-    > = Default::default();
-    node.register_override_handler(data, move |request| {
-        let delay_height = delay.load(Ordering::Relaxed);
-        match request {
-            NetworkRequests::Block { ref block } => {
-                block_heights.write().insert(*block.hash(), block.header().height());
-
-                let mut delayed_endorsements = delayed_endorsements.write();
-                loop {
-                    let Some(front) = delayed_endorsements.front() else {
-                        break;
-                    };
-                    let Some(&height) = block_heights.read().get(&front.0) else {
-                        // Endorsed block not observed on this handler yet; wait
-                        // until it arrives before deciding if the delay has
-                        // elapsed.
-                        break;
-                    };
-                    if height + delay_height >= block.header().height() {
-                        break;
-                    }
-                    let (_, target, endorsement) = delayed_endorsements.pop_front().unwrap();
-                    let Some(sender) = state.lock().senders.get(&target).cloned() else {
-                        continue;
-                    };
-                    sender
-                        .send(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
-                }
-                HandlerResult::Unhandled(request)
-            }
-            NetworkRequests::SpiceChunkEndorsement(target, endorsement) => {
-                if delay_height == 0 {
-                    return HandlerResult::Unhandled(NetworkRequests::SpiceChunkEndorsement(
-                        target,
-                        endorsement,
-                    ));
-                }
-                delayed_endorsements.write().push_back((
-                    *endorsement.block_hash(),
-                    target,
-                    endorsement,
-                ));
-                HandlerResult::Handled(NetworkResponses::NoResponse)
-            }
-            _ => HandlerResult::Unhandled(request),
-        }
-    });
 }

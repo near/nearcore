@@ -49,7 +49,7 @@ fn setup_with_shards(num_shards: usize, num_producers: usize) -> Setup {
     if num_shards > 1 {
         builder = builder.num_shards(num_shards);
     }
-    let mut env = builder.build();
+    let env = builder.build();
     let account_ids = |nodes: &[NodeExecutionData]| {
         nodes.iter().map(|n| n.account_id.clone()).collect::<Vec<_>>()
     };
@@ -375,9 +375,9 @@ fn test_spice_partial_data_faults_starve_receipt_proofs() {
     assert!(observed.lock().dropped > 0, "no receipt proof was dropped");
 }
 
-/// Faults and delayed endorsements are separate handlers on the same peer manager, and the
-/// endorsement one consumes what it delays. Counting endorsements is an observer rather than a
-/// handler so that arming both still records them.
+/// Faults and delayed endorsements are separate rules on the same account, and the endorsement
+/// one holds what it delays. Endorsements are counted ahead of every rule, so arming both still
+/// records them.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_alongside_delayed_endorsements() {
