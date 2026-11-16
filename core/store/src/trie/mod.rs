@@ -110,9 +110,6 @@ pub enum KeyLookupMode {
 #[derive(Clone, Copy, Debug)]
 pub struct AccessOptions<'access_tracker> {
     /// The interface through which TTNs are tracked.
-    ///
-    /// This also allows for some cache implementations, though the plan is to remove that
-    /// functionality eventually.
     trie_access_tracker: &'access_tracker dyn AccessTracker,
 
     /// Whether a storage operation should record intermediate accesses to the state witness.
@@ -123,24 +120,14 @@ pub struct AccessOptions<'access_tracker> {
 }
 
 pub trait AccessTracker: std::fmt::Debug {
-    /// Lookup a value in the in-memory store.
-    ///
-    /// If result is `Some`, implementations should increment memory TTN counter.
-    fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>>;
-
-    /// Insert the value into the in-memory store.
-    ///
-    /// Implementations should increment the disk TTN counter.
-    fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>);
+    /// Called for each trie node or value that a counted lookup visits.
+    fn track_trie_node(&self, hash: &CryptoHash);
 }
 
 #[derive(Debug)]
 struct NoAccessTracker;
 impl AccessTracker for NoAccessTracker {
-    fn track_mem_lookup(&self, _: &CryptoHash) -> Option<Arc<[u8]>> {
-        None
-    }
-    fn track_disk_lookup(&self, _: CryptoHash, _: Arc<[u8]>) {}
+    fn track_trie_node(&self, _: &CryptoHash) {}
 }
 
 impl AccessOptions<'static> {
@@ -591,8 +578,6 @@ impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
     /// Starts accessing a trie with the given storage.
-    /// By default, the accounting cache is not enabled. To enable or disable it
-    /// (only in this crate), call self.accounting_cache.borrow_mut().set_enabled().
     pub fn new(
         storage: Arc<dyn TrieStorage>,
         root: StateRoot,
@@ -778,9 +763,9 @@ impl Trie {
     }
 
     /// All access to trie nodes or values must go through this method, so it
-    /// can be properly cached and recorded.
+    /// can be properly tracked and recorded.
     ///
-    /// count_cost can be false to skip caching. This is used when we're
+    /// `use_accounting_cache` can be false to skip tracking. This is used when we're
     /// generating a state proof, but the value is supposed to fetched from
     /// flat storage.
     fn internal_retrieve_trie_node(
@@ -789,18 +774,10 @@ impl Trie {
         use_accounting_cache: bool,
         access_options: AccessOptions,
     ) -> Result<Arc<[u8]>, StorageError> {
-        let result = if use_accounting_cache {
-            match access_options.trie_access_tracker.track_mem_lookup(hash) {
-                Some(v) => v,
-                None => {
-                    let v = self.storage.retrieve_raw_bytes(hash)?;
-                    access_options.trie_access_tracker.track_disk_lookup(*hash, Arc::clone(&v));
-                    v
-                }
-            }
-        } else {
-            self.storage.retrieve_raw_bytes(hash)?
-        };
+        let result = self.storage.retrieve_raw_bytes(hash)?;
+        if use_accounting_cache {
+            access_options.trie_access_tracker.track_trie_node(hash);
+        }
         if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
                 recorder.record(hash, result.clone());
@@ -1240,9 +1217,8 @@ impl Trie {
     /// whatever the flat storage has.
     ///
     /// If an inlined value is returned, this method will charge the corresponding gas
-    /// as if the value were accessed from the trie storage. It will also insert the
-    /// value into the accounting cache, as well as recording the access to the value
-    /// if recording is enabled. In other words, if an inlined value is returned the
+    /// as if the value were accessed from the trie storage, and record the access to the
+    /// value if recording is enabled. In other words, if an inlined value is returned the
     /// behavior is equivalent to if the trie were used to access the value reference
     /// and then the reference were used to look up the full value.
     ///
@@ -1341,14 +1317,11 @@ impl Trie {
     /// Refer to `get_optimized_ref` for the semantics of using the returned type.
     ///
     /// `use_trie_accounting_cache` is used to control whether Trie node
-    /// accesses accumulate TTN counters and potentially store data into the `TrieAccountingCache`
-    /// so that future accesses count towards TTN counters.
+    /// accesses are tracked, which counts TTNs.
     ///
     /// The storage of memtries and the data therein are behind a lock, as thus unlike many other
     /// functions here, the access to the value reference is provided as an argument to the
     /// `map_result` closure.
-    ///
-    /// This function also takes care of the accounting cache for gas calculation purposes.
     fn lookup_from_memory<R: 'static>(
         &self,
         key: &[u8],
@@ -1368,25 +1341,14 @@ impl Trie {
             let mem_value = lock.lookup(&self.root, key, Some(&mut accessed_nodes))?;
             for node_view in accessed_nodes {
                 let node_hash = node_view.node_hash();
-                let mut serialized_node: Option<Arc<[u8]>> = None;
-                let mut get_serialized_node = || -> Arc<[u8]> {
-                    serialized_node
-                        .get_or_insert_with(|| {
-                            borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap().into()
-                        })
-                        .clone()
-                };
-
                 if use_trie_accounting_cache {
-                    if access_options.trie_access_tracker.track_mem_lookup(&node_hash).is_none() {
-                        access_options
-                            .trie_access_tracker
-                            .track_disk_lookup(node_hash, get_serialized_node());
-                    }
+                    access_options.trie_access_tracker.track_trie_node(&node_hash);
                 }
                 if access_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
-                        recorder.record_with(&node_hash, get_serialized_node);
+                        recorder.record_with(&node_hash, || {
+                            borsh::to_vec(&node_view.to_raw_trie_node_with_size()).unwrap().into()
+                        });
                         // Stop at the node that crosses the budget, as a walk of the trie on disk
                         // does, so that the same nodes are recorded and tracked.
                         recorder.check_budget()?;
@@ -1579,15 +1541,10 @@ impl Trie {
                     &value_hash,
                     value.len(),
                 )?;
-                let arc_value: Arc<[u8]> = value.clone().into();
-                if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
-                    operation_options
-                        .trie_access_tracker
-                        .track_disk_lookup(value_hash, arc_value.clone());
-                }
+                operation_options.trie_access_tracker.track_trie_node(&value_hash);
                 if operation_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
-                        recorder.record(&value_hash, arc_value);
+                        recorder.record(&value_hash, value.clone().into());
                     }
                 }
                 Ok(value.clone())
@@ -1875,31 +1832,6 @@ impl TrieNodesCount {
             db_reads: self.db_reads.checked_sub(other.db_reads)?,
             mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
         })
-    }
-}
-
-/// Methods used in the runtime-parameter-estimator for measuring trie internal
-/// operations.
-pub mod estimator {
-    use borsh::BorshDeserialize;
-    use near_primitives::hash::CryptoHash;
-
-    /// Create an encoded extension node with the given value as the key.
-    /// This serves no purpose other than for the estimator.
-    pub fn encode_extension_node(key: Vec<u8>) -> Vec<u8> {
-        let hash = CryptoHash::hash_bytes(&key);
-        let node = super::RawTrieNode::Extension(key, hash);
-        let node = super::RawTrieNodeWithSize { node, memory_usage: 1 };
-        borsh::to_vec(&node).unwrap()
-    }
-    /// Decode am extension node and return its inner key.
-    /// This serves no purpose other than for the estimator.
-    pub fn decode_extension_node(bytes: &[u8]) -> Vec<u8> {
-        let node = super::RawTrieNodeWithSize::try_from_slice(bytes).unwrap();
-        match node.node {
-            super::RawTrieNode::Extension(v, _) => v,
-            _ => unreachable!(),
-        }
     }
 }
 

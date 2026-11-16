@@ -29,7 +29,7 @@ use near_vm_runner::logic::types::{
 use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use parking_lot::Mutex;
-use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -672,39 +672,13 @@ impl Contract for RuntimeContractExt {
     }
 }
 
-/// Deterministic cache to store trie nodes that have been accessed so far
-/// during the cache's lifetime. It is used for deterministic gas accounting
-/// so that previously accessed trie nodes and values are charged at a
-/// cheaper gas cost.
+/// Counts the trie nodes and values that contract storage operations visit during a chunk:
+/// `db_reads` for ones the chunk visits for the first time, and `mem_reads` for ones it visits
+/// again. They are charged as `touching_trie_node` and `read_cached_trie_node`.
 ///
-/// This cache's correctness is critical as it contributes to the gas accounting of storage
-/// operations during contract execution. For that reason, a new `AccountingState` must be
-/// created at the beginning of a chunk's execution, and the db_read_nodes and mem_read_nodes must
-/// be taken into account whenever a contract storage operation is performed to calculate what kind
-/// of operation it was.
-///
-/// The latter is easy as the only way a contract storage operation can happen is through the
-/// implementation of `Externals`.
-///
-/// Note that we don't have a size limit for values in the accounting cache.
-/// There are two reasons:
-///   - for nodes, value size is an implementation detail. If we change
-///     internal representation of a node (e.g. change `memory_usage` field
-///     from `RawTrieNodeWithSize`), this would have to be a protocol upgrade.
-///   - total size of all values is limited by the runtime fees. More
-///     thoroughly:
-///       - number of nodes is limited by receipt gas limit / touching trie
-///         node fee ~= 500 Tgas / 16 Ggas = 31_250;
-///       - size of trie keys and values is limited by receipt gas limit /
-///         lowest per byte fee (`storage_read_value_byte`) ~=
-///         (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
-/// All values are given as of 16/03/2022. We may consider more precise limit
-/// for the accounting cache as well.
-///
-/// Note that in general, it is NOT true that all storage access is either a db read or mem read.
-/// It can also be a flat storage read, which is not tracked via `AccountingAccessTracker`, except
-/// for value dereferences that ultimately go out to trie anyway.
-// FIXME(nagisa): equalize fees for different types of accesses and eventually remove this code.
+/// The two costs are equal, but the split still decides how much gas a charge that runs out of
+/// gas burns, so a new `AccountingState` must be created at the beginning of a chunk's
+/// execution. Flat storage reads are not tracked, except for value dereferences.
 struct AccountingAccessTracker {
     state: Arc<AccountingState>,
 }
@@ -714,7 +688,7 @@ struct AccountingAccessTracker {
 pub struct AccountingState {
     mem_reads: AtomicU64,
     db_reads: AtomicU64,
-    cache: Mutex<BTreeMap<CryptoHash, Arc<[u8]>>>,
+    seen: Mutex<HashSet<CryptoHash>>,
 }
 
 impl AccountingState {
@@ -758,21 +732,19 @@ impl Debug for AccountingAccessTracker {
         f.debug_struct("AccountingAccessTracker")
             .field("db_reads", &self.state.db_reads)
             .field("mem_reads", &self.state.mem_reads)
-            .field("cache.len", &self.state.cache.lock().len())
+            .field("seen.len", &self.state.seen.lock().len())
             .finish()
     }
 }
 
 impl AccessTracker for AccountingAccessTracker {
-    fn track_mem_lookup(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
-        let value = Arc::clone(self.state.cache.lock().get(key)?);
-        self.state.mem_reads.fetch_add(1, Ordering::Relaxed);
-        Some(value)
-    }
-
-    fn track_disk_lookup(&self, key: CryptoHash, value: Arc<[u8]>) {
-        self.state.db_reads.fetch_add(1, Ordering::Relaxed);
-        self.state.cache.lock().insert(key, value);
+    fn track_trie_node(&self, hash: &CryptoHash) {
+        let count = if self.state.seen.lock().insert(*hash) {
+            &self.state.db_reads
+        } else {
+            &self.state.mem_reads
+        };
+        count.fetch_add(1, Ordering::Relaxed);
     }
 }
 

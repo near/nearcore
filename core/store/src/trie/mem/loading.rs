@@ -273,11 +273,7 @@ mod tests {
         #[derive(Debug, Default)]
         struct Tracker(std::cell::Cell<u64>);
         impl AccessTracker for Tracker {
-            fn track_mem_lookup(&self, _: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
-                None
-            }
-
-            fn track_disk_lookup(&self, _: CryptoHash, _: std::sync::Arc<[u8]>) {
+            fn track_trie_node(&self, _: &CryptoHash) {
                 self.0.set(self.0.get() + 1);
             }
         }

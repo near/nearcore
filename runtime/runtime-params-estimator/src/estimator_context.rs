@@ -28,7 +28,6 @@ use near_store::flat::{
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
-use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -364,20 +363,6 @@ impl Testbed<'_> {
         self.process_block_impl(block, allow_failures);
         let extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
         assert_eq!(block_latency, extra_blocks);
-    }
-
-    pub(crate) fn trie_caching_storage(&self) -> TrieCachingStorage {
-        let store = self.tries.store();
-        let is_view = false;
-        let prefetcher = None;
-        let caching_storage = TrieCachingStorage::new(
-            store,
-            TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
-            ShardUId::single_shard(),
-            is_view,
-            prefetcher,
-        );
-        caching_storage
     }
 
     pub(crate) fn clear_caches(&mut self) {

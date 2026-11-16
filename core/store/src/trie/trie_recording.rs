@@ -472,7 +472,6 @@ mod trie_recording_tests {
     use std::cell::{Cell, RefCell};
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::num::NonZeroU32;
-    use std::sync::Arc;
 
     const NUM_ITERATIONS_PER_TEST: usize = 300;
 
@@ -648,20 +647,18 @@ mod trie_recording_tests {
         allow_insert: bool,
         mem_reads: Cell<u64>,
         db_reads: Cell<u64>,
-        cache: RefCell<BTreeMap<CryptoHash, Arc<[u8]>>>,
+        seen: RefCell<HashSet<CryptoHash>>,
     }
 
     impl AccessTracker for AccountingAccessTracker {
-        fn track_mem_lookup(&self, key: &CryptoHash) -> Option<std::sync::Arc<[u8]>> {
-            let value = Arc::clone(self.cache.borrow().get(key)?);
-            self.mem_reads.set(self.mem_reads.get() + 1);
-            Some(value)
-        }
-
-        fn track_disk_lookup(&self, key: CryptoHash, value: std::sync::Arc<[u8]>) {
+        fn track_trie_node(&self, hash: &CryptoHash) {
+            if self.seen.borrow().contains(hash) {
+                self.mem_reads.set(self.mem_reads.get() + 1);
+                return;
+            }
             self.db_reads.set(self.db_reads.get() + 1);
             if self.allow_insert {
-                self.cache.borrow_mut().insert(key, value);
+                self.seen.borrow_mut().insert(*hash);
             }
         }
     }
