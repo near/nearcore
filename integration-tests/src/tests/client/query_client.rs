@@ -147,6 +147,7 @@ async fn test_execution_outcome_for_chunk() {
             tx_hash,
             signer_account_id: "test".parse().unwrap(),
             fetch_receipt: false,
+            external_call_sent_at: None,
         })
         .await
         .unwrap()

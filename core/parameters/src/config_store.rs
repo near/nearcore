@@ -25,7 +25,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// deployed versions from this when they fall below `MIN_SUPPORTED_PROTOCOL_VERSION`.
 /// At least one vm generation below `MIN_SUPPORTED_PROTOCOL_VERSION` must be
 /// maintained, older entries may be removed safely.
-const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 150, 157];
+const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 157];
 
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
@@ -33,7 +33,6 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
     (89, include_config!("89.yaml")),
-    (150, include_config!("150.yaml")),
     (157, include_config!("157.yaml")),
 ];
 
@@ -393,9 +392,9 @@ mod tests {
         let limits = |version| store.get_config(version).external_calls_config;
         let after = limits(version);
         assert_eq!(after.max_call_size, 20_480);
-        assert_eq!(after.max_call_recorded_size, 20_480);
+        assert_eq!(after.max_call_recorded_size, 51_200);
         assert_eq!(after.chunk_compute_share, Rational32::new(2, 5));
-        assert_eq!(after.chunk_storage_proof_share, Rational32::new(1, 20));
+        assert_eq!(after.chunk_storage_proof_share, Rational32::new(1, 10));
         assert_eq!(after.chunk_transactions_size_share, Rational32::new(1, 40));
         assert_eq!(after.max_calls_per_chunk, 100);
         let before = limits(version - 1);

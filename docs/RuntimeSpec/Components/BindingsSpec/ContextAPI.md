@@ -9,9 +9,8 @@ Some of the functions below behave differently depending on how the contract exe
 - an **internal** call executes a receipt, created by a transaction or by a cross-contract call;
 - a **view** call is a read-only call made through RPC;
 - an **external** call is authorized and paid for by the contract itself, so the caller does not need an account
-  or a balance. External calls are part of the `ExternalContractCalls` protocol feature, which is not yet stable.
-  An external call runs the contract method with the reserved name `__nightly_external_call` (the name will change
-  when the feature is stabilized). A view call can also run that method, but an internal call can't: a `FunctionCall`
+  or a balance. External calls are part of the `ExternalContractCalls` protocol feature.
+  An external call runs the contract method with the reserved name `__external_call`. A view call can also run that method, but an internal call can't: a `FunctionCall`
   action to it fails with `ReservedMethodName`. An external call that creates a yielded promise is rejected, since
   the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
   limited too (see [Trie API](TrieAPI.md)). An external call may carry the state init of a universal account, which

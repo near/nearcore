@@ -117,10 +117,8 @@ impl super::NetworkState {
                     node_ips.extend(q.await.unwrap());
                 }
                 // Check that we have received non-zero responses and that they are consistent.
-                if node_ips.is_empty() {
-                    vec![]
-                } else if !node_ips.iter().all(|ip| ip == &node_ips[0]) {
-                    tracing::warn!(target: "network", "received inconsistent responses from the stun servers");
+                if node_ips.is_empty() || !node_ips.iter().all(|ip| ip == &node_ips[0]) {
+                    tracing::warn!(target: "network", ?node_ips, "stun servers returned no consistent public ip, so public address discovery failed; consider setting public_addrs in config.json");
                     vec![]
                 } else {
                     vec![PeerAddr {
@@ -196,6 +194,45 @@ impl super::NetworkState {
             accounts_data: vec![new_data.clone()],
         })));
         Some(new_data)
+    }
+
+    /// Warns when this validator advertises itself as a TIER1 proxy, has no inbound TIER1
+    /// connection, and some validators have no TIER1 connection with it. Validators dial every
+    /// validator they aren't connected to, so this suggests that they can't reach the
+    /// advertised address.
+    pub fn tier1_check_reachability(&self) {
+        let accounts_data = self.accounts_data.load();
+        let Some(signer) = self.tier1_validator_config(&accounts_data).and_then(|vc| vc.signer)
+        else {
+            return;
+        };
+        let my_key = signer.public_key();
+        let node_id = self.config.node_id();
+        let Some(my_addr) = accounts_data
+            .data
+            .get(&my_key)
+            .and_then(|d| d.proxies.iter().find(|p| p.peer_id == node_id))
+        else {
+            return;
+        };
+        // Skip the loop connection that a node acting as its own proxy keeps with itself.
+        // It only shows that this node can reach its own address, possibly over a local
+        // route that other validators can't use.
+        let has_inbound = self
+            .peers
+            .tier1()
+            .iter()
+            .any(|(peer_id, s)| peer_id != &node_id && s.peer_type == PeerType::Inbound);
+        if has_inbound {
+            return;
+        }
+        let has_disconnected = accounts_data
+            .data
+            .values()
+            .any(|d| d.account_key != my_key && self.get_tier1_proxy(d).is_none());
+        if has_disconnected {
+            tracing::warn!(target: "network", "other validators may be unable to reach our advertised TIER1 address {}; check that the address is correct and that its port accepts inbound TCP connections from the internet", my_addr.addr);
+        }
     }
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more.

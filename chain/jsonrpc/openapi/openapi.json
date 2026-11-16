@@ -1592,7 +1592,7 @@
             "description": "Liquid (non-staked) account balance, in yoctoNEAR."
           },
           "bootstrap_nonce": {
-            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+            "description": "The account's current bootstrap nonce, present only while it is\nuninitialized. A self-signed state init, the one transaction such an\naccount can send, must use exactly `bootstrap_nonce + 1`. This is the\nonly way for a client to learn it: there is no access key to query.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -13894,6 +13894,50 @@
               "InvalidRefundTo"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `PromiseYield` receipt must have exactly one input data dependency.",
+            "properties": {
+              "InvalidPromiseYieldInputDataCount": {
+                "properties": {
+                  "number_of_input_data_dependencies": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_input_data_dependencies"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidPromiseYieldInputDataCount"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The same input data id is listed more than once in an ActionReceipt.",
+            "properties": {
+              "DuplicateInputDataId": {
+                "properties": {
+                  "data_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "data_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DuplicateInputDataId"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -14325,6 +14369,50 @@
               "name": {
                 "enum": [
                   "CONTRACT_EXECUTION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "error": {
+                    "$ref": "#/components/schemas/TxExecutionError"
+                  },
+                  "logs": {
+                    "description": "The logs of the contract's run. Empty for a call refused before its run.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "error",
+                  "logs",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "EXTERNAL_CALL_REFUSED"
                 ],
                 "type": "string"
               }
@@ -17015,6 +17103,50 @@
               "name": {
                 "enum": [
                   "CONTRACT_EXECUTION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "error": {
+                    "$ref": "#/components/schemas/TxExecutionError"
+                  },
+                  "logs": {
+                    "description": "The logs of the contract's run. Empty for a call refused before its run.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "error",
+                  "logs",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "EXTERNAL_CALL_REFUSED"
                 ],
                 "type": "string"
               }
@@ -20992,7 +21124,7 @@
             "type": "integer"
           },
           "bootstrap_nonce": {
-            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+            "description": "The account's current bootstrap nonce, present only while it is\nuninitialized. A self-signed state init, the one transaction such an\naccount can send, must use exactly `bootstrap_nonce + 1`. This is the\nonly way for a client to learn it: there is no access key to query.",
             "format": "uint64",
             "minimum": 0,
             "nullable": true,
@@ -22554,7 +22686,7 @@
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "bootstrap_nonce": {
-                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+                    "description": "The account's current bootstrap nonce, present only while it is\nuninitialized. A self-signed state init, the one transaction such an\naccount can send, must use exactly `bootstrap_nonce + 1`. This is the\nonly way for a client to learn it: there is no access key to query.",
                     "format": "uint64",
                     "minimum": 0,
                     "nullable": true,
