@@ -12,7 +12,7 @@ a `storage_remove` that crosses it. The call is then rejected, and nobody pays f
 [Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)).
 
 Removals are costly in an external call. Each `storage_remove` counts toward the limit with a fixed estimate of 2000
-bytes, even for a key that isn't present, so a call can remove no more than ten keys, and fewer, as the trie nodes it
+bytes, even for a key that isn't present, so a call can remove no more than 25 keys, and fewer, as the trie nodes it
 reads count as well. Larger cleanups belong in the receipts the call creates.
 
 ---

@@ -314,7 +314,10 @@ end of the run. A call that finds a share reached is rejected with
 `ExternalCallChunkShareReached` before anything is read for it, not even the
 contract's account, so it adds nothing to the storage proof. Only such a call
 adds nothing to the shares; a call rejected after it was admitted counts
-toward them like any other.
+toward them like any other. A call refused for its own validity, such as one
+with a malformed state init, counts the compute of its fees toward the compute
+share without the share check, and records no storage proof;
+`max_external_calls_per_chunk` bounds how many such calls a chunk holds.
 
 Unlike every other rejected call, a call rejected because a share was reached
 counts no compute toward the chunk, not even that of its fees. This is on
