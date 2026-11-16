@@ -24,6 +24,7 @@ mod contract_distribution_cross_shard;
 #[cfg(feature = "test_features")]
 mod contract_distribution_security;
 mod contract_distribution_simple;
+mod contract_distribution_vm_upgrade;
 mod create_delete_account;
 mod cross_shard_tx;
 mod debug_block_status;

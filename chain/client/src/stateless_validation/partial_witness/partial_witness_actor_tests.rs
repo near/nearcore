@@ -2,25 +2,29 @@ use super::partial_witness_actor::{
     PartialWitnessActor, version_mismatch, witness_version_mismatch,
 };
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
 use near_async::time::Clock;
-use near_chain::Chain;
+use near_chain::runtime::NightshadeRuntime;
 use near_chain::test_utils::{setup, setup_with_tx_validity_period_at_version};
 use near_chain::types::RuntimeAdapter;
+use near_chain::{Chain, Error};
+use near_chain_configs::Genesis;
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;
 use near_network::types::PeerManagerAdapter;
 use near_o11y::metrics;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, MainTransitionKey, PartialEncodedContractDeploys,
+    ChunkContractAccesses, CodeHash, MainTransitionKey, PartialEncodedContractDeploys,
     PartialEncodedContractDeploysPart,
 };
 use near_primitives::stateless_validation::partial_witness::{
@@ -30,9 +34,11 @@ use near_primitives::test_utils::{create_test_signer, test_chunk_header};
 use near_primitives::types::{Balance, BlockHeight, EpochId, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_vm_runner::{ContractCode, MockContractRuntimeCache};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tempfile::TempDir;
 
 fn post_kickout_version() -> ProtocolVersion {
     ProtocolFeature::EarlyKickout.protocol_version()
@@ -383,6 +389,94 @@ fn accesses_v2_unprocessed_anchor_soft_drops() {
 
     let actor = build_test_actor(epoch_manager, runtime, signer, Arc::new(InlineSpawner));
     actor.handle_chunk_contract_accesses(accesses).unwrap();
+}
+
+/// Accesses for a chunk at genesis + 2 whose parent is not processed, so only the
+/// genesis anchor is known. One accessed contract is precompiled under the genesis epoch's
+/// config, the other is not compiled at all.
+struct UnprocessedParentAccesses {
+    actor: PartialWitnessActor,
+    _home_dir: TempDir,
+    signer: Arc<ValidatorSigner>,
+    genesis_hash: CryptoHash,
+    genesis_height: BlockHeight,
+    epoch_id: EpochId,
+    unknown_parent: CryptoHash,
+    cached: CodeHash,
+    uncached: CodeHash,
+}
+
+impl UnprocessedParentAccesses {
+    fn new() -> Self {
+        let (chain, epoch_manager, chain_runtime, signer) = setup(Clock::real());
+        let genesis_hash = *chain.genesis().hash();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&genesis_hash).unwrap();
+        // The runtime from `setup` keeps its contract cache in a directory it has already
+        // deleted, so nothing it compiles stays cached.
+        let home_dir = tempfile::tempdir().unwrap();
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
+            home_dir.path(),
+            chain_runtime.store().clone(),
+            Box::new(MockContractRuntimeCache::default()),
+            &Genesis::test(vec![signer.validator_id().clone()], 1).config,
+            epoch_manager.clone(),
+            RuntimeConfigStore::new(),
+        );
+        // A compile error is cached too, so any bytes make the contract count as cached.
+        let code = ContractCode::new(b"not wasm".to_vec(), None);
+        let cached = CodeHash(*code.hash());
+        runtime.precompile_contracts(&epoch_id, vec![code]).unwrap();
+        Self {
+            actor: build_test_actor(
+                epoch_manager,
+                runtime,
+                signer.clone(),
+                Arc::new(InlineSpawner),
+            ),
+            _home_dir: home_dir,
+            signer,
+            genesis_hash,
+            genesis_height: chain.genesis().height(),
+            epoch_id,
+            unknown_parent: CryptoHash::hash_bytes(b"unknown_parent_block"),
+            cached,
+            uncached: CodeHash(CryptoHash::hash_bytes(b"uncached_contract")),
+        }
+    }
+
+    fn accesses(&self, main_transition_block_hash: CryptoHash) -> ChunkContractAccesses {
+        let shard_id = ShardId::new(0);
+        ChunkContractAccesses::new(
+            ChunkProductionKey {
+                shard_id,
+                epoch_id: self.epoch_id,
+                height_created: self.genesis_height + 2,
+            },
+            HashSet::from([self.cached.clone(), self.uncached.clone()]),
+            MainTransitionKey { block_hash: main_transition_block_hash, shard_id },
+            self.unknown_parent,
+            self.genesis_hash,
+            self.signer.as_ref(),
+            post_kickout_version(),
+        )
+    }
+}
+
+#[test]
+fn get_missing_contract_hashes_with_unprocessed_parent_skips_contracts_cached_under_its_epoch() {
+    let setup = UnprocessedParentAccesses::new();
+    let accesses = setup.accesses(setup.unknown_parent);
+    assert_eq!(
+        setup.actor.get_missing_contract_hashes(&accesses).unwrap(),
+        HashSet::from([setup.uncached]),
+    );
+}
+
+#[test]
+fn get_missing_contract_hashes_rejects_unknown_main_transition_block_other_than_parent() {
+    let setup = UnprocessedParentAccesses::new();
+    let accesses = setup.accesses(CryptoHash::hash_bytes(b"not_an_ancestor"));
+    assert_matches!(setup.actor.get_missing_contract_hashes(&accesses), Err(Error::Other(_)));
 }
 
 fn build_deploys(
