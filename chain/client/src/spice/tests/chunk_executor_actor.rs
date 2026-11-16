@@ -3,7 +3,7 @@ use crate::spice::chunk_executor_actor::{
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, receipt_proof_exists,
+    ExecutorIncomingUnverifiedReceipts, receipt_proof_exists, save_receipt_proof,
 };
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
@@ -13,6 +13,7 @@ use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
     pre_spice_boundary_genesis, save_and_record_block,
 };
+use assert_matches::assert_matches;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
@@ -32,6 +33,7 @@ use near_chain::spice::core_writer_actor::ProcessedBlock;
 use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
+    produce_spice_block_certifying_parent,
 };
 use near_chain::types::Tip;
 use near_chain::{Block, Chain, ChainGenesis};
@@ -39,6 +41,7 @@ use near_chain::{BlockProcessingArtifact, Provenance};
 use near_chain_configs::MutableValidatorSigner;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
 use near_network::recv_permit::RecvMessagePermit;
@@ -48,8 +51,8 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ReceiptProof;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{ReceiptProof, StateSyncInfo};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -65,7 +68,12 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter as _;
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::{PartialStorage, ShardUId};
+use near_store::flat::{
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageReadyStatus,
+    FlatStorageStatus,
+};
+use near_store::{DBCol, PartialStorage, ShardUId};
+use num_rational::Rational32;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::str::FromStr as _;
@@ -146,11 +154,26 @@ impl TestActor {
         tracking_shards: Vec<ShardUId>,
         outgoing_sc: UnboundedSender<OutgoingMessage>,
     ) -> TestActor {
+        let tracked_shards_config = TrackedShardsConfig::Shards(tracking_shards);
+        Self::with_tracked_shards_config(
+            genesis,
+            validator_signer,
+            tracked_shards_config,
+            outgoing_sc,
+        )
+    }
+
+    fn with_tracked_shards_config(
+        genesis: Genesis,
+        validator_signer: MutableValidatorSigner,
+        tracked_shards_config: TrackedShardsConfig,
+        outgoing_sc: UnboundedSender<OutgoingMessage>,
+    ) -> TestActor {
         let chain = get_chain_with_genesis(Clock::real(), genesis.clone());
         let epoch_manager = chain.epoch_manager.clone();
 
         let shard_tracker = ShardTracker::new(
-            TrackedShardsConfig::Shards(tracking_shards),
+            tracked_shards_config,
             epoch_manager.clone(),
             validator_signer.clone(),
         );
@@ -2074,4 +2097,419 @@ fn test_boundary_bootstrap_non_validator_sends_nothing() {
     boundary.record_pre_spice_state_transitions();
     let node_account = AccountId::from_str("test1").unwrap();
     boundary.bootstrap_and_assert_sends(&node_account, true);
+}
+
+/// A canonical block at or below the final execution head is still applied: that head waits only on
+/// the shards tracked this epoch, so a shard caught up for the next epoch can lag behind it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_canonical_blocks_at_or_below_final_execution_head() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let blocks = produce_n_blocks(&mut actors, 5);
+    for block in &blocks {
+        actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        record_endorsements(&mut actors, &block);
+    }
+
+    // The second node's final execution head passes blocks it has not applied.
+    let mut store_update = actors[1].chain.chain_store.store().store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(blocks[2].header()));
+    store_update.commit();
+    for block in &blocks {
+        actors[1].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    for block in &blocks {
+        assert!(block_executed(&actors[1], block));
+    }
+}
+
+/// A node that tracks a shard only from the epoch after a catch-up epoch, whose state sync landed
+/// the shard at the catch-up epoch's first block, the sync block, and whose catchup is still
+/// running. The final execution head, which does not wait on the shard, passed blocks the shard has
+/// not applied: `blocks_up_to_head` and `blocks_after_head` split the catch-up epoch's blocks after
+/// the sync block at it.
+struct CatchUpTest {
+    test_actor: TestActor,
+    shard_id: ShardId,
+    shard_uid: ShardUId,
+    sync_block: Arc<Block>,
+    blocks_up_to_head: Vec<Arc<Block>>,
+    blocks_after_head: Vec<Arc<Block>>,
+    next_epoch_first_block: Arc<Block>,
+    /// Keeps the actor's outgoing channel open.
+    _outgoing_rc: UnboundedReceiver<OutgoingMessage>,
+}
+
+impl CatchUpTest {
+    fn setup() -> Self {
+        init_test_logger();
+        let shard_layout = ShardLayout::multi_shard(2, 0);
+        let shard_id = ShardId::new(1);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let genesis = TestGenesisBuilder::new()
+            .genesis_time_from_clock(&Clock::real())
+            .shard_layout(shard_layout)
+            .epoch_length(5)
+            // Leaves the total supply unchanged at epoch boundaries, which test blocks don't
+            // account for.
+            .max_inflation_rate(Rational32::from_integer(0))
+            .validators_spec(ValidatorsSpec::desired_roles(
+                &["test-producer-0", "test-producer-1"],
+                &[],
+            ))
+            .build();
+        // Tracked one epoch in three, so some epoch tracks it next but neither now nor before.
+        let tracked_shards_config =
+            TrackedShardsConfig::Schedule(vec![vec![], vec![], vec![shard_id]]);
+        let (outgoing_sc, outgoing_rc) = unbounded();
+        let mut actor = TestActor::with_tracked_shards_config(
+            genesis.clone(),
+            MutableConfigValue::new(None, "validator_signer"),
+            tracked_shards_config,
+            outgoing_sc,
+        );
+        let shard_tracker = actor.actor.shard_tracker.clone();
+        let is_catching_up = |block: &Block| {
+            shard_tracker.should_apply_chunk(
+                ApplyChunksMode::OnlyCatchupShards,
+                block.hash(),
+                shard_id,
+            )
+        };
+        let genesis_block = actor.chain.genesis_block();
+        let mut block = produce_spice_block_certifying_parent(&mut actor.chain, &genesis_block);
+        while !is_catching_up(&block) {
+            assert!(block.header().height() < 4 * genesis.config.epoch_length, "never catching up");
+            block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+        }
+        // The catch-up epoch's blocks, the sync block first, and the next epoch's first block.
+        let mut epoch_blocks =
+            vec![produce_spice_block_certifying_parent(&mut actor.chain, &block)];
+        let next_epoch_first_block = loop {
+            let next = produce_spice_block_certifying_parent(
+                &mut actor.chain,
+                epoch_blocks.last().unwrap(),
+            );
+            if next.header().epoch_id() != epoch_blocks[0].header().epoch_id() {
+                break next;
+            }
+            epoch_blocks.push(next);
+        };
+        // Records the certification in the blocks' core statements, as the core writer does for
+        // every processed block.
+        let mut core_writer = SpiceCoreWriterActor::new(
+            actor.chain.chain_store.store().chain_store(),
+            actor.actor.epoch_manager.clone(),
+            actor.actor.shard_tracker.clone(),
+            actor.actor.validator_signer.clone(),
+            core_reader(&actor.chain),
+            noop().into_sender(),
+            noop().into_sender(),
+        );
+        for block in epoch_blocks.iter().chain([&next_epoch_first_block]) {
+            core_writer.handle(ProcessedBlock { block_hash: *block.hash() });
+        }
+        const FINAL_EXECUTION_HEAD_INDEX: usize = 2;
+        let (sync_block, blocks_after_sync_block) = epoch_blocks.split_first().unwrap();
+        let (blocks_up_to_head, blocks_after_head) =
+            blocks_after_sync_block.split_at(FINAL_EXECUTION_HEAD_INDEX);
+        let final_execution_head = blocks_up_to_head.last().unwrap();
+
+        let mut store_update = actor.chain.chain_store.store().store_update();
+        store_update.chunk_store_update().set_chunk_extra(
+            sync_block.hash(),
+            &shard_uid,
+            &ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+        );
+        store_update.set_ser(
+            DBCol::StateDlInfos,
+            sync_block.hash().as_ref(),
+            &StateSyncInfo::new(*sync_block.hash(), vec![shard_id]),
+        );
+        store_update
+            .chain_store_update()
+            .set_spice_final_execution_head(&Tip::from_header(final_execution_head.header()));
+        store_update.commit();
+
+        Self {
+            test_actor: actor,
+            shard_id,
+            shard_uid,
+            sync_block: sync_block.clone(),
+            blocks_up_to_head: blocks_up_to_head.to_vec(),
+            blocks_after_head: blocks_after_head.to_vec(),
+            next_epoch_first_block,
+            _outgoing_rc: outgoing_rc,
+        }
+    }
+
+    /// Finishes the shard's catchup, as `finish_catchup_blocks` does by deleting the sync block's
+    /// state sync info.
+    fn finish_catchup(&self) {
+        let mut store_update = self.test_actor.chain.chain_store.store().store_update();
+        store_update.delete(DBCol::StateDlInfos, self.sync_block.hash().as_ref());
+        store_update.commit();
+    }
+
+    /// Saves what applying the shard at the block after the sync block needs, the block's chunks
+    /// and the receipts the sync block sends the shard, and returns that block.
+    fn save_inputs_of_the_block_after_the_sync_block(&mut self) -> Arc<Block> {
+        let block = self.blocks_up_to_head[0].clone();
+        let chain = &mut self.test_actor.chain;
+        let mut chain_store_update = chain.chain_store.store_update();
+        for chunk_header in block.chunks().iter_raw() {
+            chain_store_update.save_chunk(ShardChunk::new(chunk_header.clone(), vec![], vec![]));
+        }
+        chain_store_update.commit().unwrap();
+        let sync_header = self.sync_block.header();
+        let mut store_update = chain.chain_store.store().store_update();
+        for from_shard_id in chain.epoch_manager.shard_ids(sync_header.epoch_id()).unwrap() {
+            let (_, proofs) =
+                empty_outgoing_receipt_proofs(chain, sync_header.prev_hash(), from_shard_id);
+            let proof =
+                proofs.into_iter().find(|proof| proof.1.to_shard_id == self.shard_id).unwrap();
+            save_receipt_proof(&mut store_update, sync_header.hash(), &proof);
+        }
+        store_update.commit();
+        block
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
+    // The shard's catchup finished.
+    let mut catch_up = CatchUpTest::setup();
+    catch_up.finish_catchup();
+
+    // The restarted node processes the next epoch's first block.
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
+        block_hash: *catch_up.next_epoch_first_block.hash(),
+    });
+
+    // The blocks up to the final execution head are parked again, the ones after it are not.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
+    }
+    for block in &catch_up.blocks_after_head {
+        assert!(!parked.contains(block.hash()), "parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_parking_again_the_blocks_after_the_current_epochs_sync_block() {
+    // The shard's catchup finished before the epoch's end.
+    let mut catch_up = CatchUpTest::setup();
+    catch_up.finish_catchup();
+
+    // Restarted after the catchup finished, the node processes the blocks after the final execution
+    // head.
+    for block in &catch_up.blocks_after_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    // The blocks up to the final execution head are parked again.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_parking_again_the_blocks_of_a_shard_still_being_caught_up() {
+    // The shard's catchup is still running.
+    let mut catch_up = CatchUpTest::setup();
+
+    // Restarted before the catchup finishes, the node processes the blocks after the final
+    // execution head.
+    for block in &catch_up.blocks_after_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    // The blocks up to the final execution head are not parked again.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(!parked.contains(block.hash()), "parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_parking_again_the_blocks_of_a_shard_once_its_catchup_finishes() {
+    // Restarted before the shard's catchup finishes, the node processed the blocks after the final
+    // execution head.
+    let mut catch_up = CatchUpTest::setup();
+    for block in &catch_up.blocks_after_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    // The catchup finishes, and the node processes the next epoch's first block.
+    catch_up.finish_catchup();
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
+        block_hash: *catch_up.next_epoch_first_block.hash(),
+    });
+
+    // The blocks up to the final execution head are parked again.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_executing_a_shard_still_being_caught_up() {
+    // The shard's catchup is still running, and the node has what the block after the sync block
+    // needs to apply the shard.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+
+    // The node processes the block after the sync block.
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    // The shard is not applied at the block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_err());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_shard_once_its_catchup_finishes() {
+    // The shard's catchup finished, and the node has what the block after the sync block needs to
+    // apply the shard.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    catch_up.finish_catchup();
+
+    // The node processes the block after the sync block.
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    // The shard is applied at the block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
+    // The node, which tracks no shard in the catch-up epoch, postprocessed the blocks after the
+    // final execution head as it processed them.
+    let mut catch_up = CatchUpTest::setup();
+    for block in &catch_up.blocks_after_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+    let postprocessed_blocks = catch_up.test_actor.actor.postprocessed_blocks.clone();
+    assert_eq!(
+        postprocessed_blocks,
+        catch_up.blocks_after_head.iter().map(|block| *block.hash()).collect::<Vec<_>>()
+    );
+
+    // The catch-up shard finishes applying a block between the final execution head and the
+    // execution head.
+    let block_hash = *catch_up.blocks_after_head[0].hash();
+    catch_up.test_actor.actor.coordinator_post_apply(&block_hash, catch_up.shard_uid, &[]).unwrap();
+
+    // The block is not postprocessed again.
+    assert_eq!(catch_up.test_actor.actor.postprocessed_blocks, postprocessed_blocks);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
+    // The shard's catchup is still running, and a block below the sync block, which the shard never
+    // applies, is still parked, as after a restart that changed the tracked shards. The node has
+    // processed the sync block, which waits behind it.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    let stale_block = catch_up
+        .test_actor
+        .chain
+        .get_block_header(catch_up.sync_block.header().prev_hash())
+        .unwrap();
+    catch_up.test_actor.actor.park_block(catch_up.shard_uid, &stale_block);
+    catch_up
+        .test_actor
+        .handle_with_internal_events(ProcessedBlock { block_hash: *catch_up.sync_block.hash() });
+
+    // The catchup finishes, and the node processes the next epoch's first block.
+    catch_up.finish_catchup();
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
+        block_hash: *catch_up.next_epoch_first_block.hash(),
+    });
+
+    // The shard is applied at the block after the sync block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_not_moving_the_flat_head_of_a_caught_up_shard_for_a_fork() {
+    // The shard's state was synced at the sync block, where its flat head is, and it has the delta
+    // of the block after it, which a fork block next to the final execution head branches off.
+    let mut catch_up = CatchUpTest::setup();
+    let sync_header = catch_up.sync_block.header();
+    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
+    store_update.flat_store_update().set_flat_storage_status(
+        catch_up.shard_uid,
+        FlatStorageStatus::Ready(FlatStorageReadyStatus {
+            flat_head: Tip::from_header(sync_header).into(),
+        }),
+    );
+    store_update.commit();
+    let flat_storage_manager = catch_up.test_actor.chain.runtime_adapter.get_flat_storage_manager();
+    flat_storage_manager.create_flat_storage_for_shard(catch_up.shard_uid).unwrap();
+    let fork_parent = catch_up.blocks_up_to_head[0].clone();
+    let header = fork_parent.header();
+    flat_storage_manager
+        .get_flat_storage_for_shard(catch_up.shard_uid)
+        .unwrap()
+        .add_delta(FlatStateDelta {
+            metadata: FlatStateDeltaMetadata {
+                block: Tip::from_header(header).into(),
+                prev_block_with_changes: None,
+            },
+            changes: FlatStateChanges::default(),
+        })
+        .unwrap()
+        .commit();
+    // The chain refuses a block below its final head, so the fork block is only stored.
+    let fork_block = TestBlockBuilder::from_prev_block(
+        Clock::real(),
+        &fork_parent,
+        Arc::new(create_test_signer("test-producer-0")),
+    )
+    .build();
+    let mut store_update = catch_up.test_actor.chain.chain_store.store().store_update();
+    store_update.insert_ser(DBCol::BlockHeader, fork_block.hash().as_ref(), fork_block.header());
+    store_update.commit();
+
+    // The shard finishes applying the fork block after the final execution head passed it.
+    catch_up
+        .test_actor
+        .actor
+        .coordinator_post_apply(fork_block.hash(), catch_up.shard_uid, &[])
+        .unwrap();
+
+    // The fork block is not final, so the shard's flat head stays at the sync block.
+    assert_matches!(
+        flat_storage_manager.get_flat_storage_status(catch_up.shard_uid),
+        FlatStorageStatus::Ready(status) if status.flat_head.hash == *catch_up.sync_block.hash()
+    );
 }
