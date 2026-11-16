@@ -8553,7 +8553,7 @@
                     "type": "array"
                   },
                   "authorization_context": {
-                    "description": "What authorized the chain, absent in views written before external calls",
+                    "description": "What authorized the chain, absent if the receipt doesn't record it",
                     "oneOf": [
                       {
                         "$ref": "#/components/schemas/AuthorizationContext"

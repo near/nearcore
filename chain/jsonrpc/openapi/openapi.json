@@ -13541,7 +13541,7 @@
                         "nullable": true
                       }
                     ],
-                    "description": "What authorized the chain, absent in views written before external calls"
+                    "description": "What authorized the chain, absent if the receipt doesn't record it"
                   },
                   "creation_protocol_version": {
                     "description": "The protocol version the receipt was created at, absent if the receipt doesn't record it",
