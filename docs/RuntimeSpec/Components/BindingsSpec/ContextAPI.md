@@ -14,7 +14,8 @@ Some of the functions below behave differently depending on how the contract exe
   when the feature is stabilized). A view call can also run that method, but an internal call can't: a `FunctionCall`
   action to it fails with `ReservedMethodName`. An external call that creates a yielded promise is rejected, since
   the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
-  limited too (see [Trie API](TrieAPI.md)).
+  limited too (see [Trie API](TrieAPI.md)). An external call may carry the state init of a universal account, which
+  installs the account's code and data right before the method runs if the account isn't initialized yet.
 
   A chunk producer is to run an external call before it includes it in a chunk, when the block the chunk goes into
   doesn't exist yet. Like the signature check of a signed transaction, the run is on top of the chunk's parent block:

@@ -12,7 +12,7 @@ pub(crate) fn group_id(ecc: &EccTransaction) -> GroupId<'_> {
 
 impl PoolItem for ValidatedEcc {
     fn hash(&self) -> CryptoHash {
-        self.get_hash()
+        *self.hash_without_state_init()
     }
 
     fn size(&self) -> u64 {

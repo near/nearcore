@@ -36,9 +36,7 @@ use near_client_primitives::types::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::{
-    BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight, TxStatusRequest, TxStatusResponse,
-};
+use near_network::client::{BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
@@ -51,8 +49,8 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochHeight, EpochId,
-    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochId, EpochReference,
+    Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
     TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
 use near_primitives::version::ProtocolFeature;
@@ -853,18 +851,24 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
 
-        let chunk = match msg {
+        let (chunk, height_included) = match msg {
             GetChunk::ChunkHash(chunk_hash) => {
-                let chunk = self.chain.get_chunk(&chunk_hash)?;
-                ShardChunk::clone(&chunk)
+                let chunk = ShardChunk::clone(&self.chain.get_chunk(&chunk_hash)?);
+                let height_included =
+                    self.chain.chain_store().get_external_call_height_included(&chunk)?;
+                (chunk, height_included)
             }
             GetChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
-                get_chunk_from_block(&block, shard_id, &self.chain)?
+                let chunk = get_chunk_from_block(&block, shard_id, &self.chain)?;
+                let height_included = chunk.height_included();
+                (chunk, Some(height_included))
             }
             GetChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height)?;
-                get_chunk_from_block(&block, shard_id, &self.chain)?
+                let chunk = get_chunk_from_block(&block, shard_id, &self.chain)?;
+                let height_included = chunk.height_included();
+                (chunk, Some(height_included))
             }
         };
 
@@ -878,7 +882,7 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
-        Ok(ChunkView::from_author_chunk(author, chunk))
+        Ok(ChunkView::from_author_chunk(author, chunk, height_included))
     }
 }
 
@@ -1956,7 +1960,7 @@ impl Handler<TxStatusResponse> for ViewClientActor {
         let TxStatusResponse(tx_result) = msg;
         tracing::debug!(
             target: "client",
-            tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
+            tx_hash = %tx_result.transaction.id(), status = ?tx_result.status,
             tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
             num_receipt_outcomes = tx_result.receipts_outcome.len(),
             "receive tx status response"
@@ -2045,15 +2049,6 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
-    }
-}
-
-impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
-    fn handle(&mut self, _: GetCurrentEpochHeight) -> Option<EpochHeight> {
-        let Ok(tip) = self.chain.head() else {
-            return None;
-        };
-        self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
     }
 }
 

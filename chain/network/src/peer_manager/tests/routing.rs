@@ -27,6 +27,7 @@ use near_primitives::types::{Balance, Gas};
 use near_primitives::views::{
     ExecutionMetadataView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus, SignedTransactionView,
+    TransactionEnvelopeView,
 };
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
@@ -1460,7 +1461,7 @@ fn make_forged_tx_status_outcome(rng: &mut Rng) -> FinalExecutionOutcomeView {
     let account_id = data::make_account_id(rng);
     FinalExecutionOutcomeView {
         status: FinalExecutionStatus::SuccessValue(b"forged".to_vec()),
-        transaction: SignedTransactionView {
+        transaction: TransactionEnvelopeView::Signed(SignedTransactionView {
             signer_id: account_id.clone(),
             public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 1,
@@ -1471,7 +1472,7 @@ fn make_forged_tx_status_outcome(rng: &mut Rng) -> FinalExecutionOutcomeView {
             hash: CryptoHash::default(),
             nonce_index: None,
             nonce_mode: None,
-        },
+        }),
         transaction_outcome: ExecutionOutcomeWithIdView {
             proof: vec![],
             block_hash: CryptoHash::default(),

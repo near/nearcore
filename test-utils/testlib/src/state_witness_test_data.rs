@@ -1,7 +1,7 @@
 use crate::runtime_utils::{alice_account, bob_account};
 use borsh;
 use near_crypto::InMemorySigner;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -87,6 +87,7 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        config_store: Arc::new(RuntimeConfigStore::test()),
         next_wasm_config: None,
         vm_generation: Default::default(),
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),

@@ -1483,6 +1483,13 @@ pub fn create_localnet_configs_from_seeds(
     (configs, validator_signers, network_signers, genesis)
 }
 
+/// Makes the node its own TIER1 proxy at `addr`, the local address it listens on. A validator
+/// advertises the address in its account data, and the other validators connect to it over TIER1.
+fn set_local_tier1_proxy(config: &mut Config, addr: SocketAddr, node_key: PublicKey) {
+    config.network.public_addrs = vec![PeerAddr { addr, peer_id: PeerId::new(node_key) }];
+    config.network.allow_private_ip_in_public_addrs = true;
+}
+
 fn create_localnet_config(
     num_validators: NumSeats,
     tracked_shards_config: &TrackedShardsConfig,
@@ -1504,11 +1511,7 @@ fn create_localnet_config(
         config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
     }
     config.network.addr = network_config.0.to_string();
-    config.network.public_addrs = vec![PeerAddr {
-        addr: network_config.0,
-        peer_id: PeerId::new(network_config.1.public_key()),
-    }];
-    config.network.allow_private_ip_in_public_addrs = true;
+    set_local_tier1_proxy(&mut config, network_config.0, network_config.1.public_key());
     config.network.tier1.connect_interval = Duration::seconds(5);
     config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.network.boot_nodes = if params.is_boot {
@@ -1852,6 +1855,8 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
+    set_local_tier1_proxy(&mut config, *addr, signer.public_key());
+    config.network.tier1.connect_interval = Duration::seconds(1);
     NearConfig::new(
         config,
         genesis,

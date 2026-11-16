@@ -134,6 +134,19 @@ pub struct LimitConfig {
     /// pinning the sending shard at full outgoing congestion, which stops it
     /// accepting transactions.
     pub max_state_init_entries: u64,
+    /// Max number of gas key nonces the `AddKey` actions in one receipt may add,
+    /// in total, including the actions inside a delegate action.
+    ///
+    /// Each nonce adds to the receipt's execution fees and so to its congestion
+    /// gas, but the send fee does not depend on the number of nonces.
+    pub max_gas_key_nonces_added_per_receipt: u64,
+    /// Max number of gas key nonces the actions in one receipt may remove, in
+    /// total. Checked at execution, because the count comes from state.
+    ///
+    /// Removals are charged as compute only, and the chunk compute limit is
+    /// checked between receipts, so without this bound one receipt can use
+    /// many times the chunk compute limit.
+    pub max_gas_key_nonces_removed_per_receipt: u64,
     /// If present, stores max number of functions in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_functions_number_per_contract: Option<u64>,

@@ -76,6 +76,7 @@ pub fn apply_chunk_postprocessing(
         outgoing_receipts,
         processed_receipts,
         receipt_to_tx,
+        external_calls,
         stats,
         ..
     } = apply_result;
@@ -135,6 +136,7 @@ pub fn apply_chunk_postprocessing(
             shard_id,
             &outcomes_with_proofs,
         );
+        store_update.chain_store_update().set_external_call_hashes(block_hash, &external_calls);
     }
     if config.save_receipt_to_tx {
         store_update.chain_store_update().set_receipt_to_tx(&receipt_to_tx);

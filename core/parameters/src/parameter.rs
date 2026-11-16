@@ -239,6 +239,10 @@ pub enum Parameter {
     MaxUniversalStateInitKeys,
     /// Max number of storage entries the state-init actions in one receipt may carry, in total.
     MaxStateInitEntries,
+    /// Max number of gas key nonces the actions in one receipt may add, in total.
+    MaxGasKeyNoncesAddedPerReceipt,
+    /// Max number of gas key nonces the actions in one receipt may remove, in total.
+    MaxGasKeyNoncesRemovedPerReceipt,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
     MinContractSizePerLocal,
@@ -404,6 +408,8 @@ impl Parameter {
             Parameter::MaxReceiptTotalInputSize,
             Parameter::MaxUniversalStateInitKeys,
             Parameter::MaxStateInitEntries,
+            Parameter::MaxGasKeyNoncesAddedPerReceipt,
+            Parameter::MaxGasKeyNoncesRemovedPerReceipt,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
             Parameter::MinContractSizePerLocal,

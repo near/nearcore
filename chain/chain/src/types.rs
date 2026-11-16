@@ -146,6 +146,8 @@ pub struct ApplyChunkResult {
     pub proposed_split: Option<TrieSplit>,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
     pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
+    /// The unique id and the hash of each external call that got an outcome.
+    pub external_calls: Vec<(CryptoHash, CryptoHash)>,
 }
 
 impl ApplyChunkResult {

@@ -3,3 +3,8 @@ fix_contract_loading_cost: { old: false, new: true }
 per_receipt_storage_proof_size_limit: { old: 4_000_000, new: 4_500_000 }
 fix_register_input_charging: { old: false, new: true }
 bls12381_not_in_group_fix: { old: false, new: true }
+
+# Gas keys have been live since protocol 85, so the base values stay unlimited.
+# 1_024 matches `MAX_NONCES_FOR_GAS_KEY`: one gas key with max nonces per receipt.
+max_gas_key_nonces_added_per_receipt: { old: 4_294_967_295, new: 1_024 }
+max_gas_key_nonces_removed_per_receipt: { old: 4_294_967_295, new: 1_024 }

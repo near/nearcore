@@ -167,7 +167,8 @@ pub fn resolve_receipt_via_hint(
             // `exists` not snapshotted. Concurrent GC may downgrade
             // (true, true) → any subset. Worst case: spurious skip, never
             // misclassification — both downstream paths re-read same store.
-            let in_txs = store.exists(DBCol::Transactions, outcome_id.as_ref());
+            // An external call's row is gc'd with its outcome, so a race there ends in a skip too.
+            let in_txs = chain_store.is_transaction_outcome(&outcome_id, &block_hash);
             let in_receipts = store.exists(DBCol::Receipts, outcome_id.as_ref());
             let origin = match (in_txs, in_receipts) {
                 (true, false) => ReceiptOrigin::FromTransaction(ReceiptOriginTransaction {
@@ -189,7 +190,7 @@ pub fn resolve_receipt_via_hint(
                     tracing::debug!(
                         %outcome_id,
                         height,
-                        "outcome id present in both DBCol::Transactions and DBCol::Receipts; \
+                        "outcome id is both a transaction's outcome and in DBCol::Receipts; \
                          skipping ambiguous classification"
                     );
                     continue;

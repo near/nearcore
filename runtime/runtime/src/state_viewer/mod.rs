@@ -123,7 +123,7 @@ fn top_up_storage_stake(account: &mut Account, config: &RuntimeConfig) -> Result
 }
 
 pub struct TrieViewer {
-    runtime_config_store: RuntimeConfigStore,
+    runtime_config_store: Arc<RuntimeConfigStore>,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     state_size_limit: Option<u64>,
     /// Upper bound on the number of access keys returned by `view_access_keys`.
@@ -136,7 +136,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        let runtime_config_store = RuntimeConfigStore::new();
+        let runtime_config_store = Arc::new(RuntimeConfigStore::new());
         Self {
             runtime_config_store,
             state_size_limit: None,
@@ -153,7 +153,12 @@ impl TrieViewer {
         access_keys_limit: u32,
         max_gas_burnt_view: Option<Gas>,
     ) -> Self {
-        Self { runtime_config_store, state_size_limit, access_keys_limit, max_gas_burnt_view }
+        Self {
+            runtime_config_store: Arc::new(runtime_config_store),
+            state_size_limit,
+            access_keys_limit,
+            max_gas_burnt_view,
+        }
     }
 
     pub fn view_account(
@@ -530,6 +535,7 @@ impl TrieViewer {
             prev_block: PrevBlockContext { hash: view_state.prev_block_hash, ..Default::default() },
             current_protocol_version: view_state.current_protocol_version,
             config: Arc::clone(config),
+            config_store: Arc::clone(&self.runtime_config_store),
             next_wasm_config: None,
             vm_generation: Default::default(),
             cache: view_state.cache,

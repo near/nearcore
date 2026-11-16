@@ -8,7 +8,7 @@ use near_primitives::action::DeterministicStateInitAction;
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, ProtocolVersion};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_store::{StorageError, TrieUpdate};
 
@@ -39,6 +39,7 @@ pub(crate) fn action_deterministic_state_init(
         account_id,
         receipt,
         &apply_state.config,
+        apply_state.current_protocol_version,
         result,
     )
 }
@@ -95,6 +96,7 @@ pub(crate) fn settle_state_init_deposit(
     account_id: &AccountId,
     receipt: &Receipt,
     config: &RuntimeConfig,
+    current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // Use attached deposit to satisfy storage staking requirements and refund
@@ -125,9 +127,11 @@ pub(crate) fn settle_state_init_deposit(
     };
 
     if deposit_refund > Balance::ZERO {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit_refund));
+        result.new_receipts.push(Receipt::new_balance_refund(
+            receipt.balance_refund_receiver(),
+            deposit_refund,
+            current_protocol_version,
+        ));
     }
 
     Ok(())

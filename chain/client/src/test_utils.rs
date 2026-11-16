@@ -13,7 +13,7 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::UpdatableClientConfig;
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::Block;
+use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
@@ -21,7 +21,7 @@ use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEnc
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{ValidatedTransaction, ValidatedTransactionEnvelope};
-use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
@@ -162,13 +162,25 @@ pub fn create_chunk(
     validated_txs: Vec<ValidatedTransaction>,
 ) -> (ProduceChunkResult, Arc<Block>) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
+    let validated_txs =
+        validated_txs.into_iter().map(ValidatedTransactionEnvelope::from).collect_vec();
+    create_chunk_on_block(client, &last_block, validated_txs)
+}
+
+/// Creates a chunk on top of `last_block` holding `validated_txs`, and the block at the next height
+/// that includes it. `last_block` need not be the head, so the block can start a fork.
+pub fn create_chunk_on_block(
+    client: &mut Client,
+    last_block: &Block,
+    validated_txs: Vec<ValidatedTransactionEnvelope>,
+) -> (ProduceChunkResult, Arc<Block>) {
     let next_height = last_block.header().height() + 1;
     let signer = client.validator_signer.get().unwrap();
     let ProduceChunkResult { chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
         client
             .chunk_producer
             .produce_chunk(
-                &last_block,
+                last_block,
                 last_block.header().epoch_id(),
                 last_block.chunks()[0].clone(),
                 next_height,
@@ -180,8 +192,6 @@ pub fn create_chunk(
             .unwrap()
             .unwrap();
     let mut encoded_chunk = chunk.into_parts().1;
-    let validated_txs =
-        validated_txs.into_iter().map(ValidatedTransactionEnvelope::from).collect_vec();
     let tx_root = merklize(&validated_txs).0;
 
     // reconstruct the chunk with changes
@@ -246,8 +256,9 @@ pub fn create_chunk(
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
+    let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(last_block.hash()).unwrap();
     let endorsement =
-        ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
+        ChunkEndorsement::new(epoch_id, &encoded_chunk.cloned_header(), signer.as_ref());
     // Match the producer: the field is non-empty only on the epoch's last block.
     let spice_chunk_endorsement_stats = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         client
@@ -260,8 +271,21 @@ pub fn create_chunk(
     };
     let epoch_sync_data_hash =
         client.epoch_manager.compute_epoch_sync_data_hash(last_block.hash()).unwrap();
-    let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
+    // The signer approves the block, as a block producer's own approval does.
+    let approval =
+        Approval::new(*last_block.hash(), last_block.header().height(), next_height, &signer);
+    let approvers =
+        client.epoch_manager.get_epoch_block_approvers_ordered(last_block.hash()).unwrap();
+    let approvals = approvers
+        .into_iter()
+        .map(|approver| {
+            let signed = approver.account_id == approval.account_id;
+            signed.then(|| Box::new(approval.signature.clone()))
+        })
+        .collect();
+    let block = TestBlockBuilder::from_prev_block(client.clock.clone(), last_block, signer)
         .height(next_height)
+        .approvals(approvals)
         .chunks(vec![encoded_chunk.cloned_header()])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))

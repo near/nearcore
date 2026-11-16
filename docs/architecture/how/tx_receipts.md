@@ -48,9 +48,10 @@ Once we have a receipt, we have to send it to the proper destination - by adding
 it to the `outgoing_receipt` list, which will be forwarded to the chunk
 producers from the next block.
 
-**Note:** There is a special case here - if the sender of the receipt is the
-same as the receiver, then the receipt will be added to the `local_receipts`
-queue and executed in the same block.
+**Note:** There is a special case here - if a signed transaction's sender is
+also its receiver, the receipt will be added to the `local_receipts` queue and
+executed in the same block. An external call's receipts always go out and run in
+a later chunk.
 
 ### Step 3: When an incoming receipt arrives
 

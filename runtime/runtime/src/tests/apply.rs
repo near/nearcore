@@ -1,10 +1,10 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
-use crate::config::{ecc_cost, safe_gas_to_balance, total_send_fees, tx_cost};
+use crate::config::{ecc_cost, exec_fee, safe_gas_to_balance, total_send_fees, tx_cost};
 use crate::conversions::Convert;
 use crate::find_skipped_transactions;
 use crate::tests::{
-    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions,
+    MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions, set_config,
     set_sha256_cost,
 };
 use crate::wallet_contract::{
@@ -51,7 +51,7 @@ use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
-    ActionReceipt, ActionReceiptV3, AuthorizationContext, DataReceipt,
+    ActionReceipt, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion, DataReceipt,
     GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptOrigin,
     ReceiptOriginTransaction, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0,
 };
@@ -66,7 +66,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    AccountId, Balance, BlockHeight, Compute, EpochId, EpochInfoProvider, Gas, MerkleHash, Nonce,
     NonceIndex, ShardId, StateChangeCause,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
@@ -84,6 +84,7 @@ use near_store::{
     KeyLookupMode, MissingTrieValueContext, PartialStorage, ShardTries, StorageError, Trie,
     TrieAccess, TrieUpdate, get_access_key, get_account, get_gas_key_nonce, get_postponed_receipt,
     get_received_data, has_promise_yield_receipt, remove_account, set_access_key, set_account,
+    set_gas_key_nonce,
 };
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
@@ -103,7 +104,7 @@ mod contract_compilation_status;
 
 const DEFAULT_MINIMAL_GAS_ATTACHMENT: Gas = Gas::from_gas(1);
 
-fn setup_runtime(
+pub(super) fn setup_runtime(
     initial_accounts: Vec<AccountId>,
     initial_balance: Balance,
     initial_locked: Balance,
@@ -218,6 +219,7 @@ fn setup_runtime_for_shard(
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        config_store: Arc::new(RuntimeConfigStore::test()),
         next_wasm_config: None,
         vm_generation: Default::default(),
         cache: Some(Box::new(contract_cache)),
@@ -277,7 +279,7 @@ fn test_apply_check_balance_validation_rewards() {
             tries.get_trie_for_shard(ShardUId::single_shard(), root),
             &Some(validator_accounts_update),
             &apply_state,
-            &[Receipt::new_balance_refund(&alice_account(), small_refund)],
+            &[Receipt::new_balance_refund(&alice_account(), small_refund, PROTOCOL_VERSION)],
             SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
@@ -638,6 +640,7 @@ fn generate_refund_receipts(small_transfer: Balance, n: u64) -> Vec<Receipt> {
             Receipt::new_balance_refund(
                 &alice_account(),
                 small_transfer.checked_add(Balance::from_yoctonear(u128::from(i))).unwrap(),
+                PROTOCOL_VERSION,
             )
         })
         .collect()
@@ -799,7 +802,7 @@ fn test_apply_ecc_missing_contract() {
     }
     let contract_id: AccountId = "missing.near".parse().unwrap();
     let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
-    assert_eq!(err, InvalidTxError::SignerDoesNotExist { signer_id: contract_id });
+    assert_eq!(err, InvalidTxError::ContractNotFound { contract_id });
 }
 
 /// An ECC to a contract that can't pay for its fees is rejected.
@@ -833,11 +836,8 @@ fn test_apply_ecc_no_contract() {
     let refused = apply_refused_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider);
     assert_eq!(
         refused.error,
-        TxExecutionError::ActionError(ActionError {
-            index: Some(0),
-            kind: ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::CodeDoesNotExist { account_id: bob_account() }
-            )),
+        TxExecutionError::InvalidTxError(InvalidTxError::ContractNotFound {
+            contract_id: bob_account()
         })
     );
     let fee = ecc_cost(&apply_state.config, &ecc_to_bob(), GAS_PRICE).unwrap();
@@ -1166,6 +1166,19 @@ fn test_apply_ecc_accepted() {
     };
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     assert_eq!(outcome.id, outcome_id);
+    // The call's writes and its charge are recorded under the call's own cause.
+    let cause = StateChangeCause::ExternalCallProcessing { transaction_id: outcome_id };
+    for trie_key in [
+        TrieKey::Account { account_id: bob_account() },
+        TrieKey::ContractData { account_id: bob_account(), key: ECC_KEY.to_vec() },
+    ] {
+        let changes = apply_result
+            .state_changes
+            .iter()
+            .find(|changes| changes.trie_key == trie_key)
+            .expect("the call changes the contract's account and data");
+        assert!(changes.changes.iter().all(|change| change.cause == cause), "{changes:?}");
+    }
     let outcome = &outcome.outcome;
     let parent = &apply_state.prev_block;
     assert!(parent.height + 1 < apply_state.block_height);
@@ -1344,11 +1357,15 @@ fn setup_ecc_chain(
 
 /// The receipt an accepted ECC to bob sent to carol, after applying the chunk with the call.
 fn ecc_receipt_to_carol(apply_result: &ApplyResult) -> Receipt {
-    let [receipt] = apply_result.outgoing_receipts.as_slice() else {
+    let to_carol: Vec<_> = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|receipt| receipt.receiver_id() == &carol_account())
+        .collect();
+    let [receipt] = to_carol.as_slice() else {
         panic!("expected one receipt to carol, got {:?}", apply_result.outgoing_receipts);
     };
-    assert_eq!(receipt.receiver_id(), &carol_account());
-    receipt.clone()
+    Receipt::clone(receipt)
 }
 
 /// An accepted ECC's promise becomes a receipt the external call authorized, and the contract pays
@@ -1409,6 +1426,9 @@ fn test_apply_ecc_promise() {
             refund_to: None,
             authorization_context: AuthorizationContext::ExternalContractCall,
             gas_price: receipt_gas_price,
+            creation_protocol_version: CreationProtocolVersion(
+                apply_state.current_protocol_version
+            ),
             output_data_receivers: vec![],
             input_data_ids: vec![],
             actions: vec![Action::function_call("who", vec![], CAROL_CALL_GAS)],
@@ -1515,6 +1535,9 @@ fn test_apply_ecc_promise_unused_gas_refund() {
                 refund_to: None,
                 authorization_context: AuthorizationContext::ExternalContractCall,
                 gas_price: Balance::ZERO,
+                creation_protocol_version: CreationProtocolVersion(
+                    apply_state.current_protocol_version
+                ),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit: refund })],
@@ -1812,7 +1835,7 @@ fn test_apply_ecc_refused_promise_yield_create() {
 }
 
 /// An ECC whose run resumes a yielded promise is accepted, and the resume reaches the promise in
-/// the same chunk.
+/// the next chunk, as it does from a receipt's run.
 #[test]
 fn test_apply_ecc_yield_resume() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
@@ -1860,8 +1883,20 @@ fn test_apply_ecc_yield_resume() {
     );
     let outcome_id = create_ecc_outcome_id(ecc.hash(), apply_state.block_height);
     assert_eq!(outcome_status(&apply_result, &outcome_id), ExecutionStatus::SuccessValue(vec![]));
-    // The yielded promise runs in the same chunk, so the chunk has its outcome too.
-    assert_eq!(apply_result.outcomes.len(), 2);
+    assert_eq!(apply_result.outcomes.len(), 1);
+    let state = tries.new_trie_update(ShardUId::single_shard(), root);
+    assert!(has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
+
+    let (root, apply_result) = apply_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        &apply_result.outgoing_receipts,
+        vec![],
+        &epoch_info_provider,
+    );
+    assert!(!apply_result.outcomes.is_empty());
     let state = tries.new_trie_update(ShardUId::single_shard(), root);
     assert!(!has_promise_yield_receipt(&state, bob_account(), data_id).unwrap());
 }
@@ -1949,6 +1984,7 @@ fn dry_run_ecc_to_bob_on_trie(
         epoch_id: apply_state.epoch_id,
         protocol_version: apply_state.current_protocol_version,
         config: Arc::clone(&apply_state.config),
+        config_store: Arc::clone(&apply_state.config_store),
         vm_generation: apply_state.vm_generation,
         gas_price: apply_state.gas_price,
         prev_block: apply_state.prev_block.clone(),
@@ -2063,7 +2099,7 @@ fn test_dry_run_ecc_matches_apply() {
         let (bob, written) = bob_ecc_state(&tries, root);
         assert_eq!(dry_run_written, written, "{name}");
         match dry_run {
-            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage, .. } => {
                 assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
                 assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
                 assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
@@ -2346,7 +2382,7 @@ fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
         );
         let outcome = &apply_result.outcomes[0].outcome;
         match early {
-            EccDryRun::Accepted { account, gas_burnt, compute_usage } => {
+            EccDryRun::Accepted { account, gas_burnt, compute_usage, .. } => {
                 assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_), "{name}");
                 assert_eq!(outcome.gas_burnt, gas_burnt, "{name}");
                 assert_eq!(outcome.compute_usage, Some(compute_usage), "{name}");
@@ -2467,7 +2503,7 @@ fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
     assert_matches!(
         &outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     assert_eq!(outcome.gas_burnt, Gas::ZERO);
@@ -2588,7 +2624,7 @@ fn test_apply_eccs_from_storage_proof() {
     assert_matches!(
         statuses[4],
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     assert_matches!(statuses[5], ExecutionStatus::SuccessReceiptId(_));
@@ -3173,7 +3209,7 @@ fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
     assert_matches!(
         first.outcome.status,
         ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
-            InvalidTxError::SignerDoesNotExist { .. }
+            InvalidTxError::ContractNotFound { .. }
         ))
     );
     let ExternalCallChunkLimit::StorageProof { used, limit } =
@@ -3722,7 +3758,9 @@ fn apply_state_at(protocol_version: ProtocolVersion, gas_limit: Option<Gas>) -> 
         Gas::from_teragas(1000),
     );
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    let config_store = RuntimeConfigStore::new();
+    let config = Arc::clone(config_store.get_config(protocol_version));
+    set_config(&mut apply_state, config);
     apply_state.gas_limit = gas_limit;
     apply_state
 }
@@ -3750,7 +3788,8 @@ fn test_apply_eccs_before_the_feature_get_outcomes() {
     }
 }
 
-/// What apply skips is found before anything is read from the state: a repeat of a hash.
+/// What apply skips is found before anything is read from the state: a repeat of a hash, and a
+/// transaction routed to another shard.
 #[test]
 fn test_find_skipped_transactions() {
     let signer = InMemorySigner::test_signer(&alice_account());
@@ -3767,7 +3806,21 @@ fn test_find_skipped_transactions() {
     let ecc = EccTransaction::new(bob_account(), vec![1]);
     let txs = [transfer1.clone().into(), ecc.into(), transfer1.into(), transfer2.into()];
 
-    assert_eq!(find_skipped_transactions(&txs), vec![false, false, true, false]);
+    assert_eq!(find_skipped_transactions(&txs, None), vec![false, false, true, false]);
+
+    // Alice and bob are in different shards. In alice's shard the ECC to bob is skipped, and in
+    // bob's shard the transfers alice signed are.
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let bob_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, alice_shard))),
+        vec![false, true, true, false]
+    );
+    assert_eq!(
+        find_skipped_transactions(&txs, Some((&shard_layout, bob_shard))),
+        vec![true, false, true, true]
+    );
 }
 
 #[test]
@@ -3787,7 +3840,7 @@ fn test_apply_delayed_receipts_local_tx() {
     let fees = Arc::make_mut(&mut free_config.fees);
     fees.action_fees[ActionCosts::new_action_receipt].execution =
         FeeComponent::Gas(receipt_exec_gas_fee);
-    apply_state.config = Arc::new(free_config);
+    set_config(&mut apply_state, Arc::new(free_config));
     // This allows us to execute 3 receipts per apply.
     apply_state.gas_limit = Some(receipt_exec_gas_fee.checked_mul(3).unwrap());
 
@@ -4151,7 +4204,8 @@ fn test_apply_deficit_gas_for_function_call_covered() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO);
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => {
             assert!(
                 matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
             );
@@ -4328,7 +4382,8 @@ fn test_apply_surplus_gas_for_function_call() {
     assert_eq!(result.stats.balance.gas_deficit_amount, Balance::ZERO, "expected surplus");
     // The refund is less than the received amount.
     match result.outgoing_receipts[0].receipt() {
-        ReceiptEnum::Action(ActionReceipt { actions, .. }) => match &actions[0] {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => match &actions[0] {
             Action::Transfer(TransferAction { deposit }) => assert_eq!(*deposit, expected_refund),
             other => panic!("Expected transfer action, got {:?}", other),
         },
@@ -4607,7 +4662,7 @@ fn test_main_storage_proof_size_soft_limit() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let create_acc_fn = |account_id: AccountId, signer: Arc<Signer>| {
@@ -4651,7 +4706,7 @@ fn test_main_storage_proof_size_soft_limit() {
     // the first receipt go through but not the second one.
     let mut runtime_config = RuntimeConfig::free();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = 330;
-    apply_state.config = Arc::new(runtime_config);
+    set_config(&mut apply_state, Arc::new(runtime_config));
 
     let function_call_fn = |account_id: AccountId, signer: Arc<Signer>| {
         create_receipt_with_actions(
@@ -4984,7 +5039,9 @@ fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLo
     );
     let protocol_version = ProtocolFeature::FixContractLoadingCost.protocol_version();
     apply_state.current_protocol_version = protocol_version;
-    apply_state.config = Arc::clone(RuntimeConfigStore::new().get_config(protocol_version));
+    let config_store = RuntimeConfigStore::new();
+    let config = Arc::clone(config_store.get_config(protocol_version));
+    set_config(&mut apply_state, config);
     assert!(apply_state.config.wasm_config.fix_contract_loading_cost);
 
     let contract_code = ContractCode::new(near_test_contracts::sized_contract(4096), None);
@@ -5109,6 +5166,99 @@ fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
             hash,
         })) if hash == value_hash
     );
+}
+
+fn setup_gas_key_test_with_distinct_nonces(num_nonces: NonceIndex) -> GasKeyTestSetup {
+    // Distinct values keep the nonce leaves from sharing one hash in the recorded proof.
+    const FIRST_DISTINCT_NONCE: Nonce = 1_000_000;
+    let mut setup = setup_gas_key_test(
+        alice_account(),
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        num_nonces,
+        Balance::ZERO,
+    );
+    let gas_key_pk = setup.gas_key_signer.public_key();
+    let mut state_update = setup.tries.new_trie_update(setup.shard_uid, setup.root);
+    for index in 0..num_nonces {
+        let nonce = FIRST_DISTINCT_NONCE + index as Nonce;
+        set_gas_key_nonce(&mut state_update, alice_account(), gas_key_pk.clone(), index, nonce);
+    }
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = setup.tries.store_update();
+    setup.root = setup.tries.apply_all(&trie_changes, setup.shard_uid, &mut store_update);
+    store_update.commit();
+    setup
+}
+
+#[test]
+fn test_delete_gas_key_nonces_exceed_receipt_storage_proof_limit() {
+    // Far below the recorded size of the nonce paths, far above what the limit sees without reads.
+    const PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT: usize = 10_000;
+
+    let feature_version = ProtocolFeature::ReadGasKeyNoncesBeforeRemoval.protocol_version();
+    let GasKeyTestSetup {
+        runtime,
+        tries,
+        root,
+        mut apply_state,
+        epoch_info_provider,
+        gas_key_signer,
+        shard_uid,
+    } = setup_gas_key_test_with_distinct_nonces(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY);
+    let gas_key_pk = gas_key_signer.public_key();
+    let mut runtime_config = RuntimeConfig::test();
+    Arc::make_mut(&mut runtime_config.wasm_config)
+        .limit_config
+        .per_receipt_storage_proof_size_limit = PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT;
+    apply_state.config = Arc::new(runtime_config);
+
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_key_receipt = create_receipt_with_actions(
+        alice_account(),
+        alice_signer,
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: gas_key_pk.clone() }))],
+    );
+    let apply_receipt = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder(),
+                &None,
+                apply_state,
+                from_ref(&delete_key_receipt),
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result_before = apply_receipt(&apply_state);
+    assert_matches!(
+        apply_result_before.outcomes[0].outcome.status,
+        ExecutionStatus::SuccessValue(_)
+    );
+    let PartialState::TrieValues(recorded_values) = apply_result_before.proof.unwrap().nodes;
+    let recorded_storage_proof_size: usize = recorded_values.iter().map(|value| value.len()).sum();
+    assert!(recorded_storage_proof_size > PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT);
+
+    apply_state.current_protocol_version = feature_version;
+    let apply_result_after = apply_receipt(&apply_state);
+    let delete_key_action_index = 0;
+    assert_eq!(
+        apply_result_after.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(delete_key_action_index),
+            kind: ActionErrorKind::ReceiptStorageProofSizeExceeded {
+                limit: PER_RECEIPT_STORAGE_PROOF_SIZE_LIMIT as u64,
+            },
+        }))
+    );
+    let root = commit_apply_result(&apply_result_after, &mut apply_state, &tries, shard_uid);
+    let state = tries.new_trie_update(shard_uid, root);
+    assert!(get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().is_some());
 }
 
 /// Deploys a contract, records a witness for a call to it (which excludes the
@@ -5370,7 +5520,8 @@ fn apply_call_to_missing_global_contract_for_account(
     );
 
     apply_state.current_protocol_version = producer_protocol_version;
-    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(producer_protocol_version));
+    let producer_config = RuntimeConfig::test_protocol_version(producer_protocol_version);
+    set_config(&mut apply_state, Arc::new(producer_config));
 
     // Override only the chain identity; preserve the setup's validators and shard layout.
     struct WalletEpochInfoProvider<'a, T> {
@@ -5444,7 +5595,8 @@ fn apply_call_to_missing_global_contract_for_account(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.current_protocol_version = validator_protocol_version;
-    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(validator_protocol_version));
+    let validator_config = RuntimeConfig::test_protocol_version(validator_protocol_version);
+    set_config(&mut apply_state, Arc::new(validator_config));
     let apply_result = runtime.apply(
         Trie::from_recorded_storage(partial_storage, root, false),
         &None,
@@ -5558,7 +5710,7 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
     );
     // The helper installs `RuntimeConfig::test()`; run the deploy and the yield calls without gas
     // accounting noise instead.
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let shard_uid = ShardUId::single_shard();
     let root = deploy_rs_contract(
@@ -5669,7 +5821,7 @@ fn test_promise_yield_indices_absent_key_still_applies() {
         Balance::from_near(500_000),
         Gas::from_teragas(1000),
     );
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let shard_uid = ShardUId::single_shard();
     let root = deploy_rs_contract(
@@ -5728,7 +5880,7 @@ fn test_exclude_contract_code_from_witness() {
     // Since contract code is not included in the storage proof, both function calls below pass the proof soft-limit.
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = CONTRACT_SIZE as u64;
-    apply_state.config = Arc::new(runtime_config);
+    set_config(&mut apply_state, Arc::new(runtime_config));
 
     let contract_code =
         ContractCode::new(near_test_contracts::sized_contract(CONTRACT_SIZE).to_vec(), None);
@@ -5950,7 +6102,7 @@ fn test_deploy_and_call_different_contracts() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -6140,7 +6292,7 @@ fn test_deploy_and_call_in_apply() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // We use different contract to check the code hashes in the output.
     let first_contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
@@ -6277,7 +6429,7 @@ fn test_deploy_existing_contract_to_different_account() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
@@ -6362,7 +6514,7 @@ fn test_deploy_and_call_in_same_receipt() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let receipt = create_receipt_with_actions(
@@ -6445,7 +6597,7 @@ fn test_call_account_without_contract() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let receipt = create_receipt_with_actions(
         alice_account(),
@@ -6480,7 +6632,7 @@ fn test_contract_accesses_when_validating_chunk() {
         DEFAULT_MINIMAL_GAS_ATTACHMENT,
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     let contract_code = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
@@ -6570,7 +6722,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // Choose a contract size that is much more than rest of the storage proof size so that we can show that
     // the contract code is not included in the storage proof at the end of the test.
@@ -6660,7 +6812,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
         Gas::from_teragas(1000),
     );
 
-    apply_state.config = Arc::new(RuntimeConfig::free());
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
 
     // Information about the test account (of predecessor "alice.near") that will be used for create, deploy, and delete actions.
     let test_account_id: AccountId =
@@ -7007,7 +7159,7 @@ fn test_congestion_buffering() {
 
 // Apply trie changes in `ApplyResult` and update `ApplyState` with new
 // congestion info for the next call to apply().
-fn commit_apply_result(
+pub(super) fn commit_apply_result(
     apply_result: &ApplyResult,
     apply_state: &mut ApplyState,
     tries: &ShardTries,
@@ -7559,6 +7711,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
     let shard_ids = shard_layout.shard_ids();
     let shards_congestion_info =
         shard_ids.map(|id| (id, ExtendedCongestionInfo::default())).collect();
+    let config_store = RuntimeConfigStore::with_one_config(config.as_ref().clone());
     let mut apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
@@ -7571,6 +7724,7 @@ fn test_access_key_allowance_not_mutated_on_failed_tx() {
         random_seed: Default::default(),
         prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
+        config_store: Arc::new(config_store),
         config,
         next_wasm_config: None,
         vm_generation: Default::default(),
@@ -7733,6 +7887,101 @@ fn test_duplicate_transaction_in_chunk_skipped() {
     assert_matches!(other_outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
 }
 
+/// Transactions of a chunk of alice's shard, where bob is in another shard: a transfer alice
+/// signed, a transfer bob signed, an ECC to alice and an ECC to bob.
+struct ForeignShardChunk {
+    /// The height of the block the chunk is applied in.
+    block_height: BlockHeight,
+    alice_transfer: SignedTransaction,
+    bob_transfer: SignedTransaction,
+    alice_ecc: EccTransaction,
+    bob_ecc: EccTransaction,
+}
+
+/// Applies a `ForeignShardChunk` in alice's shard at `protocol_version`.
+fn apply_foreign_shard_chunk(
+    protocol_version: ProtocolVersion,
+) -> (ForeignShardChunk, ApplyResult) {
+    let shard_layout = ShardLayout::multi_shard_custom(vec![bob_account()], 3);
+    let alice_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let shard_uid = ShardUId::new(3, alice_shard);
+    let alice_signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![alice_signer.clone()])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &shard_layout,
+    );
+    apply_state.current_protocol_version = protocol_version;
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    let bob_signer = InMemorySigner::test_signer(&bob_account());
+    let transfer = |signer_id: AccountId, receiver_id: AccountId, signer: &Signer| {
+        let amount = Balance::from_near(1);
+        let block_hash = CryptoHash::default();
+        SignedTransaction::send_money(1, signer_id, receiver_id, signer, amount, block_hash)
+    };
+    let chunk = ForeignShardChunk {
+        block_height: apply_state.block_height,
+        alice_transfer: transfer(alice_account(), bob_account(), alice_signer.as_ref()),
+        bob_transfer: transfer(bob_account(), alice_account(), &bob_signer),
+        alice_ecc: EccTransaction::new(alice_account(), vec![1]),
+        bob_ecc: EccTransaction::new(bob_account(), vec![2]),
+    };
+    let transactions: Vec<TransactionEnvelope> = vec![
+        chunk.bob_transfer.clone().into(),
+        chunk.bob_ecc.clone().into(),
+        chunk.alice_transfer.clone().into(),
+        chunk.alice_ecc.clone().into(),
+    ];
+    let num_transactions = transactions.len();
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(shard_uid, root),
+            &None,
+            &apply_state,
+            &[],
+            SignedValidPeriodTransactions::new(transactions, vec![true; num_transactions]),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    (chunk, apply_result)
+}
+
+#[test]
+fn test_transactions_routed_to_another_shard_are_skipped_with_no_outcome() {
+    let (chunk, apply_result) =
+        apply_foreign_shard_chunk(ProtocolFeature::SkipForeignShardTransactions.protocol_version());
+
+    let outcome_ids = apply_result.outcomes.iter().map(|outcome| outcome.id).collect::<Vec<_>>();
+    assert_eq!(
+        outcome_ids,
+        vec![
+            chunk.alice_transfer.get_hash(),
+            create_ecc_outcome_id(chunk.alice_ecc.hash(), chunk.block_height)
+        ]
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessReceiptId(_));
+}
+
+#[test]
+fn test_transaction_routed_to_another_shard_fails_with_an_outcome_before_the_skip() {
+    let feature_version = ProtocolFeature::SkipForeignShardTransactions.protocol_version();
+    let (chunk, apply_result) = apply_foreign_shard_chunk(feature_version - 1);
+
+    let bob_outcome = &apply_result.outcomes[0];
+    assert_eq!(bob_outcome.id, chunk.bob_transfer.get_hash());
+    assert_eq!(
+        bob_outcome.outcome.status,
+        ExecutionStatus::Failure(
+            InvalidTxError::InvalidSignerId { signer_id: bob_account().to_string() }.into()
+        )
+    );
+    assert_eq!(apply_result.outcomes.len(), 4);
+}
+
 #[test]
 fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
@@ -7827,6 +8076,215 @@ fn test_gas_key_burn_not_reported_on_failed_receipt() {
     let state = tries.new_trie_update(ShardUId::single_shard(), root);
     let access_key = get_access_key(&state, &alice_account(), &gas_key_pk).unwrap().unwrap();
     assert_eq!(access_key.gas_key_info().unwrap().balance, deposit_amount);
+}
+
+struct MultipleGasKeysSetup {
+    runtime: Runtime,
+    tries: ShardTries,
+    root: CryptoHash,
+    apply_state: ApplyState,
+    epoch_info_provider: MockEpochInfoProvider,
+    gas_key_pks: Vec<PublicKey>,
+}
+
+fn setup_multiple_gas_keys(
+    protocol_version: ProtocolVersion,
+    num_nonces: &[NonceIndex],
+) -> MultipleGasKeysSetup {
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_uid = ShardUId::single_shard();
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let (runtime, tries, root, mut apply_state, _signers) = setup_runtime_for_shard(
+        vec![(alice_account(), vec![alice_signer])],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+        shard_uid,
+        &ShardLayout::single_shard(),
+    );
+    apply_state.current_protocol_version = protocol_version;
+    apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(protocol_version));
+
+    let gas_key_pks = (0..num_nonces.len())
+        .map(|index| {
+            InMemorySigner::from_seed(
+                alice_account(),
+                KeyType::ED25519,
+                &format!("gas_key_{index}"),
+            )
+            .public_key()
+        })
+        .collect_vec();
+    let mut state_update = tries.new_trie_update(shard_uid, root);
+    let mut account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+    for (gas_key_pk, num_nonces) in gas_key_pks.iter().zip(num_nonces) {
+        action_add_key(
+            &apply_state,
+            &mut state_update,
+            &mut account,
+            &mut ActionResult::default(),
+            &alice_account(),
+            &AddKeyAction {
+                public_key: gas_key_pk.clone(),
+                access_key: AccessKey::gas_key_full_access(*num_nonces),
+            },
+        )
+        .unwrap();
+    }
+    set_account(&mut state_update, alice_account(), &account);
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = tries.store_update();
+    let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+
+    MultipleGasKeysSetup { runtime, tries, root, apply_state, epoch_info_provider, gas_key_pks }
+}
+
+fn apply_and_commit_actions(
+    setup: &mut MultipleGasKeysSetup,
+    signer: Arc<Signer>,
+    actions: Vec<Action>,
+) -> ApplyResult {
+    let receipt = create_receipt_with_actions(signer.get_account_id(), signer, actions);
+    let shard_uid = ShardUId::single_shard();
+    let apply_result = setup
+        .runtime
+        .apply(
+            setup.tries.get_trie_for_shard(shard_uid, setup.root),
+            &None,
+            &setup.apply_state,
+            &[receipt],
+            SignedValidPeriodTransactions::empty(),
+            &setup.epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    setup.root =
+        commit_apply_result(&apply_result, &mut setup.apply_state, &setup.tries, shard_uid);
+    apply_result
+}
+
+fn delete_key(public_key: &PublicKey) -> Action {
+    Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))
+}
+
+#[test]
+fn test_delete_one_gas_key_with_max_nonces_succeeds_at_limit_version() {
+    let gas_key_nonce_limits_protocol_version = 89;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let mut setup =
+        setup_multiple_gas_keys(gas_key_nonce_limits_protocol_version, &[max_nonces, max_nonces]);
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let first_gas_key_pk = setup.gas_key_pks[0].clone();
+    let apply_result =
+        apply_and_commit_actions(&mut setup, alice_signer, vec![delete_key(&first_gas_key_pk)]);
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    assert!(get_access_key(&state, &alice_account(), &first_gas_key_pk).unwrap().is_none());
+}
+
+#[test]
+fn test_delete_two_gas_keys_with_max_nonces_in_one_receipt_fails_at_limit_version() {
+    let gas_key_nonce_limits_protocol_version = 89;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let mut setup =
+        setup_multiple_gas_keys(gas_key_nonce_limits_protocol_version, &[max_nonces, max_nonces]);
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_both = setup.gas_key_pks.iter().map(delete_key).collect();
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_both);
+
+    let limit =
+        setup.apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
+    let second_action_index = 1;
+    assert_eq!(
+        apply_result.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(second_action_index),
+            kind: ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces: 2 * limit,
+                limit,
+            },
+        }))
+    );
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    for gas_key_pk in &setup.gas_key_pks {
+        assert!(get_access_key(&state, &alice_account(), gas_key_pk).unwrap().is_some());
+    }
+}
+
+#[test]
+fn test_delete_two_gas_keys_with_max_nonces_in_one_receipt_succeeds_before_limit_version() {
+    let protocol_version_before_gas_key_nonce_limits = 88;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let mut setup = setup_multiple_gas_keys(
+        protocol_version_before_gas_key_nonce_limits,
+        &[max_nonces, max_nonces],
+    );
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let delete_both = setup.gas_key_pks.iter().map(delete_key).collect();
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_both);
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    for gas_key_pk in &setup.gas_key_pks {
+        assert!(get_access_key(&state, &alice_account(), gas_key_pk).unwrap().is_none());
+    }
+}
+
+#[test]
+fn test_delete_gas_key_with_max_nonces_and_account_fails_at_limit_version() {
+    let gas_key_nonce_limits_protocol_version = 89;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let min_nonces = 1;
+    let mut setup =
+        setup_multiple_gas_keys(gas_key_nonce_limits_protocol_version, &[max_nonces, min_nonces]);
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let first_gas_key_pk = setup.gas_key_pks[0].clone();
+    let delete_key_and_account = vec![
+        delete_key(&first_gas_key_pk),
+        Action::DeleteAccount(DeleteAccountAction { beneficiary_id: bob_account() }),
+    ];
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_key_and_account);
+
+    let limit =
+        setup.apply_state.config.wasm_config.limit_config.max_gas_key_nonces_removed_per_receipt;
+    let delete_account_action_index = 1;
+    assert_eq!(
+        apply_result.outcomes[0].outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(delete_account_action_index),
+            kind: ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces: max_nonces as u64 + min_nonces as u64,
+                limit,
+            },
+        }))
+    );
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    assert!(get_account(&state, &alice_account()).unwrap().is_some());
+}
+
+#[test]
+fn test_delete_gas_key_with_max_nonces_and_account_succeeds_before_limit_version() {
+    let protocol_version_before_gas_key_nonce_limits = 88;
+    let max_nonces = AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY;
+    let min_nonces = 1;
+    let mut setup = setup_multiple_gas_keys(
+        protocol_version_before_gas_key_nonce_limits,
+        &[max_nonces, min_nonces],
+    );
+    let alice_signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
+    let first_gas_key_pk = setup.gas_key_pks[0].clone();
+    let delete_key_and_account = vec![
+        delete_key(&first_gas_key_pk),
+        Action::DeleteAccount(DeleteAccountAction { beneficiary_id: bob_account() }),
+    ];
+    let apply_result = apply_and_commit_actions(&mut setup, alice_signer, delete_key_and_account);
+
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+    let state = setup.tries.new_trie_update(ShardUId::single_shard(), setup.root);
+    assert!(get_account(&state, &alice_account()).unwrap().is_none());
 }
 
 const GAS_KEY_BLOCK_HEIGHT: BlockHeight = 10;
@@ -8043,6 +8501,7 @@ fn test_gas_refund_to_gas_key() {
         &alice_account(),
         refund_amount,
         AuthorizationContext::AccessKey(gas_key_signer.public_key()),
+        PROTOCOL_VERSION,
     );
 
     // Apply the refund receipt
@@ -8092,6 +8551,7 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
         &alice_account(),
         refund_amount,
         AuthorizationContext::AccessKey(unknown_key),
+        apply_state.current_protocol_version,
     );
 
     let shard_uid = ShardUId::single_shard();
@@ -8144,6 +8604,7 @@ fn test_ecc_gas_refund_credits_balance_not_gas_key() {
         &alice_account(),
         refund_amount,
         AuthorizationContext::ExternalContractCall,
+        PROTOCOL_VERSION,
     );
 
     let apply_result = runtime
@@ -8484,7 +8945,7 @@ fn setup_promise_input_limit(apply_state: &mut ApplyState, protocol_version: Pro
     let mut config = RuntimeConfig::free();
     let wasm_config = Arc::make_mut(&mut config.wasm_config);
     wasm_config.limit_config.max_receipt_total_input_size = PROMISE_INPUT_SIZE_LIMIT;
-    apply_state.config = Arc::new(config);
+    set_config(apply_state, Arc::new(config));
     apply_state.current_protocol_version = protocol_version;
 }
 
@@ -9126,6 +9587,7 @@ mod self_signed_state_init {
             .shard_ids()
             .map(|shard_id| (shard_id, ExtendedCongestionInfo::default()))
             .collect();
+        let config_store = RuntimeConfigStore::with_one_config(config.clone());
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: CREATION_HEIGHT + 1,
@@ -9138,6 +9600,7 @@ mod self_signed_state_init {
             random_seed: Default::default(),
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config_store: Arc::new(config_store),
             config: Arc::new(config),
             next_wasm_config: None,
             vm_generation: Default::default(),
@@ -10107,7 +10570,8 @@ mod self_signed_state_init {
 
     fn at_protocol_version(apply_state: &mut ApplyState, version: ProtocolVersion) {
         apply_state.current_protocol_version = version;
-        apply_state.config = Arc::new(RuntimeConfig::test_protocol_version(version));
+        let config = RuntimeConfig::test_protocol_version(version);
+        set_config(apply_state, Arc::new(config));
     }
 
     fn assert_malformed_state_init(outcomes: &[ExecutionOutcomeWithId]) {
@@ -10486,7 +10950,7 @@ mod relayer_funded_state_init {
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
-                from_ref(&Receipt::new_balance_refund(&account_id, funding())),
+                from_ref(&Receipt::new_balance_refund(&account_id, funding(), PROTOCOL_VERSION)),
                 SignedValidPeriodTransactions::empty(),
                 &epoch,
                 Default::default(),
@@ -10822,4 +11286,766 @@ fn test_re_added_key_rejects_replayed_tx() {
             InvalidTxError::InvalidNonce { .. }
         ))
     );
+}
+
+/// The version that creates the receipts of the `PinReceiptFees` tests.
+const PINNED_CREATION_VERSION: ProtocolVersion = ProtocolFeature::PinReceiptFees.protocol_version();
+/// The version that executes the receipts of the `PinReceiptFees` tests.
+const PINNED_EXECUTION_VERSION: ProtocolVersion = PINNED_CREATION_VERSION + 1;
+
+/// Applies `receipts` and `transactions` at `version`, whose config is
+/// `new_config`, while `old_config` is the config of all versions before it.
+fn apply_with_configs(
+    version: ProtocolVersion,
+    old_config: RuntimeConfig,
+    new_config: RuntimeConfig,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+) -> ApplyResult {
+    let (runtime, tries, root, mut apply_state, _signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    let old_config = Arc::new(old_config);
+    let new_config = Arc::new(new_config);
+    let configs = BTreeMap::from([(0, old_config), (version, Arc::clone(&new_config))]);
+    apply_state.config_store = Arc::new(RuntimeConfigStore::new_custom(configs));
+    apply_state.config = new_config;
+    apply_state.current_protocol_version = version;
+    let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+    let validity_check_results = vec![true; transactions.len()];
+    let transactions = SignedValidPeriodTransactions::new(transactions, validity_check_results);
+    runtime
+        .apply(
+            trie,
+            &None,
+            &apply_state,
+            receipts,
+            transactions,
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+/// Applies `receipts` and `transactions` at `version`, whose execution fee of
+/// `cost` is `factor` times the one of all versions before it.
+fn apply_with_exec_fee_factor(
+    version: ProtocolVersion,
+    cost: ActionCosts,
+    factor: u64,
+    receipts: &[Receipt],
+    transactions: Vec<SignedTransaction>,
+) -> ApplyResult {
+    let old_config = RuntimeConfig::test();
+    let mut new_config = RuntimeConfig::test();
+    let fees = Arc::make_mut(&mut new_config.fees);
+    let fee = &mut fees.action_fees[cost];
+    let old_execution_gas = fee.exec_fee().gas;
+    let new_execution_gas = old_execution_gas.checked_mul(factor).unwrap();
+    fee.execution = FeeComponent::Gas(new_execution_gas);
+    apply_with_configs(version, old_config, new_config, receipts, transactions)
+}
+
+/// A receipt from alice to bob created at `PINNED_CREATION_VERSION`.
+fn pinned_receipt(gas_price: Balance, actions: Vec<Action>) -> Receipt {
+    let signer_public_key = PublicKey::empty(KeyType::ED25519);
+    let action_receipt = ActionReceiptV3 {
+        signer_id: alice_account(),
+        refund_to: None,
+        authorization_context: AuthorizationContext::AccessKey(signer_public_key),
+        gas_price,
+        creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
+        output_data_receivers: vec![],
+        input_data_ids: vec![],
+        actions,
+    };
+    let receipt = ReceiptEnum::ActionV3(action_receipt);
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: alice_account(),
+        receiver_id: bob_account(),
+        receipt_id: hash(b"pinned"),
+        receipt,
+    })
+}
+
+/// Applies `receipt` after the execution fee of `cost` changed by `factor`
+/// since it was created. Returns its outcome and the total amount of the
+/// refunds it produced.
+fn apply_pinned_receipt(
+    receipt: &Receipt,
+    cost: ActionCosts,
+    factor: u64,
+) -> (ExecutionOutcome, Balance) {
+    let receipts = from_ref(receipt);
+    let apply_result =
+        apply_with_exec_fee_factor(PINNED_EXECUTION_VERSION, cost, factor, receipts, vec![]);
+    let outcome = apply_result
+        .outcomes
+        .into_iter()
+        .find(|outcome| outcome.id == *receipt.receipt_id())
+        .unwrap()
+        .outcome;
+    let mut refund = Balance::ZERO;
+    for outgoing_receipt in &apply_result.outgoing_receipts {
+        if outgoing_receipt.predecessor_id().is_system() {
+            let deposit = refund_deposit(outgoing_receipt);
+            refund = refund.checked_add(deposit).unwrap();
+        }
+    }
+    (outcome, refund)
+}
+
+/// The deposit of `refund`, a balance refund receipt.
+fn refund_deposit(refund: &Receipt) -> Balance {
+    let actions = match refund.receipt() {
+        ReceiptEnum::Action(ActionReceipt { actions, .. })
+        | ReceiptEnum::ActionV3(ActionReceiptV3 { actions, .. }) => actions,
+        receipt => panic!("expected a refund, got {receipt:?}"),
+    };
+    match actions.as_slice() {
+        [Action::Transfer(TransferAction { deposit })] => *deposit,
+        actions => panic!("expected a refund, got {actions:?}"),
+    }
+}
+
+/// A transfer of 1 yoctoNEAR.
+fn transfer() -> Action {
+    let deposit = Balance::from_yoctonear(1);
+    Action::Transfer(TransferAction { deposit })
+}
+
+/// Create a receipt that will fail to execute. Verify that the refunds are
+/// based on the creation fee, not the increased fee.
+#[test]
+fn test_pin_receipt_fees_failed_receipt() {
+    // Alice can't delete a key of bob, so the transfers don't execute.
+    let public_key = PublicKey::empty(KeyType::ED25519);
+    let delete_key = Action::DeleteKey(Box::new(DeleteKeyAction { public_key }));
+    let mut actions = vec![delete_key];
+    actions.extend(vec![transfer(); 10]);
+    let receipt = pinned_receipt(GAS_PRICE, actions);
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 3);
+    assert_matches!(increased.status, ExecutionStatus::Failure(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+}
+
+/// The executed transfers burn the gas of the fee the receipt was funded with, so that only the
+/// purchased gas is refunded the difference between the purchase and the burn price. Their
+/// compute is priced with the current fee.
+#[test]
+fn test_pin_receipt_fees_successful_receipt() {
+    let purchase_price = GAS_PRICE.checked_mul(2).unwrap();
+    let receipt = pinned_receipt(purchase_price, vec![transfer(); 10]);
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, ActionCosts::transfer, 3);
+    assert_matches!(increased.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+    let unchanged_compute_usage = unchanged.compute_usage.unwrap();
+    let increased_compute_usage = increased.compute_usage.unwrap();
+    assert!(increased_compute_usage > unchanged_compute_usage);
+}
+
+/// The refund of a receipt that creates an account is reduced by the account
+/// creation charge, net of the `CreateAccount` execution fee that was burnt.
+/// The charge is computed with the creation config too, so a change of that
+/// fee changes neither the refund nor the tokens burnt.
+#[test]
+fn test_pin_receipt_fees_account_creation() {
+    // Purchased at the minimum price, which covers creating an account.
+    let purchase_price = RuntimeConfig::test().min_gas_purchase_price;
+    let create_account = Action::CreateAccount(CreateAccountAction {});
+    let deposit = Balance::from_near(1);
+    let actions = vec![create_account, Action::Transfer(TransferAction { deposit })];
+    let mut receipt = pinned_receipt(purchase_price, actions);
+    receipt.set_receiver_id("new.alice.near".parse().unwrap());
+    let create_account_cost = ActionCosts::create_account;
+    let (unchanged, unchanged_refund) = apply_pinned_receipt(&receipt, create_account_cost, 1);
+    let (increased, increased_refund) = apply_pinned_receipt(&receipt, create_account_cost, 3);
+    assert_matches!(increased.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(increased_refund, unchanged_refund);
+    assert_eq!(increased.gas_burnt, unchanged.gas_burnt);
+    assert_eq!(increased.tokens_burnt, unchanged.tokens_burnt);
+}
+
+/// The relayer of a meta transaction prepaid the static fees of the inner actions when its
+/// receipt was created. Its receipt forwards them at the fees of that version, and the receipt of
+/// the inner actions records the same creation version, so that it is priced with them too.
+#[test]
+fn test_pin_receipt_fees_delegate_action() {
+    let signer = InMemorySigner::test_signer(&alice_account());
+    let inner_transfer = NonDelegateAction::try_from(transfer()).unwrap();
+    let delegate_action = DelegateAction {
+        sender_id: alice_account(),
+        receiver_id: bob_account(),
+        actions: vec![inner_transfer; 10],
+        nonce: 2,
+        max_block_height: 10000,
+        public_key: signer.public_key(),
+    };
+    let delegate_action_hash = delegate_action.get_nep461_hash();
+    let signature = signer.sign(delegate_action_hash.as_bytes());
+    let signed_delegate_action = SignedDelegateAction { signature, delegate_action };
+    let delegate = Action::Delegate(Box::new(signed_delegate_action));
+    let mut receipt = pinned_receipt(GAS_PRICE, vec![delegate]);
+    receipt.set_receiver_id(alice_account());
+
+    let receipts = from_ref(&receipt);
+    let transfer_cost = ActionCosts::transfer;
+    let version = PINNED_EXECUTION_VERSION;
+    let unchanged = apply_with_exec_fee_factor(version, transfer_cost, 1, receipts, vec![]);
+    let increased = apply_with_exec_fee_factor(version, transfer_cost, 3, receipts, vec![]);
+    assert_eq!(increased.outgoing_receipts, unchanged.outgoing_receipts);
+    let inner_receipt = increased
+        .outgoing_receipts
+        .iter()
+        .find(|receipt| receipt.receiver_id() == &bob_account())
+        .unwrap();
+    assert_matches!(
+        inner_receipt.receipt(),
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
+            ..
+        })
+    );
+    let unchanged_outcome = &unchanged.outcomes[0].outcome;
+    let increased_outcome = &increased.outcomes[0].outcome;
+    assert_matches!(increased_outcome.status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(increased_outcome.gas_burnt, unchanged_outcome.gas_burnt);
+    assert_eq!(increased_outcome.tokens_burnt, unchanged_outcome.tokens_burnt);
+}
+
+/// Converts a transfer from alice to bob to a receipt at `version`.
+fn converted_receipt(version: ProtocolVersion) -> Receipt {
+    let signer = InMemorySigner::test_signer(&alice_account());
+    let transaction = SignedTransaction::send_money(
+        1,
+        alice_account(),
+        bob_account(),
+        &signer,
+        Balance::from_yoctonear(1),
+        CryptoHash::default(),
+    );
+    let apply_result =
+        apply_with_exec_fee_factor(version, ActionCosts::transfer, 1, &[], vec![transaction]);
+    let [receipt] = apply_result.outgoing_receipts.as_slice() else {
+        panic!("expected one receipt, got {:?}", apply_result.outgoing_receipts);
+    };
+    receipt.clone()
+}
+
+/// A transaction is converted to a receipt that records the current version, from
+/// `PinReceiptFees` on.
+#[test]
+fn test_pin_receipt_fees_transaction_records_creation_version() {
+    let legacy_receipt = converted_receipt(PINNED_CREATION_VERSION - 1);
+    assert_matches!(legacy_receipt.receipt(), ReceiptEnum::Action(_));
+    let receipt = converted_receipt(PINNED_CREATION_VERSION);
+    assert_matches!(
+        receipt.receipt(),
+        ReceiptEnum::ActionV3(ActionReceiptV3 {
+            creation_protocol_version: CreationProtocolVersion(PINNED_CREATION_VERSION),
+            ..
+        })
+    );
+}
+
+/// A receipt created while `universal_accounts` was off priced its transfer to
+/// a `0u` id as a plain transfer. When it executes with `universal_accounts`
+/// on, the transfer creates the account, and the account creation charge is
+/// capped by the refund of the burnt gas.
+#[test]
+fn test_pin_receipt_fees_universal_accounts_turned_on() {
+    let mut old_config = RuntimeConfig::test();
+    let mut old_wasm_config = old_config.wasm_config.as_ref().clone();
+    old_wasm_config.universal_accounts = false;
+    old_config.wasm_config = Arc::new(old_wasm_config);
+    let new_config = RuntimeConfig::test();
+    assert!(new_config.wasm_config.universal_accounts);
+
+    // Purchased at the minimum price, which covers creating an account.
+    let purchase_price = new_config.min_gas_purchase_price;
+    let deposit = Balance::from_near(1);
+    let actions = vec![Action::Transfer(TransferAction { deposit })];
+    let mut receipt = pinned_receipt(purchase_price, actions);
+    // cspell:disable-next-line
+    let universal_account = "0u1kajgpx8a97y8ap8y03pvt8kbm2p2cn9k5h17bgw1wa21j88865g";
+    receipt.set_receiver_id(universal_account.parse().unwrap());
+
+    let receipts = from_ref(&receipt);
+    let apply_result =
+        apply_with_configs(PINNED_EXECUTION_VERSION, old_config, new_config, receipts, vec![]);
+    let outcome = &apply_result.outcomes[0].outcome;
+    assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// External calls that carry a universal account's state init.
+mod ecc_state_init {
+    use super::*;
+    use crate::verifier::ecc_cost_for_account;
+    use near_primitives::action::GlobalContractIdentifier;
+    use near_primitives::universal_state_init::{
+        RawStateInit, UniversalStateInit, UniversalStateInitV1,
+    };
+    use near_primitives::utils::derive_universal_account_id;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// A global contract whose reserved method accepts a call when `accepts`, and refuses it
+    /// otherwise.
+    fn code(accepts: bool) -> ContractCode {
+        let body = if accepts { "" } else { "unreachable" };
+        let wat = format!(
+            r#"(module (memory (export "memory") 1) (func (export "{ECC_METHOD_NAME}") {body}))"#
+        );
+        ContractCode::new(near_test_contracts::wat_contract(&wat), None)
+    }
+
+    /// A state init with one storage entry, and `code` as the account's contract.
+    fn state_init(code: Option<&ContractCode>) -> RawStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: code.map(|code| GlobalContractIdentifier::CodeHash(*code.hash())),
+            data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw()
+    }
+
+    /// Deploys `code` as a global contract and creates the account `state_init` derives to, funded
+    /// and not initialized, as a transfer to its address leaves it.
+    fn setup(
+        code: &ContractCode,
+        state_init: &RawStateInit,
+    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, MockEpochInfoProvider, AccountId) {
+        let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
+            vec![alice_account()],
+            Balance::from_near(1_000),
+            Balance::ZERO,
+            Gas::from_teragas(1000),
+        );
+        let account_id = derive_universal_account_id(state_init);
+        let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+        let code_key = TrieKey::GlobalContractCode {
+            identifier: GlobalContractCodeIdentifier::CodeHash(*code.hash()),
+        };
+        state_update.set(code_key, code.code().to_vec());
+        let account = Account::new_uninitialized(
+            Balance::from_near(10),
+            apply_state.config.fees.storage_usage_config.num_bytes_account,
+            initial_nonce_value(1, PROTOCOL_VERSION),
+        );
+        set_account(&mut state_update, account_id.clone(), &account);
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit();
+        (runtime, tries, root, apply_state, epoch_info_provider, account_id)
+    }
+
+    fn account(tries: &ShardTries, root: CryptoHash, account_id: &AccountId) -> Account {
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        get_account(&state, account_id).unwrap().unwrap()
+    }
+
+    /// The value that `state_init` writes under the key `k`, if it is in the state.
+    fn installed_data(
+        tries: &ShardTries,
+        root: CryptoHash,
+        account_id: &AccountId,
+    ) -> Option<Vec<u8>> {
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let key = TrieKey::ContractData { account_id: account_id.clone(), key: b"k".to_vec() };
+        state.get(&key, AccessOptions::DEFAULT).unwrap()
+    }
+
+    /// Applies a chunk with `ecc` alone, and returns the new root and the call's outcome.
+    fn apply_ecc(
+        runtime: &Runtime,
+        tries: &ShardTries,
+        root: CryptoHash,
+        apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
+        ecc: EccTransaction,
+    ) -> (CryptoHash, ExecutionOutcomeWithId) {
+        let (root, result) = apply_envelopes_and_commit(
+            runtime,
+            tries,
+            root,
+            apply_state,
+            vec![ecc.into()],
+            epoch_info_provider,
+        );
+        let [outcome] = result.outcomes.as_slice() else { panic!("{:?}", result.outcomes) };
+        (root, outcome.clone())
+    }
+
+    /// The first call to an uninitialized account installs its state init and runs the code the
+    /// init names, under the unique id of the same call without the state init.
+    #[test]
+    fn test_ecc_installs_state_init() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+        let without_init = EccTransaction::new(account_id.clone(), vec![]);
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+        let id = create_ecc_outcome_id(without_init.hash(), apply_state.block_height);
+        assert_eq!(outcome.id, id);
+        let account = account(&tries, root, &account_id);
+        assert!(account.is_initialized());
+        assert_eq!(account.contract().into_owned(), AccountContract::Global(*code.hash()));
+        let data_key = TrieKey::ContractData { account_id, key: b"k".to_vec() };
+        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        assert_eq!(state.get(&data_key, AccessOptions::DEFAULT).unwrap(), Some(b"v".to_vec()));
+    }
+
+    /// A call the contract refuses rolls the install back, and nobody pays.
+    #[test]
+    fn test_refused_ecc_rolls_state_init_back() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(false);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let before = account(&tries, root, &account_id);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        // The installed code ran and refused the call.
+        assert_matches!(
+            outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(_)),
+            }))
+        );
+        assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO);
+        assert_eq!(account(&tries, root, &account_id), before);
+        assert_eq!(installed_data(&tries, root, &account_id), None);
+    }
+
+    /// A state init that installs no code leaves the call nothing to run, so it is refused and the
+    /// install rolled back.
+    #[test]
+    fn test_ecc_state_init_without_code_rolled_back() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(None);
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let before = account(&tries, root, &account_id);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        let error = InvalidTxError::ContractNotFound { contract_id: account_id.clone() };
+        assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error.into()));
+        assert_eq!(account(&tries, root, &account_id), before);
+        assert_eq!(installed_data(&tries, root, &account_id), None);
+    }
+
+    /// A call to an uninitialized account without a state init has nothing to run.
+    #[test]
+    fn test_ecc_without_state_init_to_uninitialized_account() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let ecc = EccTransaction::new(account_id.clone(), vec![]);
+
+        let (_, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        let error = InvalidTxError::ContractNotFound { contract_id: account_id };
+        assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error.into()));
+    }
+
+    /// A state init sent to an initialized account is ignored: the call runs, changes nothing a
+    /// state init would, and costs what the call without it costs.
+    #[test]
+    fn test_ecc_state_init_on_initialized_account_is_ignored() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let install =
+            EccTransaction::new_with_state_init(account_id.clone(), vec![0], Some(init.clone()));
+        let (mut root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, install);
+        let install_cost = outcome.outcome.tokens_burnt;
+        let before = account(&tries, root, &account_id);
+        assert!(before.is_initialized());
+
+        // Each call applies on top of the state the one before it left.
+        let mut tokens_burnt = vec![];
+        for (payload, init) in [(1, Some(init.clone())), (2, None)] {
+            let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![payload], init);
+            let (after_root, outcome) =
+                apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+            root = after_root;
+            assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+            let after = account(&tries, root, &account_id);
+            assert_eq!(after.contract(), before.contract());
+            assert_eq!(after.storage_usage(), before.storage_usage());
+            tokens_burnt.push(outcome.outcome.tokens_burnt);
+        }
+        assert_eq!(tokens_burnt[0], tokens_burnt[1]);
+        // The installing call paid the fees of a self-addressed `UniversalStateInit` action on top.
+        let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
+            state_init: init,
+            deposit: Balance::ZERO,
+        }));
+        let config = &apply_state.config;
+        let action_fee = total_send_fees(config, true, from_ref(&action), &account_id)
+            .unwrap()
+            .checked_add_result(exec_fee(config, &action, &account_id).unwrap())
+            .unwrap();
+        let action_cost = safe_gas_to_balance(apply_state.gas_price, action_fee.gas).unwrap();
+        assert_eq!(install_cost, tokens_burnt[1].checked_add(action_cost).unwrap());
+    }
+
+    /// A chunk with two copies of one call is invalid. If one reaches apply anyway, apply skips the
+    /// second copy with no outcome, since both copies share a unique id.
+    #[test]
+    fn test_ecc_copies_with_and_without_state_init_in_one_chunk() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let with_init = EccTransaction::new_with_state_init(account_id, vec![], Some(init));
+        let without_init = with_init.without_state_init();
+
+        let (_, result) = apply_envelopes_and_commit(
+            &runtime,
+            &tries,
+            root,
+            &apply_state,
+            vec![with_init.into(), without_init.clone().into()],
+            &epoch_info_provider,
+        );
+
+        let [outcome] = result.outcomes.as_slice() else { panic!("{:?}", result.outcomes) };
+        let unique_id = create_ecc_outcome_id(without_init.hash(), apply_state.block_height);
+        assert_eq!(outcome.id, unique_id);
+        assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(vec![]));
+    }
+
+    /// The producer's dry run of a call with a state init ends as apply does, the install accepted,
+    /// refused or skipped, and it says whether the call installed the state init.
+    #[test]
+    fn test_dry_run_ecc_with_state_init_matches_apply() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        for (name, accepts, initialized) in
+            [("installed", true, false), ("refused", false, false), ("ignored", true, true)]
+        {
+            let code = code(accepts);
+            let init = state_init(Some(&code));
+            let (runtime, tries, mut root, apply_state, epoch_info_provider, account_id) =
+                setup(&code, &init);
+            if initialized {
+                let install = EccTransaction::new_with_state_init(
+                    account_id.clone(),
+                    vec![],
+                    Some(init.clone()),
+                );
+                root =
+                    apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, install)
+                        .0;
+                assert!(account(&tries, root, &account_id).is_initialized(), "{name}");
+            }
+            let before = account(&tries, root, &account_id);
+            let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![1], Some(init));
+
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+            let mut state = TrieUpdate::new(trie.recording_reads_new_recorder());
+            let context = EccDryRunContext {
+                shard_id: apply_state.shard_id,
+                epoch_id: apply_state.epoch_id,
+                protocol_version: apply_state.current_protocol_version,
+                config: Arc::clone(&apply_state.config),
+                config_store: Arc::clone(&apply_state.config_store),
+                vm_generation: apply_state.vm_generation,
+                gas_price: apply_state.gas_price,
+                prev_block: apply_state.prev_block.clone(),
+                cache: None,
+            };
+            let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, None);
+            let dry_run = dry_run_external_call(
+                &mut state,
+                context,
+                &epoch_info_provider,
+                &mut external_calls,
+                None,
+                &ecc,
+            )
+            .unwrap();
+            let (root, outcome) =
+                apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+            let after = account(&tries, root, &account_id);
+            match dry_run {
+                EccDryRun::Accepted { account, gas_burnt, compute_usage, installed_state_init } => {
+                    assert!(accepts, "{name}");
+                    assert_eq!(installed_state_init, !initialized, "{name}");
+                    assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+                    assert_eq!(outcome.outcome.gas_burnt, gas_burnt, "{name}");
+                    assert_eq!(outcome.outcome.compute_usage, Some(compute_usage), "{name}");
+                    assert_eq!(after, account, "{name}");
+                }
+                EccDryRun::Refused(error) => {
+                    assert!(!accepts, "{name}");
+                    assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error), "{name}");
+                    assert_eq!(after, before, "{name}");
+                }
+            }
+        }
+    }
+
+    /// A call whose fees, its state init's included, pass the gas budget of a call can never run.
+    /// It is refused, funded or not, and counts no more compute than a call within the budget.
+    #[test]
+    fn test_ecc_state_init_fees_past_call_budget_refused() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        // 1_900 two-byte keys with empty values: the call fits `max_external_call_size`, and the
+        // fees of its state init, about 400 Tgas, are far past `max_gas_burnt_external`.
+        let data = (0..1_900u16).map(|key| (key.to_be_bytes().to_vec(), vec![])).collect();
+        let init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data,
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw();
+        for (name, balance) in
+            [("funded", Balance::from_near(10)), ("unfunded", Balance::from_yoctonear(1))]
+        {
+            let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+                setup(&code, &init);
+            let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+            let mut before = get_account(&state_update, &account_id).unwrap().unwrap();
+            before.set_amount(balance);
+            set_account(&mut state_update, account_id.clone(), &before);
+            state_update.commit(StateChangeCause::InitialState);
+            let trie_changes = state_update.finalize().unwrap().trie_changes;
+            let mut store_update = tries.store_update();
+            let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+            store_update.commit();
+            let ecc =
+                EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init.clone()));
+            let config = &apply_state.config;
+            let budget = config.wasm_config.limit_config.max_gas_burnt_external;
+            let cost =
+                ecc_cost_for_account(config, &ecc, Some(&before), apply_state.gas_price).unwrap();
+            assert!(ecc.get_size() <= config.external_calls_config.max_call_size, "{name}");
+            assert!(cost.gas_burnt > budget, "{name}");
+
+            let (root, outcome) =
+                apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+            assert_matches!(outcome.outcome.status, ExecutionStatus::Failure(_), "{name}");
+            assert_eq!(outcome.outcome.tokens_burnt, Balance::ZERO, "{name}");
+            assert_eq!(account(&tries, root, &account_id), before, "{name}");
+            let compute = outcome.outcome.compute_usage.unwrap();
+            assert!(
+                compute <= budget.as_gas(),
+                "{name}: the refusal counts {compute} compute, past the call budget of {budget}"
+            );
+        }
+    }
+
+    /// The dry run refuses a call whose state init derives to another account, as apply does.
+    #[test]
+    fn test_dry_run_ecc_refuses_state_init_for_another_account() {
+        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            return;
+        }
+        let code = code(true);
+        let init = state_init(Some(&code));
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        // The same contract with other data derives to another account, and accepts the call if
+        // installed.
+        let other_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data: BTreeMap::from([(b"k".to_vec(), b"w".to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw();
+        assert_ne!(derive_universal_account_id(&other_init), account_id);
+        let before = account(&tries, root, &account_id);
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(other_init));
+
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+        let mut state = TrieUpdate::new(trie.recording_reads_new_recorder());
+        let context = EccDryRunContext {
+            shard_id: apply_state.shard_id,
+            epoch_id: apply_state.epoch_id,
+            protocol_version: apply_state.current_protocol_version,
+            config: Arc::clone(&apply_state.config),
+            config_store: Arc::clone(&apply_state.config_store),
+            vm_generation: apply_state.vm_generation,
+            gas_price: apply_state.gas_price,
+            prev_block: apply_state.prev_block.clone(),
+            cache: None,
+        };
+        let mut external_calls = ExternalCallsInChunk::new(&apply_state.config, None);
+        let dry_run = dry_run_external_call(
+            &mut state,
+            context,
+            &epoch_info_provider,
+            &mut external_calls,
+            None,
+            &ecc,
+        )
+        .unwrap();
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        assert_matches!(
+            &outcome.outcome.status,
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(
+                InvalidTxError::ActionsValidation(
+                    ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+                )
+            ))
+        );
+        assert_eq!(account(&tries, root, &account_id), before);
+        let EccDryRun::Refused(error) = dry_run else { panic!("{dry_run:?}") };
+        assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error));
+    }
 }

@@ -426,6 +426,7 @@ pub(super) mod tests {
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{AccountId, BlockHeight, ChunkExecutionResult, SpiceChunkId};
     use near_primitives::validator_signer::ValidatorSigner;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::get_genesis_state_roots;
     use reed_solomon_erasure::galois_8::ReedSolomon;
     use std::collections::BTreeSet;
@@ -931,10 +932,12 @@ pub(super) mod tests {
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[0]).unwrap(),
                 Balance::from_yoctonear(100),
+                PROTOCOL_VERSION,
             ),
             Receipt::new_balance_refund(
                 &AccountId::from_str(TEST_VALIDATORS[1]).unwrap(),
                 Balance::from_yoctonear(100),
+                PROTOCOL_VERSION,
             ),
         ]
     }

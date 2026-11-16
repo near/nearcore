@@ -16,7 +16,7 @@ use near_primitives::state_part::StatePartIndex;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAck};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::TransactionEnvelope;
-use near_primitives::types::{AccountId, EpochHeight, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use std::sync::Arc;
 
@@ -192,9 +192,6 @@ pub struct OptimisticBlockMessage {
     pub recv_permit: RecvMessagePermit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GetCurrentEpochHeight;
-
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
@@ -211,5 +208,4 @@ pub struct ClientSenderForNetwork {
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
     pub optimistic_block_receiver: Sender<SpanWrapped<OptimisticBlockMessage>>,
-    pub current_epoch_height_request: AsyncSender<GetCurrentEpochHeight, Option<EpochHeight>>,
 }

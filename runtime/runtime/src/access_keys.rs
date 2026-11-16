@@ -12,8 +12,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_store::{
-    StorageError, TrieUpdate, get_access_key, remove_access_key, remove_gas_key_nonce,
-    set_access_key, set_gas_key_nonce,
+    StorageError, TrieUpdate, get_access_key, get_gas_key_nonce, remove_access_key,
+    remove_gas_key_nonce, set_access_key, set_gas_key_nonce,
 };
 use std::mem::size_of;
 
@@ -68,6 +68,7 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if let Some(access_key) = access_key {
@@ -81,6 +82,7 @@ pub(crate) fn action_delete_key(
                 &delete_key.public_key,
                 &access_key,
                 gas_key_info,
+                current_protocol_version,
             )?;
         } else {
             delete_regular_key(
@@ -111,6 +113,7 @@ fn delete_gas_key(
     public_key: &PublicKey,
     access_key: &AccessKey,
     gas_key_info: &GasKeyInfo,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     if gas_key_info.balance > GasKeyInfo::MAX_BALANCE_TO_BURN {
         result.result = Err(ActionErrorKind::GasKeyBalanceTooHigh {
@@ -124,7 +127,14 @@ fn delete_gas_key(
     result.tokens_burnt =
         result.tokens_burnt.checked_add(gas_key_info.balance).ok_or(IntegerOverflowError)?;
     let num_nonces = gas_key_info.num_nonces as usize;
+    let read_nonces_before_removal =
+        ProtocolFeature::ReadGasKeyNoncesBeforeRemoval.enabled(current_protocol_version);
     for i in 0..gas_key_info.num_nonces {
+        if read_nonces_before_removal {
+            // The value is unused. The read records the nonce's trie path, so the storage
+            // proof limits count it before the removal.
+            get_gas_key_nonce(state_update, account_id, public_key, i)?;
+        }
         remove_gas_key_nonce(state_update, account_id.clone(), public_key.clone(), i);
     }
     let nonce_key_len = gas_key_nonce_key_len(account_id, &public_key.into());
@@ -135,6 +145,7 @@ fn delete_gas_key(
         AccessKey::NONCE_VALUE_LEN * num_nonces,
     );
     result.compute_usage = safe_add_compute(result.compute_usage, nonce_remove_compute)?;
+    result.gas_key_nonces_removed = num_nonces as u64;
     remove_access_key(state_update, account_id.clone(), public_key.clone());
     account.set_storage_usage(account.storage_usage().saturating_sub(gas_key_storage_cost(
         &config.fees,
@@ -412,6 +423,7 @@ mod tests {
             prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
+            config_store: Arc::new(RuntimeConfigStore::test()),
             next_wasm_config: None,
             vm_generation: Default::default(),
             cache: None,
@@ -588,6 +600,7 @@ mod tests {
             &mut result,
             &account_id,
             &action,
+            PROTOCOL_VERSION,
         )
         .unwrap();
         assert!(result.result.is_ok(), "result error: {:?}", result.result);
@@ -642,6 +655,7 @@ mod tests {
             &mut result,
             &account_id,
             &action,
+            PROTOCOL_VERSION,
         )
         .unwrap();
         assert!(result.result.is_ok());
@@ -676,6 +690,7 @@ mod tests {
             &mut result,
             &account_id,
             &action,
+            PROTOCOL_VERSION,
         )
         .unwrap();
         assert_eq!(
@@ -1248,6 +1263,7 @@ mod tests {
             &mut result,
             &account_id,
             &action,
+            PROTOCOL_VERSION,
         )
         .unwrap();
         assert_eq!(
@@ -1288,6 +1304,7 @@ mod tests {
             &mut result,
             &account_id,
             &action,
+            PROTOCOL_VERSION,
         )
         .unwrap();
         assert!(result.result.is_ok());

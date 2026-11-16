@@ -231,7 +231,7 @@ impl JsonRpcClient {
         JsonRpcClient { transport, server_addr: None }
     }
 
-    pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<String> {
+    pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<Option<String>> {
         call_method(&self.transport, "broadcast_tx_async", [tx])
     }
 

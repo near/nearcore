@@ -55,14 +55,14 @@ use near_primitives::views::{
 };
 use near_runtime::adapter::ViewRuntimeAdapter;
 use near_runtime::cache_warming::cache_keys_differ;
-use near_runtime::config::{ecc_cost, tx_cost};
+use near_runtime::config::tx_cost;
 use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use near_runtime::{
     ApplyState, EccDryRun, EccDryRunContext, ExternalCallsInChunk, PendingConstraints,
     PostStateNodes, PrevBlockContext, Runtime, SignedValidPeriodTransactions, TxAuthorizationRef,
-    TxVerdict, ValidatorAccountsUpdate, account_holds_contract, dry_run_external_call,
-    get_signer_and_authorization, validate_envelope, verify_and_charge_tx_ephemeral,
-    verify_ecc_ephemeral,
+    TxVerdict, ValidatorAccountsUpdate, call_can_run_at_account, dry_run_external_call,
+    ecc_cost_for_account, get_signer_and_authorization, validate_envelope,
+    verify_and_charge_tx_ephemeral, verify_ecc_ephemeral,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::db::metadata::DbKind;
@@ -105,7 +105,7 @@ const MAX_TXS_PER_GROUP_PER_VISIT: usize = 256;
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    runtime_config_store: RuntimeConfigStore,
+    runtime_config_store: Arc<RuntimeConfigStore>,
     store: Store,
     compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
@@ -186,7 +186,7 @@ impl NightshadeRuntime {
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
             compiled_contract_cache,
-            runtime_config_store,
+            runtime_config_store: Arc::new(runtime_config_store),
             store,
             tries,
             runtime,
@@ -299,6 +299,7 @@ impl NightshadeRuntime {
                 epoch_id,
                 protocol_version,
                 config: Arc::clone(runtime_config),
+                config_store: Arc::clone(&self.runtime_config_store),
                 vm_generation: self.runtime_config_store.vm_generation(protocol_version),
                 gas_price: prev_block.next_gas_price,
                 prev_block: PrevBlockContext {
@@ -382,7 +383,7 @@ impl NightshadeRuntime {
                 }
             };
             match dry_run {
-                EccDryRun::Accepted { account: charged, .. } => {
+                EccDryRun::Accepted { account: charged, installed_state_init, .. } => {
                     metrics::ECC_DRY_RUNS
                         .with_label_values(&[shard_label.as_str(), "accepted"])
                         .inc();
@@ -392,6 +393,11 @@ impl NightshadeRuntime {
                     if let Some(account) = signer_overlay.packed_account_mut(ecc.contract_id()) {
                         *account = charged;
                     }
+                    // A state init the account ignored is stripped, so the chunk carries fewer
+                    // bytes. The call's unique id leaves the state init out, so it stays the same.
+                    let ignored_state_init =
+                        ecc.to_ecc().state_init().is_some() && !installed_state_init;
+                    let ecc = if ignored_state_init { ecc.without_state_init() } else { ecc };
                     // The call is in the chunk, so it counts toward the chunk's rules and shares.
                     // A refused one does not, as apply never sees it.
                     external_calls
@@ -653,6 +659,7 @@ impl NightshadeRuntime {
             prev_block,
             current_protocol_version,
             config: config.clone(),
+            config_store: Arc::clone(&self.runtime_config_store),
             next_wasm_config,
             vm_generation: self.runtime_config_store.vm_generation(current_protocol_version),
             cache: Some(self.compiled_contract_cache.handle()),
@@ -755,6 +762,7 @@ impl NightshadeRuntime {
             stats: apply_result.stats,
             proposed_split,
             receipt_to_tx: apply_result.receipt_to_tx,
+            external_calls: apply_result.external_calls,
         };
 
         Ok(result)
@@ -1079,17 +1087,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_layout: &ShardLayout,
         gas_price: Balance,
         state_root: StateRoot,
-        ecc: &ValidatedEcc,
+        validated_ecc: &ValidatedEcc,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+        let ecc = validated_ecc.to_ecc();
         let contract_id = ecc.contract_id();
-        let cost = ecc_cost(runtime_config, ecc.to_ecc(), gas_price)?;
         let shard_uid = shard_layout.account_id_to_shard_uid(contract_id);
         let trie = self.tries.get_trie_for_shard(shard_uid, state_root);
         let account = get_account(&trie, contract_id)?;
-        verify_ecc_ephemeral(account.as_ref(), ecc.to_ecc(), &cost)?;
-        if !account_holds_contract(&trie, contract_id)? {
+        let cost = ecc_cost_for_account(runtime_config, ecc, account.as_ref(), gas_price)?;
+        verify_ecc_ephemeral(account.as_ref(), ecc, &cost)?;
+        if !call_can_run_at_account(&trie, ecc)? {
             return Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() });
         }
         Ok(())
@@ -2316,9 +2325,9 @@ fn take_ecc_from_group(
     }
     let contract_id = contract_id.clone();
 
-    // Whether the contract's shard accepts ECCs and whether the account holds a contract. The
-    // same for every ECC of the group, so found out once, and only for an ECC that needs it.
-    let mut checks: Option<(bool, bool)> = None;
+    // Congestion control gives one answer for the whole group, so it is asked once, at the first
+    // call that needs it.
+    let mut group_accepted_by_congestion_control: Option<bool> = None;
     let mut num_examined = 0;
     while let Some(ecc) = group.peek_next() {
         num_examined += 1;
@@ -2329,7 +2338,7 @@ fn take_ecc_from_group(
             visit.limited_by = Some(PrepareTransactionsLimit::Time);
             break;
         }
-        if skip_tx_hashes.contains(&ecc.get_hash()) {
+        if skip_tx_hashes.contains(ecc.hash_without_state_init()) {
             visit.skipped.extend(group.next());
             continue;
         }
@@ -2341,8 +2350,8 @@ fn take_ecc_from_group(
             break;
         }
         // Not between popping the ECC and putting it somewhere: an error must not lose it.
-        let (accepted_by_congestion_control, has_contract) = match checks {
-            Some(checks) => checks,
+        let accepted_by_congestion_control = match group_accepted_by_congestion_control {
+            Some(accepted) => accepted,
             None => {
                 let accepted = congestion_control_accepts_transaction(
                     epoch_manager,
@@ -2351,21 +2360,27 @@ fn take_ecc_from_group(
                     prev_block,
                     &contract_id,
                 )?;
-                let has_contract = accepted && account_holds_contract(state_update, &contract_id)?;
-                *checks.insert((accepted, has_contract))
+                *group_accepted_by_congestion_control.insert(accepted)
             }
         };
-        let ecc = group.next().expect("peek_next() returned Some, so next() should return Some");
         if !accepted_by_congestion_control {
+            let ecc =
+                group.next().expect("peek_next() returned Some, so next() should return Some");
             tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding ECC due to congestion");
             visit.num_rejected_due_to_congestion += 1;
-        } else if !has_contract {
+            continue;
+        }
+        // Check each call, not once per group: one call to an account may carry its state init
+        // and the next one may not.
+        let can_run = call_can_run_at_account(state_update, ecc.to_ecc())?;
+        let ecc = group.next().expect("peek_next() returned Some, so next() should return Some");
+        if !can_run {
             tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "discarding ECC to an account with no contract");
             visit.num_rejected_without_contract += 1;
-        } else {
-            visit.packed = Some(ecc);
-            break;
+            continue;
         }
+        visit.packed = Some(ecc);
+        break;
     }
     Ok(visit)
 }

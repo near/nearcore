@@ -354,7 +354,7 @@ pub fn pre_validate_chunk_state_witness(
     // enabled under Spice. Apply relies on them: a call refused because the chunk's calls reached
     // a share counts no compute, so only `max_calls_per_chunk` bounds the work on such calls.
     // Until then a malicious Spice chunk producer can include as many external calls as fit in
-    // the chunk's transaction bytes.
+    // the chunk's transaction bytes, and several calls to one contract, which apply all runs.
     if let Err(err) =
         check_external_calls_in_chunk(runtime_config, state_witness.new_transactions())
     {

@@ -569,7 +569,7 @@ pub fn calculate_tx_cost(
 }
 
 /// Describes what an external contract call burns before its method runs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EccCost {
     /// Total amount of gas burnt by the fees of the call.
     pub gas_burnt: Gas,
@@ -599,6 +599,27 @@ pub fn ecc_cost(
         .checked_add_result(function_call_exec_fee(fees, num_bytes))?;
     let burnt_amount = safe_gas_to_balance(gas_price, burnt.gas)?;
     Ok(EccCost { gas_burnt: burnt.gas, compute_burnt: burnt.compute, burnt_amount })
+}
+
+/// Returns `cost`, the fees of an external call, plus those of a self-addressed
+/// `UniversalStateInit` action carrying the `state_init` it installs, all burnt at once.
+pub fn ecc_cost_with_state_init(
+    config: &RuntimeConfig,
+    cost: &EccCost,
+    state_init: &RawStateInit,
+    gas_price: Balance,
+) -> Result<EccCost, IntegerOverflowError> {
+    let fees = &config.fees;
+    let fee = universal_state_init_fee(fees, state_init, |fee| fee.send_fee(true))?
+        .checked_add_result(universal_state_init_fee(fees, state_init, Fee::exec_fee)?)?;
+    Ok(EccCost {
+        gas_burnt: cost.gas_burnt.checked_add_result(fee.gas)?,
+        compute_burnt: safe_add_compute(cost.compute_burnt, fee.compute)?,
+        burnt_amount: safe_add_balance(
+            cost.burnt_amount,
+            safe_gas_to_balance(gas_price, fee.gas)?,
+        )?,
+    })
 }
 
 /// The signature scheme of a signer key, used to key the per-scheme

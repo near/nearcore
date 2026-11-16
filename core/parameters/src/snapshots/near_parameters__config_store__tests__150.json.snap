@@ -244,6 +244,8 @@ expression: config_view
       "max_receipt_total_input_size": 4294967295,
       "max_universal_state_init_keys": 1024,
       "max_state_init_entries": 1500,
+      "max_gas_key_nonces_added_per_receipt": 1024,
+      "max_gas_key_nonces_removed_per_receipt": 1024,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
       "min_contract_size_per_local": 2,
