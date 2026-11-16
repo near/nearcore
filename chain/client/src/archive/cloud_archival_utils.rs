@@ -1,4 +1,4 @@
-use crate::archive::cloud_reader_trie_utils::BatchTrieUpdate;
+use crate::archive::cloud_reader_trie_utils::{BatchTrieUpdate, ChangedKey};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -7,7 +7,9 @@ use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::StatePartId;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
+use near_primitives::types::{
+    BlockHeight, EpochHeight, EpochId, RawStateChangesWithTrieKey, ShardId,
+};
 use near_primitives::utils::index_to_bytes;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -214,6 +216,7 @@ pub(crate) fn apply_batch_state_changes(
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
     let start_height = from_height.max(shard_batch.start_height());
     let mut update = BatchTrieUpdate::new(tries, shard_uid, state_root);
+    update.read_ahead(&batch_trie_keys(shard_batch, start_height));
     for height in start_height..=shard_batch.end_height() {
         let Some(shard_data) = shard_batch.get_data_at_height(height) else {
             continue;
@@ -232,6 +235,33 @@ pub(crate) fn apply_batch_state_changes(
     // TODO(cloud_archival): consider one commit per window, so a retry refcounts once.
     update.commit();
     Ok(state_root)
+}
+
+/// The distinct trie keys `shard_batch` changes at or above `start_height`, each with
+/// whether some height leaves it deleted.
+fn batch_trie_keys(shard_batch: &ShardBatch, start_height: BlockHeight) -> Vec<ChangedKey> {
+    let mut keys = HashMap::new();
+    for height in start_height..=shard_batch.end_height() {
+        let Some(shard_data) = shard_batch.get_data_at_height(height) else {
+            continue;
+        };
+        add_trie_keys(&mut keys, shard_data.state_changes());
+    }
+    let mut changed_keys = Vec::new();
+    for (trie_key, deleted) in keys {
+        changed_keys.push(ChangedKey { trie_key, deleted });
+    }
+    changed_keys
+}
+
+/// Adds one height's changed keys to `keys`, flagging a key whose value the height leaves
+/// deleted.
+fn add_trie_keys(keys: &mut HashMap<Vec<u8>, bool>, state_changes: &[RawStateChangesWithTrieKey]) {
+    for change in state_changes {
+        // The last change is the value the height leaves, which is the one `apply` writes.
+        let deleted = change.changes.last().is_some_and(|last| last.data.is_none());
+        *keys.entry(change.trie_key.to_vec()).or_insert(false) |= deleted;
+    }
 }
 
 /// The state root `shard_uid` stands at under `block_hash`, which is the root the height
@@ -444,4 +474,47 @@ pub(crate) async fn pull_epoch_data(
         "pulled epoch data"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add_trie_keys;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{
+        AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
+    };
+    use std::collections::HashMap;
+
+    fn changed_key(index: u8, values: &[Option<u8>]) -> RawStateChangesWithTrieKey {
+        let account_id: AccountId = "test.near".parse().unwrap();
+        let mut changes = Vec::new();
+        for value in values {
+            let data = value.map(|value| vec![value]);
+            changes.push(RawStateChange { cause: StateChangeCause::InitialState, data });
+        }
+        RawStateChangesWithTrieKey {
+            trie_key: TrieKey::ContractData { account_id, key: vec![index] },
+            changes,
+        }
+    }
+
+    /// A key is flagged once a height leaves it deleted, whatever later heights do, and not
+    /// when a height deletes it and sets it again.
+    #[test]
+    fn test_add_trie_keys_flags_keys_a_height_leaves_deleted() {
+        let mut keys = HashMap::new();
+        add_trie_keys(
+            &mut keys,
+            &[
+                changed_key(0, &[None]),
+                changed_key(1, &[None, Some(1)]),
+                changed_key(2, &[Some(2)]),
+            ],
+        );
+        add_trie_keys(&mut keys, &[changed_key(0, &[Some(0)]), changed_key(2, &[Some(3)])]);
+
+        let key = |index| changed_key(index, &[]).trie_key.to_vec();
+        let expected = HashMap::from([(key(0), true), (key(1), false), (key(2), false)]);
+        assert_eq!(keys, expected);
+    }
 }
