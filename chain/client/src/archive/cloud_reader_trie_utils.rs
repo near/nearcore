@@ -15,6 +15,7 @@ use near_store::{
 };
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::{Builder, scope};
@@ -58,9 +59,15 @@ pub(crate) async fn install_state_snapshot(
     Ok(())
 }
 
-/// Threads that read a batch's trie paths before it is applied. The reads wait on the
-/// disk rather than the CPU, so more threads than cores still shorten the wait.
-const READ_AHEAD_THREADS: usize = 8;
+/// Threads that read a batch's trie paths before it is applied. Four already get most of
+/// the speed-up, since the disk soon reaches its read limit.
+const READ_AHEAD_THREADS: usize = 4;
+
+/// A trie key a batch changes, and whether some height of the batch leaves it deleted.
+pub(crate) struct ChangedKey {
+    pub(crate) trie_key: Vec<u8>,
+    pub(crate) deleted: bool,
+}
 
 /// Trie storage for one batch: the nodes that batch has applied, over the nodes the store
 /// already holds. A height reads what the height below it wrote, and a store read does
@@ -140,8 +147,9 @@ impl BatchTrieUpdate {
     }
 
     /// Reads the trie path of each of `keys` at the batch's starting root, on several
-    /// threads, so the heights applied next find those nodes in memory.
-    pub(crate) fn read_ahead(&self, keys: &[Vec<u8>]) {
+    /// threads, so the heights applied next find those nodes in memory. A key flagged as
+    /// deleted also has the sibling its delete merges into the parent read.
+    pub(crate) fn read_ahead(&self, keys: &[ChangedKey]) {
         let next_key = AtomicUsize::new(0);
         let num_threads = keys.len().min(READ_AHEAD_THREADS);
         scope(|thread_scope| {
@@ -185,17 +193,26 @@ impl BatchTrieUpdate {
 }
 
 /// Reads the trie path of each key `next_key` hands out until none is left.
-fn read_trie_paths(trie: Trie, keys: &[Vec<u8>], next_key: &AtomicUsize) {
-    while let Some(key) = keys.get(next_key.fetch_add(1, Ordering::Relaxed)) {
+fn read_trie_paths(trie: Trie, keys: &[ChangedKey], next_key: &AtomicUsize) {
+    while let Some(ChangedKey { trie_key: key, deleted }) =
+        keys.get(next_key.fetch_add(1, Ordering::Relaxed))
+    {
         // A failed read is left to `apply`, which reads and reports any node it needs.
-        let _ =
-            trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::NO_SIDE_EFFECTS);
+        if *deleted {
+            let _ = trie.update(iter::once((key.clone(), None)), AccessOptions::NO_SIDE_EFFECTS);
+        } else {
+            let _ = trie.get_optimized_ref(
+                key,
+                KeyLookupMode::MemOrTrie,
+                AccessOptions::NO_SIDE_EFFECTS,
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::BatchTrieUpdate;
+    use super::{BatchTrieUpdate, ChangedKey};
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
@@ -243,14 +260,17 @@ mod tests {
     #[test]
     fn test_read_ahead_keeps_the_paths_of_the_keys() {
         let (tries, shard_uid, root) = populated_trie();
-        let keys: Vec<Vec<u8>> = (0..NUM_KEYS).map(|index| trie_key(index).to_vec()).collect();
+        let mut keys = Vec::new();
+        for index in 0..NUM_KEYS {
+            keys.push(ChangedKey { trie_key: trie_key(index).to_vec(), deleted: false });
+        }
 
         let update = BatchTrieUpdate::new(&tries, shard_uid, root);
         update.read_ahead(&keys);
 
         let read_ahead_nodes = update.storage.committed_cache.lock().clone();
         let trie = Trie::new(Arc::new(GivenNodes(read_ahead_nodes)), root, None);
-        for key in &keys {
+        for ChangedKey { trie_key: key, .. } in &keys {
             let value_ref = trie
                 .get_optimized_ref(key, KeyLookupMode::MemOrTrie, AccessOptions::NO_SIDE_EFFECTS)
                 .unwrap();
@@ -258,9 +278,40 @@ mod tests {
         }
     }
 
-    /// A height applied after reading ahead leaves the root the plain trie update leaves.
+    /// Reading a deleted key ahead also loads the sibling its delete merges into the
+    /// parent, which is on no changed key's path.
     #[test]
-    fn test_apply_after_read_ahead_leaves_the_same_root() {
+    fn test_read_ahead_loads_the_sibling_a_delete_merges() {
+        let tries = TestTriesBuilder::new().build();
+        let shard_uid = ShardUId::single_shard();
+        let deleted_key = trie_key(0).to_vec();
+        let sibling_key = trie_key(1).to_vec();
+        let entries = vec![(deleted_key.clone(), Some(vec![0])), (sibling_key, Some(vec![1]))];
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, entries);
+        let delete = RawStateChange { cause: StateChangeCause::InitialState, data: None };
+        let state_changes =
+            vec![RawStateChangesWithTrieKey { trie_key: trie_key(0), changes: vec![delete] }];
+        let expected = tries
+            .get_trie_for_shard(shard_uid, root)
+            .update(vec![(deleted_key.clone(), None)], AccessOptions::NO_SIDE_EFFECTS)
+            .unwrap()
+            .new_root;
+
+        let mut update = BatchTrieUpdate::new(&tries, shard_uid, root);
+        update.read_ahead(&[ChangedKey { trie_key: deleted_key, deleted: true }]);
+        // With the store emptied, `apply` can only read what the read-ahead kept.
+        let mut store_update = tries.store_update();
+        store_update.delete_all_state();
+        store_update.commit();
+        let applied = update.apply(&state_changes).unwrap();
+
+        assert_eq!(applied, expected);
+    }
+
+    /// A height applied after reading ahead leaves the root the plain trie update leaves,
+    /// reading every node it needs, deleted keys' siblings included, from the read-ahead.
+    #[test]
+    fn test_apply_after_read_ahead_reads_nothing_from_the_store() {
         let (tries, shard_uid, root) = populated_trie();
         // Overwrites, inserts and deletes, so the walk both rewrites and merges nodes.
         let mut state_changes = Vec::new();
@@ -283,8 +334,15 @@ mod tests {
             .new_root;
 
         let mut update = BatchTrieUpdate::new(&tries, shard_uid, root);
-        let keys: Vec<Vec<u8>> = entries.into_iter().map(|(key, _)| key).collect();
+        let mut keys = Vec::new();
+        for (key, data) in entries {
+            keys.push(ChangedKey { trie_key: key, deleted: data.is_none() });
+        }
         update.read_ahead(&keys);
+        // With the store emptied, `apply` can only read what the read-ahead kept.
+        let mut store_update = tries.store_update();
+        store_update.delete_all_state();
+        store_update.commit();
         let applied = update.apply(&state_changes).unwrap();
 
         assert_eq!(applied, expected);
