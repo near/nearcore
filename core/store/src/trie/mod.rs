@@ -129,7 +129,7 @@ impl AccessOptions<'static> {
 }
 
 impl<'a> AccessOptions<'a> {
-    pub fn contract_runtime(trie_node_counter: &'a Cell<u64>) -> Self {
+    pub fn counting_trie_nodes(trie_node_counter: &'a Cell<u64>) -> Self {
         Self { trie_node_counter: Some(trie_node_counter), enable_state_witness_recording: true }
     }
 

@@ -287,7 +287,7 @@ mod tests {
             // Do another access with the trie to see how many nodes we're supposed to
             // have accessed.
             let nodes_counted = Cell::new(0);
-            let track_opts = AccessOptions::contract_runtime(&nodes_counted);
+            let track_opts = AccessOptions::counting_trie_nodes(&nodes_counted);
             let temp_trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
             temp_trie.get_optimized_ref(key, KeyLookupMode::MemOrTrie, track_opts).unwrap();
             assert_eq!(
