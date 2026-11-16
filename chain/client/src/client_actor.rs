@@ -1867,15 +1867,15 @@ impl ClientActor {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
-            match self.client.run_catchup(
+            if let Err(err) = self.client.run_catchup(
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
             ) {
-                Ok(true) => self.chunk_executor_sender.send(CatchupFinished),
-                Ok(false) => {}
-                Err(err) => {
-                    tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
-                }
+                tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
+            }
+            if self.client.catchup_finished {
+                self.client.catchup_finished = false;
+                self.chunk_executor_sender.send(CatchupFinished);
             }
         }
 

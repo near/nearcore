@@ -146,6 +146,8 @@ pub struct Client {
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs: HashMap<CryptoHash, CatchupState>,
+    /// Whether a catchup finished since the client actor last checked.
+    pub(crate) catchup_finished: bool,
     /// Spawns async tasks for catchup state sync.
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     /// Sender for catchup state sync requests.
@@ -499,6 +501,7 @@ impl Client {
                 rng_seed,
             ),
             catchup_state_syncs: HashMap::new(),
+            catchup_finished: false,
             state_sync_future_spawner,
             chain_sender_for_state_sync,
             myself_sender,
@@ -2554,15 +2557,13 @@ impl Client {
         }
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them. Returns
-    /// whether a catchup finished.
+    /// Walks through all the ongoing state syncs for future epochs and processes them
     #[instrument(level = "debug", target = "client", skip_all)]
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) -> Result<bool, Error> {
-        let mut finished = false;
+    ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
         {
@@ -2630,13 +2631,13 @@ impl Client {
                         self.process_block_processing_artifact(block_processing_artifacts);
 
                         self.catchup_state_syncs.remove(&sync_hash);
-                        finished = true;
+                        self.catchup_finished = true;
                     }
                 }
             }
         }
 
-        Ok(finished)
+        Ok(())
     }
 }
 
