@@ -9,6 +9,9 @@ license = "MIT OR Apache-2.0"
 [lib]
 crate-type = ["cdylib"]
 
+[dependencies]
+borsh = { version = "1.5", features = ["derive"] }
+
 [profile.release]
 codegen-units = 1
 # Tell `rustc` to optimize for small code size.

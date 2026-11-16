@@ -12,6 +12,8 @@ This framework is an attempt to achieve the best of all our previous frameworks,
 - `src/utils/` — shared helpers (account creation, network simulation, etc.)
 - `src/examples/` — **start here** — minimal self-contained examples demonstrating the API
 - `src/tests/` — full integration tests
+- `ecc-wallet/` — an example wallet contract for external contract calls, with its checked-in
+  wasm. It is outside the workspace; see its README.
 
 Here's a step-by-step guide on how to create a test.
 
