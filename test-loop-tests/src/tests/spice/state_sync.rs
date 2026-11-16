@@ -3,6 +3,7 @@ use crate::setup::env::TestLoopEnv;
 use crate::tests::sync::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height, run_until_synced};
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use assert_matches::assert_matches;
@@ -15,17 +16,15 @@ use near_client::SyncStatus;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV3};
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, SpiceChunkId, StateRootNode,
-};
+use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, SpiceChunkId, StateRootNode};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::adapter::StoreAdapter as _;
 use std::cell::Cell;
 use std::rc::Rc;
 
-pub(super) const EPOCH_LENGTH: BlockHeightDelta = 10;
-pub(super) const NUM_ACCOUNTS: usize = 100;
+const EPOCH_LENGTH: BlockHeightDelta = 10;
+const NUM_ACCOUNTS: usize = 100;
 const CERTIFICATION_DELAY: u64 = 4;
 const EPOCH_SYNC_RETRY_TIMEOUT: Duration = Duration::seconds(2);
 
@@ -245,6 +244,7 @@ fn test_spice_state_sync_under_certification_lag() {
     env.delay_endorsements_propagation(0);
     env.node_runner(new_node).run_for_number_of_blocks(2 * CERTIFICATION_DELAY as usize);
     assert_certification_kept_up(&env);
+    assert_execution_kept_up(&env);
 }
 
 /// A node bootstrapping through state sync applies every shard in every block after its sync
@@ -252,16 +252,16 @@ fn test_spice_state_sync_under_certification_lag() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_bootstrap_executes_after_the_sync_block() {
-    const MAX_EXECUTION_LAG: BlockHeight = 3;
-    const CERTIFICATION_DELAY: u64 = 0;
+    const NO_CERTIFICATION_DELAY: u64 = 0;
 
     init_test_logger();
-    let mut env = build_far_ahead_env(EPOCH_LENGTH, CERTIFICATION_DELAY);
-    let (new_node, sync_hash, _) = bootstrap_node(&mut env, TEST_EPOCH_SYNC_HORIZON, 0);
+    let mut env = build_far_ahead_env(EPOCH_LENGTH, NO_CERTIFICATION_DELAY);
+    let (new_node, sync_hash, _) =
+        bootstrap_node(&mut env, TEST_EPOCH_SYNC_HORIZON, NO_CERTIFICATION_DELAY);
 
     env.node_runner(new_node).run_for_number_of_blocks(EPOCH_LENGTH as usize);
+    assert_execution_kept_up(&env);
     let node = &env.node(new_node);
-    assert!(node.last_executed().height + MAX_EXECUTION_LAG >= node.head().height);
     let chain_store = &node.client().chain.chain_store;
     let shard_layout = node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
 
@@ -269,7 +269,12 @@ fn test_spice_state_sync_bootstrap_executes_after_the_sync_block() {
     while block_hash != node.last_executed().last_block_hash {
         block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
         for shard_uid in shard_layout.shard_uids() {
-            assert!(chain_store.get_chunk_extra(&block_hash, &shard_uid).is_ok());
+            assert!(
+                chain_store.get_chunk_extra(&block_hash, &shard_uid).is_ok(),
+                "shard {} was not applied at height {}",
+                shard_uid.shard_id(),
+                chain_store.get_block_header(&block_hash).unwrap().height()
+            );
         }
     }
 }
@@ -322,15 +327,13 @@ fn test_spice_state_sync_to_the_first_spice_block() {
     assert_uncertified_chunks_match(&env.node(new_node), &env.node(0), &sync_hash);
     env.node_runner(new_node).run_for_number_of_blocks(2 * EPOCH_LENGTH as usize);
     assert_certification_kept_up(&env);
+    assert_execution_kept_up(&env);
 }
 
 /// Four producers over four shards, past the epoch sync horizon of a node at genesis, with
 /// transfers that give the state some content, and every endorsement held back
 /// `certification_delay` blocks.
-pub(super) fn build_far_ahead_env(
-    epoch_length: BlockHeightDelta,
-    certification_delay: u64,
-) -> TestLoopEnv {
+fn build_far_ahead_env(epoch_length: BlockHeightDelta, certification_delay: u64) -> TestLoopEnv {
     let accounts = make_accounts(NUM_ACCOUNTS);
     let mut env = TestLoopBuilder::new()
         .validators(4, 0)
@@ -346,17 +349,19 @@ pub(super) fn build_far_ahead_env(
     env
 }
 
-/// Adds a node of `account` tracking every shard that bootstraps through epoch sync and state sync,
-/// with endorsements held back `certification_delay` blocks like the others'. Returns its index.
-pub(super) fn add_bootstrapping_node(
+/// Adds a node tracking every shard that bootstraps through epoch sync and state sync, with
+/// endorsements held back `certification_delay` blocks like the others', and runs until it reaches
+/// node 0's head. Returns its index, its sync hash, and node 0's last certified height when it
+/// entered state sync.
+fn bootstrap_node(
     env: &mut TestLoopEnv,
-    account: &AccountId,
     epoch_sync_horizon_num_epochs: u64,
     certification_delay: u64,
-) -> usize {
+) -> (usize, CryptoHash, BlockHeight) {
+    let account = create_account_id("new_node");
     let node_state = env
         .node_state_builder()
-        .account_id(account)
+        .account_id(&account)
         .config_modifier(move |config| {
             config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = epoch_sync_horizon_num_epochs;
@@ -365,15 +370,7 @@ pub(super) fn add_bootstrapping_node(
         .build();
     let idx = env.add_node(account.as_str(), node_state);
     env.delay_endorsements_propagation(certification_delay);
-    idx
-}
 
-/// Runs until node `idx` reaches node 0's head. Returns its sync hash, and node 0's last certified
-/// height when it entered state sync.
-pub(super) fn run_until_bootstrapped(
-    env: &mut TestLoopEnv,
-    idx: usize,
-) -> (CryptoHash, BlockHeight) {
     let state_sync_entry: Rc<Cell<Option<(CryptoHash, BlockHeight)>>> = Rc::default();
     let recorder = state_sync_entry.clone();
     let new_node = env.node_datas[idx].client_sender.actor_handle();
@@ -392,24 +389,13 @@ pub(super) fn run_until_bootstrapped(
         recorder.set(Some((status.sync_hash, certified.height())));
     });
     run_until_synced(&mut env.test_loop, &env.node_datas, idx, 0);
-    state_sync_entry.get().expect("the node never entered state sync")
-}
-
-pub(super) fn bootstrap_node(
-    env: &mut TestLoopEnv,
-    epoch_sync_horizon_num_epochs: u64,
-    certification_delay: u64,
-) -> (usize, CryptoHash, BlockHeight) {
-    let account = create_account_id("new_node");
-    let idx =
-        add_bootstrapping_node(env, &account, epoch_sync_horizon_num_epochs, certification_delay);
-    let (sync_hash, certified) = run_until_bootstrapped(env, idx);
+    let (sync_hash, certified) = state_sync_entry.get().expect("the node never entered state sync");
     (idx, sync_hash, certified)
 }
 
 /// Asserts that `node`'s uncertified chunks equal `reference`'s at every block of `reference`'s
 /// chain from the sync block's grandparent up to `node`'s head.
-pub(super) fn assert_uncertified_chunks_match(
+fn assert_uncertified_chunks_match(
     node: &TestLoopNode<'_>,
     reference: &TestLoopNode<'_>,
     sync_hash: &CryptoHash,
