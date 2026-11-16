@@ -4,7 +4,7 @@ use near_chain::near_chain_primitives::ApplyChunksMode;
 use near_primitives::types::BlockHeight;
 
 /// How far a node's execution head may fall behind its head at the end of a test.
-const MAX_EXECUTION_LAG: BlockHeight = 3;
+pub(crate) const MAX_EXECUTION_LAG: BlockHeight = 3;
 
 /// Asserts that on every live node the execution head is within `MAX_EXECUTION_LAG` blocks of the
 /// head, and that what it applied was certified.
