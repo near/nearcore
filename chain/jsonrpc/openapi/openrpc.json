@@ -8553,7 +8553,7 @@
                     "type": "array"
                   },
                   "authorization_context": {
-                    "description": "What authorized the chain, absent in views written before external calls",
+                    "description": "What authorized the chain, absent if the receipt doesn't record it",
                     "oneOf": [
                       {
                         "$ref": "#/components/schemas/AuthorizationContext"
@@ -8561,6 +8561,15 @@
                       {
                         "type": "null"
                       }
+                    ]
+                  },
+                  "creation_protocol_version": {
+                    "description": "The protocol version the receipt was created at, absent if the receipt doesn't record it",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
                     ]
                   },
                   "gas_price": {

@@ -227,12 +227,18 @@ fn process_block_at(chain: &mut Chain, prev: &Block, height: BlockHeight) -> Arc
     block
 }
 
-/// A block on top of `prev` at `height`, signed by its block producer. Not processed.
+/// A block on top of `prev` at `height`, signed by its block producer, with the epoch ids the epoch
+/// manager expects. Not processed.
 fn build_block_at(chain: &Chain, prev: &Block, height: BlockHeight) -> Arc<Block> {
     let epoch_id = chain.epoch_manager.get_epoch_id_from_prev_block(prev.hash()).unwrap();
+    let next_epoch_id = chain.epoch_manager.get_next_epoch_id_from_prev_block(prev.hash()).unwrap();
     let producer = chain.epoch_manager.get_block_producer_info(&epoch_id, height).unwrap();
     let signer = Arc::new(create_test_signer(producer.account_id().as_str()));
-    TestBlockBuilder::from_prev_block(Clock::real(), prev, signer).height(height).build()
+    TestBlockBuilder::from_prev_block(Clock::real(), prev, signer)
+        .height(height)
+        .epoch_id(epoch_id)
+        .next_epoch_id(next_epoch_id)
+        .build()
 }
 
 /// The test chains' chunk producer `index` of `shard`.
