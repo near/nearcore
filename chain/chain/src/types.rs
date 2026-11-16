@@ -1,3 +1,4 @@
+use crate::runtime::ExternalCallCache;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
@@ -44,7 +45,7 @@ use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
 use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
 use near_primitives::views::{QueryRequest, QueryResponse};
 pub use near_runtime::PendingConstraints;
-use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::{ExternalCallInclusion, SignedValidPeriodTransactions};
 use near_runtime::{PostStateNodes, PostStateReadyCallback};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::TrieUpdate;
@@ -146,8 +147,8 @@ pub struct ApplyChunkResult {
     pub proposed_split: Option<TrieSplit>,
     /// Mapping from receipt_id to its origin (parent receipt or originating transaction).
     pub receipt_to_tx: Vec<(CryptoHash, ReceiptToTxInfo)>,
-    /// The unique id and the hash of each external call that got an outcome.
-    pub external_calls: Vec<(CryptoHash, CryptoHash)>,
+    /// Each external call that the chunk included.
+    pub external_calls: Vec<ExternalCallInclusion>,
 }
 
 impl ApplyChunkResult {
@@ -650,6 +651,9 @@ pub trait RuntimeAdapter: Send + Sync {
         ecc: &ValidatedEcc,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
+
+    /// The cache of the external calls this node applied.
+    fn external_call_cache(&self) -> &ExternalCallCache;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
     /// Pulls transactions from the given pool iterators one by one. Validates each transaction

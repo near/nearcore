@@ -14332,6 +14332,50 @@
             "properties": {
               "info": {
                 "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "error": {
+                    "$ref": "#/components/schemas/TxExecutionError"
+                  },
+                  "logs": {
+                    "description": "The logs of the contract's run. Empty for a call refused before its run.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "error",
+                  "logs",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "EXTERNAL_CALL_REFUSED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
                   "error_message": {
                     "type": "string"
                   }
@@ -17008,6 +17052,50 @@
               "name": {
                 "enum": [
                   "CONTRACT_EXECUTION_ERROR"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "info"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "info": {
+                "properties": {
+                  "block_hash": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  },
+                  "block_height": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "error": {
+                    "$ref": "#/components/schemas/TxExecutionError"
+                  },
+                  "logs": {
+                    "description": "The logs of the contract's run. Empty for a call refused before its run.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "error",
+                  "logs",
+                  "block_height",
+                  "block_hash"
+                ],
+                "type": "object"
+              },
+              "name": {
+                "enum": [
+                  "EXTERNAL_CALL_REFUSED"
                 ],
                 "type": "string"
               }
