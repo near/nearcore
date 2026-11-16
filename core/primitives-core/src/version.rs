@@ -108,6 +108,8 @@ pub enum ProtocolFeature {
     /// its own key can then not run again with the same hash. See `initial_nonce_value` in
     /// `near-runtime`.
     RaiseInitialAccessKeyNonce,
+    /// Reject blocks whose body carries a non-empty deprecated `challenges` field.
+    RejectBlockChallenges,
     /// Track protocol-level contract warmness and cold compilation bytes,
     /// limiting how many cold contract bytes can be compiled per chunk.
     /// (not fully implemented, yet. only stabilize when it is fully implemented,
@@ -121,6 +123,10 @@ pub enum ProtocolFeature {
     /// Read each gas key nonce before `DeleteKey` removes it, so the storage
     /// proof limits count the trie nodes that the removal records.
     ReadGasKeyNoncesBeforeRemoval,
+    /// Apply skips, with no outcome, a chunk's transaction whose routing account (the signer, or
+    /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
+    /// shares its id with the outcome of the same transaction in its own shard.
+    SkipForeignShardTransactions,
 }
 
 impl ProtocolFeature {
@@ -151,6 +157,8 @@ impl ProtocolFeature {
             ProtocolFeature::PinReceiptFees => 89,
             ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
             ProtocolFeature::ExternalContractCalls => 89,
+            ProtocolFeature::SkipForeignShardTransactions => 89,
+            ProtocolFeature::RejectBlockChallenges => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

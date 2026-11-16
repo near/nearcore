@@ -1,3 +1,5 @@
+use itertools::Itertools;
+use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
     Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, IntGaugeVec, exponential_buckets, fine_grained_time_buckets, linear_buckets,
@@ -5,6 +7,7 @@ use near_o11y::metrics::{
     try_create_histogram, try_create_histogram_vec, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
+use near_primitives::types::{EpochId, ShardId};
 use near_store::db::metadata::DB_VERSION;
 use std::sync::LazyLock;
 
@@ -581,6 +584,23 @@ pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock
     )
     .unwrap()
 });
+
+/// Renders `shard_id` as a metric label, bucketing anything outside `epoch_id`'s shard
+/// layout as [`UNKNOWN_SHARD_LABEL`].
+pub(crate) fn shard_id_metric_label(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    shard_id: ShardId,
+) -> String {
+    match epoch_manager.get_shard_layout(epoch_id) {
+        Ok(layout) if layout.shard_ids().contains(&shard_id) => shard_id.to_string(),
+        _ => UNKNOWN_SHARD_LABEL.to_string(),
+    }
+}
+
+/// Label used for a `shard_id` that we have not confirmed belongs to the current shard
+/// layout, or that arrived on a message we never asked for.
+pub(crate) const UNKNOWN_SHARD_LABEL: &str = "unknown";
 
 pub(crate) static STATE_SYNC_PEER_MSGS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(

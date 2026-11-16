@@ -4684,3 +4684,15 @@ mod check_dynamic_resharding {
         assert!(result.unwrap().is_some());
     }
 }
+
+/// A view call of the external call method that hits a storage error before the run answers with
+/// the node's failure, while a refusal before the run stays a refusal.
+#[test]
+fn test_view_external_call_storage_error_is_internal() {
+    let storage_error = InvalidTxError::StorageError(StorageError::StorageInternalError);
+    let viewed = ViewExternalCallError::refused_before_run(storage_error);
+    assert!(matches!(viewed, ViewExternalCallError::Internal(Error::StorageError(_))));
+
+    let viewed = ViewExternalCallError::refused_before_run(InvalidTxError::Expired);
+    assert!(matches!(viewed, ViewExternalCallError::Refused(_, _)));
+}

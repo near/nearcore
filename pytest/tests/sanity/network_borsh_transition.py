@@ -3,13 +3,18 @@
 Tests that the protobuf to borsh transition can be rolled out without
 interrupting the network.
 
-The transition spans three releases: 2.14 speaks protobuf only, 2.15 prefers
-borsh but still accepts protobuf, and 2.16 accepts borsh only. The test
-simulates those releases with connection_encoding overrides on the current
-binary and performs a rolling upgrade: first all nodes from 2.14 to 2.15, then
-all nodes from 2.15 to 2.16. After each node is restarted with the new config,
-the cluster must keep producing blocks and every node must still be connected
-to every other node.
+The transition spans four releases, see NetworkTransitionConfig:
+* 2.14 sends protobuf messages only, and signs structs over protobuf.
+* 2.15 prefers borsh messages but still accepts protobuf ones. It signs structs
+  over protobuf, but accepts structs signed over borsh as well.
+* 2.16 accepts borsh messages only, and signs structs over borsh.
+* 2.17 rejects structs signed over protobuf.
+
+The test simulates those releases with connection_encoding and
+signed_struct_format overrides on the current binary and performs a rolling
+upgrade through all of them, one release at a time. After each node is
+restarted with the new config, the cluster must keep producing blocks and every
+node must still be connected to every other node.
 """
 
 import pathlib
@@ -28,13 +33,21 @@ BLOCKS = 10
 # making progress.
 BLOCKS_AFTER_RESTART = 2
 
+# (connection_encoding, signed_struct_format) of every release.
+RELEASE_2_14 = ('ProtobufOnly', 'ProtobufOnly')
+RELEASE_2_15 = ('PreferBorsh', 'AcceptBorsh')
+RELEASE_2_16 = ('BorshOnly', 'SendBorsh')
+RELEASE_2_17 = ('BorshOnly', 'BorshOnly')
 
-def network_config(connection_encoding):
+
+def network_config(release):
+    connection_encoding, signed_struct_format = release
     return {
         'network': {
             'experimental': {
                 'network_config_overrides': {
-                    'connection_encoding': connection_encoding
+                    'connection_encoding': connection_encoding,
+                    'signed_struct_format': signed_struct_format
                 }
             }
         }
@@ -63,10 +76,10 @@ def wait_for_all_blocks(nodes, target):
         utils.wait_for_blocks(node, target=target)
 
 
-def upgrade(nodes, connection_encoding):
-    """Restarts every node one by one with the given connection encoding.
+def upgrade(nodes, release):
+    """Restarts every node one by one with the config of the given release.
 
-    The rest of the cluster keeps running with the previous encoding, so this
+    The rest of the cluster keeps running the previous release, so this
     exercises compatibility between the two adjacent releases.
     """
     for i, node in enumerate(nodes):
@@ -75,37 +88,39 @@ def upgrade(nodes, connection_encoding):
         target = max(
             n.get_latest_block().height for n in nodes) + BLOCKS_AFTER_RESTART
 
-        logger.info(f'Restarting node {i} with connection encoding '
-                    f'{connection_encoding}')
+        logger.info(f'Restarting node {i} with config {release}')
         node.kill()
-        node.change_config(network_config(connection_encoding))
+        node.change_config(network_config(release))
         node.start(boot_node=boot_node)
 
         # The restarted node has to catch up, and the cluster has to continue
-        # producing blocks despite the mixed encodings.
+        # producing blocks despite the mixed releases.
         utils.wait_for_blocks(node, target=target)
         wait_for_all_blocks(nodes, target)
         wait_for_all_peers(nodes)
-        logger.info(f'Node {i} is running with connection encoding '
-                    f'{connection_encoding}')
+        logger.info(f'Node {i} is running with config {release}')
 
 
 def main():
     nodes = cluster.start_cluster(
         NUM_NODES, 0, NUM_NODES, None, [],
-        {i: network_config('ProtobufOnly') for i in range(NUM_NODES)})
+        {i: network_config(RELEASE_2_14) for i in range(NUM_NODES)})
     utils.wait_for_blocks(nodes[0], target=BLOCKS)
     wait_for_all_blocks(nodes, target=BLOCKS)
     wait_for_all_peers(nodes)
     logger.info('All nodes are running 2.14 (protobuf only)')
 
     # 2.14 -> 2.15
-    upgrade(nodes, 'PreferBorsh')
+    upgrade(nodes, RELEASE_2_15)
     logger.info('All nodes are running 2.15 (borsh preferred)')
 
     # 2.15 -> 2.16
-    upgrade(nodes, 'BorshOnly')
-    logger.info('All nodes are running 2.16 (borsh only)')
+    upgrade(nodes, RELEASE_2_16)
+    logger.info('All nodes are running 2.16 (borsh only, borsh-signed)')
+
+    # 2.16 -> 2.17
+    upgrade(nodes, RELEASE_2_17)
+    logger.info('All nodes are running 2.17 (protobuf-signed rejected)')
 
     # The cluster must still be healthy after the whole transition.
     target = utils.wait_for_blocks(nodes[0], count=BLOCKS).height

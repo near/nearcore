@@ -160,7 +160,9 @@ pub struct SlashedValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receipt::{ActionReceiptV3, AuthorizationContext, ReceiptV0};
+    use crate::receipt::{
+        ActionReceiptV3, AuthorizationContext, CreationProtocolVersion, ReceiptV0,
+    };
     use crate::sharding::ShardChunkHeader;
     use crate::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
     use crate::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -191,7 +193,7 @@ mod tests {
                 refund_to: None,
                 authorization_context: AuthorizationContext::ExternalContractCall,
                 gas_price: Balance::ZERO,
-                creation_protocol_version: PROTOCOL_VERSION,
+                creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION),
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![],

@@ -273,7 +273,9 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         accounts_data: msg
                             .accounts_data
                             .iter()
-                            .map(|d| d.as_ref().into())
+                            // Nodes which support only protobuf can't verify data signed over
+                            // its borsh encoding, so it is omitted.
+                            .filter_map(|d| d.to_proto())
                             .collect(),
                         incremental: msg.incremental,
                         requesting_full_sync: msg.requesting_full_sync,
