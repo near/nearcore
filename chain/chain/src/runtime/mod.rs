@@ -1342,11 +1342,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
             }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
+            StorageDataSource::Recorded(storage) => {
+                Trie::from_recorded_storage(storage, storage_config.state_root)
+            }
         };
 
         // Start recording trie reads to enforce storage proof size limits and potentially provide a
@@ -1776,11 +1774,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                     false,
                 )?
             }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
+            StorageDataSource::Recorded(storage) => {
+                Trie::from_recorded_storage(storage, storage_config.state_root)
+            }
         };
 
         // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is

@@ -164,7 +164,7 @@ fn deduplicates_across_accounts_and_survives_cache_eviction() {
     let replay = f
         .runtime
         .apply(
-            Trie::from_recorded_storage(result.proof.unwrap(), pre_root, false),
+            Trie::from_recorded_storage(result.proof.unwrap(), pre_root),
             &None,
             &f.state,
             &calls,

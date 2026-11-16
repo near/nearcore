@@ -124,7 +124,7 @@ pub fn verify_state_proof<'a>(
     let ChunkExecutionRoots::V1(roots) = roots;
     let partial_storage =
         PartialStorage { nodes: PartialState::TrieValues(state_proof.nodes.clone()) };
-    let trie = Trie::from_recorded_storage(partial_storage, roots.state_root, false);
+    let trie = Trie::from_recorded_storage(partial_storage, roots.state_root);
     let trie_key = target.to_trie_key().to_vec();
     let recovered_value = trie
         .get(&trie_key, AccessOptions::DEFAULT)

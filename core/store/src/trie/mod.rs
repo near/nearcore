@@ -261,23 +261,6 @@ pub struct Trie {
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
     recorder: Option<TrieRecorder>,
-    /// If true, accesses to trie nodes are recorded with node access tracker, thus counting TTNs.
-    ///
-    /// NOTE that depending on the implementation of the tracker the lookups may get cached and
-    /// later served from the storage from memory.
-    ///
-    /// Further, NOTE that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
-    /// will record node accesses with the access tracker regardless of this field's value. The
-    /// logic here is ultra-subtle: it is possible for lookups with
-    /// `KeyLookupMode::MemOrFlatOrTrie` to get served from either memtries, flat storage or
-    /// regular trie depending on which of the storage types are loaded at the time `Trie` is
-    /// constructed. However flat storage will only record accesses for dereference of a
-    /// non-inlined value (and will do so regardless of this setting.) So the exact count accesses
-    /// recorded will depend not only on this field, but also on which types of storage are loaded,
-    /// which `KeyLookupMode` is used and probably some other subtle factors.
-    // FIXME(nagisa): lets get rid of this field somehow? it seems to be utilized mostly for/in
-    // tests.
-    use_access_tracker: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -625,19 +608,7 @@ impl Trie {
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        // Technically the use_trie_accounting_cache should be set based on the flat storage
-        // protocol feature. When flat storage is enabled the trie node access should be free and
-        // the charge flag should be set to false.
-        let use_trie_accounting_cache = false;
-        Trie {
-            storage,
-            memtries,
-            children_memtries,
-            root,
-            use_access_tracker: use_trie_accounting_cache,
-            flat_storage_chunk_view,
-            recorder: None,
-        }
+        Trie { storage, memtries, children_memtries, root, flat_storage_chunk_view, recorder: None }
     }
 
     /// Returns `true` if this `Trie` is configured to use in memory tries.
@@ -669,7 +640,6 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(recorder);
-        trie.use_access_tracker = self.use_access_tracker;
         trie
     }
 
@@ -756,29 +726,18 @@ impl Trie {
     /// was returned from recorded_storage(). If used to access the same trie
     /// nodes as when the partial storage was generated, this trie will behave
     /// identically.
-    ///
-    /// The flat_storage_used parameter should be true iff originally the trie
-    /// was accessed with flat storage present. It will be used to simulate the
-    /// same costs as if flat storage were present.
-    pub fn from_recorded_storage(
-        partial_storage: PartialStorage,
-        root: StateRoot,
-        flat_storage_used: bool,
-    ) -> Self {
-        Self::from_recorded_storage_with_storage::<false>(partial_storage, root, flat_storage_used)
-            .0
+    pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
+        Self::from_recorded_storage_with_storage::<false>(partial_storage, root).0
     }
 
     pub fn from_recorded_storage_with_storage<const TRACK_VISITED_NODES: bool>(
         partial_storage: PartialStorage,
         root: StateRoot,
-        flat_storage_used: bool,
     ) -> (Self, Arc<TrieMemoryPartialStorage<TRACK_VISITED_NODES>>) {
         let PartialState::TrieValues(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
-        let mut trie = Self::new(Arc::clone(&storage) as _, root, None);
-        trie.use_access_tracker = !flat_storage_used;
+        let trie = Self::new(Arc::clone(&storage) as _, root, None);
         (trie, storage)
     }
 
@@ -1539,7 +1498,7 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<bool, StorageError> {
-        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
+        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie;
         if self.memtries.is_some() {
             return Ok(self
                 .lookup_from_memory(key, use_trie_accounting_cache, opts, |_| ())?
@@ -1584,7 +1543,7 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
-        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
+        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie;
         if self.memtries.is_some() {
             self.lookup_from_memory(key, use_trie_accounting_cache, opts, |v| {
                 v.to_optimized_value_ref()
@@ -2370,7 +2329,7 @@ mod tests {
         trie2.get(b"horse", AccessOptions::DEFAULT).unwrap();
         let partial_storage = trie2.recorded_storage();
 
-        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root, false);
+        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root);
 
         assert_eq!(trie3.get(b"dog", AccessOptions::DEFAULT), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse", AccessOptions::DEFAULT), Ok(Some(b"stallion".to_vec())));

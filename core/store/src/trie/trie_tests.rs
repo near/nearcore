@@ -364,7 +364,7 @@ mod trie_storage_tests {
         assert_eq!(disk_iter_recorded, memtrie_iter_recorded);
 
         let partial_recorded = {
-            let trie = Trie::from_recorded_storage(memtrie_iter_recorded, state_root, true)
+            let trie = Trie::from_recorded_storage(memtrie_iter_recorded, state_root)
                 .recording_reads_new_recorder();
             let mut disk_iter = trie.disk_iter().unwrap();
             disk_iter.seek_prefix(&iter_prefix).unwrap();

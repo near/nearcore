@@ -408,7 +408,6 @@ impl Trie {
         let (trie, storage) = Trie::from_recorded_storage_with_storage::<true>(
             PartialStorage { nodes: partial_state },
             *state_root,
-            false,
         );
         trie.visit_nodes_for_state_part(part_id)?;
         drop(trie);
@@ -433,7 +432,7 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root, false);
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
         let path_begin = trie.find_state_part_boundary(part_id.index, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.index + 1, part_id.total)?;
         let mut iterator = trie.disk_iter()?;
@@ -611,7 +610,7 @@ mod tests {
                     .cloned()
                     .collect(),
             );
-            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root, false);
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
