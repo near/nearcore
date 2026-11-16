@@ -2,6 +2,7 @@ mod activation_boundary;
 mod activation_tracking;
 mod all_stake_fallback;
 mod basic;
+mod catchup;
 mod congestion;
 mod core_statement_limit;
 mod data_faults;
