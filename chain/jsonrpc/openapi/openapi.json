@@ -13541,7 +13541,14 @@
                         "nullable": true
                       }
                     ],
-                    "description": "What authorized the chain, absent in views written before external calls"
+                    "description": "What authorized the chain, absent if the receipt doesn't record it"
+                  },
+                  "creation_protocol_version": {
+                    "description": "The protocol version the receipt was created at, absent if the receipt doesn't record it",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "nullable": true,
+                    "type": "integer"
                   },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
