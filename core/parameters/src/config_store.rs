@@ -392,9 +392,9 @@ mod tests {
         let limits = |version| store.get_config(version).external_calls_config;
         let after = limits(version);
         assert_eq!(after.max_call_size, 20_480);
-        assert_eq!(after.max_call_recorded_size, 20_480);
+        assert_eq!(after.max_call_recorded_size, 51_200);
         assert_eq!(after.chunk_compute_share, Rational32::new(2, 5));
-        assert_eq!(after.chunk_storage_proof_share, Rational32::new(1, 20));
+        assert_eq!(after.chunk_storage_proof_share, Rational32::new(1, 10));
         assert_eq!(after.chunk_transactions_size_share, Rational32::new(1, 40));
         assert_eq!(after.max_calls_per_chunk, 100);
         let before = limits(version - 1);

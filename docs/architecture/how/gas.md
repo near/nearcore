@@ -269,15 +269,21 @@ validators do on external calls, per call and per chunk. Besides
 - its size: at most `max_external_call_size`, 20 KiB. A larger call is
   invalid.
 - the storage proof its run records: at most
-  `max_external_call_recorded_size`, 20 KiB. A read that records the trie node
+  `max_external_call_recorded_size`, 50 KiB. A read that records the trie node
   crossing the limit fails the call with `RecordedStorageExceeded`, and a value
   whose length would cross it isn't read at all. The limit applies to the
   install of a state init and the run, not to reading the contract's account
   before them.
 
+  A contract's storage can sit deep in the trie. In the worst case, a 64-character account, the path takes about 39 KB, which
+  leaves a run about 11.9 KB for its own reads. A state init that installs a
+  global contract by its publisher's account id records the path to that
+  contract too, so a wallet's state init should name its global contract by
+  code hash.
+
   Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
   proof limit uses too, even for a key that isn't there. So removals are costly
-  in an external call: it can remove no more than ten keys, and fewer, as the
+  in an external call: it can remove no more than 25 keys, and fewer, as the
   trie nodes it reads count as well. Larger cleanups belong in the receipts the
   call creates.
 
@@ -287,7 +293,7 @@ All the external calls of a chunk together get a share of the chunk's limits:
 | ----- | ----- | ----------------------- |
 | `combined_transactions_size_limit` | `external_calls_chunk_transactions_size_share`, 1/40 | about 100 KiB |
 | the chunk's compute limit, its gas limit | `external_calls_chunk_compute_share`, 2/5 | 400 Tgas of a 1000 Tgas chunk |
-| `main_storage_proof_size_soft_limit` | `external_calls_chunk_storage_proof_share`, 1/20 | 200 KB |
+| `main_storage_proof_size_soft_limit` | `external_calls_chunk_storage_proof_share`, 1/10 | 400 KB |
 
 Each share fits five calls that use as much of it as a call can.
 

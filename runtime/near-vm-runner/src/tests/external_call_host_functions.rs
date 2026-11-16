@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 /// How a host function behaves in an external call, decided for each one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum InExternalCall {
@@ -132,8 +134,7 @@ fn test_every_host_function_has_a_decision_for_external_calls() {
         };
     }
     crate::imports::for_each_import_item!(collect);
-    let decided: std::collections::HashSet<&str> =
-        EXTERNAL_CALL_DECISIONS.iter().map(|(name, _)| *name).collect();
+    let decided: HashSet<&str> = EXTERNAL_CALL_DECISIONS.iter().map(|(name, _)| *name).collect();
     // Test-only and sandbox host functions never run on a real chain.
     let undecided: Vec<_> = names
         .iter()
@@ -144,4 +145,6 @@ fn test_every_host_function_has_a_decision_for_external_calls() {
         undecided.is_empty(),
         "decide how these host functions behave in an external call: {undecided:?}"
     );
+    let stale: Vec<_> = decided.iter().filter(|name| !names.contains(*name)).collect();
+    assert!(stale.is_empty(), "these decided host functions no longer exist: {stale:?}");
 }

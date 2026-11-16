@@ -288,14 +288,14 @@ expression: config_view
   },
   "external_calls_config": {
     "max_call_size": 20480,
-    "max_call_recorded_size": 20480,
+    "max_call_recorded_size": 51200,
     "chunk_compute_share": [
       2,
       5
     ],
     "chunk_storage_proof_share": [
       1,
-      20
+      10
     ],
     "chunk_transactions_size_share": [
       1,

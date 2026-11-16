@@ -73,7 +73,8 @@ use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
 };
 use near_primitives::utils::{
-    create_ecc_outcome_id, create_receipt_id_from_transaction, derive_near_deterministic_account_id,
+    create_ecc_outcome_id, create_receipt_id_from_transaction,
+    derive_near_deterministic_account_id, derive_universal_account_id,
 };
 use near_primitives::version::{
     MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
@@ -2741,6 +2742,14 @@ fn large_value(config: &RuntimeConfig) -> (Vec<u8>, Vec<u8>) {
     (data_key(LARGE_VALUE_INDEX), vec![2; size])
 }
 
+/// The storage proof size the recorder counts for each removal, whether the key exists or not.
+const REMOVAL_RECORDED_SIZE: usize = 2000;
+
+/// The number of removals whose recorded size alone passes an ECC run's recording budget.
+fn removals_past_the_cap(config: &RuntimeConfig) -> u64 {
+    (config.external_calls_config.max_call_recorded_size / REMOVAL_RECORDED_SIZE + 1) as u64
+}
+
 /// A single value somewhat smaller than an ECC's run may record, which leaves room for the
 /// path to it and the run's other reads.
 fn value_under_the_cap(config: &RuntimeConfig) -> (Vec<u8>, Vec<u8>) {
@@ -2812,14 +2821,14 @@ fn test_apply_ecc_refused_removals_past_recording_budget() {
     if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
         return;
     }
-    const NUM_KEYS: u64 = 20;
-    let small_values = |_: &RuntimeConfig| (0..NUM_KEYS).map(|i| (data_key(i), vec![1])).collect();
+    let num_keys = removals_past_the_cap(&RuntimeConfig::test());
+    let small_values = |_: &RuntimeConfig| (0..num_keys).map(|i| (data_key(i), vec![1])).collect();
 
     let (apply_state, refused) =
-        apply_refused_ecc_on_data(&ecc_body_on_keys("storage_remove", 0, NUM_KEYS), small_values);
+        apply_refused_ecc_on_data(&ecc_body_on_keys("storage_remove", 0, num_keys), small_values);
     assert_eq!(refused.error, recorded_storage_exceeded(&apply_state.config));
 
-    let code = ecc_contract(&ecc_body_on_keys("storage_read", 0, NUM_KEYS));
+    let code = ecc_contract(&ecc_body_on_keys("storage_read", 0, num_keys));
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
     let root = set_contract_data(&tries, root, &bob_account(), small_values(&apply_state.config));
@@ -2916,6 +2925,7 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
     let large_reader: AccountId = "large-reader.near".parse().unwrap();
     let remover: AccountId = "remover.near".parse().unwrap();
     let num_values = many_values(&config).len() as u64;
+    let num_removals = removals_past_the_cap(&config);
     let contract = |account_id: &AccountId, ecc_body: String| EccContractSetup {
         account_id: account_id.clone(),
         code: ecc_contract(&ecc_body),
@@ -2926,7 +2936,7 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
         contract(&bob_account(), ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1)),
         contract(&reader, ecc_body_on_keys("storage_read", 0, num_values)),
         contract(&large_reader, ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1)),
-        contract(&remover, ecc_body_on_keys("storage_remove", 0, 20)),
+        contract(&remover, ecc_body_on_keys("storage_remove", 0, num_removals)),
     ];
     let code_hashes = contracts
         .iter()
@@ -2938,7 +2948,7 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
     let root = set_contract_data(&tries, root, &reader, many_values(&config));
     let (large_key, large) = large_value(&config);
     let root = set_contract_data(&tries, root, &large_reader, [(large_key, large.clone())]);
-    let small_values = (0..20).map(|i| (data_key(i), vec![1]));
+    let small_values = (0..num_removals).map(|i| (data_key(i), vec![1]));
     let root = set_contract_data(&tries, root, &remover, small_values);
     let transactions: Vec<TransactionEnvelope> = [bob_account(), reader, large_reader, remover]
         .into_iter()
@@ -12019,4 +12029,71 @@ fn test_external_call_verdict() {
     let failed_run = ExecutionStatus::Failure(ActionError { index: Some(0), kind }.into());
     assert_eq!(external_call_verdict(&failed_run, Some("GasExceeded")), "GasExceeded");
     assert_eq!(external_call_verdict(&failed_run, None), "FunctionCallError");
+}
+
+/// The characters an account id may hold, and one of them for each high nibble they have.
+const ACCOUNT_ID_CHARS: &[u8] = b"-._0123456789abcdefghijklmnopqrstuvwxyz";
+const ONE_CHAR_PER_HIGH_NIBBLE: &[u8] = b"-0_ap";
+
+/// Named accounts that share the account's first `2 + k` characters and differ at the next one,
+/// for each `k` below `positions`, enough to fill the trie branches along the account's path.
+fn accounts_sharing_prefix(account: &AccountId, positions: usize) -> Vec<AccountId> {
+    let account = account.as_str();
+    let mut accounts = vec![];
+    for position in 2..2 + positions {
+        let own = account.as_bytes()[position];
+        for &c in ACCOUNT_ID_CHARS {
+            let fills_path = (c >> 4) == (own >> 4) || ONE_CHAR_PER_HIGH_NIBBLE.contains(&c);
+            if c == own || !fills_path {
+                continue;
+            }
+            accounts
+                .push(format!("{}{}x.a.near", &account[..position], c as char).parse().unwrap());
+        }
+    }
+    accounts
+}
+
+/// An ECC that writes one key of a universal account whose storage sits deep in the trie is
+/// accepted.
+#[test]
+fn test_ecc_accepted_with_deep_storage_path() {
+    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let account = derive_universal_account_id(&RawStateInit(b"deep storage account".to_vec()));
+    let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        setup_ecc_contracts(vec![EccContractSetup {
+            account_id: account.clone(),
+            code: ecc_accepting_contract(),
+            amount: Balance::from_near(1_000),
+            locked: Balance::ZERO,
+        }]);
+    let mut root = set_contract_data(&tries, root, &account, [(ECC_KEY.to_vec(), vec![1])]);
+    // Every character of a universal account id after its `0u` prefix.
+    for other in accounts_sharing_prefix(&account, account.len() - 2) {
+        root = set_contract_data(&tries, root, &other, [(ECC_KEY.to_vec(), vec![1])]);
+    }
+
+    // Setup: the path to the account's key takes more than half of a call's recording budget.
+    let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
+    let trie = trie.recording_reads_new_recorder();
+    let key = TrieKey::ContractData { account_id: account.clone(), key: ECC_KEY.to_vec() };
+    let lookup = KeyLookupMode::MemOrFlatOrTrie;
+    assert!(
+        trie.get_optimized_ref(&key.to_vec(), lookup, AccessOptions::DEFAULT).unwrap().is_some()
+    );
+    let budget = apply_state.config.external_calls_config.max_call_recorded_size;
+    assert!(trie.recorded_storage_size() > budget / 2, "{}", trie.recorded_storage_size());
+
+    let ecc = EccTransaction::new(account, ECC_PAYLOAD.to_vec());
+    let (_, apply_result) = apply_envelopes_and_commit(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        vec![ecc.into()],
+        &epoch_info_provider,
+    );
+    assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
 }
