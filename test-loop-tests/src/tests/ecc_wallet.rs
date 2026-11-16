@@ -13,11 +13,13 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use borsh::BorshSerialize;
 use near_async::time::Duration;
 use near_chain_configs::{ClientConfig, MutableConfigValue};
+use near_client::{ProcessTxResponse, QueryError};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::errors::{ActionError, ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::transaction::EccTransaction;
+use near_primitives::transaction::{ECC_METHOD_NAME, EccTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
@@ -30,7 +32,7 @@ use near_primitives::views::{
 };
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// The wallet contract, built by `test-loop-tests/ecc-wallet/build.sh`.
 const WALLET_WASM: &[u8] = include_bytes!("../../ecc-wallet/res/ecc_wallet.wasm");
@@ -90,11 +92,28 @@ enum WalletAction {
     },
 }
 
-/// A WebAuthn assertion, as a browser returns it with the signature converted to `r || s`.
-struct Assertion {
-    authenticator_data: Vec<u8>,
-    client_data_json: Vec<u8>,
-    signature: [u8; 64],
+/// WebAuthn's user-present flag, which the wallet requires.
+const USER_PRESENT: u8 = 0x01;
+
+/// WebAuthn's user-verified flag, which passkeys set after a PIN or biometric check.
+const USER_VERIFIED: u8 = 0x04;
+
+/// Authenticator data for `rp_id` with `flags`, and a signCount of 0, which passkeys often report.
+fn authenticator_data(rp_id: &str, flags: u8) -> Vec<u8> {
+    let mut data = hash(rp_id.as_bytes()).as_ref().to_vec();
+    data.push(flags);
+    data.extend_from_slice(&0u32.to_be_bytes());
+    data
+}
+
+/// Client data of type `ty` with the challenge `sha256(challenge_over)`, serialized as a browser
+/// does.
+fn client_data_json(ty: &str, challenge_over: &[u8]) -> Vec<u8> {
+    let challenge = URL_SAFE_NO_PAD.encode(hash(challenge_over));
+    format!(
+        r#"{{"type":"{ty}","challenge":"{challenge}","origin":"https://{RP_ID}","crossOrigin":false}}"#
+    )
+    .into_bytes()
 }
 
 /// A passkey on P-256 for `RP_ID`.
@@ -115,39 +134,40 @@ impl Passkey {
         VerifyingKey::from(&self.signing_key).to_sec1_point(true).as_bytes().to_vec()
     }
 
-    /// Asserts over `signed` the way a browser does: the challenge is `sha256(signed)`, and the
-    /// key signs `authenticator_data || sha256(client_data_json)` with ECDSA over SHA-256.
-    fn assert(&self, signed: &[u8]) -> Assertion {
-        let mut authenticator_data = rp_id_hash().as_ref().to_vec();
-        // User present and user verified.
-        authenticator_data.push(0x05);
-        // signCount, which passkeys often leave at 0.
-        authenticator_data.extend_from_slice(&0u32.to_be_bytes());
-
-        let challenge = URL_SAFE_NO_PAD.encode(hash(signed));
-        let client_data_json = format!(
-            r#"{{"type":"webauthn.get","challenge":"{challenge}","origin":"https://{RP_ID}","crossOrigin":false}}"#
-        )
-        .into_bytes();
-
+    /// Signs as an authenticator does, whatever the data says: ECDSA over SHA-256 of
+    /// `authenticator_data || sha256(client_data_json)`. Returns the payload carrying `signed`.
+    fn sign(
+        &self,
+        signed: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        client_data_json: Vec<u8>,
+    ) -> ExternalCallPayload {
         let mut message = authenticator_data.clone();
         message.extend_from_slice(hash(&client_data_json).as_ref());
         let signature: Signature = self.signing_key.sign_prehash(hash(&message).as_ref()).unwrap();
-        Assertion { authenticator_data, client_data_json, signature: signature.to_bytes().into() }
+        let signature = signature.to_bytes().into();
+        ExternalCallPayload { signed, authenticator_data, client_data_json, signature }
+    }
+
+    /// `request` and an assertion over it, made the way a browser makes one.
+    fn assertion(&self, request: &SignedRequest) -> ExternalCallPayload {
+        let signed = borsh::to_vec(request).unwrap();
+        let authenticator_data = authenticator_data(RP_ID, USER_PRESENT | USER_VERIFIED);
+        let client_data_json = client_data_json("webauthn.get", &signed);
+        self.sign(signed, authenticator_data, client_data_json)
     }
 
     /// The payload of an external call that runs `request`.
     fn payload(&self, request: &SignedRequest) -> Vec<u8> {
-        let signed = borsh::to_vec(request).unwrap();
-        let Assertion { authenticator_data, client_data_json, signature } = self.assert(&signed);
-        let payload =
-            ExternalCallPayload { signed, authenticator_data, client_data_json, signature };
-        borsh::to_vec(&payload).unwrap()
+        borsh::to_vec(&self.assertion(request)).unwrap()
     }
 }
 
-fn rp_id_hash() -> CryptoHash {
-    hash(RP_ID.as_bytes())
+/// The other valid form of an ECDSA signature, `(r, n - s)`. It verifies as the original does,
+/// but its bytes differ, so a call carrying it is a different transaction.
+fn malleate(signature: [u8; 64]) -> [u8; 64] {
+    let (r, s) = Signature::from_slice(&signature).unwrap().split_scalars();
+    Signature::from_scalars(r, -s).unwrap().to_bytes().into()
 }
 
 /// A wallet's account, its state init and the passkey that controls it.
@@ -195,7 +215,7 @@ impl Wallet {
 fn wallet_state_init(passkey: &Passkey) -> RawStateInit {
     let data = BTreeMap::from([
         (b"pk".to_vec(), passkey.public_key()),
-        (b"rp".to_vec(), rp_id_hash().as_ref().to_vec()),
+        (b"rp".to_vec(), hash(RP_ID.as_bytes()).as_ref().to_vec()),
     ]);
     UniversalStateInit::V1(UniversalStateInitV1 {
         code: Some(GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(WALLET_WASM))),
@@ -288,6 +308,66 @@ fn tokens_burnt(outcome: &FinalExecutionOutcomeView) -> Balance {
     })
 }
 
+/// Installs the wallet with a first call that carries an empty request, as the contract's README
+/// recommends, and returns the floor it sets.
+fn install(env: &mut TestLoopEnv, wallet: &Wallet) -> u64 {
+    let first = wallet.request(env, 0, &wallet.id, vec![]);
+    let outcome = send_call(env, &wallet.call_with_state_init(&first));
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+    get_nonce(env, wallet, true).expect("the first call sets the floor")
+}
+
+/// Why the wallet refuses an external call with `payload`: the message it panics with, through a
+/// view call of `__external_call`, which runs it as the call would run.
+fn refusal(env: &TestLoopEnv, wallet: &Wallet, payload: Vec<u8>) -> String {
+    let response = env.rpc_node().runtime_query(QueryRequest::CallFunction {
+        account_id: wallet.id.clone(),
+        method_name: ECC_METHOD_NAME.to_owned(),
+        args: payload.into(),
+        state_init: None,
+    });
+    let Err(QueryError::ExternalCallRefused { error, .. }) = response else {
+        panic!("expected the wallet to refuse the call, got {response:?}");
+    };
+    let TxExecutionError::ActionError(ActionError {
+        kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(message)),
+        ..
+    }) = *error
+    else {
+        panic!("expected the wallet's panic, got {error:?}");
+    };
+    message.strip_prefix("Smart contract panicked: ").unwrap_or(&message).to_string()
+}
+
+/// Submits `calls`, runs for a while and checks that none of them landed in a chunk: the
+/// producer runs each call before packing it, and drops the ones the wallet refuses.
+fn assert_never_land(env: &mut TestLoopEnv, calls: &[EccTransaction]) {
+    let from_height = env.rpc_node().head().height + 1;
+    for call in calls {
+        // The RPC node produces no chunks, so it routes each call to the producer.
+        let response = env.rpc_node().process_tx(call.clone(), false);
+        assert_eq!(response, ProcessTxResponse::RequestRouted, "{call:?}");
+    }
+    env.rpc_runner().run_for_number_of_blocks(10);
+    // The producer strips the state init of a call to an installed wallet, so look for both.
+    let hashes: HashSet<CryptoHash> = calls
+        .iter()
+        .flat_map(|call| [call.get_hash(), call.without_state_init().get_hash()])
+        .collect();
+    let node = env.rpc_node();
+    let chain = &node.client().chain;
+    for height in from_height..=node.head().height {
+        let Ok(block) = chain.get_block_by_height(height) else {
+            continue;
+        };
+        for chunk in node.block_chunks(&block) {
+            for tx in chunk.to_transactions() {
+                assert!(!hashes.contains(&tx.get_hash()), "a refused call landed at {height}");
+            }
+        }
+    }
+}
+
 /// The wallet accepts valid calls:
 /// - the first one installs the wallet and sets its nonce floor, and doesn't run its request;
 /// - a transfer request moves the deposit;
@@ -374,5 +454,194 @@ fn test_wallet_accepts_valid_calls() {
     assert_eq!(
         env.rpc_node().query_balance(&wallet.id),
         wallet_balance.checked_sub(spent).unwrap()
+    );
+}
+
+/// The wallet runs a request once:
+/// - a replay of an accepted call is refused, including one with the malleated signature, which
+///   the node can't recognize as a repeat;
+/// - another request with the accepted call's nonce is refused;
+/// - an expired request is refused;
+/// - a nonce from a later block height is refused.
+///
+/// Submitted, none of these calls lands, and nothing moves.
+#[test]
+fn test_wallet_refuses_replays() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let receiver = create_account_id("receiver");
+    let (mut env, wallet) = setup(&sponsor, &[&receiver]);
+    let floor = install(&mut env, &wallet);
+    let transfer =
+        |near| vec![WalletAction::Transfer { deposit: Balance::from_near(near).as_yoctonear() }];
+
+    let request = wallet.request(&env, floor + 1, &receiver, transfer(1));
+    let accepted = wallet.call(&request);
+    let outcome = send_call(&mut env, &accepted);
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+
+    assert_eq!(refusal(&env, &wallet, accepted.payload().to_vec()), "nonce too low");
+    // Nodes drop an exact repeat of a call that ran, by its hash. With the signature's other
+    // form, the replay is a different call that still verifies, so only the wallet's nonce stops
+    // it: it passes the signature check and is refused at the nonce.
+    let mut malleated = wallet.passkey.assertion(&request);
+    malleated.signature = malleate(malleated.signature);
+    let replay = EccTransaction::new(wallet.id.clone(), borsh::to_vec(&malleated).unwrap());
+    assert_ne!(replay.get_hash(), accepted.get_hash());
+    assert_eq!(refusal(&env, &wallet, replay.payload().to_vec()), "nonce too low");
+    // The wallet consumed the nonce, not just the payload.
+    let same_nonce = wallet.request(&env, floor + 1, &receiver, transfer(2));
+    assert_eq!(refusal(&env, &wallet, wallet.passkey.payload(&same_nonce)), "nonce too low");
+
+    let mut expired = wallet.request(&env, floor + 2, &receiver, transfer(1));
+    expired.expiry_height = env.rpc_node().head().height - 1;
+    assert_eq!(refusal(&env, &wallet, wallet.passkey.payload(&expired)), "request expired");
+
+    // Far enough ahead that the height the call sees stays below it while the test runs.
+    let ahead = (env.rpc_node().head().height + 100) * NONCE_MULTIPLIER;
+    let too_high = wallet.request(&env, ahead, &receiver, transfer(1));
+    assert_eq!(refusal(&env, &wallet, wallet.passkey.payload(&too_high)), "nonce too high");
+
+    let receiver_balance = env.rpc_node().query_balance(&receiver);
+    let wallet_balance = env.rpc_node().query_balance(&wallet.id);
+    let calls = [replay, wallet.call(&same_nonce), wallet.call(&expired), wallet.call(&too_high)];
+    assert_never_land(&mut env, &calls);
+    assert_eq!(env.rpc_node().query_balance(&receiver), receiver_balance);
+    assert_eq!(env.rpc_node().query_balance(&wallet.id), wallet_balance);
+    assert_eq!(get_nonce(&env, &wallet, true), Some(floor + 1));
+}
+
+/// The wallet refuses a call that its passkey didn't sign, or that is bound to another chain or
+/// another wallet, each for its own reason. Submitted, none of these calls lands. The same
+/// request, signed properly, is then accepted.
+#[test]
+fn test_wallet_refuses_bad_signatures_and_bindings() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let receiver = create_account_id("receiver");
+    let (mut env, wallet) = setup(&sponsor, &[&receiver]);
+    let floor = install(&mut env, &wallet);
+    let deposit = Balance::from_near(1);
+    let transfer = vec![WalletAction::Transfer { deposit: deposit.as_yoctonear() }];
+    let request = wallet.request(&env, floor + 1, &receiver, transfer);
+
+    // Signs `signed` with the wallet's passkey, with the given WebAuthn data.
+    let sign = |signed: Vec<u8>, authenticator_data: Vec<u8>, client_data_json: Vec<u8>| {
+        borsh::to_vec(&wallet.passkey.sign(signed, authenticator_data, client_data_json)).unwrap()
+    };
+    let signed = borsh::to_vec(&request).unwrap();
+    let good_authenticator_data = authenticator_data(RP_ID, USER_PRESENT | USER_VERIFIED);
+    let good_client_data = client_data_json("webauthn.get", &signed);
+    let other_request = |change: fn(&mut SignedRequest)| {
+        let mut other = request.clone();
+        change(&mut other);
+        wallet.passkey.payload(&other)
+    };
+
+    let mut flipped = wallet.passkey.sign(
+        signed.clone(),
+        good_authenticator_data.clone(),
+        good_client_data.clone(),
+    );
+    flipped.signature[63] ^= 1;
+    let malformed_request = vec![0, 1];
+    let cases = [
+        ("garbage", vec![1, 2, 3], "malformed payload"),
+        (
+            "malformed request",
+            sign(
+                malformed_request.clone(),
+                good_authenticator_data.clone(),
+                client_data_json("webauthn.get", &malformed_request),
+            ),
+            "malformed request",
+        ),
+        ("another version", other_request(|r| r.version = 1), "unsupported request version"),
+        (
+            "another chain",
+            other_request(|r| r.chain_id = "mainnet".to_string()),
+            "request is for another chain",
+        ),
+        (
+            "another wallet",
+            other_request(|r| {
+                let other_wallet =
+                    derive_universal_account_id(&wallet_state_init(&Passkey::new(2)));
+                r.contract_id = other_wallet.to_string();
+            }),
+            "request is for another contract",
+        ),
+        (
+            "short authenticator data",
+            sign(signed.clone(), good_authenticator_data[..36].to_vec(), good_client_data.clone()),
+            "malformed authenticator data",
+        ),
+        (
+            "another relying party",
+            sign(
+                signed.clone(),
+                authenticator_data("evil.example", USER_PRESENT | USER_VERIFIED),
+                good_client_data.clone(),
+            ),
+            "authenticator data is for another relying party",
+        ),
+        (
+            "user not present",
+            sign(signed.clone(), authenticator_data(RP_ID, USER_VERIFIED), good_client_data),
+            "user presence flag not set",
+        ),
+        (
+            "registration client data",
+            sign(
+                signed.clone(),
+                good_authenticator_data.clone(),
+                client_data_json("webauthn.create", &signed),
+            ),
+            "client data is not a webauthn.get assertion",
+        ),
+        (
+            "challenge over other bytes",
+            sign(
+                signed.clone(),
+                good_authenticator_data.clone(),
+                client_data_json("webauthn.get", b"another request"),
+            ),
+            "client data challenge does not match the request",
+        ),
+        ("flipped signature bit", borsh::to_vec(&flipped).unwrap(), "invalid signature"),
+        ("another passkey", Passkey::new(2).payload(&request), "invalid signature"),
+    ];
+    for (case, payload, expected) in &cases {
+        assert_eq!(refusal(&env, &wallet, payload.clone()), *expected, "{case}");
+    }
+
+    let receiver_balance = env.rpc_node().query_balance(&receiver);
+    let wallet_balance = env.rpc_node().query_balance(&wallet.id);
+    let calls: Vec<_> = cases
+        .into_iter()
+        .map(|(_, payload, _)| EccTransaction::new(wallet.id.clone(), payload))
+        .collect();
+    assert_never_land(&mut env, &calls);
+    assert_eq!(env.rpc_node().query_balance(&receiver), receiver_balance);
+    assert_eq!(env.rpc_node().query_balance(&wallet.id), wallet_balance);
+    assert_eq!(get_nonce(&env, &wallet, true), Some(floor));
+
+    // Signed properly, the same request runs.
+    let outcome = send_call(&mut env, &wallet.call(&request));
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+    env.rpc_runner().run_for_number_of_blocks(1);
+    assert_eq!(
+        env.rpc_node().query_balance(&receiver),
+        receiver_balance.checked_add(deposit).unwrap()
     );
 }

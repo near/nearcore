@@ -157,6 +157,11 @@ they are block heights times 1,000,000.
 
 To cancel requests you signed and haven't sent, send an empty request with a higher nonce.
 
+Don't build replay protection on the call's bytes. Nodes drop an exact repeat of a call that has
+run, but ECDSA signatures are malleable: `(r, n - s)` verifies as well as `(r, s)`, and the wallet
+accepts both, as WebAuthn requires. The same request with the other signature is a different call
+that nodes don't recognize, so only the nonce stops it.
+
 ### Why the first call runs nothing
 
 The wallet is a universal account. If it is deleted and its id is funded again, the next call with
