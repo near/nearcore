@@ -25,12 +25,16 @@ fn slow_test_withheld_first_chunk_after_vm_config_upgrade_does_not_stall_shard()
     let runtime_config_store = RuntimeConfigStore::new();
     let new_protocol = runtime_config_store.vm_generation(PROTOCOL_VERSION).0;
     let old_protocol = new_protocol - 1;
-    // The contract is deployed under `stale_protocol`, so no node holds it compiled under
-    // `old_protocol`'s config.
-    let stale_protocol = old_protocol - 1;
+    // The contract is deployed under `stale_protocol`, whose wasm config differs from
+    // `old_protocol`'s, so no node holds it compiled under `old_protocol`'s config.
+    let stale_protocol = runtime_config_store.vm_generation(old_protocol).0 - 1;
     assert!(
         stale_protocol >= MIN_SUPPORTED_PROTOCOL_VERSION,
         "needs three supported versions ending at a wasm-config change; update or remove this test when bumping MIN_SUPPORTED_PROTOCOL_VERSION",
+    );
+    assert_ne!(
+        runtime_config_store.get_config(stale_protocol).wasm_config.non_crypto_hash(),
+        runtime_config_store.get_config(old_protocol).wasm_config.non_crypto_hash(),
     );
     assert_ne!(
         runtime_config_store.get_config(old_protocol).wasm_config.non_crypto_hash(),

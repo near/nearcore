@@ -976,11 +976,9 @@ impl PartialWitnessActor {
             // A chunk validator might not have processed the main transition block yet.
             // Handle it depending on the ChunkContractAccesses version.
             Err(EpochError::MissingBlock(_)) => match accesses {
-                // V1 accesses lack the information to resolve the epoch, so conservatively
-                // assume all accessed contracts are missing.
-                ChunkContractAccesses::V1(_) => {
-                    return Ok(accesses.contracts().iter().cloned().collect());
-                }
+                // V1 is emitted only below EarlyKickout, where the wasm config does not change
+                // across epochs, so the chunk's own epoch has the main transition's config.
+                ChunkContractAccesses::V1(_) => accesses.chunk_production_key().epoch_id,
                 // V2 passed the anchor check, so the prev prev block is processed. An unknown
                 // main transition block can then only be the chunk's parent, whose epoch we get
                 // from the prev prev block.
