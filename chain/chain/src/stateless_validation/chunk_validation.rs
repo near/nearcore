@@ -953,7 +953,6 @@ mod tests {
     use crate::test_utils::get_chain_with_genesis;
     use near_async::time::Clock;
     use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-    use near_o11y::testonly::init_test_logger;
     use near_parameters::RuntimeConfig;
     use near_parameters::config::ExternalCallsConfig;
     use near_primitives::transaction::{EccTransaction, TransactionEnvelope};
@@ -1006,16 +1005,6 @@ mod tests {
         EccTransaction::new(contract_id.parse().unwrap(), vec![1; payload_len]).into()
     }
 
-    /// Whether this build has external calls. If not, logs that the test is skipped.
-    fn eccs_enabled() -> bool {
-        let enabled = ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION);
-        if !enabled {
-            init_test_logger();
-            tracing::info!("skipping: external contract calls are not enabled in this build");
-        }
-        enabled
-    }
-
     /// Pre-validates a witness at the latest protocol version with `new_transactions`, and
     /// asserts that it is rejected.
     fn assert_pre_validation_rejects(new_transactions: Vec<TransactionEnvelope>) {
@@ -1053,18 +1042,12 @@ mod tests {
 
     #[test]
     fn test_pre_validation_accepts_ecc_at_feature() {
-        if !eccs_enabled() {
-            return;
-        }
         let result = pre_validate_witness(PROTOCOL_VERSION, vec![test_ecc()]);
         assert!(result.is_ok(), "unexpected error: {:?}", result.err());
     }
 
     #[test]
     fn test_pre_validation_rejects_oversized_ecc() {
-        if !eccs_enabled() {
-            return;
-        }
         let max_call_size = usize::try_from(external_calls_config().max_call_size).unwrap();
         // The payload alone is past the limit.
         assert_pre_validation_rejects(vec![ecc_to("contract.near", max_call_size)]);
@@ -1072,9 +1055,6 @@ mod tests {
 
     #[test]
     fn test_pre_validation_rejects_eccs_past_size_share() {
-        if !eccs_enabled() {
-            return;
-        }
         let config = RuntimeConfig::test_protocol_version(PROTOCOL_VERSION);
         let share = config.external_calls_config.transactions_size_share(&config.witness_config);
         let max_call_size = config.external_calls_config.max_call_size;
@@ -1088,9 +1068,6 @@ mod tests {
 
     #[test]
     fn test_pre_validation_rejects_two_eccs_to_one_contract() {
-        if !eccs_enabled() {
-            return;
-        }
         assert_pre_validation_rejects(vec![ecc_to("contract.near", 1), ecc_to("contract.near", 2)]);
     }
 }

@@ -147,13 +147,11 @@ fn test_storage_after_commit_of_cold_update() {
                 env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
             );
-            if ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-                let tx = create_tx_deploy_ecc_contract(last_hash);
-                assert_eq!(
-                    env.rpc_handlers[0].process_tx(tx, false, false),
-                    ProcessTxResponse::ValidTx
-                );
-            }
+            let tx = create_tx_deploy_ecc_contract(last_hash);
+            assert_eq!(
+                env.rpc_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
         }
         // Don't send transactions in last two blocks. Because on last block production a chunk from
         // the next block will be produced and information about these transactions will be written
@@ -175,7 +173,7 @@ fn test_storage_after_commit_of_cold_update() {
             }
             // An external call to the contract deployed on test1 at height 1. The producer packs
             // only a call the contract accepts, and its copy gets a row in the external calls' column.
-            if height >= 3 && ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
+            if height >= 3 {
                 let call = EccTransaction::new(test1(), height.to_le_bytes().to_vec());
                 assert_eq!(
                     env.rpc_handlers[0].process_tx(call, false, false),
@@ -246,9 +244,6 @@ fn test_storage_after_commit_of_cold_update() {
             col == DBCol::StateChangesForSplitStates
                 || col == DBCol::StateHeaders
                 || col == DBCol::StateShardUIdMapping
-                // Empty when the build has no external calls.
-                || (col == DBCol::ExternalCallTransactions
-                    && !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION))
                 // Empty until EarlyKickout activates.
                 || (col == DBCol::ChunkProducers
                     && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))

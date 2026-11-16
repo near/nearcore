@@ -1423,9 +1423,6 @@ fn test_delete_account_after_unstake() {
 /// of its epoch. The contract's account is a validator whose stake changes at that boundary.
 #[test]
 fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     init_test_logger();
     let validators: Vec<AccountId> = vec!["test1".parse().unwrap()];
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
@@ -1926,11 +1923,10 @@ fn prepare_transactions_extra_in_state(
     )
 }
 
-/// Whether the producer packs ECCs in this build: not before the feature, and not under Spice yet.
-/// If not, logs that the test is skipped.
+/// Whether the producer packs ECCs in this build: not under Spice yet. If not, logs that the test
+/// is skipped.
 fn eccs_are_packed() -> bool {
-    let packed = ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        && !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
+    let packed = !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
     if !packed {
         init_test_logger();
         tracing::info!("skipping: ECCs are not packed in this build");

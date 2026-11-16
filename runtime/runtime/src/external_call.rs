@@ -121,8 +121,8 @@ impl ExternalCallsInChunk {
         Ok(())
     }
 
-    /// Counts a call that passed `fits`, whatever came of it: the compute it used and the
-    /// storage proof it recorded, the read of its contract account included.
+    /// Counts a call toward the shares: the compute it used and the storage proof it recorded,
+    /// the read of its contract account included.
     fn add(&mut self, compute: Compute, recorded_size: u64) {
         self.compute = self.compute.saturating_add(compute);
         self.recorded_size = self.recorded_size.saturating_add(recorded_size);
@@ -163,8 +163,8 @@ pub struct ProcessedExternalCall {
 /// If the call is refused, before or after the run, nobody pays. The validators' work on it
 /// still counts toward the chunk's compute, so it stays bounded, but not toward the chunk's gas:
 /// since nobody pays for it, it shouldn't move the next gas price. The exception is a call
-/// refused past a share, which counts no compute: see below. Every call that passes the check of
-/// the shares counts toward them, whatever comes of it.
+/// refused past a share, which counts no compute: see below. The compute a call counts toward the
+/// chunk counts toward the shares too.
 ///
 /// A `RuntimeError`, such as a storage error, stops applying the chunk.
 pub fn process_external_call<'a>(
@@ -192,7 +192,10 @@ pub fn process_external_call<'a>(
             return Ok(refuse(err.into(), 0));
         }
     };
+    // A call refused for its validity counts its fees toward the shares too. The share does not
+    // refuse it; `max_external_calls_per_chunk` bounds such calls.
     if let Some(err) = validation_error {
+        external_calls.add(cost.compute_burnt, 0);
         return Ok(refuse(err.into(), cost.compute_burnt));
     }
     // The check comes before anything is read for the call, so that a call past a share adds

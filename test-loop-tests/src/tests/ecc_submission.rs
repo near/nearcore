@@ -135,10 +135,6 @@ fn test_rpc_refuses_ecc_before_the_feature() {
 #[test]
 fn test_rpc_refuses_ecc_to_account_without_contract() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: ECCs are not enabled in this build");
-        return;
-    }
     let contract_id = create_account_id("contract");
     let alice = create_account_id("alice");
     let nobody = create_account_id("nobody");
@@ -164,10 +160,6 @@ fn test_rpc_refuses_ecc_to_account_without_contract() {
 #[test]
 fn test_jsonrpc_send_tx_with_ecc() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: ECCs are not enabled in this build");
-        return;
-    }
     let contract_id = create_account_id("contract");
     let alice = create_account_id("alice");
     let mut env = setup(PROTOCOL_VERSION, &[&contract_id, &alice], &contract_id);
@@ -195,10 +187,6 @@ fn test_jsonrpc_send_tx_with_ecc() {
 #[test]
 fn test_rpc_refuses_oversized_ecc() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: ECCs are not enabled in this build");
-        return;
-    }
     let contract_id = create_account_id("contract");
     let env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
 
@@ -256,9 +244,7 @@ fn setup_two_shards(contracts: &[&AccountId], rpc_tracks_shards: bool) -> TestLo
 fn test_send_tx_times_out_early_for_ecc_on_rpc_without_the_shard() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -290,10 +276,6 @@ fn test_send_tx_times_out_early_for_ecc_on_rpc_without_the_shard() {
 #[test]
 fn test_rpc_forwards_ecc_to_producers_of_the_contracts_shard() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: ECCs are not enabled in this build");
-        return;
-    }
     let contracts = [create_account_id("a-contract"), create_account_id("contract")];
     let mut env = setup_two_shards(&[&contracts[0], &contracts[1]], true);
 
@@ -342,10 +324,6 @@ fn test_rpc_forwards_ecc_to_producers_of_the_contracts_shard() {
 #[test]
 fn test_rpc_without_the_shard_forwards_ecc_unchecked() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        tracing::info!("skipping: ECCs are not enabled in this build");
-        return;
-    }
     let contract_id = create_account_id("contract");
     let nobody = create_account_id("nobody");
     let env = setup_two_shards(&[&contract_id], false);
@@ -398,9 +376,7 @@ fn ecc_outcome_id(node: &TestLoopNode, ecc_hash: CryptoHash, from_height: u64) -
 fn test_jsonrpc_finds_ecc_by_unique_id() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -551,9 +527,7 @@ fn test_jsonrpc_finds_ecc_by_unique_id() {
 fn test_ecc_lands_in_a_chunk() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -582,9 +556,7 @@ fn test_ecc_lands_in_a_chunk() {
 fn test_eccs_to_one_contract_land_in_separate_chunks_in_order() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -613,9 +585,7 @@ fn test_eccs_to_one_contract_land_in_separate_chunks_in_order() {
 fn test_chunks_hold_eccs_within_their_size_share() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -688,9 +658,7 @@ fn test_chunks_hold_eccs_within_their_size_share() {
 fn test_producer_packs_the_ecc_the_contract_accepts_and_drops_the_one_it_refuses() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -726,9 +694,7 @@ fn test_producer_packs_the_ecc_the_contract_accepts_and_drops_the_one_it_refuses
 fn test_chunks_hold_eccs_within_their_compute_share() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -806,9 +772,7 @@ fn ecc_transfer_contract(receiver_id: &AccountId) -> Vec<u8> {
 fn test_ecc_promise_transfers_to_another_shard() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -923,9 +887,7 @@ fn fund_universal_wallet(env: &mut TestLoopEnv, sponsor: &AccountId) -> (Account
 fn test_ecc_with_state_init_in_the_archives() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -999,9 +961,7 @@ fn test_ecc_with_state_init_in_the_archives() {
 fn test_ecc_copies_with_and_without_state_init_on_two_forks() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -1093,9 +1053,7 @@ fn test_ecc_copies_with_and_without_state_init_on_two_forks() {
 fn test_ecc_initializes_universal_account() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -1138,9 +1096,7 @@ fn test_ecc_initializes_universal_account() {
 fn test_resend_of_ecc_that_deleted_its_contract_returns_the_first_inclusion() {
     init_test_logger();
     // TODO(spice): the producer does not pack ECCs under Spice yet.
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION)
-        || ProtocolFeature::Spice.enabled(PROTOCOL_VERSION)
-    {
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         tracing::info!("skipping: ECCs are not packed in this build");
         return;
     }
@@ -1220,9 +1176,6 @@ fn assert_included<'a>(
 #[test]
 fn test_view_call_runs_the_ecc_method_as_an_ecc() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let contract_id = create_account_id("contract");
     let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
     let view = |contract_id: &AccountId, payload: Vec<u8>| {
@@ -1312,9 +1265,6 @@ fn test_view_call_runs_the_ecc_method_as_an_ecc() {
 #[test]
 fn test_view_call_of_the_ecc_method_installs_its_state_init() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let sponsor = create_account_id("sponsor");
     let mut env = setup(PROTOCOL_VERSION, &[&sponsor], &sponsor);
     let (wallet, state_init) = fund_universal_wallet(&mut env, &sponsor);
