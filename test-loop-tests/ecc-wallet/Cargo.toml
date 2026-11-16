@@ -1,0 +1,26 @@
+[package]
+name = "ecc-wallet"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+codegen-units = 1
+# Tell `rustc` to optimize for small code size.
+opt-level = "z"
+strip = true
+lto = true
+debug = false
+panic = "abort"
+rpath = false
+debug-assertions = false
+incremental = false
+
+# An example contract, not part of the nearcore workspace (see the root `Cargo.toml`).
+[workspace]
+members = []
