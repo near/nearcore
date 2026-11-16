@@ -148,6 +148,9 @@ impl RpcFrom<QueryError> for RpcQueryError {
             QueryError::ContractExecutionError { vm_error, error, block_height, block_hash } => {
                 Self::ContractExecutionError { vm_error, error, block_height, block_hash }
             }
+            QueryError::ExternalCallRefused { error, logs, block_height, block_hash } => {
+                Self::ExternalCallRefused { error, logs, block_height, block_hash }
+            }
             QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", %error_message, "unreachable error occurred");
                 crate::metrics::RPC_UNREACHABLE_ERROR_COUNT

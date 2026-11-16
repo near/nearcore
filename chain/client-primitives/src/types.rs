@@ -459,6 +459,14 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("The contract refused the external call: {error:?}")]
+    ExternalCallRefused {
+        error: Box<near_primitives::errors::TxExecutionError>,
+        /// The logs of the contract's run. Empty for a call refused before its run.
+        logs: Vec<String>,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
     #[error(
@@ -646,9 +654,14 @@ pub struct NetworkInfoResponse {
 /// Status of given transaction including all the subsequent receipts.
 #[derive(Debug)]
 pub struct TxStatus {
+    /// The transaction's hash. For an external call that `send_tx` waits on, the call's hash
+    /// without its state init.
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
     pub fetch_receipt: bool,
+    /// For an external call, the height of the head when `send_tx` sent it. The answer is an
+    /// inclusion of the call in a later block, or an accepted inclusion in a final block.
+    pub external_call_sent_at: Option<BlockHeight>,
 }
 
 /// Outcome of the transaction status lookup, including either the status or

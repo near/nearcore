@@ -487,11 +487,13 @@ pub async fn start_with_config_and_synchronization_impl(
                 epoch_manager.clone(),
                 config.validator_signer.clone(),
             );
-            let view_runtime = NightshadeRuntime::from_config(
+            // The view client finds the external calls the main runtime applies.
+            let view_runtime = NightshadeRuntime::from_config_with_external_call_cache(
                 home_dir,
                 split_store.clone(),
                 &config,
                 view_epoch_manager.clone(),
+                Some(runtime.external_call_cache().clone()),
             )
             .context("could not create the transaction runtime")?;
             (view_epoch_manager, view_shard_tracker, view_runtime)
