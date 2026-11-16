@@ -800,9 +800,6 @@ fn ecc_fee() -> Balance {
 /// An ECC to an account that does not exist is rejected.
 #[test]
 fn test_apply_ecc_missing_contract() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let contract_id: AccountId = "missing.near".parse().unwrap();
     let err = apply_ecc(contract_id.clone(), Balance::from_near(1_000_000));
     assert_eq!(err, InvalidTxError::ContractNotFound { contract_id });
@@ -811,9 +808,6 @@ fn test_apply_ecc_missing_contract() {
 /// An ECC to a contract that can't pay for its fees is rejected.
 #[test]
 fn test_apply_ecc_not_enough_balance() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let fee = ecc_fee();
     let balance = fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
     let err = apply_ecc(bob_account(), balance);
@@ -827,9 +821,6 @@ fn test_apply_ecc_not_enough_balance() {
 /// same as an ECC to a missing account: the compute of its fees.
 #[test]
 fn test_apply_ecc_no_contract() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         Balance::from_near(1_000_000),
@@ -1153,9 +1144,6 @@ fn accepted_ecc_charge_and_storage_usage() -> (Balance, u64) {
 /// block the chunk is in, even when the height between them is skipped.
 #[test]
 fn test_apply_ecc_accepted() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
     let (bob_before, _) = bob_ecc_state(&tries, root);
@@ -1227,9 +1215,6 @@ fn test_apply_ecc_accepted() {
 /// An ECC whose run panics is refused.
 #[test]
 fn test_apply_ecc_refused_panic() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract("(call $write_payload) unreachable");
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
@@ -1246,9 +1231,6 @@ fn test_apply_ecc_refused_panic() {
 /// A refused ECC keeps the logs its run wrote before it failed.
 #[test]
 fn test_apply_ecc_refused_keeps_logs() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract("(call $log_utf8 (i64.const 8) (i64.const 8)) unreachable");
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
@@ -1260,9 +1242,6 @@ fn test_apply_ecc_refused_keeps_logs() {
 /// known before the call is included in a chunk, so external calls can't read it.
 #[test]
 fn test_apply_ecc_refused_random_seed() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract("(call $write_payload) (call $random_seed (i64.const 1))");
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
@@ -1283,9 +1262,6 @@ fn test_apply_ecc_refused_random_seed() {
 /// costs, at least as much compute counts toward the chunk.
 #[test]
 fn test_apply_ecc_refused_out_of_gas() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract("(call $write_payload) (loop $forever (br $forever))");
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
@@ -1393,9 +1369,6 @@ fn ecc_receipt_to_carol(apply_result: &ApplyResult) -> Receipt {
 /// the burnt gas at the block's price and the attached gas at the receipt's price.
 #[test]
 fn test_apply_ecc_promise() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
         setup_ecc_chain(&ecc_body_calling_carol("who"));
     apply_state.save_receipt_to_tx = true;
@@ -1485,9 +1458,6 @@ fn test_apply_ecc_promise() {
 /// external call's chain: a V3 receipt from system with the contract as signer and no key.
 #[test]
 fn test_apply_ecc_promise_unused_gas_refund() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_chain(&ecc_body_calling_carol("who"));
     let (root, apply_result) = apply_envelopes_and_commit(
@@ -1583,9 +1553,6 @@ fn test_apply_ecc_promise_unused_gas_refund() {
 /// The callee of an accepted ECC's promise sees the contract as both signer and predecessor.
 #[test]
 fn test_apply_ecc_promise_callee_sees_contract() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_chain(&ecc_body_calling_carol("who"));
     let (root, apply_result) = apply_envelopes_and_commit(
@@ -1617,9 +1584,6 @@ fn test_apply_ecc_promise_callee_sees_contract() {
 /// refund of the failed receipt credits the contract.
 #[test]
 fn test_apply_ecc_promise_signer_key_fails_and_refunds_contract() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_chain(&ecc_body_calling_carol("signer_key"));
     let (root, apply_result) = apply_envelopes_and_commit(
@@ -1687,9 +1651,6 @@ fn test_apply_ecc_promise_signer_key_fails_and_refunds_contract() {
 /// signer and the external call what authorized it.
 #[test]
 fn test_apply_ecc_promise_chain_keeps_authorization() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_chain(&ecc_body_calling_carol("hop"));
     let (root, apply_result) = apply_envelopes_and_commit(
@@ -1728,9 +1689,6 @@ fn test_apply_ecc_promise_chain_keeps_authorization() {
 /// The data ids of an ECC's promises differ from the ids of the receipts it sends.
 #[test]
 fn test_apply_ecc_promise_data_ids_differ_from_receipt_ids() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // Calls carol's `who`, then bob's `cb` on its result.
     let gas = CAROL_CALL_GAS.as_gas();
     let ecc_body = format!(
@@ -1766,9 +1724,6 @@ fn test_apply_ecc_promise_data_ids_differ_from_receipt_ids() {
 /// An ECC whose promise fails receipt validation is refused.
 #[test]
 fn test_apply_ecc_refused_invalid_receipt() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract(
         "(drop (call $call_carol (i64.const 3) (i64.const 64) (i64.const 200) (i64.const 0)))",
     );
@@ -1792,9 +1747,6 @@ fn test_apply_ecc_refused_invalid_receipt() {
 /// VM subsidizes is refused, even when gas is free and the charge is zero.
 #[test]
 fn test_apply_ecc_refused_subsidized_deposit() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // Sends the whole balance to alice, then calls carol with 1 yocto.
     let gas = CAROL_CALL_GAS.as_gas();
     let code = ecc_contract(&format!(
@@ -1827,9 +1779,6 @@ fn test_apply_ecc_refused_subsidized_deposit() {
 /// the chunk producer's run and the run at apply.
 #[test]
 fn test_apply_ecc_refused_promise_yield_create() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     // Yields to the contract's `cb` method with 10 Tgas, and writes the data id to register 0.
     let code = ecc_contract(
         "(call $write_payload)
@@ -1855,9 +1804,6 @@ fn test_apply_ecc_refused_promise_yield_create() {
 /// the next chunk, as it does from a receipt's run.
 #[test]
 fn test_apply_ecc_yield_resume() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract(
         r#"
     (call $write_payload)
@@ -1921,9 +1867,6 @@ fn test_apply_ecc_yield_resume() {
 /// An ECC whose contract can pay its fees but not the gas of the run is refused.
 #[test]
 fn test_apply_ecc_refused_not_enough_balance() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (charge, _) = accepted_ecc_charge_and_storage_usage();
     let balance = charge.checked_sub(Balance::from_yoctonear(1)).unwrap();
     let fee = ecc_cost(&RuntimeConfig::test(), &ecc_to_bob(), GAS_PRICE).unwrap().burnt_amount;
@@ -1941,9 +1884,6 @@ fn test_apply_ecc_refused_not_enough_balance() {
 /// An ECC whose contract can pay for the call but then not for its storage is refused.
 #[test]
 fn test_apply_ecc_refused_lack_balance_for_storage() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (charge, storage_usage) = accepted_ecc_charge_and_storage_usage();
     // After the charge only the locked balance is left, one yocto short of the storage stake.
     let config = RuntimeConfig::test();
@@ -2049,9 +1989,6 @@ fn dry_run_ecc_to_bob(
 /// the same error and no writes.
 #[test]
 fn test_dry_run_ecc_matches_apply() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (charge, storage_usage) = accepted_ecc_charge_and_storage_usage();
     let config = RuntimeConfig::test();
     let storage_stake = config.storage_amount_per_byte().checked_mul(storage_usage.into()).unwrap();
@@ -2135,9 +2072,6 @@ fn test_dry_run_ecc_matches_apply() {
 /// recorder starts empty, so it never records less of a call than apply does.
 #[test]
 fn test_dry_run_ecc_recording_budget_matches_apply() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let num_values = many_values(&RuntimeConfig::test()).len() as u64;
     let read_many = ecc_body_on_keys("storage_read", 0, num_values);
     let read_large = ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1);
@@ -2179,9 +2113,6 @@ fn test_dry_run_ecc_recording_budget_matches_apply() {
 /// when the chunk has a signed transaction of the contract: then apply read it earlier.
 #[test]
 fn test_dry_run_ecc_counts_the_account_read_unless_it_is_loaded() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (_, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
     let bob = get_account(&tries.new_trie_update(ShardUId::single_shard(), root), &bob_account())
@@ -2211,9 +2142,6 @@ fn test_dry_run_ecc_counts_the_account_read_unless_it_is_loaded() {
 /// running it, as apply does.
 #[test]
 fn test_dry_run_ecc_counts_toward_the_shares() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (_, tries, root, mut apply_state, _, epoch_info_provider) =
         setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
     let gas_limit = apply_state.gas_limit.unwrap();
@@ -2254,9 +2182,6 @@ fn test_dry_run_ecc_counts_toward_the_shares() {
 /// changes are stored: the chunk here is an ECC that writes to its contract, and its charge.
 #[test]
 fn test_apply_sends_the_nodes_it_added_after_finalizing() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
         setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
     let post_state = Arc::new(Mutex::new(None));
@@ -2341,9 +2266,6 @@ fn test_apply_sends_no_nodes_before_the_feature() {
 /// stored state. The ECC reads a value that the parent wrote, just under the budget and just over.
 #[test]
 fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let read_value = ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1);
     let cases: [(&str, fn(&RuntimeConfig) -> (Vec<u8>, Vec<u8>)); 2] =
         [("value under the cap", value_under_the_cap), ("value over the cap", large_value)];
@@ -2417,9 +2339,6 @@ fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
 /// The dry run refuses a call to an account with no contract with the error apply gives.
 #[test]
 fn test_dry_run_ecc_refuses_account_without_contract_as_apply_does() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         Balance::from_near(1_000_000),
@@ -2464,9 +2383,6 @@ fn apply_ecc_alone(code: Vec<u8>, ecc: EccTransaction) -> (ExecutionOutcome, u64
 /// nothing there. Applying the chunk fails instead.
 #[test]
 fn test_apply_ecc_without_recorder_fails() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
     let ecc = TransactionEnvelope::from(ecc_to_bob());
@@ -2488,9 +2404,6 @@ fn test_apply_ecc_without_recorder_fails() {
 /// the compute of the fees and the run, but no gas and no tokens burnt.
 #[test]
 fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let ecc = ecc_to_bob();
     let fee = ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap();
     let code = ecc_contract("(call $write_payload) unreachable");
@@ -2510,9 +2423,6 @@ fn test_apply_ecc_refused_run_counts_toward_chunk_limit() {
 /// gas and no tokens burnt.
 #[test]
 fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let missing: AccountId = "missing.near".parse().unwrap();
     let ecc = EccTransaction::new(missing, ECC_PAYLOAD.to_vec());
     let fee = ecc_cost(&RuntimeConfig::test(), &ecc, GAS_PRICE).unwrap();
@@ -2537,9 +2447,6 @@ fn test_apply_ecc_refused_before_run_counts_fees_toward_chunk_limit() {
 /// transaction.
 #[test]
 fn test_apply_eccs_from_storage_proof() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let panicking: AccountId = "panicking.near".parse().unwrap();
     let looping: AccountId = "looping.near".parse().unwrap();
     let broke: AccountId = "broke.near".parse().unwrap();
@@ -2776,9 +2683,6 @@ fn apply_refused_ecc_on_data(
 /// receipt past the per-receipt storage proof limit: its writes roll back and nobody pays.
 #[test]
 fn test_apply_ecc_refused_reads_past_recording_budget() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let num_values = many_values(&RuntimeConfig::test()).len() as u64;
     let body = ecc_body_on_keys("storage_read", 0, num_values);
     let (apply_state, refused) = apply_refused_ecc_on_data(&body, many_values);
@@ -2789,9 +2693,6 @@ fn test_apply_ecc_refused_reads_past_recording_budget() {
 /// is fetched, so the value stays out of the storage proof.
 #[test]
 fn test_apply_ecc_refused_value_past_recording_budget() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract(&ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1));
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
@@ -2818,9 +2719,6 @@ fn test_apply_ecc_refused_value_past_recording_budget() {
 /// Reading the same keys stays under the budget.
 #[test]
 fn test_apply_ecc_refused_removals_past_recording_budget() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let num_keys = removals_past_the_cap(&RuntimeConfig::test());
     let small_values = |_: &RuntimeConfig| (0..num_keys).map(|i| (data_key(i), vec![1])).collect();
 
@@ -2848,9 +2746,6 @@ fn test_apply_ecc_refused_removals_past_recording_budget() {
 /// removal is accepted.
 #[test]
 fn test_apply_ecc_refused_last_removal_past_recording_budget() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let read_large = format!(
         r#"(call $write_payload)
     (i64.store (i32.const 200) (i64.const {LARGE_VALUE_INDEX}))
@@ -2888,9 +2783,6 @@ fn test_apply_ecc_refused_last_removal_past_recording_budget() {
 /// An ECC whose run reads a value just under its recording budget is accepted.
 #[test]
 fn test_apply_ecc_reading_under_recording_budget_accepted() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let code = ecc_contract(&ecc_body_on_keys("storage_read", LARGE_VALUE_INDEX, 1));
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contract(code, Balance::from_near(1_000), Balance::ZERO);
@@ -2917,9 +2809,6 @@ fn test_apply_ecc_reading_under_recording_budget_accepted() {
 /// and the state root are the same.
 #[test]
 fn test_apply_eccs_past_recording_budget_from_storage_proof() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let config = RuntimeConfig::test();
     let reader: AccountId = "reader.near".parse().unwrap();
     let large_reader: AccountId = "large-reader.near".parse().unwrap();
@@ -3089,9 +2978,6 @@ fn refused_at_share(status: &ExecutionStatus) -> ExternalCallChunkLimit {
 /// toward the share too.
 #[test]
 fn test_apply_ecc_refused_past_compute_share() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let panicking: AccountId = "panicking.near".parse().unwrap();
     let contracts = vec![
         funded_ecc_contract(&panicking, ecc_contract("(call $write_payload) unreachable")),
@@ -3133,9 +3019,6 @@ fn test_apply_ecc_refused_past_compute_share() {
 /// chunk's compute, so the next ECC is refused at the share.
 #[test]
 fn test_apply_ecc_refused_for_state_init_counts_toward_compute_share() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let contracts = vec![funded_ecc_contract(&bob_account(), ecc_accepting_contract())];
     let (runtime, tries, root, mut apply_state, _, epoch_info_provider) =
         setup_ecc_contracts(contracts);
@@ -3180,9 +3063,6 @@ fn test_apply_ecc_refused_for_state_init_counts_toward_compute_share() {
 /// A validator replaying the chunk from its proof alone doesn't need the refused call's account.
 #[test]
 fn test_apply_ecc_refused_past_storage_proof_share() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let config = RuntimeConfig::test();
     let reader: AccountId = "reader.near".parse().unwrap();
     let num_values = many_values(&config).len() as u64;
@@ -3264,9 +3144,6 @@ fn test_apply_ecc_refused_past_storage_proof_share() {
 /// when the account is missing and the call is refused without running.
 #[test]
 fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let missing: AccountId = "missing.near".parse().unwrap();
     let contracts = vec![funded_ecc_contract(&bob_account(), ecc_accepting_contract())];
     let callees = [missing, bob_account()];
@@ -3296,9 +3173,6 @@ fn test_apply_ecc_account_read_counts_toward_storage_proof_share() {
 /// compute, but the share of its storage proof still applies.
 #[test]
 fn test_apply_eccs_without_gas_limit() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let panicking: AccountId = "panicking.near".parse().unwrap();
     let contracts = || {
         vec![
@@ -3338,9 +3212,6 @@ fn test_apply_eccs_without_gas_limit() {
 /// saving it would undo the call's charge and storage usage.
 #[test]
 fn test_apply_ecc_then_signed_transaction_from_contract() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, signers, epoch_info_provider) =
         setup_ecc_contract(ecc_accepting_contract(), Balance::from_near(1_000), Balance::ZERO);
     let (bob_before, _) = bob_ecc_state(&tries, root);
@@ -3385,9 +3256,6 @@ fn test_apply_ecc_then_signed_transaction_from_contract() {
 /// those.
 #[test]
 fn test_refused_ecc_keeps_forwarded_buffer_pops() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let shard_layout = ShardLayout::multi_shard_custom(vec![alice_account(), bob_account()], 3);
     let local_shard = shard_layout.account_id_to_shard_id(&alice_account());
     let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());
@@ -3565,9 +3433,6 @@ fn ecc_method_tx(signer: &Signer) -> SignedTransaction {
 /// refused if it runs after the upgrade.
 #[test]
 fn test_ecc_method_receipt_from_before_upgrade_refused() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
@@ -3636,9 +3501,6 @@ fn test_ecc_method_receipt_from_before_upgrade_refused() {
 /// the transaction is accepted, and its receipt is refused.
 #[test]
 fn test_ecc_method_refused_with_function_call_access_key() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         Balance::from_near(1_000_000),
@@ -3701,9 +3563,6 @@ fn test_ecc_method_refused_with_function_call_access_key() {
 /// created, and its receipt is refused.
 #[test]
 fn test_ecc_method_refused_in_promise() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let (runtime, tries, root, apply_state, signers, epoch_info_provider) = setup_runtime(
         vec![alice_account(), bob_account()],
         Balance::from_near(1_000_000),
@@ -8541,9 +8400,6 @@ fn test_gas_refund_unknown_key_falls_back_to_account() {
 /// leaves the contract's gas key alone.
 #[test]
 fn test_ecc_gas_refund_credits_balance_not_gas_key() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let initial_balance = Balance::from_near(1_000_000);
     let gas_key_balance = Balance::from_millinear(10);
     let GasKeyTestSetup {
@@ -11652,9 +11508,6 @@ mod ecc_state_init {
     /// init names, under the unique id of the same call without the state init.
     #[test]
     fn test_ecc_installs_state_init() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         let init = state_init(Some(&code));
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -11679,9 +11532,6 @@ mod ecc_state_init {
     /// A call the contract refuses rolls the install back, and nobody pays.
     #[test]
     fn test_refused_ecc_rolls_state_init_back() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(false);
         let init = state_init(Some(&code));
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -11709,9 +11559,6 @@ mod ecc_state_init {
     /// install rolled back.
     #[test]
     fn test_ecc_state_init_without_code_rolled_back() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         let init = state_init(None);
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -11731,9 +11578,6 @@ mod ecc_state_init {
     /// A call to an uninitialized account without a state init has nothing to run.
     #[test]
     fn test_ecc_without_state_init_to_uninitialized_account() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         let init = state_init(Some(&code));
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -11751,9 +11595,6 @@ mod ecc_state_init {
     /// state init would, and costs what the call without it costs.
     #[test]
     fn test_ecc_state_init_on_initialized_account_is_ignored() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         let init = state_init(Some(&code));
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -11798,9 +11639,6 @@ mod ecc_state_init {
     /// second copy with no outcome, since both copies share a unique id.
     #[test]
     fn test_ecc_copies_with_and_without_state_init_in_one_chunk() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         let init = state_init(Some(&code));
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -11827,9 +11665,6 @@ mod ecc_state_init {
     /// refused or skipped, and it says whether the call installed the state init.
     #[test]
     fn test_dry_run_ecc_with_state_init_matches_apply() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         for (name, accepts, initialized) in
             [("installed", true, false), ("refused", false, false), ("ignored", true, true)]
         {
@@ -11901,9 +11736,6 @@ mod ecc_state_init {
     /// It is refused, funded or not, and counts no more compute than a call within the budget.
     #[test]
     fn test_ecc_state_init_fees_past_call_budget_refused() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         // 1_900 two-byte keys with empty values: the call fits `max_external_call_size`, and the
         // fees of its state init, about 400 Tgas, are far past `max_gas_burnt_external`.
@@ -11954,9 +11786,6 @@ mod ecc_state_init {
     /// The dry run refuses a call whose state init derives to another account, as apply does.
     #[test]
     fn test_dry_run_ecc_refuses_state_init_for_another_account() {
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
         let code = code(true);
         let init = state_init(Some(&code));
         let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
@@ -12058,9 +11887,6 @@ fn accounts_sharing_prefix(account: &AccountId, positions: usize) -> Vec<Account
 /// accepted.
 #[test]
 fn test_ecc_accepted_with_deep_storage_path() {
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let account = derive_universal_account_id(&RawStateInit(b"deep storage account".to_vec()));
     let (runtime, tries, root, apply_state, _, epoch_info_provider) =
         setup_ecc_contracts(vec![EccContractSetup {

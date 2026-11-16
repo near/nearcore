@@ -90,9 +90,6 @@ fn test_indexer_local_receipt() {
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_indexer_external_call() {
     init_test_logger();
-    if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-        return;
-    }
     let mut env = setup();
     let deploy = env.rpc_node().tx_deploy_contract(&user_account(), ecc_self_transfer_contract());
     env.rpc_runner().run_tx(deploy, Duration::seconds(5));

@@ -1064,7 +1064,7 @@ mod tests {
     };
     use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
     use near_primitives::utils::derive_universal_account_id;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{get_gas_key_nonce, set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
@@ -3314,9 +3314,6 @@ mod tests {
             let ecc = EccTransaction::new_with_state_init(contract_id, vec![], Some(state_init));
             validate_transaction_envelope(&config, &ecc.into(), PROTOCOL_VERSION)
         };
-        if !ProtocolFeature::ExternalContractCalls.enabled(PROTOCOL_VERSION) {
-            return;
-        }
 
         assert_eq!(validate(own_account, state_init.clone()), Ok(()));
         assert_matches!(
