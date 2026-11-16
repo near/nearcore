@@ -3,7 +3,6 @@ use crate::setup::env::TestLoopEnv;
 use crate::tests::sync::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height, run_until_synced};
 use crate::utils::account::create_account_id;
 use crate::utils::certification::assert_certification_kept_up;
-use crate::utils::execution::MAX_EXECUTION_LAG;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use assert_matches::assert_matches;
@@ -253,11 +252,26 @@ fn test_spice_state_sync_under_certification_lag() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_bootstrap_executes_after_the_sync_block() {
+    const MAX_EXECUTION_LAG: BlockHeight = 3;
+    const CERTIFICATION_DELAY: u64 = 0;
+
     init_test_logger();
-    let mut env = build_far_ahead_env(EPOCH_LENGTH, 0);
+    let mut env = build_far_ahead_env(EPOCH_LENGTH, CERTIFICATION_DELAY);
     let (new_node, sync_hash, _) = bootstrap_node(&mut env, TEST_EPOCH_SYNC_HORIZON, 0);
+
     env.node_runner(new_node).run_for_number_of_blocks(EPOCH_LENGTH as usize);
-    assert_executes_after_the_sync_block(&env.node(new_node), &sync_hash);
+    let node = &env.node(new_node);
+    assert!(node.last_executed().height + MAX_EXECUTION_LAG >= node.head().height);
+    let chain_store = &node.client().chain.chain_store;
+    let shard_layout = node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
+
+    let mut block_hash = sync_hash;
+    while block_hash != node.last_executed().last_block_hash {
+        block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
+        for shard_uid in shard_layout.shard_uids() {
+            assert!(chain_store.get_chunk_extra(&block_hash, &shard_uid).is_ok());
+        }
+    }
 }
 
 #[test]
@@ -413,31 +427,5 @@ pub(super) fn assert_uncertified_chunks_match(
             chain.spice_core_reader.get_uncertified_chunks(&block_hash).unwrap(),
             reference_chain.spice_core_reader.get_uncertified_chunks(&block_hash).unwrap()
         );
-    }
-}
-
-/// Asserts that `node`, bootstrapped through state sync to `sync_hash`, executes within
-/// `MAX_EXECUTION_LAG` blocks of its head, and applied every shard in every block after `sync_hash`.
-pub(super) fn assert_executes_after_the_sync_block(
-    node: &TestLoopNode<'_>,
-    sync_hash: &CryptoHash,
-) {
-    let chain_store = &node.client().chain.chain_store;
-    let head = node.head();
-    let executed = node.last_executed();
-    assert!(executed.height + MAX_EXECUTION_LAG >= head.height,);
-    let shard_layout = node.client().epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-
-    let mut block_hash = *sync_hash;
-    while block_hash != executed.last_block_hash {
-        block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
-        for shard_uid in shard_layout.shard_uids() {
-            assert!(
-                chain_store.get_chunk_extra(&block_hash, &shard_uid).is_ok(),
-                "shard {} was not applied at height {}",
-                shard_uid.shard_id(),
-                chain_store.get_block_header(&block_hash).unwrap().height()
-            );
-        }
     }
 }
