@@ -2721,12 +2721,8 @@ impl ReceiptEnumView {
         action_receipt: VersionedActionReceipt,
         is_promise_yield: bool,
     ) -> ReceiptEnumView {
-        let creation_protocol_version = match action_receipt.creation_protocol_version() {
-            Some(CreationProtocolVersion(creation_protocol_version)) => {
-                Some(creation_protocol_version)
-            }
-            None => None,
-        };
+        let creation_protocol_version =
+            action_receipt.creation_protocol_version().map(|version| version.0);
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
             signer_public_key: action_receipt.signer_public_key().cloned(),
