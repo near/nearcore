@@ -102,6 +102,9 @@ pub(crate) struct PerShardChunkExecutor {
     /// For a shard the node catches up for the next epoch, the sync block after which the canonical
     /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
     pub(super) replayed_after_sync_block: Option<CryptoHash>,
+    /// The height up to which the parked blocks off the canonical chain were dropped: at or below
+    /// the final execution head, such a block is never applied.
+    forks_dropped_up_to: BlockHeight,
 }
 
 /// The blocks waiting to be applied, by height and by parent, so that an event about a block
@@ -204,6 +207,7 @@ impl PerShardChunkExecutor {
             blocks_in_execution: HashSet::new(),
             parked_blocks: ParkedBlocks::default(),
             replayed_after_sync_block: None,
+            forks_dropped_up_to: 0,
             final_execution_head: None,
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
@@ -296,6 +300,28 @@ impl PerShardChunkExecutor {
         for entry in parked {
             self.try_apply_parked(entry);
         }
+    }
+
+    /// Drops the parked blocks off the canonical chain at or below `final_execution_head_height`,
+    /// which are never applied. Each height is checked once, when the final execution head first passes it.
+    pub(crate) fn drop_forks_up_to(&mut self, final_execution_head_height: BlockHeight) {
+        if final_execution_head_height <= self.forks_dropped_up_to {
+            return;
+        }
+
+        let forks: Vec<(BlockHeight, CryptoHash)> = self
+            .parked_blocks
+            .parents
+            .range((self.forks_dropped_up_to + 1, CryptoHash::default())..)
+            .map(|(block, _)| *block)
+            .take_while(|(height, _)| *height <= final_execution_head_height)
+            .filter(|(height, hash)| !is_canonical(&self.chain_store, *height, hash))
+            .collect();
+        for fork in forks {
+            self.parked_blocks.remove(&fork);
+        }
+
+        self.forks_dropped_up_to = final_execution_head_height;
     }
 
     /// Apply the parked children of `block_hash` that are ready: applying a block, landing its

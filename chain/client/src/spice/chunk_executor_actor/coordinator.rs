@@ -572,12 +572,18 @@ impl ChunkExecutorActor {
         if let Err(err) = self.process_snapshot(&block) {
             tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to request a state snapshot");
         }
-        apply_block_postprocessing(
+        let final_execution_head = apply_block_postprocessing(
             self.runtime_adapter.as_ref(),
             self.epoch_manager.as_ref(),
             &self.chain_store,
             &block,
         )?;
+        // The final execution head may have moved past parked forks, which are then never applied.
+        if let Some(final_execution_head) = final_execution_head {
+            for executor in self.per_shard_executors.values_mut() {
+                executor.drop_forks_up_to(final_execution_head.height);
+            }
+        }
 
         if let Err(err) = self.advertise_snapshot_if_certified() {
             tracing::error!(target: "state_snapshot", ?err, %block_hash, "failed to announce the state snapshot");

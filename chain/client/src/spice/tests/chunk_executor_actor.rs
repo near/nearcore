@@ -888,6 +888,41 @@ fn test_not_applying_forks_past_final_execution_head() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_dropping_a_parked_fork_once_the_final_execution_head_passes_it() {
+    const NUM_SHARDS: usize = 2;
+    const NODE: usize = 0;
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(NUM_SHARDS, outgoing_sc);
+    let genesis = actors[NODE].chain.genesis_block();
+    let fork_block = produce_block(&mut actors, &genesis);
+    let fork_child = produce_block(&mut actors, &fork_block);
+    let shard_id = tracked_shard(&actors[NODE], &fork_block);
+    for block in [&fork_block, &fork_child] {
+        actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+    assert!(actors[NODE].actor.parked_blocks(shard_id).contains(fork_child.hash()));
+
+    let mut prev_block = genesis;
+    while actors[NODE].actor.chain_store.spice_final_execution_head().unwrap().height
+        < fork_child.header().height()
+    {
+        let block = produce_block(&mut actors, &prev_block);
+        for actor in &mut actors {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        }
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        record_endorsements(&mut actors, &block);
+        prev_block = block;
+    }
+
+    assert!(
+        !actors[NODE].actor.parked_blocks(shard_id).contains(fork_child.hash()),
+        "Once the final execution head of the canonical chain passes it, the fork block should be dropped"
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_final_execution_head_is_updated_when_tracking_no_shards() {
     init_test_logger();
 
@@ -2597,6 +2632,25 @@ fn test_parking_again_the_blocks_of_a_shard_once_its_catchup_finishes() {
     catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The blocks up to the final execution head are parked again.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_keeping_parked_canonical_blocks_below_the_final_execution_head() {
+    // The shard's catchup is still running, and the node processes the blocks up to the final
+    // execution head, which wait for it.
+    let mut catch_up = CatchUpTest::setup();
+    for block in &catch_up.blocks_up_to_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    // They stay parked: they are on the canonical chain.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
     for block in &catch_up.blocks_up_to_head {
         assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());

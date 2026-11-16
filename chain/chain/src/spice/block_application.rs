@@ -8,6 +8,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use std::sync::Arc;
 
 /// Block-level postprocessing. Owns the entire commit lifecycle because the work
 /// straddles the commit boundary, unlike `apply_chunk_postprocessing` which
@@ -29,12 +30,14 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 /// head waits only on the shards tracked this epoch, so any other shard, like one caught up for
 /// the next epoch, can lag behind it. Such a shard follows each final block it applies instead,
 /// see `apply_shard_postprocessing`.
+///
+/// Returns the final execution head after the update.
 pub fn apply_block_postprocessing(
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     chain_store: &ChainStoreAdapter,
     block: &Block,
-) -> Result<(), Error> {
+) -> Result<Option<Arc<Tip>>, Error> {
     let mut store_update = chain_store.store().store_update();
     let new_final = store_update.chain_store_update().update_spice_final_execution_head(block)?;
     store_update
@@ -43,7 +46,7 @@ pub fn apply_block_postprocessing(
     BLOCK_HEIGHT_SPICE_EXECUTION_HEAD.set(block.header().height() as i64);
     store_update.commit();
 
-    let Some(new_final) = new_final else { return Ok(()) };
+    let Some(new_final) = new_final else { return Ok(None) };
     let chunk_store = chain_store.chunk_store();
     let shard_uids_applied_up_to_new_final: Vec<ShardUId> = epoch_manager
         .get_shard_layout_from_prev_block(block.header().prev_hash())?
@@ -54,7 +57,7 @@ pub fn apply_block_postprocessing(
         .collect();
     update_flat_storage_head(runtime_adapter, &shard_uids_applied_up_to_new_final, &new_final)?;
     gc_memtrie_roots(runtime_adapter, chain_store, &shard_uids_applied_up_to_new_final, &new_final);
-    Ok(())
+    Ok(Some(new_final))
 }
 
 /// Flat-storage advance and memtrie GC for `shard_uid` alone, which has just applied
