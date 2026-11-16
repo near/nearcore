@@ -275,11 +275,11 @@ validators do on external calls, per call and per chunk. Besides
   install of a state init and the run, not to reading the contract's account
   before them.
 
-  A contract's storage can sit deep in the trie. In the worst case, a 64-character account, the path takes about 39 KB, which
-  leaves a run about 11.9 KB for its own reads. A state init that installs a
-  global contract by its publisher's account id records the path to that
-  contract too, so a wallet's state init should name its global contract by
-  code hash.
+  A contract's storage can sit deep in the trie. In the worst case, a
+  64-character account, the path takes about 39 KB, which leaves a run about
+  11.9 KB for its own reads. A state init that installs a global contract by
+  its publisher's account id records the path to that contract too, so a
+  wallet's state init should name its global contract by code hash.
 
   Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
   proof limit uses too, even for a key that isn't there. So removals are costly
