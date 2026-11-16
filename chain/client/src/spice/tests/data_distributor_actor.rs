@@ -3956,3 +3956,66 @@ fn test_handling_batched_data_request_gates_entries_separately() {
     assert_eq!(served, HashSet::from([witness_id]));
     assert_eq!(actor.spice_dropped_count(SpiceMessageKind::DataRequest), 1);
 }
+
+/// A designated chunk validator catching up a shard it tracks from next epoch requests the shard's
+/// witnesses for every block of the epoch: it never applies the shard in the epoch's first block,
+/// and its executor applies the later ones only once the catchup is finished.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_requesting_witnesses_of_a_shard_being_caught_up() {
+    init_test_logger();
+    let genesis = TestGenesisBuilder::new()
+        .shard_layout(ShardLayout::multi_shard(2, 0))
+        .epoch_length(5)
+        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
+        // for.
+        .max_inflation_rate(Rational32::from_integer(0))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test-producer-0", "test-producer-1"],
+            &["test-validator"],
+        ))
+        .build();
+    let mut chain = get_chain_with_genesis(Clock::real(), genesis.clone());
+    let shard_id = genesis.config.shard_layout.shard_ids().last().unwrap();
+    let me = AccountId::from_str("test-validator").unwrap();
+    // Tracked one epoch in three, so some epoch tracks it next but neither now nor before.
+    let tracked_shards_config = TrackedShardsConfig::Schedule(vec![vec![], vec![], vec![shard_id]]);
+    let shard_tracker = ShardTracker::new(
+        tracked_shards_config.clone(),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+    let genesis_block = chain.genesis_block();
+    let mut block = produce_spice_block_certifying_parent(&mut chain, &genesis_block);
+    while !shard_tracker.should_apply_chunk(
+        ApplyChunksMode::OnlyCatchupShards,
+        block.hash(),
+        shard_id,
+    ) {
+        assert!(block.header().height() < 4 * genesis.config.epoch_length, "never catching up");
+        block = produce_spice_block_certifying_parent(&mut chain, &block);
+    }
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = ActorBuilder::new(Some(me.clone()))
+        .tracked_shards_config(tracked_shards_config)
+        .build(outgoing_sc, &chain);
+    let mut fake_runner = FakeDelayedActionRunner::default();
+    actor.start_actor(&mut fake_runner);
+    fake_runner.run_queued_actions(&mut actor);
+    drain_outgoing_data_requests(&mut outgoing_rc);
+
+    // The epoch's first block, where the shard is synced, and a block after it.
+    let sync_block = produce_spice_block_certifying_parent(&mut chain, &block);
+    assert!(chain.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap());
+    let after_sync = produce_spice_block_certifying_parent(&mut chain, &sync_block);
+    assert_eq!(after_sync.header().epoch_id(), sync_block.header().epoch_id());
+    for block in [&sync_block, &after_sync] {
+        assert!(witness_requesters(&chain, block, shard_id).contains(&me));
+        actor.handle(ProcessedBlock { block_hash: *block.hash() });
+        fake_runner.run_queued_actions(&mut actor);
+        let witness = SpiceDataIdentifier::Witness { block_hash: *block.hash(), shard_id };
+        let requests = drain_outgoing_data_requests(&mut outgoing_rc);
+        assert!(requests.contains(&(witness, me.clone())), "{requests:?}");
+    }
+}

@@ -1,6 +1,6 @@
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
 use crate::spice::data_manager::{DataId, ReceiptProofId};
-use near_chain::spice::boundary::shards_applied_itself;
+use near_chain::spice::chunk_application::shards_applied_itself;
 use near_chain::{Block, Error};
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
