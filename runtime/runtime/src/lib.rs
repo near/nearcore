@@ -9,7 +9,7 @@ use crate::config::{
     safe_add_balance, safe_add_compute, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas,
 };
-use crate::congestion_control::DelayedReceiptQueueWrapper;
+use crate::congestion_control::{DelayedReceiptQueueWrapper, IteratedReceipt};
 pub use crate::external_call::{
     EccDryRun, EccDryRunContext, ExternalCallsInChunk, ProcessedExternalCall,
     dry_run_external_call, process_external_call,
@@ -59,6 +59,7 @@ use near_primitives::receipt::{
     VersionedReceiptEnum,
 };
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
@@ -2172,8 +2173,16 @@ impl Runtime {
             ExternalCallsInChunk::new(&apply_state.config, apply_state.gas_limit);
         let (maybe_expired_txs, tx_expiration_flags) =
             signed_txs.get_potentially_expired_transactions_and_expiration_flags();
+        let shard_layout =
+            if ProtocolFeature::SkipForeignShardTransactions.enabled(protocol_version) {
+                Some(processing_state.epoch_info_provider.shard_layout(&apply_state.epoch_id)?)
+            } else {
+                None
+            };
+        let shard_layout_and_id =
+            shard_layout.as_ref().map(|layout| (layout, apply_state.shard_id));
         // Decided before anything is read from the state, so that nothing is read for them.
-        let skipped = find_skipped_transactions(maybe_expired_txs);
+        let skipped = find_skipped_transactions(maybe_expired_txs, shard_layout_and_id);
         let num_skipped_txs = skipped.iter().filter(|skipped| **skipped).count();
 
         let ((), (accounts, access_keys, gas_key_nonces)) = rayon::join(
@@ -2382,6 +2391,10 @@ impl Runtime {
             // Build the outcome and extract the verification result (if any).
             let (outcome, result) = match verdict {
                 TxVerdict::DepositFailed { result, error } => {
+                    debug_assert!(
+                        error.uses_nonce(),
+                        "deposit failure must use the nonce: {error:?}"
+                    );
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(
                         %tx_hash,
@@ -2437,6 +2450,7 @@ impl Runtime {
                     (outcome, result)
                 }
                 TxVerdict::Failed(error) => {
+                    debug_assert!(!error.uses_nonce(), "failure must not use the nonce: {error:?}");
                     metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     tracing::debug!(%tx_hash, error = &error as &dyn std::error::Error, "transaction failed verify/charge");
                     let outcome = ExecutionOutcomeWithId::failed(tx, error);
@@ -2609,7 +2623,7 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(back);
         }
 
-        let mut prep_lookahead_iter = local_receipts.iter();
+        let mut prep_lookahead_iter = local_receipts.iter().map(IteratedReceipt::ForThisShard);
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
         let mut next_schedule_after = schedule_contract_preparation(
@@ -2787,7 +2801,8 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
         }
 
-        let mut prep_lookahead_iter = processing_state.incoming_receipts.iter();
+        let mut prep_lookahead_iter =
+            processing_state.incoming_receipts.iter().map(IteratedReceipt::ForThisShard);
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
         let mut next_schedule_after = schedule_contract_preparation(
@@ -3152,17 +3167,30 @@ impl ApplyState {
     }
 }
 
-/// Finds the repeats of an earlier transaction in the chunk, which apply skips with no outcome: a
-/// repeat would commit a second outcome under the same id. An ECC's id leaves out its state init.
-fn find_skipped_transactions(txs: &[TransactionEnvelope]) -> Vec<bool> {
+/// Finds the transactions that apply skips with no outcome. A repeat of an earlier transaction in
+/// the chunk would commit a second outcome under the same id. An ECC's id leaves out its state
+/// init. A transaction whose routing account is not in `shard_layout_and_id`, the chunk's shard
+/// under the block's layout, may be included by its own shard in the same block. With `None`, no
+/// transaction is skipped for its shard.
+fn find_skipped_transactions(
+    txs: &[TransactionEnvelope],
+    shard_layout_and_id: Option<(&ShardLayout, ShardId)>,
+) -> Vec<bool> {
     let mut seen_tx_hashes = HashSet::with_capacity(txs.len());
     txs.iter()
         .map(|tx| {
             let repeated = !seen_tx_hashes.insert(*tx.id_hash());
             if repeated {
                 tracing::debug!(tx_hash = ?tx.hash(), "skipping duplicate transaction in chunk");
+                return true;
             }
-            repeated
+            let foreign = shard_layout_and_id.is_some_and(|(shard_layout, shard_id)| {
+                shard_layout.account_id_to_shard_id(tx.routing_account_id()) != shard_id
+            });
+            if foreign {
+                tracing::debug!(tx_hash = ?tx.hash(), "skipping transaction of another shard");
+            }
+            foreign
         })
         .collect()
 }
@@ -3632,6 +3660,13 @@ impl<'a> MaybeRefReceipt for &'a StateStoredReceipt<'a> {
     }
 }
 
+/// Receipts one call to `schedule_contract_preparation` inspects before it stops.
+///
+/// The reads are invisible to gas, to compute and to the proof size counter, so one
+/// call must not cost more as the delayed receipt queue grows. A chunk makes many
+/// calls, and on the delayed path each one starts at the queue front.
+const MAX_RECEIPTS_SCANNED_FOR_PREPARATION: usize = 1024;
+
 /// Schedule a one receipt for contract preparation.
 ///
 /// The caller should call this method again after the returned number of receipts from `iterator`
@@ -3639,74 +3674,78 @@ impl<'a> MaybeRefReceipt for &'a StateStoredReceipt<'a> {
 fn schedule_contract_preparation<R: MaybeRefReceipt>(
     pipeline_manager: &mut pipelining::ReceiptPreparationPipeline,
     state_update: &TrieUpdate,
-    mut iterator: impl Iterator<Item = R>,
+    iterator: &mut impl Iterator<Item = IteratedReceipt<R>>,
 ) -> Option<usize> {
-    let scheduled_receipt_offset = iterator.position(|peek| {
-        let peek = peek.as_ref();
-        let account_id = peek.receiver_id();
-        // We need to inspect each receipt recursively in case these are data receipts, thus a
-        // function.
-        fn handle_receipt(
-            mgr: &mut ReceiptPreparationPipeline,
-            state_update: &TrieUpdate,
-            account_id: &AccountId,
-            receipt: &Receipt,
-        ) -> bool {
-            match receipt.receipt() {
-                ReceiptEnum::Action(_)
-                | ReceiptEnum::PromiseYield(_)
-                | ReceiptEnum::ActionV2(_)
-                | ReceiptEnum::PromiseYieldV2(_)
-                | ReceiptEnum::ActionV3(_)
-                | ReceiptEnum::PromiseYieldV3(_) => {
-                    // This returns `true` if work may have been scheduled (thus we currently
-                    // prepare actions in at most 2 "interesting" receipts in parallel due to
-                    // staggering.)
-                    mgr.submit(receipt, state_update)
-                }
-                ReceiptEnum::Data(dr) => {
-                    let key = TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: dr.data_id,
-                    };
-                    let Ok(Some(rid)) = get_pure::<CryptoHash>(state_update, &key) else {
-                        return false;
-                    };
-                    let key = TrieKey::PendingDataCount {
-                        receiver_id: account_id.clone(),
-                        receipt_id: rid,
-                    };
-                    let Ok(Some(data_count)) = get_pure::<u32>(state_update, &key) else {
-                        return false;
-                    };
-                    if data_count > 1 {
-                        return false;
-                    }
-                    let key = TrieKey::PostponedReceipt {
-                        receiver_id: account_id.clone(),
-                        receipt_id: rid,
-                    };
-                    let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
-                        return false;
-                    };
-                    return handle_receipt(mgr, state_update, account_id, &pr);
-                }
-                ReceiptEnum::PromiseResume(dr) => {
-                    let key = TrieKey::PromiseYieldReceipt {
-                        receiver_id: account_id.clone(),
-                        data_id: dr.data_id,
-                    };
-                    let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
-                        return false;
-                    };
-                    return handle_receipt(mgr, state_update, account_id, &yr);
-                }
-                ReceiptEnum::GlobalContractDistribution(_) => false,
+    // We need to inspect each receipt recursively in case these are data receipts, thus a
+    // function.
+    fn handle_receipt(
+        mgr: &mut ReceiptPreparationPipeline,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        receipt: &Receipt,
+    ) -> bool {
+        match receipt.receipt() {
+            ReceiptEnum::Action(_)
+            | ReceiptEnum::PromiseYield(_)
+            | ReceiptEnum::ActionV2(_)
+            | ReceiptEnum::PromiseYieldV2(_)
+            | ReceiptEnum::ActionV3(_)
+            | ReceiptEnum::PromiseYieldV3(_) => {
+                // This returns `true` if work may have been scheduled (thus we currently
+                // prepare actions in at most 2 "interesting" receipts in parallel due to
+                // staggering.)
+                mgr.submit(receipt, state_update)
             }
+            ReceiptEnum::Data(dr) => {
+                let key = TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: dr.data_id,
+                };
+                let Ok(Some(rid)) = get_pure::<CryptoHash>(state_update, &key) else {
+                    return false;
+                };
+                let key =
+                    TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id: rid };
+                let Ok(Some(data_count)) = get_pure::<u32>(state_update, &key) else {
+                    return false;
+                };
+                if data_count > 1 {
+                    return false;
+                }
+                let key =
+                    TrieKey::PostponedReceipt { receiver_id: account_id.clone(), receipt_id: rid };
+                let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
+                    return false;
+                };
+                return handle_receipt(mgr, state_update, account_id, &pr);
+            }
+            ReceiptEnum::PromiseResume(dr) => {
+                let key = TrieKey::PromiseYieldReceipt {
+                    receiver_id: account_id.clone(),
+                    data_id: dr.data_id,
+                };
+                let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
+                    return false;
+                };
+                return handle_receipt(mgr, state_update, account_id, &yr);
+            }
+            ReceiptEnum::GlobalContractDistribution(_) => false,
         }
-        handle_receipt(pipeline_manager, state_update, account_id, peek)
-    })?;
-    Some(scheduled_receipt_offset.saturating_add(1))
+    }
+
+    let mut receipts_iterated = 0usize;
+    for _ in 0..MAX_RECEIPTS_SCANNED_FOR_PREPARATION {
+        let Some(entry) = iterator.next() else { return None };
+        let IteratedReceipt::ForThisShard(peek) = entry else { continue };
+        receipts_iterated += 1;
+        let peek = peek.as_ref();
+        if handle_receipt(pipeline_manager, state_update, peek.receiver_id(), peek) {
+            return Some(receipts_iterated);
+        }
+    }
+    // The bound stopped the loop, not the end of the receipts, so ask the caller to
+    // come back. At least one, so that the caller keeps asking.
+    Some(receipts_iterated.max(1))
 }
 
 #[cfg(feature = "estimator")]

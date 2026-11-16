@@ -1220,6 +1220,20 @@ pub enum ExecutionStatus {
     SuccessReceiptId(CryptoHash) = 3,
 }
 
+impl ExecutionStatus {
+    /// Whether the execution changed state. Only a transaction that failed validation without
+    /// paying for gas did not.
+    pub fn has_changed_state(&self) -> bool {
+        match self {
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) => err.uses_nonce(),
+            ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+            | ExecutionStatus::Unknown
+            | ExecutionStatus::SuccessValue(_)
+            | ExecutionStatus::SuccessReceiptId(_) => true,
+        }
+    }
+}
+
 impl fmt::Debug for ExecutionStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
