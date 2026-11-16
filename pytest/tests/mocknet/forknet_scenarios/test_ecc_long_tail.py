@@ -51,9 +51,8 @@ class TestEccLongTail(TestSetup):
           ProtocolVersionTooOld (UPG-12).
         - shuffle_shard_assignment_for_chunk_producers on: producers change
           shards at most epoch boundaries (NOD-19, and NOD-15 alongside).
-        - State dumper: dumps parts to GCS. Nodes state-sync from peers only
-          (SyncConfig has only Peers), so the dumper serves as one more
-          all-shards peer with snapshots.
+        - No state dumper: nodes state-sync from peers, and every node takes
+          the snapshots that serve them (neard_runner set_state_sync_config).
         - 12 chunk producers and 2 chunk-validator-only hosts, plus a spare
           host outside the validator set. The spare keeps its forked database
           and is not started: the tester starts it on binary index 1 for
@@ -90,7 +89,7 @@ class TestEccLongTail(TestSetup):
             num_chunk_producer_seats=12, num_chunk_validator_seats=14)
         self.epoch_len = 15800
         self.transaction_validity_period = 2 * self.epoch_len
-        self.has_state_dumper = True
+        self.has_state_dumper = False
         self.has_archival = True
         self.regions = "us-east1,europe-west4,asia-east1,us-west1"
         self.spare_hosts = []
