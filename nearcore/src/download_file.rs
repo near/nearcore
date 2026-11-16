@@ -2,6 +2,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::StatusCode;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
+use xz2::stream::{Action, Status};
 
 #[derive(thiserror::Error, Debug)]
 pub enum FileDownloadError {
@@ -15,6 +16,8 @@ pub enum FileDownloadError {
     WriteError(PathBuf, #[source] std::io::Error),
     #[error("Failed to decompress XZ stream: {0}")]
     XzDecodeError(#[from] xz2::stream::Error),
+    #[error("failed to decompress XZ stream: unexpected end of input")]
+    XzUnexpectedEof,
     #[error("Failed to decompress XZ stream: internal error: unexpected status {0:?}")]
     XzStatusError(String),
     #[error("Failed to rename temporary file {0:?} to {1:?}")]
@@ -236,15 +239,15 @@ impl<'a> AutoXzDecoder<'a> {
         buffer: &mut [u8],
         mut chunk: &[u8],
     ) -> Result<(), FileDownloadError> {
-        let action =
-            if chunk.is_empty() { xz2::stream::Action::Finish } else { xz2::stream::Action::Run };
+        let finishing = chunk.is_empty();
+        let action = if finishing { Action::Finish } else { Action::Run };
         loop {
             let total_in = stream.total_in();
             let total_out = stream.total_out();
             let status = stream.process(chunk, buffer, action)?;
             match status {
-                xz2::stream::Status::Ok => (),
-                xz2::stream::Status::StreamEnd => (),
+                Status::Ok | Status::StreamEnd => (),
+                Status::MemNeeded if finishing => return Err(FileDownloadError::XzUnexpectedEof),
                 status => {
                     let status = format!("{:?}", status);
                     tracing::error!(target: "near", %status, ?path, "got unexpected status when decompressing downloaded file");
@@ -257,7 +260,8 @@ impl<'a> AutoXzDecoder<'a> {
             file.write_all(&buffer[..out])
                 .await
                 .map_err(|e| FileDownloadError::WriteError(path.to_path_buf(), e))?;
-            if chunk.is_empty() {
+            // At EOF, drain buffered output and require a complete XZ stream.
+            if chunk.is_empty() && (!finishing || status == Status::StreamEnd) {
                 break Ok(());
             }
         }
@@ -267,8 +271,12 @@ impl<'a> AutoXzDecoder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::{read, read_dir, write};
+    use std::io::Write;
+    use tempfile::tempdir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+    use xz2::write::XzEncoder;
 
     async fn check_file_download(payload: &[u8], expected: Result<&[u8], &str>) {
         let server = MockServer::start().await;
@@ -278,21 +286,44 @@ mod tests {
             .mount(&server)
             .await;
 
-        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        let dir = tempdir().unwrap();
+        let destination = dir.path().join("download");
+        let original = b"existing file contents";
+        write(&destination, original).unwrap();
         let url = format!("{}/", server.uri());
 
-        let res = download_file(&url, tmp_file.path())
-            .await
-            .map(|()| std::fs::read(tmp_file.path()).unwrap());
+        let res = download_file(&url, &destination).await.map(|()| read(&destination).unwrap());
 
         match (res, expected) {
             (Ok(res), Ok(expected)) => assert_eq!(&res, expected),
             (Ok(_), Err(_)) => panic!("expected an error"),
             (Err(res), Ok(_)) => panic!("unexpected error: {}", res),
             (Err(res), Err(expected)) => {
+                assert_eq!(read(&destination).unwrap(), original);
                 let s = res.to_string();
                 assert!(s.contains(expected), "expected: {}, got: {}", expected, s)
             }
+        }
+        assert_eq!(read_dir(dir.path()).unwrap().count(), 1, "temporary file was not removed");
+    }
+
+    fn compress_xz(data: &[u8]) -> Vec<u8> {
+        let mut encoder = XzEncoder::new(Vec::new(), 6);
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_file_download_truncated_xz() {
+        let data = vec![b'a'; 1 << 20];
+        let payload = compress_xz(&data);
+        // The HTTP response itself is complete: only the XZ body is truncated.
+        for removed in [1, 12, 100] {
+            check_file_download(
+                &payload[..payload.len() - removed],
+                Err("unexpected end of input"),
+            )
+            .await;
         }
     }
 
@@ -392,6 +423,34 @@ mod tests {
             let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
             // cspell:disable-next-line
             assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
+        }
+    }
+
+    #[test]
+    fn test_auto_xz_decode_large() {
+        let data = vec![b'a'; 1 << 20];
+        let payload = compress_xz(&data);
+        for chunk_size in [1, 7, 64, payload.len()] {
+            let got = auto_xz_test_write_file(&payload, chunk_size).unwrap();
+            assert_eq!(got, data, "chunk_size={chunk_size}");
+        }
+    }
+
+    #[test]
+    fn test_auto_xz_decode_truncated() {
+        let data = vec![b'a'; 1 << 20];
+        let payload = compress_xz(&data);
+        // Cover truncation in the header, compressed data, and stream footer.
+        for len in
+            [XZ_HEADER_MAGIC.len(), 12, payload.len() - 100, payload.len() - 12, payload.len() - 1]
+        {
+            for chunk_size in [1, 7, 64, payload.len()] {
+                let got = auto_xz_test_write_file(&payload[..len], chunk_size);
+                assert!(
+                    matches!(got, Err(FileDownloadError::XzUnexpectedEof)),
+                    "len={len}, chunk_size={chunk_size}, got {got:?}"
+                );
+            }
         }
     }
 
