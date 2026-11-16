@@ -75,7 +75,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
             TrieUpdateValuePtr::MemoryRef(data) => Ok(data.to_vec()),
             TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
                 let trie_nodes = Cell::new(0);
-                let options = AccessOptions::contract_runtime(&trie_nodes);
+                let options = AccessOptions::counting_trie_nodes(&trie_nodes);
                 let result = trie.deref_optimized(options, &optimized_value_ref);
                 access_tracker.trie_node_touched(trie_nodes.get())?;
                 Ok(result.map_err(wrap_storage_error)?)
@@ -162,7 +162,7 @@ impl<'a> External for RuntimeExt<'a> {
         // Trie.
         let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
-        let options = AccessOptions::contract_runtime(&trie_nodes);
+        let options = AccessOptions::counting_trie_nodes(&trie_nodes);
         let evicted_ptr = self
             .trie_update
             .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
@@ -196,7 +196,7 @@ impl<'a> External for RuntimeExt<'a> {
         let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
         let mode = KeyLookupMode::MemOrFlatOrTrie;
-        let options = AccessOptions::contract_runtime(&trie_nodes);
+        let options = AccessOptions::counting_trie_nodes(&trie_nodes);
         // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
         // fail for the evicted values, this will record the TTN fees unconditionally.
         let result =
@@ -235,7 +235,7 @@ impl<'a> External for RuntimeExt<'a> {
         // Trie.
         let trie_nodes = Cell::new(0);
         let storage_key = self.create_storage_key(key);
-        let options = AccessOptions::contract_runtime(&trie_nodes);
+        let options = AccessOptions::counting_trie_nodes(&trie_nodes);
         let removed = self
             .trie_update
             .get_ref(&storage_key, KeyLookupMode::MemOrTrie, options)
@@ -274,7 +274,7 @@ impl<'a> External for RuntimeExt<'a> {
         let mode = KeyLookupMode::MemOrFlatOrTrie;
         let result = self
             .trie_update
-            .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&trie_nodes))
+            .get_ref(&storage_key, mode, AccessOptions::counting_trie_nodes(&trie_nodes))
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
         access_tracker.trie_node_touched(trie_nodes.get())?;

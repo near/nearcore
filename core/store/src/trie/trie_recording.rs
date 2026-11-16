@@ -676,7 +676,7 @@ mod trie_recording_tests {
             // dereference values which can cause trie reads.
             if use_flat_storage {
                 let nodes_counted = Cell::new(0);
-                let opts = AccessOptions::contract_runtime(&nodes_counted);
+                let opts = AccessOptions::counting_trie_nodes(&nodes_counted);
                 let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
                 for key in data_in_trie.keys() {
                     trie.get_optimized_ref(key, lookup_mode, opts).unwrap();
@@ -687,7 +687,7 @@ mod trie_recording_tests {
             // Let's capture the baseline node counts - this is what will happen
             // in production.
             let nodes_counted = Cell::new(0);
-            let opts = AccessOptions::contract_runtime(&nodes_counted);
+            let opts = AccessOptions::counting_trie_nodes(&nodes_counted);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
@@ -707,7 +707,7 @@ mod trie_recording_tests {
             // Now let's do this again while recording, and make sure that the counters
             // we get are exactly the same.
             let nodes_counted = Cell::new(0);
-            let opts = AccessOptions::contract_runtime(&nodes_counted);
+            let opts = AccessOptions::counting_trie_nodes(&nodes_counted);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
@@ -733,7 +733,7 @@ mod trie_recording_tests {
             // in-memory tries.
             destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
             let nodes_counted = Cell::new(0);
-            let opts = AccessOptions::contract_runtime(&nodes_counted);
+            let opts = AccessOptions::counting_trie_nodes(&nodes_counted);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
@@ -760,7 +760,7 @@ mod trie_recording_tests {
                 data_in_trie.len()
             );
             let nodes_counted = Cell::new(0);
-            let opts = AccessOptions::contract_runtime(&nodes_counted);
+            let opts = AccessOptions::counting_trie_nodes(&nodes_counted);
             let trie =
                 Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
             for key in &keys_to_get {
@@ -779,7 +779,7 @@ mod trie_recording_tests {
 
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let nodes_counted = Cell::new(0);
-            let opts = AccessOptions::contract_runtime(&nodes_counted);
+            let opts = AccessOptions::counting_trie_nodes(&nodes_counted);
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
