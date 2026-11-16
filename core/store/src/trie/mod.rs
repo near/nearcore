@@ -133,7 +133,6 @@ impl<'a> AccessOptions<'a> {
         Self { trie_node_counter: Some(trie_node_counter), enable_state_witness_recording: true }
     }
 
-    /// The same options, without counting trie nodes.
     fn without_trie_node_counter(self) -> Self {
         Self { trie_node_counter: None, ..self }
     }
