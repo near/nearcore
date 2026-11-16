@@ -96,6 +96,14 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("The contract refused the external call: {error:?}")]
+    ExternalCallRefused {
+        error: Box<near_primitives::errors::TxExecutionError>,
+        /// The logs of the contract's run. Empty for a call refused before its run.
+        logs: Vec<String>,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error(
         "Global contract code with identifier {identifier:?} has never been observed on the node"
     )]

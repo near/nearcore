@@ -139,6 +139,9 @@ impl RuntimeUser {
                         panic!("UnexpectedIntegerOverflow error {reason}")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
+                    RuntimeError::ExecutionInvariantBroken(reason) => {
+                        panic!("ExecutionInvariantBroken error {reason}")
+                    }
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
                     RuntimeError::ExternalCallWithoutRecorder => {
                         panic!("external call run on a trie that doesn't record")

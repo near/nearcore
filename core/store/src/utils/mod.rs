@@ -197,18 +197,15 @@ pub fn enqueue_promise_yield_timeout(
         .expect("Next available index for PromiseYield timeout queue exceeded the integer limit");
 }
 
-pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    match receipt.versioned_receipt() {
-        VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            assert!(action_receipt.input_data_ids().len() == 1);
-            let key = TrieKey::PromiseYieldReceipt {
-                receiver_id: receipt.receiver_id().clone(),
-                data_id: action_receipt.input_data_ids()[0],
-            };
-            set(state_update, key, receipt);
-        }
-        _ => unreachable!("Expected PromiseYield receipt"),
-    }
+/// Stores a `PromiseYield` receipt until it is resumed. `data_id` is the only input data id of
+/// the receipt.
+pub fn set_promise_yield_receipt(
+    state_update: &mut TrieUpdate,
+    receipt: &Receipt,
+    data_id: CryptoHash,
+) {
+    let key = TrieKey::PromiseYieldReceipt { receiver_id: receipt.receiver_id().clone(), data_id };
+    set(state_update, key, receipt);
 }
 
 pub fn remove_promise_yield_receipt(

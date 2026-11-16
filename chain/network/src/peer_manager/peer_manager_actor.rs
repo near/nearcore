@@ -232,6 +232,7 @@ impl messaging::Actor for PeerManagerActor {
             async move {
                 loop {
                     interval.tick(&clock).await;
+                    state.tier1_check_reachability();
                     state.tier1_request_full_sync(transport.as_ref());
                     state.tier1_advertise_proxies(&clock, transport.as_ref()).await;
                 }

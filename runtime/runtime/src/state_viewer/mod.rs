@@ -759,7 +759,8 @@ impl TrieViewer {
         }
     }
 
-    fn max_gas_burnt_view(&self, protocol_version: ProtocolVersion) -> Gas {
+    /// The most gas a view call may burn: the node's setting, or else the protocol's limit.
+    pub fn max_gas_burnt_view(&self, protocol_version: ProtocolVersion) -> Gas {
         self.max_gas_burnt_view.unwrap_or_else(|| {
             self.runtime_config_store
                 .get_config(protocol_version)

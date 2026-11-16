@@ -79,6 +79,14 @@ pub enum QueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("The contract refused the external call: {error:?}")]
+    ExternalCallRefused {
+        error: Box<near_primitives::errors::TxExecutionError>,
+        /// The logs of the contract's run. Empty for a call refused before its run.
+        logs: Vec<String>,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error("The state of account {requested_account_id} is too large")]
     TooLargeContractState {
         requested_account_id: near_primitives::types::AccountId,
@@ -150,6 +158,9 @@ pub enum Error {
     /// Invalid receipts proof.
     #[error("Invalid Receipts Proof")]
     InvalidReceiptsProof,
+    /// An incoming receipt failed validation.
+    #[error("Invalid Receipt: {0}")]
+    InvalidReceipt(String),
     /// Invalid outcomes proof.
     #[error("Invalid Outcomes Proof")]
     InvalidOutcomesProof,
@@ -376,6 +387,7 @@ impl Error {
             | Error::InvalidChunkHeadersRoot
             | Error::InvalidChunkTxRoot
             | Error::InvalidReceiptsProof
+            | Error::InvalidReceipt(_)
             | Error::InvalidStatePayload
             | Error::InvalidTransactions
             | Error::InvalidChallenge
@@ -467,6 +479,7 @@ impl Error {
             Error::InvalidChunkHeadersRoot => "invalid_chunk_headers_root",
             Error::InvalidChunkTxRoot => "invalid_chunk_tx_root",
             Error::InvalidReceiptsProof => "invalid_receipts_proof",
+            Error::InvalidReceipt(_) => "invalid_receipt",
             Error::InvalidStatePayload => "invalid_state_payload",
             Error::InvalidTransactions => "invalid_transactions",
             Error::InvalidChallenge => "invalid_challenge",

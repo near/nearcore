@@ -533,6 +533,7 @@ impl ForkNetworkCommand {
             &near_config,
             epoch_manager,
             StateSnapshotConfig::Disabled,
+            None,
         )
         .context("could not create the transaction runtime")?;
         metrics::set_phase(Phase::LoadMemtries);
@@ -643,6 +644,7 @@ impl ForkNetworkCommand {
             &near_config,
             epoch_manager,
             StateSnapshotConfig::Disabled,
+            None,
         )
         .context("could not create the transaction runtime")?;
         let runtime_config = runtime.get_runtime_config(protocol_version);
@@ -827,6 +829,7 @@ impl ForkNetworkCommand {
             &near_config,
             epoch_manager.clone(),
             StateSnapshotConfig::Disabled,
+            None,
         )
         .context("could not create the transaction runtime")?;
         let chain_genesis = ChainGenesis::new(&genesis.config);

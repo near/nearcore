@@ -5,7 +5,7 @@ use anyhow::{Context, anyhow, bail};
 use bytesize::ByteSize;
 use near_async::thread_pool::background_runtime_tasks;
 use near_async::time::{Clock, Duration};
-use near_chain::runtime::{NightshadeRuntime, RuntimeOptions};
+use near_chain::runtime::{ExternalCallCache, NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE, add_account_with_key, add_protocol_account,
     random_chain_id,
@@ -948,6 +948,17 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
+        Self::from_config_with_external_call_cache(home_dir, store, config, epoch_manager, None)
+    }
+
+    /// Like [`NightshadeRuntimeExt::from_config`], sharing `external_call_cache` if it is given.
+    pub fn from_config_with_external_call_cache(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        external_call_cache: Option<ExternalCallCache>,
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let hot_store_path =
             home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
@@ -967,6 +978,7 @@ impl NightshadeRuntime {
             config,
             epoch_manager,
             state_snapshot_config,
+            external_call_cache,
         )
     }
 
@@ -980,6 +992,7 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         state_snapshot_config: StateSnapshotConfig,
+        external_call_cache: Option<ExternalCallCache>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
@@ -1009,6 +1022,7 @@ impl NightshadeRuntime {
             RuntimeOptions {
                 is_cloud_archival_writer: config.client_config.cloud_archival_writer.is_some(),
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
+                external_call_cache,
             },
         ))
     }

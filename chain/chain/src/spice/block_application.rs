@@ -3,8 +3,9 @@ use crate::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD;
 use crate::types::{RuntimeAdapter, Tip};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::ShardUId;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 
@@ -23,6 +24,11 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 /// and post-commit would see an inconsistent split. Both ops are idempotent.
 ///
 /// Calling twice on the same block reaches the same end state.
+///
+/// Both follow the final execution head only for the shards this node has applied up to it. The
+/// head waits only on the shards tracked this epoch, so any other shard, like one caught up for
+/// the next epoch, can lag behind it. Such a shard follows each final block it applies instead,
+/// see `apply_shard_postprocessing`.
 pub fn apply_block_postprocessing(
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
@@ -38,16 +44,38 @@ pub fn apply_block_postprocessing(
     store_update.commit();
 
     let Some(new_final) = new_final else { return Ok(()) };
-    let shard_layout =
-        epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash())?;
-    update_flat_storage_head(runtime_adapter, &shard_layout, &new_final)?;
-    gc_memtrie_roots(runtime_adapter, chain_store, &shard_layout, &new_final);
+    let chunk_store = chain_store.chunk_store();
+    let shard_uids_applied_up_to_new_final: Vec<ShardUId> = epoch_manager
+        .get_shard_layout_from_prev_block(block.header().prev_hash())?
+        .shard_uids()
+        .filter(|shard_uid| {
+            chunk_store.get_chunk_extra(&new_final.last_block_hash, shard_uid).is_ok()
+        })
+        .collect();
+    update_flat_storage_head(runtime_adapter, &shard_uids_applied_up_to_new_final, &new_final)?;
+    gc_memtrie_roots(runtime_adapter, chain_store, &shard_uids_applied_up_to_new_final, &new_final);
+    Ok(())
+}
+
+/// Flat-storage advance and memtrie GC for `shard_uid` alone, which has just applied
+/// `final_block`, a block at or below the final execution head. The head passed that block without
+/// the shard, so `apply_block_postprocessing` left the shard alone, but the block is final: the
+/// shard follows it like a caught-up shard does without spice.
+pub fn apply_shard_postprocessing(
+    runtime_adapter: &dyn RuntimeAdapter,
+    chain_store: &ChainStoreAdapter,
+    shard_uid: ShardUId,
+    final_block: &BlockHeader,
+) -> Result<(), Error> {
+    let final_block = Tip::from_header(final_block);
+    update_flat_storage_head(runtime_adapter, &[shard_uid], &final_block)?;
+    gc_memtrie_roots(runtime_adapter, chain_store, &[shard_uid], &final_block);
     Ok(())
 }
 
 fn update_flat_storage_head(
     runtime_adapter: &dyn RuntimeAdapter,
-    shard_layout: &ShardLayout,
+    shard_uids: &[ShardUId],
     final_execution_head: &Tip,
 ) -> Result<(), Error> {
     // TODO(spice): Evaluate if using block before final_execution_head still
@@ -62,7 +90,7 @@ fn update_flat_storage_head(
         return Ok(());
     }
     let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
-    for shard_uid in shard_layout.shard_uids() {
+    for &shard_uid in shard_uids {
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
             continue;
         }
@@ -74,7 +102,7 @@ fn update_flat_storage_head(
 fn gc_memtrie_roots(
     runtime_adapter: &dyn RuntimeAdapter,
     chain_store: &ChainStoreAdapter,
-    shard_layout: &ShardLayout,
+    shard_uids: &[ShardUId],
     final_execution_head: &Tip,
 ) {
     let header = chain_store.get_block_header(&final_execution_head.last_block_hash).unwrap();
@@ -82,7 +110,7 @@ fn gc_memtrie_roots(
         return;
     };
     let tries = runtime_adapter.get_tries();
-    for shard_uid in shard_layout.shard_uids() {
+    for &shard_uid in shard_uids {
         tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
     }
 }
