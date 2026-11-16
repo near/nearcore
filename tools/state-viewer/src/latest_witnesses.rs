@@ -132,7 +132,7 @@ impl GenerateWitnessesCmd {
 
         apply_range(
             crate::cli::ApplyRangeMode::Sequential { save_state_transitions: true },
-            crate::cli::StorageSource::TrieFree,
+            crate::cli::StorageSource::Trie,
             Some(start_height),
             Some(end_height),
             vec![self.shard_id],

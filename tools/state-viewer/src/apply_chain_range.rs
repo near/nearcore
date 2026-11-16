@@ -272,7 +272,6 @@ fn get_chunk_application_input(
                         let storage_proof = o.proof.unwrap();
                         RuntimeStorageConfig {
                             state_root: *chunk_inner.prev_state_root(),
-                            use_flat_storage: false,
                             source: StorageDataSource::Recorded(storage_proof),
                             state_patch: Default::default(),
                         }
@@ -525,7 +524,7 @@ fn apply_block_from_range(
     // which have their unique properties (e.g. flat storage operates on flat_head...)
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
-        (_, StorageSource::Trie | StorageSource::TrieFree) => {}
+        (_, StorageSource::Trie) => {}
         (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
             // Compute delta and immediately apply to flat storage.
             let changes =
@@ -581,7 +580,7 @@ fn apply_block_from_range(
             apply_result.trie_changes.insertions_into(&mut fake_store_update);
             apply_result.trie_changes.deletions_into(&mut fake_store_update);
         }
-        (_, StorageSource::Trie | StorageSource::TrieFree | StorageSource::Memtrie) => {
+        (_, StorageSource::Trie | StorageSource::Memtrie) => {
             if let Err(err) = maybe_save_trie_changes(
                 write_store,
                 &genesis.config,
@@ -637,7 +636,7 @@ pub fn apply_chain_range(
     // configurations that aren't used in production anymore, in case anybody really wants that
     // behaviour.
     match storage {
-        StorageSource::Trie | StorageSource::TrieFree => {}
+        StorageSource::Trie => {}
         StorageSource::FlatStorage | StorageSource::Recorded => {
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
@@ -654,8 +653,8 @@ pub fn apply_chain_range(
     }
 
     let (start_height, end_height) = match (mode, storage) {
-        (ApplyRangeMode::Benchmark, StorageSource::Trie | StorageSource::TrieFree) => {
-            panic!("benchmark with --storage trie|trie-free is not supported")
+        (ApplyRangeMode::Benchmark, StorageSource::Trie) => {
+            panic!("benchmark with --storage trie is not supported")
         }
         (
             ApplyRangeMode::Benchmark,
@@ -674,7 +673,7 @@ pub fn apply_chain_range(
             // `0` helps indicatif to display more reasonable output.
             (ready.flat_head.height + 1, 0)
         }
-        (_, StorageSource::Trie | StorageSource::TrieFree) => (
+        (_, StorageSource::Trie) => (
             start_height.unwrap_or_else(|| chain_store.tail()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),

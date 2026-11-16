@@ -158,7 +158,6 @@ pub fn apply_new_chunk(
     let _timer = chunk_hash.map(|chunk_hash| CryptoHashTimer::new(Clock::real(), chunk_hash.0));
     let storage_config = RuntimeStorageConfig {
         state_root: prev_state_root,
-        use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
     };
@@ -211,7 +210,6 @@ pub fn apply_old_chunk(
 
     let storage_config = RuntimeStorageConfig {
         state_root: *prev_chunk_extra.state_root(),
-        use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
     };
