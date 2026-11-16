@@ -645,11 +645,6 @@ impl Trie {
         self.memtries.is_some()
     }
 
-    /// Helper to simulate gas costs as if flat storage was present.
-    pub fn set_use_trie_accounting_cache(&mut self, value: bool) {
-        self.use_access_tracker = value;
-    }
-
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads_new_recorder(&self) -> Self {

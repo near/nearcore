@@ -96,7 +96,6 @@ impl RuntimeUser {
         mut apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
-        use_flat_storage: bool,
     ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
         for transaction in &transactions {
@@ -105,19 +104,12 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write();
-            let trie = if use_flat_storage {
-                client.tries.get_trie_with_block_hash_for_shard(
-                    ShardUId::single_shard(),
-                    client.state_root,
-                    &CryptoHash::default(),
-                    false,
-                )
-            } else {
-                let shard_uid = ShardUId::single_shard();
-                let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
-                trie.set_use_trie_accounting_cache(true);
-                trie
-            };
+            let trie = client.tries.get_trie_with_block_hash_for_shard(
+                ShardUId::single_shard(),
+                client.state_root,
+                &CryptoHash::default(),
+                false,
+            );
             let validity_check_results = vec![true; txs.len()];
             let apply_result = client
                 .runtime
@@ -165,10 +157,8 @@ impl RuntimeUser {
                 ShardUId::single_shard(),
                 &mut update,
             );
-            if use_flat_storage {
-                near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-                    .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
-            }
+            near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
+                .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
             update.commit();
             client.state_root = apply_result.state_root;
             client.block_height = apply_state.block_height;
@@ -389,7 +379,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction], true)?;
+        self.apply_all(self.apply_state(), vec![], vec![transaction])?;
         Ok(())
     }
 
@@ -397,7 +387,7 @@ impl User for RuntimeUser {
         &self,
         signed_transactions: Vec<SignedTransaction>,
     ) -> Result<Vec<Result<FinalExecutionOutcomeView, CommitError>>, ServerError> {
-        self.apply_all(self.apply_state(), vec![], signed_transactions.clone(), true)?;
+        self.apply_all(self.apply_state(), vec![], signed_transactions.clone())?;
         Ok(signed_transactions
             .into_iter()
             .map(|t| {
@@ -411,18 +401,14 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, super::CommitError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()])
             .map_err(super::CommitError::Server)?;
         self.get_transaction_final_result(&transaction.get_hash())
             .ok_or(super::CommitError::OutcomeNotFound)
     }
 
-    fn add_receipts(
-        &self,
-        receipts: Vec<Receipt>,
-        use_flat_storage: bool,
-    ) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), receipts, vec![], use_flat_storage)?;
+    fn add_receipts(&self, receipts: Vec<Receipt>) -> Result<(), ServerError> {
+        self.apply_all(self.apply_state(), receipts, vec![])?;
         Ok(())
     }
 
