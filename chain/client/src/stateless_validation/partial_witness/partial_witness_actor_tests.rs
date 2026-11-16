@@ -2,14 +2,15 @@ use super::partial_witness_actor::{
     PartialWitnessActor, version_mismatch, witness_version_mismatch,
 };
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSenderForPartialWitness;
+use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{IntoAsyncSender, IntoSender, noop};
 use near_async::time::Clock;
-use near_chain::Chain;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::test_utils::{setup, setup_with_tx_validity_period_at_version};
 use near_chain::types::RuntimeAdapter;
+use near_chain::{Chain, Error};
 use near_chain_configs::Genesis;
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_epoch_manager::EpochManagerAdapter;
@@ -462,20 +463,20 @@ impl UnprocessedParentAccesses {
 }
 
 #[test]
-fn uncached_accessed_contracts_with_unprocessed_parent_skips_contracts_cached_under_its_epoch() {
+fn get_missing_contract_hashes_with_unprocessed_parent_skips_contracts_cached_under_its_epoch() {
     let setup = UnprocessedParentAccesses::new();
     let accesses = setup.accesses(setup.unknown_parent);
     assert_eq!(
-        setup.actor.uncached_accessed_contracts(&accesses).unwrap(),
-        Some(HashSet::from([setup.uncached])),
+        setup.actor.get_missing_contract_hashes(&accesses).unwrap(),
+        HashSet::from([setup.uncached]),
     );
 }
 
 #[test]
-fn uncached_accessed_contracts_rejects_unknown_main_transition_block_other_than_parent() {
+fn get_missing_contract_hashes_rejects_unknown_main_transition_block_other_than_parent() {
     let setup = UnprocessedParentAccesses::new();
     let accesses = setup.accesses(CryptoHash::hash_bytes(b"not_an_ancestor"));
-    assert_eq!(setup.actor.uncached_accessed_contracts(&accesses).unwrap(), None);
+    assert_matches!(setup.actor.get_missing_contract_hashes(&accesses), Err(Error::Other(_)));
 }
 
 fn build_deploys(

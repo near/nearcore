@@ -13,11 +13,11 @@ use near_primitives::types::Balance;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
-/// The first chunk of an epoch replays the previous epoch's last chunk, so its accessed
-/// contracts run under the previous epoch's wasm config. A contract compiled only under the
-/// new config, from the deploys sent with that first chunk, must still be requested.
+/// The witness for the first chunk of an epoch applies the previous epoch's last chunk, so
+/// its accessed contracts run under the previous epoch's wasm config. A contract compiled
+/// only under the new config, from the deploys sent with that first chunk, must still be requested.
 /// Here the first chunk's producer sends the deploys but withholds the witness and the
-/// accesses, so the next witnesses replay the same old-config chunk.
+/// accesses, so the next witnesses apply the same old-config chunk.
 #[test]
 fn slow_test_withheld_first_chunk_after_vm_config_upgrade_does_not_stall_shard() {
     init_test_logger();
