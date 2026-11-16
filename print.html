@@ -3602,9 +3602,8 @@ other important information like storage usage.</p>
 </li>
 <li>
 <p>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
-or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.
-An external call runs the contract method with the reserved name <code>__nightly_external_call</code> (the name will change
-when the feature is stabilized). A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
+or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature.
+An external call runs the contract method with the reserved name <code>__external_call</code>. A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
 action to it fails with <code>ReservedMethodName</code>. An external call that creates a yielded promise is rejected, since
 the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
 limited too (see <a href="RuntimeSpec/Components/BindingsSpec/TrieAPI.html">Trie API</a>). An external call may carry the state init of a universal account, which
@@ -4403,13 +4402,13 @@ If <code>ptr</code> is wrong but inside guest memory, the function overwrites th
 not follow the specification are considered to be bugs that need to be fixed.</p>
 <p>In an external call (see <a href="RuntimeSpec/Components/BindingsSpec/ContextAPI.html">Context API</a>), the storage functions below can also panic with
 <code>RecordedStorageExceeded</code>: the trie nodes and values the call reads go into the chunk's storage proof, and an external
-call may add at most <code>max_external_call_recorded_size</code> (20 KiB) to it, including what installing its state init
+call may add at most <code>max_external_call_recorded_size</code> (50 KiB) to it, including what installing its state init
 records. A read that would record a value past the limit
 fails without reading it. A read that records the trie node that crosses the limit fails after recording it, and so does
 a <code>storage_remove</code> that crosses it. The call is then rejected, and nobody pays for it (see
 <a href="RuntimeSpec/Components/BindingsSpec/../../../architecture/how/gas.html#gas-in-external-contract-calls">Gas in External Contract Calls</a>).</p>
 <p>Removals are costly in an external call. Each <code>storage_remove</code> counts toward the limit with a fixed estimate of 2000
-bytes, even for a key that isn't present, so a call can remove no more than ten keys, and fewer, as the trie nodes it
+bytes, even for a key that isn't present, so a call can remove no more than 25 keys, and fewer, as the trie nodes it
 reads count as well. Larger cleanups belong in the receipts the call creates.</p>
 <hr />
 <h4 id="storage_write"><a class="header" href="#storage_write">storage_write</a></h4>
@@ -8823,8 +8822,8 @@ gas that is computed after the current call has finished. This allows attaching
 attaching an equal fraction to each, or any other split as defined by the weight
 per call.</p>
 <h3 id="gas-in-external-contract-calls"><a class="header" href="#gas-in-external-contract-calls">Gas in External Contract Calls</a></h3>
-<p>External contract calls (the <code>ExternalContractCalls</code> protocol feature, not yet
-stable) let a contract authorize a call from a user who has no balance. The
+<p>External contract calls (the <code>ExternalContractCalls</code> protocol feature) let a
+contract authorize a call from a user who has no balance. The
 contract pays for the gas, so there is no <code>attached_gas</code> and the
 <code>prepaid_gas()</code> host function fails. Instead, two limits apply:</p>
 <ul>
@@ -8888,14 +8887,19 @@ invalid.</p>
 </li>
 <li>
 <p>the storage proof its run records: at most
-<code>max_external_call_recorded_size</code>, 20 KiB. A read that records the trie node
+<code>max_external_call_recorded_size</code>, 50 KiB. A read that records the trie node
 crossing the limit fails the call with <code>RecordedStorageExceeded</code>, and a value
 whose length would cross it isn't read at all. The limit applies to the
 install of a state init and the run, not to reading the contract's account
 before them.</p>
+<p>A contract's storage can sit deep in the trie. In the worst case, a
+64-character account, the path takes about 39 KB, which leaves a run about
+11.9 KB for its own reads. A state init that installs a global contract by
+its publisher's account id records the path to that contract too, so a
+wallet's state init should name its global contract by code hash.</p>
 <p>Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
 proof limit uses too, even for a key that isn't there. So removals are costly
-in an external call: it can remove no more than ten keys, and fewer, as the
+in an external call: it can remove no more than 25 keys, and fewer, as the
 trie nodes it reads count as well. Larger cleanups belong in the receipts the
 call creates.</p>
 </li>
@@ -8904,7 +8908,7 @@ call creates.</p>
 <div class="table-wrapper"><table><thead><tr><th>Limit</th><th>Share</th><th>With the current limits</th></tr></thead><tbody>
 <tr><td><code>combined_transactions_size_limit</code></td><td><code>external_calls_chunk_transactions_size_share</code>, 1/40</td><td>about 100 KiB</td></tr>
 <tr><td>the chunk's compute limit, its gas limit</td><td><code>external_calls_chunk_compute_share</code>, 2/5</td><td>400 Tgas of a 1000 Tgas chunk</td></tr>
-<tr><td><code>main_storage_proof_size_soft_limit</code></td><td><code>external_calls_chunk_storage_proof_share</code>, 1/20</td><td>200 KB</td></tr>
+<tr><td><code>main_storage_proof_size_soft_limit</code></td><td><code>external_calls_chunk_storage_proof_share</code>, 1/10</td><td>400 KB</td></tr>
 </tbody></table>
 </div>
 <p>Each share fits five calls that use as much of it as a call can.</p>
@@ -8924,7 +8928,10 @@ end of the run. A call that finds a share reached is rejected with
 <code>ExternalCallChunkShareReached</code> before anything is read for it, not even the
 contract's account, so it adds nothing to the storage proof. Only such a call
 adds nothing to the shares; a call rejected after it was admitted counts
-toward them like any other.</p>
+toward them like any other. A call refused for its own validity, such as one
+with a malformed state init, counts the compute of its fees toward the compute
+share without the share check, and records no storage proof;
+<code>max_external_calls_per_chunk</code> bounds how many such calls a chunk holds.</p>
 <p>Unlike every other rejected call, a call rejected because a share was reached
 counts no compute toward the chunk, not even that of its fees. This is on
 purpose: rejecting it takes far less work than the fees stand for, less than

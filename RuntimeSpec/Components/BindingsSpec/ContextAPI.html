@@ -155,9 +155,8 @@ other important information like storage usage.</p>
 </li>
 <li>
 <p>an <strong>external</strong> call is authorized and paid for by the contract itself, so the caller does not need an account
-or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature, which is not yet stable.
-An external call runs the contract method with the reserved name <code>__nightly_external_call</code> (the name will change
-when the feature is stabilized). A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
+or a balance. External calls are part of the <code>ExternalContractCalls</code> protocol feature.
+An external call runs the contract method with the reserved name <code>__external_call</code>. A view call can also run that method, but an internal call can't: a <code>FunctionCall</code>
 action to it fails with <code>ReservedMethodName</code>. An external call that creates a yielded promise is rejected, since
 the yield's id would differ between the chunk producer's run and apply. An external call's storage reads are
 limited too (see <a href="TrieAPI.html">Trie API</a>). An external call may carry the state init of a universal account, which
