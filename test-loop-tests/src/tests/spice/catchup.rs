@@ -2,9 +2,7 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
 use crate::utils::certification::assert_certification_kept_up;
-use crate::utils::execution::{
-    MAX_EXECUTION_LAG, assert_caught_up_shards_applied, assert_execution_kept_up,
-};
+use crate::utils::execution::{assert_caught_up_shards_applied, assert_execution_kept_up};
 use crate::utils::node::TestLoopNode;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess as _;
@@ -27,6 +25,7 @@ pub(super) const TRACKED_EPOCH_HEIGHT: EpochHeight = 3;
 pub(super) const NUM_SCHEDULED_EPOCHS: EpochHeight = 20;
 const SLOW_CATCHUP_STEP_PERIOD: Duration = Duration::seconds(5);
 const BLOCKS_INTO_EPOCH: BlockHeight = 5;
+const MAX_EXECUTION_LAG: BlockHeight = 3;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -68,7 +67,7 @@ fn slow_test_spice_catchup_applies_the_epoch_after_a_restart() {
 
     // The restarted node syncs the shard again, and its head waits for that catchup to finish
     // before entering the next epoch, which the others are already past.
-    run_until_executed_into_tracked_epoch(&mut env, restarted);
+    run_until_executed_into_tracked_epoch(&mut env, restarted, MAX_EXECUTION_LAG);
     let node = env.node(restarted);
     let chain_store = &node.client().chain.chain_store;
     assert_eq!(chain_store.get_block_hash_by_height(sync_height).unwrap(), sync_hash);
@@ -100,7 +99,7 @@ fn slow_test_spice_catchup_after_a_restart_during_the_state_download() {
     let killed_node_state = env.kill_node(&identifier);
     let restarted = env.restart_node(&format!("{identifier}-restart"), killed_node_state);
 
-    run_until_executed_into_tracked_epoch(&mut env, restarted);
+    run_until_executed_into_tracked_epoch(&mut env, restarted, MAX_EXECUTION_LAG);
     assert_applied_after(&env.node(restarted), &sync_hash);
     assert_execution_kept_up(&env);
     assert_caught_up_shards_applied(&env);
@@ -137,7 +136,7 @@ fn slow_test_spice_catchup_after_a_restart_between_the_catchup_and_the_replay() 
     let killed_node_state = env.kill_node(&identifier);
     let restarted = env.restart_node(&format!("{identifier}-restart"), killed_node_state);
 
-    run_until_executed_into_tracked_epoch(&mut env, restarted);
+    run_until_executed_into_tracked_epoch(&mut env, restarted, MAX_EXECUTION_LAG);
     assert_applied_after(&env.node(restarted), &sync_hash);
     assert_execution_kept_up(&env);
     assert_caught_up_shards_applied(&env);
@@ -171,13 +170,17 @@ fn build_env(
 
 /// Runs until node `idx` is a few blocks into `TRACKED_EPOCH_HEIGHT` or later, with execution
 /// keeping up. A node that caught the shard up late enters that epoch late, possibly epochs late.
-pub(super) fn run_until_executed_into_tracked_epoch(env: &mut TestLoopEnv, idx: usize) {
+pub(super) fn run_until_executed_into_tracked_epoch(
+    env: &mut TestLoopEnv,
+    idx: usize,
+    max_execution_lag: BlockHeight,
+) {
     env.node_runner(idx).run_until(
         |node| {
             let (epoch_height, epoch_start) = epoch_of_head(node);
             epoch_height >= TRACKED_EPOCH_HEIGHT
                 && node.head().height >= epoch_start + BLOCKS_INTO_EPOCH
-                && node.last_executed().height + MAX_EXECUTION_LAG >= node.head().height
+                && node.last_executed().height + max_execution_lag >= node.head().height
         },
         Duration::seconds(600),
     );

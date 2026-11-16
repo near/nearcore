@@ -5,7 +5,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 /// How far a node's execution head may fall behind its head at the end of a test.
-pub(crate) const MAX_EXECUTION_LAG: BlockHeight = 3;
+const MAX_EXECUTION_LAG: BlockHeight = 3;
 
 /// Asserts that on every live node the execution head is within `MAX_EXECUTION_LAG` blocks of the
 /// head, and that what it applied was certified.
