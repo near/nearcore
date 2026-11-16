@@ -109,4 +109,11 @@ ignore = [
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
     "RUSTSEC-2026-0429",
+
+    # RUSTSEC-2026-0441: pin-utils is unmaintained. Reached only through
+    # nix 0.26 <- webrtc-util <- stun/turn (near-network STUN client and test
+    # server). The latest webrtc-util (0.17.3) still depends on nix 0.26.
+    # TODO: update stun/turn once webrtc-util drops nix 0.26, or move
+    # near-network off stun/turn.
+    "RUSTSEC-2026-0441",
 ]

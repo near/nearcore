@@ -305,7 +305,7 @@ rlp = "0.5.2"
 # When upgrading: core/store/src/db/rocksdb.rs matches the "Direct I/O is not
 # supported" message from RocksDB's DB::Open to give operators a config hint.
 rocksdb = { version = "0.24.0", default-features = false }
-rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
+rusqlite = { version = "0.43.0", features = ["bundled", "chrono", "fallible_uint", "functions"] }
 rust-s3 = { version = "0.36", features = ["blocking"] }
 rustix = "1"
 secp256k1 = { version = "0.27.0", default-features = false }
