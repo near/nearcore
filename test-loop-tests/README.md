@@ -147,6 +147,7 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 | `archival.rs` | Archival node with cold storage |
 | `gas_limit.rs` | Gas limit behavior verification |
 | `delayed_receipts.rs` | Creating and observing delayed receipts |
+| `network_rules.rs` | Dropping, losing, duplicating and delaying the requests a node sends |
 | `missing_chunk.rs` | Triggering missing chunks using adversarial messages |
 | `validator_rotation.rs` | Validator rotation across epochs |
 | `resharding.rs` | Dynamic resharding (manual genesis setup) |
@@ -167,6 +168,37 @@ env.restart_node(&new_identifier, killed_state);
 let new_node_state = env.node_state_builder().account_id(&new_account_id).build();
 env.add_node(identifier, new_node_state);
 ```
+
+### Network rules
+
+A rule applies an `Action` (`Drop`, `Lose`, `Delay`, `DelayBy`, `Hold`, `Replace`, `Observe`)
+to the requests a node sends that match a predicate, until its `RuleHandle` is lifted. Rules
+are keyed by account, so they survive a node restart. See `src/setup/network_rules.rs`.
+
+```rust
+let rule = env.drop_messages_from(2, |request| {
+    matches!(request, NetworkRequests::ChunkEndorsement(..))
+});
+env.node_runner(0).run_for_number_of_blocks(5);
+assert!(rule.matched() > 0);
+rule.lift();
+
+env.network_rule(1, |request| matches!(request, NetworkRequests::Approval { .. }),
+    Action::Delay(Duration::seconds(1)));
+```
+
+- Rules run in the order they were added. A delayed or held request skips the rules after
+  the one that delayed it; `observe_messages_from` sees requests before any rule does.
+- A block that is dropped, held or replaced before any node sent it is *kept*:
+  `BlockRequest`s for it, and header requests to its keeper, are swallowed, even before
+  observers see them, and also when a delayed request goes out. Dropping a block a node
+  only rebroadcasts does not keep it. `Action::Lose` drops a request without keeping its
+  block.
+- `chunk_parts_rule` matches every message that carries a chunk's parts.
+- To withhold a block from one recipient only, use `withhold_block_delivery` /
+  `deliver_withheld_blocks` on `env.shared_state.network_shared_state`.
+- `register_override_handler` is still available for tests that deliver messages
+  themselves.
 
 ## Utilities
 
