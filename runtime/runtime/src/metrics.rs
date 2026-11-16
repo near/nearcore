@@ -218,7 +218,7 @@ pub static PREFETCH_QUEUE_FULL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 });
 pub static EXTERNAL_CALL_PROCESSED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_external_call_processed",
+        "near_ecc_processed_total",
         "The number of external calls applied since starting this node, by verdict: accepted, or why the call was refused",
         &["result"],
     )

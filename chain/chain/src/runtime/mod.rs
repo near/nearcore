@@ -2785,9 +2785,13 @@ enum ViewExternalCallError {
 }
 
 impl ViewExternalCallError {
-    /// A call refused before its run, which logs nothing.
+    /// A call refused before its run, which logs nothing. A storage error is the node's own
+    /// failure, not a refusal.
     fn refused_before_run(error: InvalidTxError) -> Self {
-        Self::Refused(Box::new(error.into()), vec![])
+        match error {
+            InvalidTxError::StorageError(error) => Self::Internal(error.into()),
+            error => Self::Refused(Box::new(error.into()), vec![]),
+        }
     }
 
     fn into_query_error(self, block_height: BlockHeight, block_hash: CryptoHash) -> QueryError {

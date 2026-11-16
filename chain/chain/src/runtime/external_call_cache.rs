@@ -17,9 +17,9 @@ use std::sync::Arc;
 /// It is about 10 minutes at 600 ms blocks.
 pub const EXTERNAL_CALL_REPEAT_WINDOW: BlockHeightDelta = 1_000;
 
-/// How many calls the cache keeps. It covers the repeat window at up to 10 calls per block, and
-/// each cache entry takes about 400 bytes.
-const CAPACITY: NonZeroUsize = NonZeroUsize::new(10_000).unwrap();
+/// How many calls the cache keeps. It covers the repeat window at up to 100 calls per block over
+/// all tracked shards, and takes at most about 40 MB when full, at about 400 bytes per entry.
+const CAPACITY: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
 
 /// An inclusion of a call, with the block that includes it.
 #[derive(Clone)]
