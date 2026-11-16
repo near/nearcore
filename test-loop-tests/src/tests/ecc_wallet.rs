@@ -8,6 +8,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
+use assert_matches::assert_matches;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use borsh::BorshSerialize;
@@ -16,7 +17,9 @@ use near_chain_configs::{ClientConfig, MutableConfigValue};
 use near_client::{ProcessTxResponse, QueryError};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::errors::{ActionError, ActionErrorKind, FunctionCallError, TxExecutionError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, FunctionCallError, InvalidTxError, TxExecutionError,
+};
 use near_primitives::gas::Gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::transaction::{ECC_METHOD_NAME, EccTransaction};
@@ -77,19 +80,9 @@ struct SignedRequest {
 /// Mirrors `WalletAction` in the contract's README.
 #[derive(BorshSerialize, Clone)]
 enum WalletAction {
-    Transfer {
-        deposit: u128,
-    },
-    FunctionCall {
-        method_name: String,
-        args: Vec<u8>,
-        deposit: u128,
-        gas: u64,
-    },
-    #[allow(dead_code)]
-    DeleteAccount {
-        beneficiary_id: String,
-    },
+    Transfer { deposit: u128 },
+    FunctionCall { method_name: String, args: Vec<u8>, deposit: u128, gas: u64 },
+    DeleteAccount { beneficiary_id: String },
 }
 
 /// WebAuthn's user-present flag, which the wallet requires.
@@ -644,4 +637,143 @@ fn test_wallet_refuses_bad_signatures_and_bindings() {
         env.rpc_node().query_balance(&receiver),
         receiver_balance.checked_add(deposit).unwrap()
     );
+}
+
+/// The nonce floor survives the wallet being deleted and set up again from the same state init,
+/// which restores its initial state. A request P that the old wallet ran is, after re-creation:
+/// - accepted as the new wallet's first call, which sets the floor and runs nothing;
+/// - then refused by the floor while it is still unexpired.
+#[test]
+fn test_wallet_floor_survives_recreation() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let receiver = create_account_id("receiver");
+    let (mut env, wallet) = setup(&sponsor, &[&receiver]);
+    let floor = install(&mut env, &wallet);
+    let deposit = Balance::from_near(1);
+    let transfer = vec![WalletAction::Transfer { deposit: deposit.as_yoctonear() }];
+
+    // P runs on the old wallet.
+    let p = wallet.request(&env, floor + 1, &receiver, transfer);
+    let p_assertion = wallet.passkey.assertion(&p);
+    let p_call = EccTransaction::new(wallet.id.clone(), borsh::to_vec(&p_assertion).unwrap());
+    let outcome = send_call(&mut env, &p_call);
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+
+    // The wallet deletes itself and the sponsor funds the same id again, which leaves it
+    // uninitialized, with no state: its nonce is gone.
+    let delete = vec![WalletAction::DeleteAccount { beneficiary_id: sponsor.to_string() }];
+    let delete_request = wallet.request(&env, floor + 2, &wallet.id, delete);
+    let outcome = send_call(&mut env, &wallet.call(&delete_request));
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+    env.rpc_runner().run_for_number_of_blocks(1);
+    assert!(env.rpc_node().view_account_query(&wallet.id).is_err());
+    let fund = env.rpc_node().tx_send_money(&sponsor, &wallet.id, Balance::from_near(10));
+    env.rpc_runner().run_tx(fund, RPC_TIMEOUT);
+    assert_eq!(get_nonce(&env, &wallet, false), None);
+
+    // P again, with the state init. Nodes drop a repeat of a call that ran, by its hash without
+    // the state init, so P goes with the other form of its signature: a different call, which
+    // only the wallet can stop. Its request doesn't run.
+    let receiver_balance = env.rpc_node().query_balance(&receiver);
+    let mut p_malleated = wallet.passkey.assertion(&p);
+    p_malleated.signature = malleate(p_malleated.signature);
+    let p_replay = EccTransaction::new_with_state_init(
+        wallet.id.clone(),
+        borsh::to_vec(&p_malleated).unwrap(),
+        Some(wallet.state_init.clone()),
+    );
+    let outcome = send_call(&mut env, &p_replay);
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+    let new_floor = get_nonce(&env, &wallet, true).expect("the first call sets the floor");
+    assert_eq!(
+        outcome.transaction_outcome.outcome.logs,
+        vec![format!("nonce floor set to {new_floor}; request not run")]
+    );
+    assert!(outcome.transaction_outcome.outcome.receipt_ids.is_empty());
+    env.rpc_runner().run_for_number_of_blocks(1);
+    assert_eq!(env.rpc_node().query_balance(&receiver), receiver_balance);
+
+    // The new floor is above every nonce the old wallet accepted, so P is refused in both forms
+    // while it is still unexpired. An expiry alone would not have stopped it. Both forms have run,
+    // so nodes would drop them for `EXTERNAL_CALL_REPEAT_WINDOW` blocks without asking the
+    // wallet; view calls ask it directly. Waiting out the window would take about 30 seconds.
+    assert!(new_floor > delete_request.nonce);
+    assert!(p.expiry_height > env.rpc_node().head().height);
+    for assertion in [&p_assertion, &p_malleated] {
+        let payload = borsh::to_vec(assertion).unwrap();
+        assert_eq!(refusal(&env, &wallet, payload), "nonce too low");
+    }
+}
+
+/// The wallet accepts the largest call the per-call limits allow: a function call request whose
+/// args fill the call up to `max_external_call_size`. Args cost the most per byte: the wallet
+/// reads, parses and hashes them, and copies them into a receipt. The run stays within the burnt
+/// gas budget, and the runtime's cap on recorded storage, or it would be refused. One byte more is
+/// refused by RPC.
+#[test]
+fn test_wallet_accepts_the_largest_call() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let receiver = create_account_id("receiver");
+    let (mut env, wallet) = setup(&sponsor, &[&receiver]);
+    let deploy = env.rpc_node().tx_deploy_test_contract(&receiver);
+    env.rpc_runner().run_tx(deploy, RPC_TIMEOUT);
+    let floor = install(&mut env, &wallet);
+    let config = env.rpc_node().client().runtime_adapter.get_runtime_config(PROTOCOL_VERSION);
+    let max_call_size = config.external_calls_config.max_call_size;
+    let max_gas_burnt = config.wasm_config.limit_config.max_gas_burnt_external;
+
+    // `log_something` ignores its args. Each byte of args adds one byte to the call, since every
+    // length prefix is a fixed four bytes.
+    let request_with_args = |args_len: u64| {
+        let call = WalletAction::FunctionCall {
+            method_name: "log_something".to_string(),
+            args: vec![7; usize::try_from(args_len).unwrap()],
+            deposit: 0,
+            gas: Gas::from_teragas(10).as_gas(),
+        };
+        wallet.request(&env, floor + 1, &receiver, vec![call])
+    };
+    let empty_size = wallet.call(&request_with_args(0)).get_size();
+    let largest = request_with_args(max_call_size - empty_size);
+    let largest_call = wallet.call(&largest);
+    assert_eq!(largest_call.get_size(), max_call_size);
+
+    let too_large = wallet.call(&request_with_args(max_call_size - empty_size + 1));
+    assert_eq!(too_large.get_size(), max_call_size + 1);
+    assert_matches!(
+        env.rpc_node().process_tx(too_large, false),
+        ProcessTxResponse::InvalidTx(InvalidTxError::TransactionSizeExceeded { size, limit })
+            if size == max_call_size + 1 && limit == max_call_size
+    );
+
+    let outcome = send_call(&mut env, &largest_call);
+    assert_eq!(outcome.status, FinalExecutionStatus::SuccessValue(vec![]));
+    let gas_burnt = outcome.transaction_outcome.outcome.gas_burnt;
+    tracing::info!(
+        target: "test",
+        size = largest_call.get_size(),
+        %gas_burnt,
+        %max_gas_burnt,
+        "the largest call ran"
+    );
+    assert!(gas_burnt < max_gas_burnt, "{gas_burnt} of {max_gas_burnt}");
+    let call_outcome = outcome
+        .receipts_outcome
+        .iter()
+        .find(|receipt| receipt.outcome.executor_id == receiver)
+        .expect("the function call runs on the receiver");
+    assert_eq!(call_outcome.outcome.logs, vec!["hello"]);
+    assert_eq!(get_nonce(&env, &wallet, true), Some(floor + 1));
 }
