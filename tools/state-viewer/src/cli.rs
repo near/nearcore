@@ -209,7 +209,6 @@ impl StateViewerSubCommand {
 #[clap(rename_all = "kebab_case")]
 pub enum StorageSource {
     /// Use the data stored in trie, without flat storage.
-    #[value(alias("trie-free"))]
     Trie,
     #[value(alias("flat"))]
     FlatStorage,
