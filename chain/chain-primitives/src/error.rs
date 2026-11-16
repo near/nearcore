@@ -158,6 +158,9 @@ pub enum Error {
     /// Invalid receipts proof.
     #[error("Invalid Receipts Proof")]
     InvalidReceiptsProof,
+    /// An incoming receipt failed validation.
+    #[error("Invalid Receipt: {0}")]
+    InvalidReceipt(String),
     /// Invalid outcomes proof.
     #[error("Invalid Outcomes Proof")]
     InvalidOutcomesProof,
@@ -384,6 +387,7 @@ impl Error {
             | Error::InvalidChunkHeadersRoot
             | Error::InvalidChunkTxRoot
             | Error::InvalidReceiptsProof
+            | Error::InvalidReceipt(_)
             | Error::InvalidStatePayload
             | Error::InvalidTransactions
             | Error::InvalidChallenge
@@ -475,6 +479,7 @@ impl Error {
             Error::InvalidChunkHeadersRoot => "invalid_chunk_headers_root",
             Error::InvalidChunkTxRoot => "invalid_chunk_tx_root",
             Error::InvalidReceiptsProof => "invalid_receipts_proof",
+            Error::InvalidReceipt(_) => "invalid_receipt",
             Error::InvalidStatePayload => "invalid_state_payload",
             Error::InvalidTransactions => "invalid_transactions",
             Error::InvalidChallenge => "invalid_challenge",
