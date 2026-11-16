@@ -629,4 +629,37 @@ mod tests {
         test(Gas::from_gigagas(1), MAX_GAS, Err(HostError::GasLimitExceeded));
         test(Gas::from_gigagas(1), Gas::from_gigagas(1), Err(HostError::GasLimitExceeded));
     }
+
+    /// After a promise takes gas, a charge that crosses the limit burns all of itself, up to the
+    /// prepaid gas. So charging 3 touched and 10 cached trie nodes in two steps, as the trie
+    /// accounting cache did, burns less than charging 13 touched nodes in one step.
+    #[test]
+    fn test_trie_node_charge_past_promise_limit_depends_on_split() {
+        let node_gas = ExtCosts::touching_trie_node.gas(&ExtCostsConfig::test());
+        let prepaid = Gas::from_teragas(100);
+        let promise_gas = Gas::from_teragas(50);
+        let limit = prepaid.checked_sub(promise_gas).unwrap();
+        let burnt_before_charge = limit.checked_sub(node_gas.checked_mul(2).unwrap()).unwrap();
+
+        let mut split = make_test_counter(MAX_GAS, prepaid, false);
+        split.prepay_gas(promise_gas).unwrap();
+        split.burn_gas(burnt_before_charge).unwrap();
+        assert!(split.pay_per(ExtCosts::touching_trie_node, 3).is_err());
+        let split_burnt = split.burnt_gas();
+
+        let mut single = make_test_counter(MAX_GAS, prepaid, false);
+        single.prepay_gas(promise_gas).unwrap();
+        single.burn_gas(burnt_before_charge).unwrap();
+        assert!(single.pay_per(ExtCosts::touching_trie_node, 13).is_err());
+        let single_burnt = single.burnt_gas();
+
+        assert_eq!(
+            split_burnt,
+            burnt_before_charge.checked_add(node_gas.checked_mul(3).unwrap()).unwrap()
+        );
+        assert_eq!(
+            single_burnt,
+            burnt_before_charge.checked_add(node_gas.checked_mul(13).unwrap()).unwrap()
+        );
+    }
 }
