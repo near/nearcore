@@ -1,6 +1,7 @@
 use near_async::time;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use stun::client::Client;
 use stun::message::Getter as _;
 
 #[cfg(test)]
@@ -37,6 +38,14 @@ pub(crate) async fn query(
     let socket = tokio::net::UdpSocket::bind("[::]:0").await?;
     socket.connect(addr).await?;
     let mut client = stun::client::ClientBuilder::new().with_conn(Arc::new(socket)).build()?;
+    let res = send_binding_request(clock, &mut client).await;
+    // close() stops the client's background tasks, which hold the socket.
+    client.close().await?;
+    res
+}
+
+/// Sends a BINDING request on `client` and returns the address from the response.
+async fn send_binding_request(clock: &time::Clock, client: &mut Client) -> Result<IpAddr, Error> {
     let mut msg = stun::message::Message::new();
     msg.new_transaction_id()?;
     msg.set_type(stun::message::BINDING_REQUEST);
@@ -64,6 +73,5 @@ pub(crate) async fn query(
             }
         }
     };
-    client.close().await?;
     Ok(ip)
 }
