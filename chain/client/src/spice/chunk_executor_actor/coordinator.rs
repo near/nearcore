@@ -411,7 +411,7 @@ impl ChunkExecutorActor {
             }
 
             // The shard never applies a block at or below the sync block, which is final here.
-            executor.parked_blocks.drop_up_to_height(sync_header.height());
+            executor.parked_blocks.retain(|(height, _)| *height > sync_header.height());
             let mut block_hash = sync_hash;
             while block_hash != final_execution_head.last_block_hash {
                 let Ok(next) = self.chain_store.get_next_block_hash(&block_hash) else {
