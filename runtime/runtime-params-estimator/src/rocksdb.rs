@@ -29,23 +29,23 @@ pub struct RocksDBTestConfig {
     /// Flush after a bulk of write operations.
     /// The flush time will be included in the reported measurement.
     /// (`RocksDb*` estimations only)
-    #[clap(long, name = "rdb-force-flush")]
+    #[clap(name = "rdb-force-flush", long)]
     pub force_flush: bool,
     /// Force compactions after a bulk of operations.
     /// The compaction time will be included in the reported measurement.
     /// (`RocksDb*` estimations only)
-    #[clap(long, name = "rdb-force-compaction")]
+    #[clap(name = "rdb-force-compaction", long)]
     pub force_compaction: bool,
     /// Enable the default block cache used for reads, disabled by default.
     /// (`RocksDb*` estimations only)
-    #[clap(long, name = "rdb-block-cache")]
+    #[clap(name = "rdb-block-cache", long)]
     pub block_cache: bool,
     /// Print RocksDB debug output where available
     #[clap(skip)]
     pub debug_rocksdb: bool,
     /// Pseudo-random input data dump
     /// (`RocksDb*` estimations only)
-    #[clap(long, name = "rdb-input-data-path")]
+    #[clap(name = "rdb-input-data-path", long)]
     pub input_data_path: Option<PathBuf>,
     /// Drop OS cache before measurements for better IO accuracy.
     #[clap(skip)]

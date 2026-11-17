@@ -918,7 +918,6 @@ impl JsonRpcHandler {
     /// result of handling the request.
     #[cfg(not(feature = "test_features"))]
     #[allow(clippy::unused_async)]
-    // The `Err` variant hands the unrecognized request back to the caller.
     #[allow(clippy::result_large_err)]
     async fn process_adversarial_request_internal(
         &self,

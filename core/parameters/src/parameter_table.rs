@@ -103,7 +103,8 @@ macro_rules! implement_conversion_to {
 
 implement_conversion_to!(u32, u16, u8, i64, i32, i16, i8, usize, isize);
 
-// Not part of `implement_conversion_to!`: the conversion from `u64` cannot fail.
+// Not part of `implement_conversion_to!`: its `TryFromInt` branch is unreachable
+// for `u64`, because the conversion from `u64` to `u64` cannot fail.
 impl TryFrom<&ParameterValue> for u64 {
     type Error = ValueConversionError;
 
