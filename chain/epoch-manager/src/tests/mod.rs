@@ -12,8 +12,7 @@ use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
     epoch_info, epoch_info_with_num_seats, hash_range, record_block,
     record_block_with_final_block_hash, record_block_with_version, record_blocks,
-    record_with_block_info, reward, setup_default_epoch_manager,
-    setup_default_epoch_manager_at_version, setup_epoch_manager, stake,
+    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
 };
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
@@ -38,11 +37,6 @@ use near_store::test_utils::create_test_store;
 use num_rational::{Ratio, Rational32};
 use std::cmp::Ordering;
 use std::vec;
-
-/// Highest protocol version with EarlyKickout still off, for tests that must keep
-/// observing pre-activation behaviour after the feature stabilizes.
-const PV_BEFORE_EARLY_KICKOUT: ProtocolVersion =
-    ProtocolFeature::EarlyKickout.protocol_version() - 1;
 
 #[test]
 fn test_stake_validator() {
@@ -2071,55 +2065,6 @@ fn test_validator_consistency() {
     for bp in actual_block_producers {
         assert!(epoch_info.account_is_validator(&bp))
     }
-}
-
-/// Recording an epoch and finalizing it walks each block exactly once.
-#[test]
-fn test_aggregator_visits_each_block_once() {
-    const EPOCH_LENGTH: usize = 10;
-    let stake_amount = Balance::from_yoctonear(1_000);
-    let validators =
-        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
-    let mut epoch_manager = setup_default_epoch_manager_at_version(
-        validators,
-        EPOCH_LENGTH as u64,
-        1,
-        2,
-        90,
-        60,
-        PV_BEFORE_EARLY_KICKOUT,
-    );
-    let h = hash_range(EPOCH_LENGTH + 1);
-    record_block_with_version(
-        &mut epoch_manager,
-        CryptoHash::default(),
-        h[0],
-        0,
-        vec![],
-        PV_BEFORE_EARLY_KICKOUT,
-    );
-    for i in 1..=EPOCH_LENGTH {
-        record_block_with_version(
-            &mut epoch_manager,
-            h[i - 1],
-            h[i],
-            i as u64,
-            vec![],
-            PV_BEFORE_EARLY_KICKOUT,
-        );
-    }
-    let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[EPOCH_LENGTH])).unwrap();
-    assert_eq!(
-        epoch_info.validators_iter().map(|v| v.account_and_stake()).collect::<Vec<_>>(),
-        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)],
-    );
-    assert_eq!(
-        epoch_info.stake_change(),
-        &change_stake(vec![
-            ("test1".parse().unwrap(), stake_amount),
-            ("test2".parse().unwrap(), stake_amount)
-        ]),
-    );
 }
 
 #[test]

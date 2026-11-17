@@ -84,22 +84,18 @@ fn migrate_54_to_55_with_epoch_manager(
     let first_height = match synced_epoch_start {
         Some(height) if final_head.height < height => height,
         _ => {
-            let mut final_head_epoch_blocks_newest_first =
-                vec![epoch_manager.get_block_info(&final_head.last_block_hash)?];
-            loop {
-                let block_info = final_head_epoch_blocks_newest_first.last().unwrap();
-                if block_info.is_genesis() || block_info.epoch_first_block() == block_info.hash() {
-                    break;
-                }
-                final_head_epoch_blocks_newest_first
-                    .push(epoch_manager.get_block_info(block_info.prev_hash())?);
+            let mut block_info = epoch_manager.get_block_info(&final_head.last_block_hash)?;
+            let mut final_head_epoch_blocks_newest_first = vec![block_info.clone()];
+            while !block_info.is_genesis() && block_info.epoch_first_block() != block_info.hash() {
+                block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
+                final_head_epoch_blocks_newest_first.push(block_info.clone());
             }
             for block_info in final_head_epoch_blocks_newest_first.iter().rev() {
                 let aggregator = if block_info.is_genesis() {
                     EpochInfoAggregator::new(*block_info.epoch_id(), *block_info.hash())
                 } else {
                     let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-                    epoch_manager.aggregator_after(block_info, &prev_block_info)?
+                    epoch_manager.compute_epoch_info_aggregator(block_info, &prev_block_info)?
                 };
                 set_aggregator_row(hot_store, block_info.hash(), &aggregator, &mut written);
             }
@@ -118,7 +114,8 @@ fn migrate_54_to_55_with_epoch_manager(
                 continue;
             }
             let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-            let aggregator = epoch_manager.aggregator_after(&block_info, &prev_block_info)?;
+            let aggregator =
+                epoch_manager.compute_epoch_info_aggregator(&block_info, &prev_block_info)?;
             set_aggregator_row(hot_store, &hash, &aggregator, &mut written);
         }
     }
@@ -127,8 +124,8 @@ fn migrate_54_to_55_with_epoch_manager(
     Ok(())
 }
 
-/// Commits the aggregator row of `block_hash` at once: `aggregator_after` reads the parent's
-/// row from the store.
+/// Commits the aggregator row of `block_hash` at once: `compute_epoch_info_aggregator` reads
+/// the parent's row from the store.
 fn set_aggregator_row(
     store: &Store,
     block_hash: &CryptoHash,
