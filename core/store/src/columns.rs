@@ -382,13 +382,11 @@ pub enum DBCol {
     UncertifiedChunks,
     /// For spice, the running per-epoch accumulated chunk endorsement stats as
     /// of this block, indexed by the current epoch's validator id. Reset at
-    /// each epoch boundary. The epoch's last block snapshots this into its
+    /// each epoch boundary, so state sync, which syncs to an epoch's first
+    /// block, needs no seed. The epoch's last block snapshots this into its
     /// header for reward and kickout.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: Vec<[near_primitives::types::SpiceChunkEndorsementStats]>
-    // TODO(spice): each block's value is derived from its parent's, so this must
-    // be seeded at the state-sync boundary block (same as UncertifiedChunks) once
-    // spice state sync exists, otherwise the first post-sync block can't compute it.
     #[cfg(feature = "protocol_feature_spice")]
     SpiceEndorsementStats,
     /// Stores contract accesses (code hashes) per SPICE chunk.

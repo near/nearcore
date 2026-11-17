@@ -77,14 +77,12 @@ fn update_flat_storage_head(
     shard_uids: &[ShardUId],
     final_execution_head: &Tip,
 ) {
-    // TODO(spice): Evaluate if using block before final_execution_head still
-    // makes sense for spice. For now it's used mainly because it's used for
-    // updating flat head without spice with the following reasoning: using
-    // prev_block_hash should be required for `StateSnapshot` to be able to
-    // make snapshot of flat storage at the epoch boundary.
+    // The final execution head's prev block, as in `gc_memtrie_roots`: a block on a fork off it,
+    // scheduled before the head became final, can still be executing on its state. A spice
+    // snapshot needs no such gap, since `process_snapshot` holds the flat heads before they pass
+    // the sync block. Right after state sync this is below the shard's flat head, which sits at
+    // the sync block, and `update_flat_storage_for_shard` leaves the head where it is.
     let new_flat_head = final_execution_head.prev_block_hash;
-    // TODO(spice): handle state sync and resharding edge cases when updating
-    // flat head.
     if new_flat_head == CryptoHash::default() {
         return;
     }

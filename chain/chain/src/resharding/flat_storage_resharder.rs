@@ -671,6 +671,8 @@ impl FlatStorageResharder {
         };
 
         let chain_store = self.runtime.store().chain_store();
+        // TODO(spice-resharding): under spice a child's deltas exist only for the blocks its chunk
+        // executor applied, up to the final execution head, which can trail the final head.
         let chain_final_head = chain_store.final_head()?;
 
         // If we reached the desired new flat head, we're done with deltas.
