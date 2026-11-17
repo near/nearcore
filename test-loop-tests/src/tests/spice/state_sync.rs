@@ -216,18 +216,16 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_under_certification_lag() {
-    /// With certification that far behind, a 10-block epoch ends before the certification gate lets
-    /// a bootstrapping node state sync to its first block.
     const EPOCH_LENGTH_UNDER_LAG: BlockHeightDelta = 20;
     init_test_logger();
     let mut env = build_far_ahead_env(EPOCH_LENGTH_UNDER_LAG, CERTIFICATION_DELAY);
-    let (new_node, sync_hash, certified) =
+    let (new_node_index, sync_hash, certified_height) =
         bootstrap_node(&mut env, TEST_EPOCH_SYNC_HORIZON, CERTIFICATION_DELAY);
 
-    let source = env.node(0);
-    let chain = &source.client().chain;
+    let existing_node = env.node(0);
+    let chain = &existing_node.client().chain;
     let sync_header = chain.get_block_header(&sync_hash).unwrap();
-    assert!(certified >= sync_header.height());
+    assert!(certified_height >= sync_header.height());
     // The window has to reach as far back as certification was behind at the parent.
     let parent = chain.get_block_header(sync_header.prev_hash()).unwrap();
     let oldest_uncertified = chain
@@ -239,29 +237,26 @@ fn test_spice_state_sync_under_certification_lag() {
         .min()
         .unwrap();
     assert!(parent.height() - oldest_uncertified >= CERTIFICATION_DELAY);
-    assert_uncertified_chunks_match(&env.node(new_node), &source, &sync_hash);
+    assert_uncertified_chunks_match(&env.node(new_node_index), &existing_node, &sync_hash);
 
     env.delay_endorsements_propagation(0);
-    env.node_runner(new_node).run_for_number_of_blocks(2 * CERTIFICATION_DELAY as usize);
+    env.node_runner(new_node_index).run_for_number_of_blocks(2 * CERTIFICATION_DELAY as usize);
     assert_certification_kept_up(&env);
     assert_execution_kept_up(&env);
 }
 
-/// A node bootstrapping through state sync applies every shard in every block after its sync
-/// block.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_bootstrap_executes_after_the_sync_block() {
     const NO_CERTIFICATION_DELAY: u64 = 0;
-
     init_test_logger();
     let mut env = build_far_ahead_env(EPOCH_LENGTH, NO_CERTIFICATION_DELAY);
-    let (new_node, sync_hash, _) =
+    let (new_node_index, sync_hash, _) =
         bootstrap_node(&mut env, TEST_EPOCH_SYNC_HORIZON, NO_CERTIFICATION_DELAY);
 
-    env.node_runner(new_node).run_for_number_of_blocks(EPOCH_LENGTH as usize);
+    env.node_runner(new_node_index).run_for_number_of_blocks(EPOCH_LENGTH as usize);
     assert_execution_kept_up(&env);
-    let node = &env.node(new_node);
+    let node = &env.node(new_node_index);
     let chain_store = &node.client().chain.chain_store;
     let shard_layout = node.client().epoch_manager.get_shard_layout(&node.head().epoch_id).unwrap();
 
@@ -282,17 +277,21 @@ fn test_spice_state_sync_bootstrap_executes_after_the_sync_block() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_state_sync_to_the_first_spice_block() {
+    const TIMEOUT: Duration = Duration::minutes(5);
+    const EXISTING_NODE_INDEX: usize = 0;
     /// Protocol versions the chain upgrades through, one per epoch, up to spice. Epoch sync needs a
     /// few epochs of history, so spice must not activate in the first ones.
     const NUM_UPGRADES: ProtocolVersion = 4;
     init_test_logger();
     let spice_version = ProtocolFeature::Spice.protocol_version();
     let genesis_version = spice_version - NUM_UPGRADES;
-    // Dates the test loop's clock is already past, so each upgrade is voted for as soon as it can.
     let voting_schedule = (1..=NUM_UPGRADES)
         .map(|i| {
-            let date = format!("1970-01-{i:02} 00:00:00");
-            (ProtocolUpgradeVotingSchedule::parse_datetime(&date).unwrap(), genesis_version + i)
+            (
+                ProtocolUpgradeVotingSchedule::parse_datetime(&format!("1970-01-{i:02} 00:00:00"))
+                    .unwrap(),
+                genesis_version + i,
+            )
         })
         .collect();
     let mut env = TestLoopBuilder::new()
@@ -310,22 +309,25 @@ fn test_spice_state_sync_to_the_first_spice_block() {
         )
         .add_user_accounts(&make_accounts(NUM_ACCOUNTS), Balance::from_near(1_000_000))
         .build();
-    env.node_runner(0)
-        .run_until(|node| node.head_block().header().is_spice(), Duration::seconds(300));
-    // A node can state sync to the first spice block only once it is certified.
-    env.node_runner(0)
-        .run_until(|node| node.last_certified_block_header().is_spice(), Duration::seconds(300));
+    env.node_runner(EXISTING_NODE_INDEX)
+        .run_until(|node| node.head_block().header().is_spice(), TIMEOUT);
+    env.node_runner(EXISTING_NODE_INDEX)
+        .run_until(|node| node.last_certified_block_header().is_spice(), TIMEOUT);
 
     // A horizon of one epoch lets the node epoch sync while the chain is in its first spice epoch.
-    let (new_node, sync_hash, _) = bootstrap_node(&mut env, 1, 0);
-    let node = env.node(0);
-    let last_pre_spice = node.last_pre_spice_block_header();
+    let (new_node_index, sync_hash, _) = bootstrap_node(&mut env, 1, 0);
+    let existing_node = env.node(EXISTING_NODE_INDEX);
     assert_eq!(
-        node.client().chain.chain_store.get_next_block_hash(last_pre_spice.hash()).unwrap(),
+        existing_node
+            .client()
+            .chain
+            .chain_store
+            .get_next_block_hash(existing_node.last_pre_spice_block_header().hash())
+            .unwrap(),
         sync_hash
     );
-    assert_uncertified_chunks_match(&env.node(new_node), &env.node(0), &sync_hash);
-    env.node_runner(new_node).run_for_number_of_blocks(2 * EPOCH_LENGTH as usize);
+    assert_uncertified_chunks_match(&env.node(new_node_index), &existing_node, &sync_hash);
+    env.node_runner(new_node_index).run_for_number_of_blocks(2 * EPOCH_LENGTH as usize);
     assert_certification_kept_up(&env);
     assert_execution_kept_up(&env);
 }
@@ -389,8 +391,9 @@ fn bootstrap_node(
         recorder.set(Some((status.sync_hash, certified.height())));
     });
     run_until_synced(&mut env.test_loop, &env.node_datas, idx, 0);
-    let (sync_hash, certified) = state_sync_entry.get().expect("the node never entered state sync");
-    (idx, sync_hash, certified)
+    let (sync_hash, certified_height) =
+        state_sync_entry.get().expect("the node never entered state sync");
+    (idx, sync_hash, certified_height)
 }
 
 /// Asserts that `node`'s uncertified chunks equal `reference`'s at every block of `reference`'s
