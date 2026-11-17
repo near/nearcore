@@ -4,6 +4,12 @@
 
 ### Protocol Changes
 
+### Non-protocol Changes
+
+## [2.15.0]
+
+### Protocol Changes
+
 * External contract calls ([NEP-667](https://github.com/near/NEPs/pull/667)): a new kind of transaction with no signer, key or nonce, which the called contract authorizes in its reserved method `__external_call` and pays for from its own balance. A refused call is rolled back and nobody pays, and its outcome keeps the error and the run's logs.
   * A call may carry a universal account's state init, installed before the run when the account is not initialized yet and ignored otherwise.
   * Limits: 20 Tgas, 20 KiB of size and 50 KiB of recorded state per call; per chunk, at most 100 calls, one per contract, and shares of the chunk's compute, storage proof and transaction bytes. New errors: `ContractNotFound`, `ExternalCallChunkShareReached`, `ProhibitedInExternalCall`, `DepositInExternalCall`, `RecordedStorageExceeded` and `ReservedMethodName`.
