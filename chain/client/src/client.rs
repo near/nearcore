@@ -2055,11 +2055,8 @@ impl Client {
                             && reintroduce_head.hash() != remove_head.hash()
                     {
                         to_reintroduce.push(*reintroduce_head.hash());
-                        reintroduce_head = self
-                            .chain
-                            .get_block_header(reintroduce_head.prev_hash())
-                            .unwrap()
-                            .clone();
+                        reintroduce_head =
+                            self.chain.get_block_header(reintroduce_head.prev_hash()).unwrap();
                     }
                 }
 

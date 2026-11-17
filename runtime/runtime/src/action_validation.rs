@@ -715,8 +715,8 @@ mod tests {
             validate_actions(
                 &limit_config,
                 &[
-                    Action::function_call("hello", b"abc", Gas::from_gas(u64::max_value() / 2 + 1)),
-                    Action::function_call("hello", b"abc", Gas::from_gas(u64::max_value() / 2 + 1))
+                    Action::function_call("hello", b"abc", Gas::from_gas(u64::MAX / 2 + 1)),
+                    Action::function_call("hello", b"abc", Gas::from_gas(u64::MAX / 2 + 1))
                 ],
                 &"alice.near".parse().unwrap(),
                 PROTOCOL_VERSION,

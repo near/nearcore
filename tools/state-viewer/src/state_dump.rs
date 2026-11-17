@@ -190,7 +190,7 @@ pub fn state_dump_redis(
                     )?;
                     let value_vec: &[u8] = code.as_ref();
                     let () = redis_connection.set(
-                        [redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(),
+                        [redis_key, b":".to_vec(), block_hash.0.to_vec()].concat(),
                         value_vec,
                     )?;
                     println!("Contract written: {}", account_id);

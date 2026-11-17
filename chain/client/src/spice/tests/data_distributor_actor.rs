@@ -584,7 +584,7 @@ fn test_witness_can_be_reconstructed_impl(num_chunk_producers: usize, num_valida
         };
         assert!(recipients.contains(validator));
         receiver.handle(SpiceIncomingPartialData {
-            data: partial_data.clone(),
+            data: partial_data,
             recv_permit: RecvMessagePermit::none(),
         });
     }
@@ -731,7 +731,7 @@ fn test_receipts_can_be_reconstructed_impl(num_chunk_producers: usize) {
         };
         assert!(recipients.contains(receiver_account));
         receiver.handle(SpiceIncomingPartialData {
-            data: partial_data.clone(),
+            data: partial_data,
             recv_permit: RecvMessagePermit::none(),
         });
     }

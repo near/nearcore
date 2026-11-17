@@ -3014,8 +3014,7 @@ impl Chain {
                 match self.block_catch_up_postprocess(&queued_block, results) {
                     Ok(_) => {
                         let mut saw_one = false;
-                        for next_block_hash in
-                            self.chain_store.get_blocks_to_catchup(&queued_block).clone()
+                        for next_block_hash in self.chain_store.get_blocks_to_catchup(&queued_block)
                         {
                             saw_one = true;
                             blocks_catch_up_state.pending_blocks.push(next_block_hash);
@@ -3038,8 +3037,8 @@ impl Chain {
         blocks_catch_up_state.processed_blocks = processed_blocks;
 
         for pending_block in blocks_catch_up_state.pending_blocks.drain(..) {
-            let block = self.chain_store.get_block(&pending_block)?.clone();
-            let prev_block = self.chain_store.get_block(block.header().prev_hash())?.clone();
+            let block = self.chain_store.get_block(&pending_block)?;
+            let prev_block = self.chain_store.get_block(block.header().prev_hash())?;
             let prev_hash = *prev_block.hash();
 
             let receipts_by_shard = self.collect_incoming_receipts_from_chunks(

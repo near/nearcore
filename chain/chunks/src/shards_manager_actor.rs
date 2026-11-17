@@ -2366,7 +2366,7 @@ impl ShardsManagerActor {
                 }
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: to_whom.clone(),
+                        account_id: to_whom,
                         partial_encoded_chunk,
                     },
                 ));

@@ -115,7 +115,7 @@ impl PingCommand {
             match CryptoHash::from_str(&h) {
                 Ok(h) => h,
                 Err(e) => {
-                    anyhow::bail!("Could not parse --genesis-hash {}: {:?}", &h, e)
+                    anyhow::bail!("Could not parse --genesis-hash {}: {:?}", h, e)
                 }
             }
         } else {
@@ -123,14 +123,14 @@ impl PingCommand {
                 Some(chain_info) => chain_info.genesis_hash,
                 None => anyhow::bail!(
                     "--genesis-hash not given, and genesis hash for --chain-id {} not known",
-                    &self.chain_id
+                    self.chain_id
                 ),
             }
         };
 
         let peer = match PeerInfo::from_str(&self.peer) {
             Ok(p) => p,
-            Err(e) => anyhow::bail!("Could not parse --peer {}: {:?}", &self.peer, e),
+            Err(e) => anyhow::bail!("Could not parse --peer {}: {:?}", self.peer, e),
         };
         if peer.addr.is_none() {
             anyhow::bail!("--peer should be in the form [public key]@[socket addr]");

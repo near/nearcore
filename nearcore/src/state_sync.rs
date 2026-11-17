@@ -26,7 +26,6 @@ use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
-use std::i64;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use tokio::sync::Semaphore;
@@ -320,7 +319,7 @@ struct PartUploader {
 impl PartUploader {
     /// Increment the STATE_SYNC_DUMP_NUM_PARTS_DUMPED metric
     fn inc_parts_dumped(&self) {
-        match self.parts_dumped.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
+        match self.parts_dumped.try_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
             if prev >= 0 { Some(prev + 1) } else { None }
         }) {
             Ok(prev_parts_dumped) => {
@@ -617,7 +616,7 @@ impl StateDumper {
         let Some(sync_hash) = self
             .chain
             .get_sync_hash(final_hash)
-            .with_context(|| format!("Failed getting sync hash for {}", &final_hash))?
+            .with_context(|| format!("Failed getting sync hash for {}", final_hash))?
         else {
             return Ok(None);
         };

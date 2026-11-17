@@ -169,7 +169,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployGlobalContractAction")
             .field("code", &format_args!("{}", base64(&self.code)))
-            .field("deploy_mode", &format_args!("{:?}", &self.deploy_mode))
+            .field("deploy_mode", &format_args!("{:?}", self.deploy_mode))
             .finish()
     }
 }
@@ -270,10 +270,10 @@ pub struct FunctionCallAction {
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
-            .field("method_name", &format_args!("{}", &self.method_name))
+            .field("method_name", &format_args!("{}", self.method_name))
             .field("args", &format_args!("{}", base64(&self.args)))
-            .field("gas", &format_args!("{}", &self.gas))
-            .field("deposit", &format_args!("{}", &self.deposit))
+            .field("gas", &format_args!("{}", self.gas))
+            .field("deposit", &format_args!("{}", self.deposit))
             .finish()
     }
 }

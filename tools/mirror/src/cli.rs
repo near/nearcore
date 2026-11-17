@@ -245,7 +245,7 @@ impl ShowKeysCmd {
             }
             println!(
                 "mapped secret key: {}\nmapped public key: {}",
-                &key.mapped_key,
+                key.mapped_key,
                 key.mapped_key.public_key()
             );
             if let Some(a) = &key.permission {
@@ -258,7 +258,7 @@ impl ShowKeysCmd {
             println!(
                 "{} account probably has an extra full access key added:\nmapped secret key: {}\npublic key: {}",
                 if keys.is_empty() { "If it exists, this" } else { "This" },
-                &extra_key,
+                extra_key,
                 extra_key.public_key(),
             );
         }

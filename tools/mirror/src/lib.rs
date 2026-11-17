@@ -1144,7 +1144,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             self.secret.as_ref(),
                         );
                         if !account_exists(target_view_client, &target_account).await.with_context(
-                            || format!("failed checking existence for account {}", &target_account),
+                            || format!("failed checking existence for account {}", target_account),
                         )? {
                             if target_account.get_account_type() == AccountType::NearImplicitAccount
                             {
@@ -1321,9 +1321,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
             }
             Err(e) => {
-                return Err(e).with_context(|| {
-                    format!("failed fetching access key for {}", &predecessor_id)
-                });
+                return Err(e)
+                    .with_context(|| format!("failed fetching access key for {}", predecessor_id));
             }
         };
 
@@ -1554,7 +1553,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .source_chain_access
                 .get_tx_receipt_id(&tx_hash, &tx.transaction.signer_id())
                 .await
-                .with_context(|| format!("failed fetching local receipt ID for tx {}", &tx_hash))?
+                .with_context(|| format!("failed fetching local receipt ID for tx {}", tx_hash))?
             {
                 self.add_function_call_keys(
                     tracker,

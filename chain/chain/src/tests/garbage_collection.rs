@@ -170,7 +170,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     for simple_chain in &simple_chains {
         let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
         do_fork(
-            source_block1.clone(),
+            source_block1,
             state_root1,
             tries1.clone(),
             &mut chain1,
@@ -607,7 +607,7 @@ fn test_fork_far_away_from_epoch_end() {
     for (simple_chain, final_height) in simple_chains.iter().zip([None, Some(3), None]) {
         let (source_block, state_root, _) = states[simple_chain.from as usize].clone();
         do_fork(
-            source_block.clone(),
+            source_block,
             state_root,
             tries.clone(),
             &mut chain,

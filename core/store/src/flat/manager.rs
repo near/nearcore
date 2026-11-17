@@ -115,7 +115,7 @@ impl FlatStorageManager {
             _ => {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Unexpected flat storage status: {:?}",
-                    &status
+                    status
                 )));
             }
         };

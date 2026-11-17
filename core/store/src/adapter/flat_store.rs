@@ -260,7 +260,7 @@ mod tests {
             // Add value to FlatState
             store_update.flat_store_update().set(
                 *shard_uid,
-                key.clone(),
+                key,
                 Some(FlatStateValue::inlined(&val)),
             );
 

@@ -49,7 +49,7 @@ async fn start_nodes(
             if i == 0 { first_node } else { tcp::ListenerAddr::reserve_for_test() },
             genesis.clone(),
         );
-        rpc_addrs.push(near_config.rpc_addr().unwrap().to_owned());
+        rpc_addrs.push(near_config.rpc_addr().unwrap());
         near_config.client_config.min_num_peers = (num_nodes as usize) - 1;
         if i > 0 {
             near_config.network_config.peer_store.boot_nodes =

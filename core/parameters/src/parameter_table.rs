@@ -101,7 +101,19 @@ macro_rules! implement_conversion_to {
     }
 }
 
-implement_conversion_to!(u64, u32, u16, u8, i64, i32, i16, i8, usize, isize);
+implement_conversion_to!(u32, u16, u8, i64, i32, i16, i8, usize, isize);
+
+// Not part of `implement_conversion_to!`: the conversion from `u64` cannot fail.
+impl TryFrom<&ParameterValue> for u64 {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(*v),
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<u64>(), value.clone())),
+        }
+    }
+}
 
 impl TryFrom<&ParameterValue> for u128 {
     type Error = ValueConversionError;

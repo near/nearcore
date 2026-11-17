@@ -707,7 +707,7 @@ fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json:
                 if seen.get(comp.name).unwrap().contains(&signature) {
                     continue;
                 }
-                seen.get_mut(comp.name).unwrap().insert(signature.clone());
+                seen.get_mut(comp.name).unwrap().insert(signature);
 
                 // Extract only the properties relevant to this component
                 let mut comp_props = serde_json::Map::new();
@@ -870,7 +870,7 @@ fn extract_params_from_schema(
         // variant-specific constraints and keep just the type.
         for variant in one_of {
             for (name, prop_schema, _required) in collect_properties_from_variant(variant) {
-                seen.entry(name.clone())
+                seen.entry(name)
                     .and_modify(|(existing, _)| {
                         if *existing != prop_schema {
                             // Schemas differ across variants — generalize to just the type

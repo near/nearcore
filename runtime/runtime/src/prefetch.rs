@@ -376,7 +376,7 @@ mod tests {
         // insert different values for each account to ensure they have unique hashes
         for (i, trie_key) in input_keys.iter().enumerate() {
             let storage_key = trie_key.to_vec();
-            kvs.push((storage_key.clone(), Some(i.to_string().as_bytes().to_vec())));
+            kvs.push((storage_key, Some(i.to_string().as_bytes().to_vec())));
         }
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), kvs);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);

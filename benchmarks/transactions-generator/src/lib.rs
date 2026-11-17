@@ -593,7 +593,7 @@ async fn ft_contract_register_accounts(
         for receiver_id in to_register {
             let client_sender = client_sender.clone();
             let view_client = view_client_sender.clone();
-            let creator_signer = creator.as_signer().clone();
+            let creator_signer = creator.as_signer();
             let ft_account = ft_contract_account_id.clone();
             const DEPOSIT: Balance = Balance::from_millinear(125);
             let receiver_id = receiver_id.clone();
@@ -1514,7 +1514,7 @@ impl TxGenerator {
                     ?diff,
                     rate,
                 );
-                stats_prev = stats.clone();
+                stats_prev = stats;
             }
         })
     }

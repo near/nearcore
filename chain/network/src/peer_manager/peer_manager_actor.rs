@@ -268,10 +268,12 @@ impl messaging::Actor for PeerManagerActor {
                     let pending_reconnect = state.poll_pending_reconnect();
                     // Spawn a separate reconnect loop for each pending reconnect attempt
                     for peer_info in pending_reconnect {
+                        #[cfg(test)]
+                        let event = Event::ReconnectLoopSpawned(peer_info.clone());
+
                         handle.spawn("reconnect peer", {
                             let state = state.clone();
                             let clock = clock.clone();
-                            let peer_info = peer_info.clone();
                             let transport = transport.clone();
                             async move {
                                 state
@@ -281,7 +283,7 @@ impl messaging::Actor for PeerManagerActor {
                         });
 
                         #[cfg(test)]
-                        state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
+                        state.config.event_sink.send(event);
                     }
                 }
             }
@@ -692,21 +694,21 @@ impl PeerManagerActor {
     /// Re-establish each outbound connection in the connection store (single attempt)
     fn bootstrap_outbound_from_recent_connections(&self) {
         for conn_info in self.state.connection_store.get_recent_outbound_connections() {
+            #[cfg(test)]
+            let event = Event::ReconnectLoopSpawned(conn_info.peer_info.clone());
+
             self.handle.spawn("bootstrap_outbound_from_recent_connections", {
                 let state = self.state.clone();
                 let clock = self.clock.clone();
                 let transport = self.transport.clone();
-                let peer_info = conn_info.peer_info.clone();
+                let peer_info = conn_info.peer_info;
                 async move {
                     state.reconnect(clock, transport, peer_info, 1).await;
                 }
             });
 
             #[cfg(test)]
-            self.state
-                .config
-                .event_sink
-                .send(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
+            self.state.config.event_sink.send(event);
         }
     }
 

@@ -821,7 +821,9 @@ fn benchmark_chunk_application(
     let report_interval = Duration::from_secs(1);
     let mut last_report_time = Instant::now();
 
-    for i in 1.. {
+    let mut i: u64 = 0;
+    loop {
+        i += 1;
         let cur_input = input.clone();
 
         let _span = tracing::debug_span!(

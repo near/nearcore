@@ -82,7 +82,7 @@ impl crate::ChainAccess for ChainAccess {
                     block_heights.push(
                         self.chain
                             .get_block_header(&hash)
-                            .with_context(|| format!("failed fetching block header for {}", &hash))?
+                            .with_context(|| format!("failed fetching block header for {}", hash))?
                             .height(),
                     );
                     break;
@@ -124,7 +124,7 @@ impl crate::ChainAccess for ChainAccess {
         let block = self
             .chain
             .get_block(&block_hash)
-            .with_context(|| format!("Can't get block {} at height {}", &block_hash, height))?;
+            .with_context(|| format!("Can't get block {} at height {}", block_hash, height))?;
 
         let mut chunks = Vec::new();
         for chunk in block.chunks().iter() {

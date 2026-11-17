@@ -214,7 +214,7 @@ fn run_state_sync_with_dumped_parts(
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        env.process_block(1, block.clone(), Provenance::NONE);
+        env.process_block(1, block, Provenance::NONE);
     }
 
     // check that the new account exists

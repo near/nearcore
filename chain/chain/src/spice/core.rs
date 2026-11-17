@@ -273,7 +273,7 @@ impl SpiceCoreReader {
             let Some(result) = self.get_execution_result(block_header, shard_id)? else {
                 continue;
             };
-            results.insert(shard_id, result.clone());
+            results.insert(shard_id, result);
         }
         Ok(results)
     }
@@ -293,7 +293,7 @@ impl SpiceCoreReader {
             let Some(result) = self.get_execution_result(block_header, shard_id)? else {
                 return Ok(None);
             };
-            results.insert(shard_id, result.clone());
+            results.insert(shard_id, result);
         }
         Ok(Some(BlockExecutionResults(results)))
     }

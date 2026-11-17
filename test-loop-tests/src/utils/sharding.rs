@@ -20,7 +20,7 @@ pub fn get_client_tracking_shard<'a>(
     }
     panic!(
         "get_client_tracking_shard() could not find client tracking shard {} at {} #{}",
-        shard_id, &tip.last_block_hash, tip.height
+        shard_id, tip.last_block_hash, tip.height
     );
 }
 

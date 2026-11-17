@@ -577,7 +577,7 @@ impl ClientActor {
                     self.client.chain.get_block_header(&block_hash)?
                 };
                 let block = if block_hash == CryptoHash::default() {
-                    Some(self.client.chain.genesis_block().clone())
+                    Some(self.client.chain.genesis_block())
                 } else {
                     self.client.chain.get_block(&block_hash).ok()
                 };

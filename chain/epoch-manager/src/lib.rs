@@ -951,9 +951,9 @@ impl EpochManager {
                     .unwrap_or(&Balance::ZERO)
                     .is_zero()
             {
-                validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
+                validator_kickout.insert(account_id, ValidatorKickoutReason::Unstaked);
             }
-            proposals.push(proposal.clone());
+            proposals.push(proposal);
         }
 
         // The id of epoch T+1 is the hash of the last block of epoch T-1.

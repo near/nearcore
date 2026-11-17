@@ -341,7 +341,7 @@ fn test_overflowing_burn_gas_with_promises_gas() {
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
 
-    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas().as_gas() - 1;
+    let needed_gas_charge = u64::MAX - logic.gas_counter().used_gas().as_gas() - 1;
     let function_name_len =
         needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte).as_gas();
     let result = logic.promise_batch_action_function_call(
@@ -381,7 +381,7 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     let call_id = logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
-    let needed_gas_charge = u64::max_value() - logic.gas_counter().used_gas().as_gas() - 1;
+    let needed_gas_charge = u64::MAX - logic.gas_counter().used_gas().as_gas() - 1;
     let function_name_len =
         needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte).as_gas();
     let result = logic.promise_batch_action_function_call(

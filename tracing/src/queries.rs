@@ -44,7 +44,7 @@ impl From<std::io::Error> for QueryError {
     }
 }
 
-impl From<QueryError> for Box<(dyn StdError + Send + Sync + 'static)> {
+impl From<QueryError> for Box<dyn StdError + Send + Sync + 'static> {
     fn from(query_error: QueryError) -> Self {
         Box::new(query_error.0)
     }

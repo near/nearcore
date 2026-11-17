@@ -389,7 +389,7 @@ fn test_core_statements_for_next_block_contains_new_execution_results() {
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor
-            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
     let execution_result = test_execution_result_for_chunk(&chunk_header);
@@ -434,7 +434,7 @@ fn test_core_statements_for_next_block_with_execution_results_creates_valid_bloc
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor
-            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
@@ -572,7 +572,7 @@ fn test_core_statements_for_next_block_contains_no_already_included_execution_re
     for validator in &validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor
-            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
@@ -619,7 +619,7 @@ fn test_core_statements_for_next_block_contains_no_endorsements_for_included_exe
     for validator in validators {
         let endorsement = test_chunk_endorsement(&validator, &block, chunk_header);
         core_writer_actor
-            .handle(SpiceChunkEndorsementMessage(endorsement.clone(), RecvMessagePermit::none()));
+            .handle(SpiceChunkEndorsementMessage(endorsement, RecvMessagePermit::none()));
     }
 
     let core_statements = core_reader.core_statements_for_next_block(block.header()).unwrap();
