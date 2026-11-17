@@ -1,4 +1,4 @@
-# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat isascii isalnum unicodedata
+# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat unicodedata
 name: NEAR AI PR Review
 
 # Reviews PRs with DeepSeek served by NEAR AI, using the OpenCode agent
@@ -320,7 +320,6 @@ jobs:
           # review shows the API key.
           result=0
           python3 - "$RUNNER_TEMP/events.jsonl" "$RUNNER_TEMP/review.md" <<'EOF' || result=$?
-          import html
           import json
           import os
           import re
@@ -387,36 +386,10 @@ jobs:
           # does is error-prone, so a zero-width space breaks all of them
           # everywhere, code included. Readers see the same text.
           zero_width = chr(0x200B)
-          # Entities for the characters these use are decoded first, so the
-          # checks below see what GitHub shows. Other entities stay as written:
-          # GitHub shows them the same, and decoding them could change the
-          # Markdown, for example a "|" in a table row or a quote in quoted code.
-          # Decoding repeats, because "&&#35;x40;" decodes to another entity.
-          entity = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
-
-
-          def decode(match):
-              char = html.unescape(match.group(0))
-              if len(char) == 1 and char.isascii() and (char.isalnum() or char in "@#-./"):
-                  return char
-              return match.group(0)
-
-
-          for _ in range(10):
-              decoded = entity.sub(decode, text)
-              if decoded == text:
-                  break
-              text = decoded
-          else:
-              # Deeper nesting: break every entity that still decodes.
-              text = entity.sub(lambda m: m.group(0) if decode(m) == m.group(0) else "&" + zero_width + m.group(0)[1:], text)
-          # Inside raw HTML, GitHub also decodes a "&#" form that Markdown does
-          # not, such as "&#x40ghost", so every other "&#" is broken. Decimal
-          # entities are written in hex, so that the "#" rule below does not
-          # change one that is left encoded, such as "&#124;".
-          incomplete = re.compile(r"&(?=#(?![0-9]{1,7};|[xX][0-9a-fA-F]{1,6};))")
-          text = incomplete.sub("&" + zero_width, text)
-          text = re.sub(r"&#([0-9]{1,7});", lambda m: f"&#x{int(m.group(1)):X};", text)
+          # GitHub decodes HTML entities, also forms that only raw HTML accepts,
+          # so a zero-width space after the "&" of each one stops that. Reviews
+          # rarely contain entities, and they show as written.
+          text = re.sub(r"&(?=#|[A-Za-z][A-Za-z0-9]*;)", "&" + zero_width, text)
           text = re.sub(r"@(?=[A-Za-z0-9])", "@" + zero_width, text)
           text = re.sub(r"#(?=[0-9])", "#" + zero_width, text)
           text = re.sub(r"(GH\\?)-(?=[0-9])", r"\1-" + zero_width, text, flags=re.IGNORECASE)
@@ -430,8 +403,6 @@ jobs:
           if len(text) > limit:
               cut = text.rfind("\n", 0, limit)
               text = text[:cut + 1] if cut > limit // 2 else text[:limit] + "\n"
-              # A cut inside an entity leaves a "&#" form that raw HTML decodes.
-              text = incomplete.sub("&" + zero_width, text)
               fence = None
               for line in text.splitlines():
                   fence, _ = fence_step(fence, line)
@@ -439,9 +410,9 @@ jobs:
 
 
           def shown(text):
-              """The text with backslash escapes and entities decoded and invisible
-              characters removed, close to what GitHub shows."""
-              text = html.unescape(re.sub(r"\\([!-/:-@\[-`{-~])", r"\1", text))
+              """The text without backslash escapes and invisible characters, close
+              to what GitHub shows."""
+              text = re.sub(r"\\([!-/:-@\[-`{-~])", r"\1", text)
               return "".join(c for c in text if unicodedata.category(c) != "Cf")
 
 
