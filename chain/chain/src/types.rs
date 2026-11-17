@@ -526,6 +526,10 @@ pub struct PrepareTransactionsBlockContext {
     pub epoch_height: EpochHeight,
     /// Epoch id of the current block
     pub next_epoch_id: EpochId,
+    /// Whether the current block starts a new epoch, so that apply updates the validators'
+    /// accounts before it runs anything. When the previous block is genesis, `next_epoch_id`
+    /// equals `epoch_id`, so only this flag tells it.
+    pub starts_new_epoch: bool,
     /// Congestion info from the previous block
     pub congestion_info: BlockCongestionInfo,
     /// Gas limit of the chunk the transactions are prepared for
@@ -548,6 +552,7 @@ impl PrepareTransactionsBlockContext {
             epoch_id,
             epoch_height: epoch_manager.get_epoch_info(&epoch_id)?.epoch_height(),
             next_epoch_id: epoch_manager.get_epoch_id_from_prev_block(&header.hash())?,
+            starts_new_epoch: epoch_manager.is_next_block_epoch_start(header.hash())?,
             congestion_info,
             gas_limit,
         })

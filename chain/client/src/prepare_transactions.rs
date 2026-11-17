@@ -47,6 +47,7 @@ impl PrepareTransactionsJobInputs {
             epoch_id: Default::default(),
             epoch_height: 0,
             next_epoch_id: Default::default(),
+            starts_new_epoch: false,
             congestion_info: Default::default(),
             gas_limit: Default::default(),
         };
@@ -408,6 +409,7 @@ mod tests {
             epoch_id: Default::default(),
             epoch_height: 0,
             next_epoch_id: Default::default(),
+            starts_new_epoch: false,
             congestion_info: Default::default(),
             gas_limit: Default::default(),
         };

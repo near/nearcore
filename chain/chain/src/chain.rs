@@ -3853,9 +3853,10 @@ impl Chain {
         // PrepareTransactionsBlockContext used to prepare transactions for the next block after the
         // one that is being currently processed. We might not have a full block here here
         // (sometimes it's optimistic), but we can build the context from the available data.
-        // Assume that next epoch id is the same as the current one. This will not be true on epoch
-        // boundaries, but that is ok. On epoch id mismatch the result of early transaction
-        // preparation will be ignored.
+        // Assume that next epoch id is the same as the current one, and that the next block does
+        // not start an epoch. This will not be true on epoch boundaries, but that is ok. On
+        // a mismatch of the context the result of early transaction preparation will be ignored.
+        // The flag is what tells a boundary where the epoch ids match, after genesis.
         let Some(next_gas_price) = chunk_headers
             .compute_gas_used_checked()
             .zip(chunk_headers.compute_gas_limit_checked())
@@ -3895,6 +3896,7 @@ impl Chain {
             epoch_id,
             epoch_height: epoch_info.epoch_height(),
             next_epoch_id: epoch_id,
+            starts_new_epoch: false,
             congestion_info: block.congestion_info.clone(),
             // The next chunk of the shard has the gas limit of this one.
             gas_limit: chunk_gas_limit,

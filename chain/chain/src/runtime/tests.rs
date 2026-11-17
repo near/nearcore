@@ -1780,6 +1780,8 @@ fn block_context(
         epoch_id,
         epoch_height: env.epoch_manager.get_epoch_info(&epoch_id).unwrap().epoch_height(),
         next_epoch_id,
+        // The parent is genesis, which counts as an epoch start. Most tests don't want that.
+        starts_new_epoch: false,
         congestion_info,
         gas_limit: env.runtime.genesis_config.gas_limit,
     }
@@ -3323,6 +3325,113 @@ fn test_prepare_transactions_does_not_pack_eccs_under_spice() {
     assert_eq!(pool.len(), 2);
 }
 
+/// A change of the state that gives `test1`, `test2` and the protocol treasury a contract. `test1`
+/// has stake, `test2` and the treasury have none.
+fn give_contracts_to_a_staker_and_non_stakers(
+    protocol_treasury: &str,
+) -> impl FnOnce(&mut TrieUpdate) + use<> {
+    let give_contracts = give_contracts(&["test1", "test2", protocol_treasury]);
+    let protocol_treasury_id: AccountId = protocol_treasury.parse().unwrap();
+    move |state_update| {
+        give_contracts(state_update);
+        let staker_id: AccountId = "test1".parse().unwrap();
+        let staker = get_account(state_update, &staker_id).unwrap().unwrap();
+        assert!(staker.locked() > Balance::ZERO);
+        let non_staker_id: AccountId = "test2".parse().unwrap();
+        let mut non_staker = get_account(state_update, &non_staker_id).unwrap().unwrap();
+        non_staker.set_locked(Balance::ZERO).unwrap();
+        set_account(state_update, non_staker_id, &non_staker);
+        let protocol_treasury = get_account(state_update, &protocol_treasury_id).unwrap().unwrap();
+        assert_eq!(protocol_treasury.locked(), Balance::ZERO);
+    }
+}
+
+/// Apply updates the validators' accounts at the start of an epoch, before it runs anything, and
+/// the dry run does not, so a contract with stake, or the protocol treasury, could see another
+/// balance in each. The producer holds back the calls to such a contract in the first chunk of an
+/// epoch, and takes them in the next chunk. Other contracts are not held back.
+#[test]
+fn test_prepare_transactions_holds_back_eccs_to_updated_accounts_at_the_start_of_an_epoch() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let treasury = env.runtime.genesis_config.protocol_treasury_account.to_string();
+    let mut pool =
+        pool_with_eccs([ecc("test1", 1), ecc("test1", 2), ecc("test2", 1), ecc(&treasury, 1)]);
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_contracts_to_a_staker_and_non_stakers(&treasury),
+        |context| context.starts_new_epoch = true,
+    );
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_contracts_to_a_staker_and_non_stakers(&treasury),
+        |_| {},
+    );
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![(treasury, 1), ("test1".to_string(), 1)].into_iter().sorted().collect_vec()
+    );
+    assert!(skipped.0.is_empty());
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![2])]);
+}
+
+/// An account without a contract is not held back at the start of an epoch, but dropped as ever.
+#[test]
+fn test_prepare_transactions_drops_eccs_to_accounts_without_contract_at_the_start_of_an_epoch() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("nobody", 1)]);
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        |_| {},
+        |context| context.starts_new_epoch = true,
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// The context of a block that ends its epoch says that its child starts a new one. The genesis
+/// of the mock chain is such a block.
+#[test]
+fn test_block_context_flags_the_last_block_of_an_epoch() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let genesis = chain.genesis_block();
+    assert!(env.epoch_manager.is_next_block_epoch_start(genesis.hash()).unwrap());
+
+    let context = PrepareTransactionsBlockContext::new(
+        &genesis,
+        env.epoch_manager.as_ref(),
+        BlockCongestionInfo::default(),
+        Gas::MAX,
+    )
+    .unwrap();
+
+    assert!(context.starts_new_epoch);
+}
+
 /// ECCs of a contract in a congested shard are dropped, as signed transactions to it are.
 #[test]
 fn test_prepare_transactions_drops_eccs_to_a_congested_shard() {
@@ -4373,6 +4482,7 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
                 epoch_id,
                 epoch_height: 0,
                 next_epoch_id: epoch_id,
+                starts_new_epoch: false,
                 congestion_info: Default::default(),
                 gas_limit: runtime.genesis_config.gas_limit,
             },
