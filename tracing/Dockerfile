@@ -12,3 +12,5 @@ RUN cargo build --release
 FROM debian:trixie-slim
 COPY --from=builder /build/target/release/near-tracing /app/near-tracing
 CMD ["/app/near-tracing"]
+
+# cspell:ignore trixie
