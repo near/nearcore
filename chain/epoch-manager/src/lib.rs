@@ -2076,40 +2076,45 @@ impl EpochManager {
         let epoch_id = *block_info.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let this_block =
-            self.aggregator_of_block(block_info, prev_block_info, &epoch_info, &shard_layout);
-        if prev_block_info.is_genesis() || *prev_block_info.epoch_id() != epoch_id {
-            return Ok(this_block);
-        }
-        let mut aggregator = self.get_epoch_info_aggregator_upto_last(prev_block_info.hash())?;
-        aggregator.merge(this_block);
+        let mut aggregator =
+            if prev_block_info.is_genesis() || *prev_block_info.epoch_id() != epoch_id {
+                EpochInfoAggregator::new(epoch_id, *prev_block_info.hash())
+            } else {
+                self.get_epoch_info_aggregator_upto_last(prev_block_info.hash())?
+            };
+        self.append_block_to_aggregator(
+            &mut aggregator,
+            block_info,
+            prev_block_info,
+            &epoch_info,
+            &shard_layout,
+        );
         Ok(aggregator)
     }
 
-    /// The epoch statistics of `block_info` alone.
-    fn aggregator_of_block(
+    /// Appends `block_info` to `aggregator`, crediting the chunk producers anchored at its
+    /// grandparent.
+    fn append_block_to_aggregator(
         &self,
+        aggregator: &mut EpochInfoAggregator,
         block_info: &BlockInfo,
         prev_block_info: &BlockInfo,
         epoch_info: &EpochInfo,
         shard_layout: &ShardLayout,
-    ) -> EpochInfoAggregator {
-        let epoch_id = block_info.epoch_id();
+    ) {
         let chunk_producers = self.anchored_chunk_producers_for_aggregator(
-            epoch_id,
+            block_info.epoch_id(),
             epoch_info,
             shard_layout,
             prev_block_info,
         );
-        let mut aggregator = EpochInfoAggregator::new(*epoch_id, *block_info.hash());
-        aggregator.update_tail(
+        aggregator.append_block(
             block_info,
             epoch_info,
             shard_layout,
             prev_block_info.height(),
             chunk_producers.as_ref(),
         );
-        aggregator
     }
 
     /// Chunk producers of the block built on `prev_block_info`, read from the rows seeded at
@@ -2409,8 +2414,15 @@ impl EpochManager {
         epoch_info: &EpochInfo,
     ) -> Result<(), EpochError> {
         let shard_layout = self.shard_layout_of_epoch_info(block_info.epoch_id(), epoch_info)?;
-        let aggregator =
-            self.aggregator_of_block(block_info, prev_block_info, epoch_info, &shard_layout);
+        let mut aggregator =
+            EpochInfoAggregator::new(*block_info.epoch_id(), *prev_block_info.hash());
+        self.append_block_to_aggregator(
+            &mut aggregator,
+            block_info,
+            prev_block_info,
+            epoch_info,
+            &shard_layout,
+        );
         store_update.set_epoch_info_aggregator(block_info.hash(), &aggregator);
         Ok(())
     }
