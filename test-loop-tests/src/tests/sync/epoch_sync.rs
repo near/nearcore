@@ -143,14 +143,12 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     let source_node_store = env.node(source_node).store();
     let proof = new_node_store.epoch_store().get_epoch_sync_proof().unwrap().unwrap();
     let synced_epoch_first_block = *proof.current_epoch.first_block_header_in_epoch.hash();
-    let new_node_row = new_node_store
-        .get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref())
-        .map(|row| row.to_vec());
+    let new_node_row =
+        new_node_store.get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref()).unwrap();
     let source_node_row = source_node_store
         .get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref())
-        .map(|row| row.to_vec());
-    assert!(new_node_row.is_some(), "epoch sync must write the synced epoch's first block row");
-    assert_eq!(new_node_row, source_node_row);
+        .unwrap();
+    assert_eq!(&*new_node_row, &*source_node_row);
 
     let current_height = env.node(0).head().height;
     // Run for at least two more epochs to make sure everything continues to be fine.
