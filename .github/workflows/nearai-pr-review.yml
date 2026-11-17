@@ -94,19 +94,23 @@ jobs:
         run: |
           grace=${WAIT_GRACE:-180}
           reviewer_state() {
-            local out
+            local out last
             if [ "$1" = Copilot ]; then
-              # A pending request comes first: Copilot may be requested again
-              # after an earlier review, and GitHub drops the request once
-              # Copilot posts. The timeline names the requested bot "Copilot";
-              # the review author name is accepted too.
-              out=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/requested_reviewers" \
-                --jq '[.users[] | select(.login | ascii_downcase | test("^copilot(-pull-request-reviewer(\\[bot\\])?)?$"))]
-                  | length') || return 1
-              if [ "$out" != 0 ]; then echo running; return; fi
-              out=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
-                --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]") | .id') || return 1
-              if [ -n "$out" ]; then echo done; else echo absent; fi
+              # The timeline shows when Copilot is requested and when it reviews.
+              # The REST requested_reviewers list leaves a Copilot request out,
+              # and GraphQL denies this token the requested reviewers when a team
+              # is requested. Copilot is running while its last event is a
+              # request: it may be requested again after an earlier review, and
+              # GitHub drops the request once Copilot posts.
+              out=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/timeline?per_page=100" \
+                --jq '.[] | select(((.event == "review_requested" or .event == "review_request_removed")
+                    and (.requested_reviewer.login // "" | test("^copilot(-pull-request-reviewer(\\[bot\\])?)?$"; "i")))
+                  or (.event == "reviewed" and (.user.login // "" | test("^copilot(-pull-request-reviewer(\\[bot\\])?)?$"; "i"))))
+                  | .event') || return 1
+              last=${out##*$'\n'}
+              if [ "$last" = review_requested ]; then echo running
+              elif grep -qx reviewed <<< "$out"; then echo done
+              else echo absent; fi
             else
               gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
                 -f check_name="$1" --jq 'if (.check_runs | length) == 0 then "absent"
