@@ -173,13 +173,10 @@ async fn install_shard_state(
     start_height: BlockHeight,
 ) -> Result<(), CloudArchivalReaderError> {
     let shard_id = shard_uid.shard_id();
-    let (epoch_height, epoch_id) =
+    let (epoch_height, epoch_id, mut height) =
         find_snapshot_at_or_before(cloud_storage, start_height, shard_id).await?;
     let header = cloud_storage.retrieve_state_header(epoch_height, epoch_id, shard_id).await?;
     let mut state_root = header.synced_state_root();
-    let mut height = header
-        .chunk_height_included()
-        .ok_or(CloudArchivalReaderError::NoChunkInStateSyncHeader { shard_id })?;
     tracing::info!(
         target: "cloud_archival",
         %shard_uid,

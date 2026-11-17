@@ -21,7 +21,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{StatePartId, StatePartIndex};
 use near_primitives::state_sync::StateSyncDumpProgress;
-use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::types::{EpochHeight, EpochId, ShardId, SpiceChunkId, StateRoot};
 use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -606,6 +606,8 @@ impl StateDumper {
     }
 
     /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
+    /// Under spice, only once final blocks certify the sync block's chunks: its state sync headers
+    /// are proven against them.
     fn latest_sync_header(&self) -> anyhow::Result<Option<Arc<BlockHeader>>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
@@ -620,7 +622,21 @@ impl StateDumper {
         else {
             return Ok(None);
         };
-        self.get_block_header(&sync_hash).map(Some)
+        let sync_header = self.get_block_header(&sync_hash)?;
+        if sync_header.is_spice() {
+            let shard_ids =
+                self.epoch_manager.shard_ids(sync_header.epoch_id()).with_context(|| {
+                    format!("failed getting shard ids {:?}", sync_header.epoch_id())
+                })?;
+            let chain_store = self.chain.chain_store();
+            if !shard_ids.into_iter().all(|shard_id| {
+                let chunk_id = SpiceChunkId { block_hash: sync_hash, shard_id };
+                chain_store.get_chunk_certifying_block(&chunk_id).is_some()
+            }) {
+                return Ok(None);
+            }
+        }
+        Ok(Some(sync_header))
     }
 
     /// Generates the state sync header for the shard and initializes the `ShardDump` struct which
@@ -1020,11 +1036,6 @@ async fn do_state_sync_dump(
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) {
-    // TODO(spice): Make state sync work with spice.
-    if cfg!(feature = "protocol_feature_spice") {
-        return;
-    }
-
     if let Err(error) = state_sync_dump(
         clock,
         chain,
