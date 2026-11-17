@@ -308,8 +308,7 @@ pub fn compute_chunk_producer_blacklist(
         let Some(settlement) = epoch_info.chunk_producers_settlement().get(shard_index) else {
             continue;
         };
-        // distinct chunk producers for this shard. Every entry comes from this settlement, since
-        // both chunk producer samplers draw from it.
+        // distinct chunk producers for this shard.
         let producers: HashSet<ValidatorId> = settlement.iter().copied().collect();
         let mut blacklisted = HashSet::new();
         for (&validator_id, stats) in validators {
@@ -1817,12 +1816,9 @@ impl EpochManager {
                         for (shard_id, stats) in shards {
                             chunk_totals.produced += stats.produced;
                             chunk_totals.expected += stats.expected;
-                            // Only shards where the validator was expected to produce a chunk.
-                            if stats.expected > 0 {
-                                shards_produced.push(shard_id);
-                                produced_per_shard.push(stats.produced);
-                                expected_per_shard.push(stats.expected);
-                            }
+                            shards_produced.push(shard_id);
+                            produced_per_shard.push(stats.produced);
+                            expected_per_shard.push(stats.expected);
                         }
                         let endorsement_stats = aggregator.chunk_endorsement.get(&validator_id);
                         let (account_id, public_key, stake) = info.destructure();

@@ -22,8 +22,7 @@ pub struct EpochInfoAggregator {
     /// For each shard, a map of chunk producer id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
     pub chunk_production: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
     /// Map from chunk validator id to (num_endorsements_recorded, num_endorsements_expected) so
-    /// far in the given epoch, summed over all shards. `produced` counts the endorsements that
-    /// the blocks record.
+    /// far in the given epoch, summed over all shards.
     pub chunk_endorsement: HashMap<ValidatorId, ValidatorStats>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
