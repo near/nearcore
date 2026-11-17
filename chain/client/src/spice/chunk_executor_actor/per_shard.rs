@@ -388,8 +388,9 @@ impl PerShardChunkExecutor {
                 self.parked_blocks.remove(&entry)
             }
             Err(err) => {
-                // Leave this block parked (a transient error may clear) but keep
-                // draining the rest of the queue.
+                // Leave the block parked and keep draining the queue. Its parent's next apply,
+                // execution result or receipts try it again, and so do a restart and a finished
+                // catchup.
                 tracing::error!(
                     target: "chunk_executor",
                     ?err,
