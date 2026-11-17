@@ -127,9 +127,7 @@ skip = [
     { name = "schemars", version = "^0.8" },
     { name = "schemars_derive", version = "^0.8" },
 
-    { name = "bytesize", version = "=1.1.0" },
     { name = "num-bigint", version = "=0.3.3" },
-    { name = "num-rational", version = "=0.3.2" },
     { name = "regex-syntax", version = "=0.6.28" },
 
     # p256 0.14 (RustCrypto elliptic-curve 0.14) moved to digest 0.11,

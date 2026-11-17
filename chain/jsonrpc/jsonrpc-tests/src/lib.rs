@@ -1,5 +1,3 @@
-use axum::Router;
-use axum_test::TestServer;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
@@ -43,15 +41,15 @@ pub enum NodeType {
 
 /// Simplified test setup struct that only exposes what tests need
 pub struct TestSetup {
-    pub app: Router,
     pub server_addr: String,
     pub tempdir: Arc<tempfile::TempDir>,
     pub actor_system: Option<ActorSystem>,
-    _test_server: TestServer, // Keep server alive but don't expose it
+    server_task: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for TestSetup {
     fn drop(&mut self) {
+        self.server_task.abort();
         self.actor_system.take().unwrap().stop();
     }
 }
@@ -60,8 +58,7 @@ impl Drop for TestSetup {
 ///
 /// This function creates:
 /// - Real ClientActor, ViewClientActor, and RpcHandlerActor (no mocking)
-/// - Axum Router for testing (no TCP binding)
-/// - TestServer for in-memory HTTP testing
+/// - HTTP server on a free local port
 /// - Minimal dependencies (no complex network mocking)
 ///
 /// # Parameters
@@ -325,18 +322,17 @@ pub fn create_test_setup_with_accounts_and_validity(
         pool,
     );
 
-    // 10. Create TestServer with real HTTP transport to get an address
-    let test_server: TestServer = TestServer::builder()
-        .http_transport()
-        .build(app.clone())
-        .expect("Failed to create TestServer");
-    let server_addr = test_server.server_address().unwrap().to_string();
+    // 10. Serve the app on a free local port
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server_addr = format!("http://{}", listener.local_addr().unwrap());
+    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+    let server_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     TestSetup {
-        app,
         server_addr,
         tempdir: Arc::new(tempdir),
         actor_system: Some(actor_system),
-        _test_server: test_server,
+        server_task,
     }
 }
