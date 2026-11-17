@@ -3,7 +3,6 @@ use near_chain::Error;
 use near_chain_configs::GenesisConfig;
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
-use near_primitives::epoch_block_info::BlockInfo;
 #[cfg(feature = "test_features")]
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
@@ -17,15 +16,16 @@ const ROWS_PER_PROGRESS_LOG: usize = 1000;
 /// Replaces the single stored `EpochInfoAggregator` with one row per block in
 /// `DBCol::EpochInfoAggregators`.
 ///
-/// Writes rows for the final head's chain from its epoch start and for every recorded
-/// descendant of the final head, forks included, read from `DBCol::BlockInfo`: an interrupted
-/// header-sync batch leaves recorded headers above the header head, and `undo-block` leaves
-/// header-only blocks outside the header height index. After epoch sync, while
-/// the final head is below the synced epoch's first block (genesis, or a previous-epoch block
-/// after state sync), the migration starts at that first block, taken from the stored epoch
-/// sync proof. Blocks recorded later get their rows from
-/// `EpochManager::record_block_info`. Older blocks need no rows: nothing near the head reads
-/// them, and a finished epoch's summary is in `DBCol::EpochValidatorInfo`.
+/// Writes rows for:
+/// - The final head's chain, from its epoch's first block to the final head.
+/// - Every block in the header height index up to the header head whose parent has a row,
+///   forks included.
+/// - After epoch sync, while the final head is below the synced epoch's first block (genesis,
+///   or a previous-epoch block after state sync): that first block, whose height comes from
+///   the stored epoch sync proof, and the blocks above it. The final head's chain is skipped.
+///
+/// Known gap: `undo-block` drops header-only blocks from the header height index but keeps
+/// their `BlockInfo`. After `undo-block` on DB version 54, those blocks get no row.
 ///
 /// Hot store only: the column is not copied to cold storage.
 pub(super) fn migrate_54_to_55(
@@ -109,29 +109,23 @@ fn migrate_54_to_55_with_epoch_manager(
             final_head.height + 1
         }
     };
-    // Descendants of the final head, by height so that every parent comes first. They are
-    // read from `DBCol::BlockInfo`, not from the header height index: header sync commits
-    // each header with its `BlockInfo` and moves the header head only after the batch, and
-    // `undo-block` drops header-only blocks from the height index but keeps their
-    // `BlockInfo`. Both leave recorded blocks the next block can still build on. A block
-    // whose parent has no row is on a fork below the final head and can never be extended.
-    // A block that starts an epoch does not read its parent's row.
-    let mut blocks: Vec<BlockInfo> = hot_store
-        .iter_ser::<BlockInfo>(DBCol::BlockInfo)
-        .map(|(_, block_info)| block_info)
-        .filter(|block_info| block_info.height() >= first_height)
-        .collect();
-    blocks.sort_by_key(|block_info| block_info.height());
-    for block_info in blocks {
-        let hash = *block_info.hash();
-        if block_info.epoch_first_block() != &hash
-            && !hot_store.exists(DBCol::EpochInfoAggregators, block_info.prev_hash().as_ref())
-        {
-            continue;
+    // Blocks above the final head, forks included, by height so that every parent comes first.
+    // Every recorded header is in the height index at or below the header head. A block whose
+    // parent has no row is on a fork below the final head and can never be extended. A block
+    // that starts an epoch does not read its parent's row.
+    let header_head = chain_store.header_head()?;
+    for height in first_height..=header_head.height {
+        for hash in chain_store.get_all_header_hashes_by_height(height) {
+            let block_info = epoch_manager.get_block_info(&hash)?;
+            if block_info.epoch_first_block() != &hash
+                && !hot_store.exists(DBCol::EpochInfoAggregators, block_info.prev_hash().as_ref())
+            {
+                continue;
+            }
+            let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
+            let aggregator = epoch_manager.aggregator_after(&block_info, &prev_block_info)?;
+            set_aggregator_row(hot_store, &hash, &aggregator, &mut written);
         }
-        let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-        let aggregator = epoch_manager.aggregator_after(&block_info, &prev_block_info)?;
-        set_aggregator_row(hot_store, &hash, &aggregator, &mut written);
     }
 
     tracing::info!(target: "migrations", written, "completed migration from DB version 54 to 55");
