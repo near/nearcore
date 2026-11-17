@@ -1,4 +1,4 @@
-# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat isascii isalnum
+# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat isascii isalnum unicodedata
 name: NEAR AI PR Review
 
 # Reviews PRs with DeepSeek served by NEAR AI, using the OpenCode agent
@@ -316,13 +316,16 @@ jobs:
           # last model call ended normally. The script keeps that answer from its
           # overview heading on, replaces em-dashes outside code, stops mentions
           # and cross-references, and keeps the comment under GitHub's size
-          # limit. Exit code 3 means there is no finished review.
+          # limit. Exit code 3 means there is no finished review, and 4 that the
+          # review shows the API key.
           result=0
           python3 - "$RUNNER_TEMP/events.jsonl" "$RUNNER_TEMP/review.md" <<'EOF' || result=$?
           import html
           import json
+          import os
           import re
           import sys
+          import unicodedata
 
           FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 
@@ -411,7 +414,8 @@ jobs:
           # not, such as "&#x40ghost", so every other "&#" is broken. Decimal
           # entities are written in hex, so that the "#" rule below does not
           # change one that is left encoded, such as "&#124;".
-          text = re.sub(r"&(?=#(?![0-9]{1,7};|[xX][0-9a-fA-F]{1,6};))", "&" + zero_width, text)
+          incomplete = re.compile(r"&(?=#(?![0-9]{1,7};|[xX][0-9a-fA-F]{1,6};))")
+          text = incomplete.sub("&" + zero_width, text)
           text = re.sub(r"&#([0-9]{1,7});", lambda m: f"&#x{int(m.group(1)):X};", text)
           text = re.sub(r"@(?=[A-Za-z0-9])", "@" + zero_width, text)
           text = re.sub(r"#(?=[0-9])", "#" + zero_width, text)
@@ -426,10 +430,24 @@ jobs:
           if len(text) > limit:
               cut = text.rfind("\n", 0, limit)
               text = text[:cut + 1] if cut > limit // 2 else text[:limit] + "\n"
+              # A cut inside an entity leaves a "&#" form that raw HTML decodes.
+              text = incomplete.sub("&" + zero_width, text)
               fence = None
               for line in text.splitlines():
                   fence, _ = fence_step(fence, line)
               text += (fence + "\n" if fence else "") + "\n_The review was cut to fit the comment size limit._\n"
+
+
+          def shown(text):
+              """The text with backslash escapes and entities decoded and invisible
+              characters removed, close to what GitHub shows."""
+              text = html.unescape(re.sub(r"\\([!-/:-@\[-`{-~])", r"\1", text))
+              return "".join(c for c in text if unicodedata.category(c) != "Cf")
+
+
+          key = os.environ.get("NEARAI_API_KEY", "")
+          if key and key in shown(text):
+              sys.exit(4)
           # errors="replace" turns a lone surrogate from the model's output into "?".
           with open(sys.argv[2], "w", encoding="utf-8", errors="replace") as f:
               f.write(text)
@@ -447,14 +465,14 @@ jobs:
             note "$reason"
             exit 0
           fi
-          # Nothing is posted yet, so the note cannot repeat a review.
-          if [ "$result" != 0 ]; then
-            note "could not complete (the post script exited with code $result)"
-            exit 1
-          fi
-          if grep -qF -- "$NEARAI_API_KEY" "$RUNNER_TEMP/review.md"; then
+          # Nothing is posted yet, so a note cannot repeat a review.
+          if [ "$result" = 4 ] || grep -qsF -- "$NEARAI_API_KEY" "$RUNNER_TEMP/review.md"; then
             echo "::error::the review contains the API key; not posting it"
             note "could not complete"
+            exit 1
+          fi
+          if [ "$result" != 0 ]; then
+            note "could not complete (the post script exited with code $result)"
             exit 1
           fi
           current=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid) ||
