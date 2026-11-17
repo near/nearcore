@@ -1,3 +1,4 @@
+use axum::Router;
 use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
@@ -42,6 +43,7 @@ pub enum NodeType {
 
 /// Simplified test setup struct that only exposes what tests need
 pub struct TestSetup {
+    pub app: Router,
     pub server_addr: String,
     pub tempdir: Arc<tempfile::TempDir>,
     pub actor_system: Option<ActorSystem>,
@@ -59,7 +61,7 @@ impl Drop for TestSetup {
 ///
 /// This function creates:
 /// - Real ClientActor, ViewClientActor, and RpcHandlerActor (no mocking)
-/// - HTTP server on a free local port
+/// - Axum Router served over HTTP on a free local port
 /// - Minimal dependencies (no complex network mocking)
 ///
 /// # Parameters
@@ -328,9 +330,11 @@ pub fn create_test_setup_with_accounts_and_validity(
     listener.set_nonblocking(true).unwrap();
     let server_addr = format!("http://{}", listener.local_addr().unwrap());
     let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-    let server_task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let server_app = app.clone();
+    let server_task = tokio::spawn(async move { axum::serve(listener, server_app).await.unwrap() });
 
     TestSetup {
+        app,
         server_addr,
         tempdir: Arc::new(tempdir),
         actor_system: Some(actor_system),
