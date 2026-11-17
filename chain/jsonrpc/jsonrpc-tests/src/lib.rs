@@ -31,6 +31,7 @@ use near_time::Clock;
 use nearcore::NightshadeRuntime;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -44,7 +45,7 @@ pub struct TestSetup {
     pub server_addr: String,
     pub tempdir: Arc<tempfile::TempDir>,
     pub actor_system: Option<ActorSystem>,
-    server_task: tokio::task::JoinHandle<()>,
+    server_task: JoinHandle<()>,
 }
 
 impl Drop for TestSetup {
