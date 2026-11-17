@@ -1,4 +1,4 @@
-# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat unicodedata
+# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat unicodedata removeprefix
 name: NEAR AI PR Review
 
 # Reviews PRs with DeepSeek served by NEAR AI, using the OpenCode agent
@@ -488,6 +488,70 @@ jobs:
             cat "$RUNNER_TEMP/review.md"
           } > "$RUNNER_TEMP/comment.md"
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+
+      # Each finding with a `path:line` reference also goes on that line, as an
+      # inline comment in one review. The review comment above already lists
+      # every finding, so if GitHub rejects the review, for example because a
+      # line is not in the diff, nothing is lost and the step only warns. The
+      # text comes from review.md, which Post review has cleaned and checked for
+      # the API key.
+      - name: Post inline comments
+        if: ${{ steps.post.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+        run: |
+          if [ ! -f "$RUNNER_TEMP/review.md" ]; then exit 0; fi
+          python3 - "$RUNNER_TEMP/review.md" "$RUNNER_TEMP/review.json" <<'EOF'
+          import json
+          import os
+          import re
+          import sys
+
+          FINDING = re.compile(r"[-*] `([^`\s]+):([1-9][0-9]{0,8})(?:-[0-9]{1,9})?`[ :-]*")
+          LABEL = re.compile(r"\*\*(Non-)?blocking\b", re.IGNORECASE)
+          # A suggestion block in an inline comment can be committed with one click,
+          # also when it sits in a list or a quote, or in raw HTML.
+          SUGGESTION = re.compile(r"((?:`{3,}|~{3,})[ \t]*|lang\s*=\s*[\"']?)suggestion", re.IGNORECASE)
+
+          lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
+          start = next((i + 1 for i, line in enumerate(lines) if line.strip() == "### Findings"), len(lines))
+          findings, label, current = [], "non-blocking", None
+          for line in lines[start:]:
+              finding = FINDING.match(line)
+              if re.match(r"#{1,6}\s", line):
+                  break
+              if finding:
+                  current = {"path": finding.group(1).removeprefix("./"), "line": int(finding.group(2)),
+                             "label": label, "text": [line[finding.end():]]}
+                  findings.append(current)
+              elif current and (not line.strip() or line[:1] in (" ", "\t")):
+                  current["text"].append(line[2:] if line.startswith("  ") else line)
+              else:
+                  current = None
+                  if LABEL.match(line):
+                      label = "non-blocking" if LABEL.match(line).group(1) else "blocking"
+
+          comments = []
+          for f in findings[:20]:
+              text = SUGGESTION.sub(r"\1text", "\n".join(f["text"]).strip())
+              # A code block must start on its own line to render.
+              sep = "\n\n" if text.startswith(("```", "~~~")) else " "
+              comments.append({"path": f["path"], "line": f["line"], "side": "RIGHT",
+                               "body": f"**NEAR AI, {f['label']}:**{sep}{text}"})
+          if comments:
+              with open(sys.argv[2], "w", encoding="utf-8") as out:
+                  json.dump({"commit_id": os.environ["HEAD_SHA"], "event": "COMMENT", "comments": comments,
+                             "body": "NEAR AI inline comments. The NEAR AI review comment lists every finding."},
+                            out, ensure_ascii=False)
+          EOF
+          if [ ! -f "$RUNNER_TEMP/review.json" ]; then exit 0; fi
+          # The error text can quote file paths from the PR, so it is not printed.
+          if ! gh api -X POST "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --input "$RUNNER_TEMP/review.json" \
+              > /dev/null 2> "$RUNNER_TEMP/inline-error.txt"; then
+            echo "::warning::GitHub did not accept the inline comments; the review comment lists every finding"
+          fi
 
       # Keeps the comment text when posting fails, so a long review is not lost.
       # comment.md is written only after the review passes the API-key check
