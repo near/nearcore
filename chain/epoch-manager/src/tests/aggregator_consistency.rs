@@ -28,7 +28,7 @@ fn test_epoch_info_aggregator_matches_recomputation() {
         let blocks = record_random_fork_tree(&mut em, &mut rng, seed, num_heights);
 
         for (hash, height) in blocks {
-            let aggregator = em.get_epoch_info_aggregator_upto_last(&hash).unwrap();
+            let aggregator = em.get_epoch_info_aggregator(&hash).unwrap();
             let recomputed = recompute_aggregator(&em, &hash);
             // `EpochInfoAggregator` has no `PartialEq`. Borsh writes its maps in key order.
             assert_eq!(
@@ -117,9 +117,9 @@ fn record_block_with_random_chunks_and_proposals(
 }
 
 /// Recomputes the aggregator of `block_hash` by appending its epoch's blocks from the epoch
-/// start, independent of the stored parent rows `get_epoch_info_aggregator_upto_last` reads. It
-/// uses the same chunk producer lookup, so the test covers how stats are combined, not which
-/// producer is credited.
+/// start, independent of the stored row `get_epoch_info_aggregator` reads. It uses the same
+/// chunk producer lookup, so the test covers how stats are combined, not which producer is
+/// credited.
 fn recompute_aggregator(em: &EpochManager, block_hash: &CryptoHash) -> EpochInfoAggregator {
     let mut block_info = em.get_block_info(block_hash).unwrap();
     let epoch_id = *block_info.epoch_id();

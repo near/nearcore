@@ -63,7 +63,6 @@ impl EpochStoreAdapter {
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
-    /// The epoch statistics up to and including `block_hash`.
     pub fn get_epoch_info_aggregator<T: BorshDeserialize>(
         &self,
         block_hash: &CryptoHash,

@@ -1,7 +1,6 @@
 //! A withheld block arrives after its canonical sibling and moves the final head past the
 //! sibling's last-final block. Every node must still accept the sibling's child, whose
-//! last-final block is then below the final head. Seeding the child must not evict its own
-//! uncommitted `BlockInfo`.
+//! last-final block is then below the final head.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
@@ -20,7 +19,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 const EPOCH_LENGTH: u64 = 1100;
-/// Past both the kickout grace period and the `BlockInfo` cache capacity.
+/// Past the start-of-epoch window, so the blacklist is computed.
 const SAME_EPOCH_FORK_OFFSET: u64 = 1040;
 
 /// Deliver the withheld block after its canonical sibling and before the sibling's child.

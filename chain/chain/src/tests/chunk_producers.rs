@@ -500,7 +500,10 @@ mod tests {
             "below-boundary anchor row must be deleted"
         );
         assert!(row(&chain, &input_hash).is_some(), "canonical GC clears prev, not the input hash");
-        assert!(!aggregator_row(&chain, &cleared_anchor), "cleared block's aggregator row");
+        assert!(
+            !aggregator_row(&chain, &cleared_anchor),
+            "cleared block's aggregator row must be deleted"
+        );
         assert!(aggregator_row(&chain, &input_hash), "input hash keeps its aggregator row");
 
         // The chunk built on hashes[7] anchors on its grandparent hashes[6].

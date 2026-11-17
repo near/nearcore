@@ -602,7 +602,7 @@ fn early_kickout_attribution_does_not_flap() {
     );
 
     // Snapshot validator 0's and the replacement's stats at the blacklist point.
-    let agg_before = handle.read().get_epoch_info_aggregator_upto_last(&prev).unwrap();
+    let agg_before = handle.read().get_epoch_info_aggregator(&prev).unwrap();
     let stats = |agg: &EpochInfoAggregator, id: ValidatorId| {
         agg.chunk_production
             .get(&shard_id)
@@ -621,7 +621,7 @@ fn early_kickout_attribution_does_not_flap() {
         prev2 = cur;
     }
 
-    let agg_after = handle.read().get_epoch_info_aggregator_upto_last(&prev2).unwrap();
+    let agg_after = handle.read().get_epoch_info_aggregator(&prev2).unwrap();
     let after_0 = stats(&agg_after, 0).expect("validator 0 should still have stats");
     let after_1 = stats(&agg_after, 1).expect("replacement should still have stats");
 
@@ -2049,7 +2049,7 @@ impl ForkFixture {
         let target_stats = self
             .handle
             .read()
-            .get_epoch_info_aggregator_upto_last(&basis)
+            .get_epoch_info_aggregator(&basis)
             .ok()
             .and_then(|agg| {
                 agg.chunk_production.get(&shard_id).and_then(|m| m.get(&target).cloned())
@@ -2143,7 +2143,7 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     );
     let canonical_basis =
         *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
-    let basis_row = handle.read().get_epoch_info_aggregator_upto_last(&canonical_basis).unwrap();
+    let basis_row = handle.read().get_epoch_info_aggregator(&canonical_basis).unwrap();
     let row_bl =
         compute_chunk_producer_blacklist(&basis_row.chunk_production, epoch_info.as_ref(), layout);
     assert_eq!(row_bl.blacklist, canonical_bl, "the basis row must match the memoized blacklist");
