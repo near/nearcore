@@ -10,7 +10,6 @@ use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, Store};
 use std::path::Path;
 
-/// [`migrate_54_to_55`] logs its progress every this many rows.
 const ROWS_PER_PROGRESS_LOG: usize = 1000;
 
 /// Replaces the single stored `EpochInfoAggregator` with one row per block in
@@ -18,8 +17,8 @@ const ROWS_PER_PROGRESS_LOG: usize = 1000;
 ///
 /// Writes rows for:
 /// - The final head's chain, from its epoch's first block to the final head.
-/// - Every block in the header height index up to the header head whose parent has a row,
-///   forks included.
+/// - Every block above the final head, up to the header head, in the header height index
+///   whose parent has a row or that starts an epoch, forks included.
 /// - After epoch sync, while the final head is below the synced epoch's first block (genesis,
 ///   or a previous-epoch block after state sync): that first block, whose height comes from
 ///   the stored epoch sync proof, and the blocks above it. The final head's chain is skipped.
@@ -74,10 +73,9 @@ fn migrate_54_to_55_with_epoch_manager(
         Err(err) => return Err(err.into()),
     };
 
-    // After epoch sync the store has `BlockInfo` for only a few blocks of the previous epoch,
-    // and the final head stays below the synced epoch's first block until block sync reaches
-    // it: genesis, or a previous-epoch block after state sync. No rows are needed below that
-    // first block, so start there.
+    // Epoch sync stores no `BlockInfo` behind the synced epoch's first block, and the final head
+    // stays below that block until block sync reaches it. Rows then start at that block, whose
+    // height only the stored epoch sync proof records.
     let synced_epoch_start = hot_store
         .epoch_store()
         .get_epoch_sync_proof()?
@@ -86,18 +84,17 @@ fn migrate_54_to_55_with_epoch_manager(
     let first_height = match synced_epoch_start {
         Some(height) if final_head.height < height => height,
         _ => {
-            // The final head's chain back to its epoch start, newest first.
-            let mut chain = vec![epoch_manager.get_block_info(&final_head.last_block_hash)?];
+            let mut final_head_epoch_blocks_newest_first =
+                vec![epoch_manager.get_block_info(&final_head.last_block_hash)?];
             loop {
-                let block_info = chain.last().unwrap();
+                let block_info = final_head_epoch_blocks_newest_first.last().unwrap();
                 if block_info.is_genesis() || block_info.epoch_first_block() == block_info.hash() {
                     break;
                 }
-                chain.push(epoch_manager.get_block_info(block_info.prev_hash())?);
+                final_head_epoch_blocks_newest_first
+                    .push(epoch_manager.get_block_info(block_info.prev_hash())?);
             }
-            // Each row is committed before the next one, because `aggregator_after` reads the
-            // parent's row from the store.
-            for block_info in chain.iter().rev() {
+            for block_info in final_head_epoch_blocks_newest_first.iter().rev() {
                 let aggregator = if block_info.is_genesis() {
                     EpochInfoAggregator::new(*block_info.epoch_id(), *block_info.hash())
                 } else {
@@ -109,10 +106,8 @@ fn migrate_54_to_55_with_epoch_manager(
             final_head.height + 1
         }
     };
-    // Blocks above the final head, forks included, by height so that every parent comes first.
-    // Every recorded header is in the height index at or below the header head. A block whose
-    // parent has no row is on a fork below the final head and can never be extended. A block
-    // that starts an epoch does not read its parent's row.
+    // By height, so that every parent comes first. A block whose parent has no row is on a fork
+    // that split below the final head; extending it would conflict with the final head.
     let header_head = chain_store.header_head()?;
     for height in first_height..=header_head.height {
         for hash in chain_store.get_all_header_hashes_by_height(height) {
@@ -132,7 +127,8 @@ fn migrate_54_to_55_with_epoch_manager(
     Ok(())
 }
 
-/// Commits the aggregator row of `block_hash` in its own store update.
+/// Commits the aggregator row of `block_hash` at once: `aggregator_after` reads the parent's
+/// row from the store.
 fn set_aggregator_row(
     store: &Store,
     block_hash: &CryptoHash,

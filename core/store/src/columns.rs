@@ -796,7 +796,6 @@ impl DBCol {
             // once A falls below the GC boundary, far below the near-head consensus read
             // horizon (a chunk's grandparent anchor is head-2), so no live read is lost.
             DBCol::ChunkProducers => GcPolicy::Delete,
-            // GC'd with its block, like ChunkProducers.
             DBCol::EpochInfoAggregators => GcPolicy::Delete,
         }
     }

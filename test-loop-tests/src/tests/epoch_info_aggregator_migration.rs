@@ -14,13 +14,8 @@ use near_store::adapter::StoreAdapter;
 use nearcore::migrations::{AGGREGATOR_KEY, test_only_migrate_54_to_55};
 use std::collections::HashMap;
 
-/// The 54 -> 55 migration rebuilds the per-block aggregator rows that block recording writes.
-///
-/// Records a chain partway into its third epoch, then rebuilds the pre-55 state: no
-/// `DBCol::EpochInfoAggregators` rows and a legacy `AGGREGATOR_KEY` row. The migration must
-/// write the same rows block recording wrote, for the final head's epoch from its start and
-/// every block above the final head, and delete the legacy row. The chain then keeps
-/// advancing on the migrated rows.
+/// Rebuilds the pre-55 state partway into the third epoch: no aggregator rows and a legacy
+/// `AGGREGATOR_KEY` row.
 #[test]
 fn test_migration_54_to_55_rebuilds_epoch_info_aggregator_rows() {
     init_test_logger();
@@ -78,14 +73,9 @@ fn test_migration_54_to_55_rebuilds_epoch_info_aggregator_rows() {
     env.validator_runner().run_until_new_epoch();
 }
 
-/// The 54 -> 55 migration writes rows for fork blocks above the final head.
-///
-/// The block at one height is withheld and delivered after its canonical sibling's child,
-/// so both siblings are recorded. The node stops right after the late block arrives, while
-/// the final head is still below it. Every migrated row, the late fork block's included,
-/// must equal the row block recording wrote.
+/// The block at one height is withheld and delivered after its canonical sibling and before
+/// the sibling's child, so both siblings are recorded while the final head is below them.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_migration_54_to_55_writes_rows_for_forks_above_final_head() {
     init_test_logger();
@@ -96,9 +86,8 @@ fn test_migration_54_to_55_writes_rows_for_forks_above_final_head() {
     let node = env.node_datas[0].client_sender.actor_handle();
     env.test_loop.run_until(
         |data| {
-            let chain = &data.get(&node).client.chain;
-            chain.chain_store().get_all_block_hashes_by_height(withheld).values().flatten().count()
-                > 0
+            let chain_store = data.get(&node).client.chain.chain_store();
+            chain_store.get_all_block_hashes_by_height(withheld).values().flatten().count() > 0
         },
         Duration::seconds(20),
     );
@@ -142,13 +131,8 @@ fn test_migration_54_to_55_writes_rows_for_forks_above_final_head() {
     }
 }
 
-/// After the 54 -> 55 migration, blocks whose last final block is in the previous epoch
-/// still record.
-///
-/// Runs the migration when the final head is the first block of an epoch, so its last
-/// final block is in the previous epoch and has no row. A block recorded later computes the
-/// chunk producer blacklist at its own last final block, which can be that block. The
-/// blacklist is empty by rule for such a block and must not read its row.
+/// Runs the migration when the final head is the first block of an epoch, so its last final
+/// block is in the previous epoch and gets no row.
 #[test]
 fn test_migration_54_to_55_blacklist_with_last_final_block_in_previous_epoch() {
     init_test_logger();
@@ -180,23 +164,17 @@ fn test_migration_54_to_55_blacklist_with_last_final_block_in_previous_epoch() {
     .unwrap();
 
     assert!(!store.exists(DBCol::EpochInfoAggregators, last_final_hash.as_ref()));
-    // A fork block with the same last final block computes the same blacklist.
     let blacklist =
         epoch_manager.get_chunk_producer_blacklist(&final_head.last_block_hash).unwrap();
     assert!(blacklist.is_empty());
 
+    // Blocks whose last final block has no row must still record.
     env.validator_runner().run_until_new_epoch();
 }
 
-/// After the 54 -> 55 migration, a node stopped in header sync after epoch sync catches up.
-///
-/// Epoch sync stores the synced epoch's first block with its `BlockInfo` and leaves the
-/// final head at genesis until block sync starts. The node stops after header sync has
-/// recorded a few blocks past that first block, and its rows are deleted to rebuild the
-/// pre-55 state. The migration must write the first block's row and the rows of the
-/// header-synced blocks after it, so header sync can record the next block on restart.
+/// Stops a node in header sync after epoch sync, while its final head is still genesis, and
+/// restarts it after the migration.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_migration_54_to_55_during_header_sync_after_epoch_sync() {
     init_test_logger();
@@ -223,10 +201,10 @@ fn test_migration_54_to_55_during_header_sync_after_epoch_sync() {
     let validator = env.node_datas[0].client_sender.actor_handle();
     env.test_loop.run_until(
         |data| {
-            let chain = &data.get(&new_node).client.chain;
+            let chain_store = data.get(&new_node).client.chain.chain_store();
             let tip_height = data.get(&validator).client.chain.head().unwrap().height;
-            chain.chain_store.store().epoch_store().get_epoch_sync_proof().unwrap().is_some()
-                && chain.header_head().unwrap().height + horizon / 2 >= tip_height
+            chain_store.store().epoch_store().get_epoch_sync_proof().unwrap().is_some()
+                && chain_store.header_head().unwrap().height + horizon / 2 >= tip_height
         },
         Duration::seconds(20),
     );
@@ -262,16 +240,10 @@ fn test_migration_54_to_55_during_header_sync_after_epoch_sync() {
     env.node_runner(restarted_idx).run_for_number_of_blocks(2 * epoch_length as usize);
 }
 
-/// After epoch sync, the 54 -> 55 migration also starts at the synced epoch's first block when
-/// the final head is a previous-epoch block.
-///
-/// State sync resets the final head to genesis, and the first processed block can then name a
-/// previous-epoch block as its last final block if a height was skipped. Epoch sync stores the
-/// previous epoch's last header but not the `BlockInfo` of the blocks before its second-last,
-/// so walking back from such a final head to its epoch start fails. The test sets the final
-/// head to the previous epoch's last block to get that state.
+/// Sets the final head to the previous epoch's last block after epoch sync. Epoch sync stores
+/// the `BlockInfo` of the previous epoch's first, second-last and last blocks only, so walking
+/// back from that final head to its epoch start fails.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_migration_54_to_55_with_final_head_in_previous_epoch_after_epoch_sync() {
     init_test_logger();
@@ -294,8 +266,8 @@ fn test_migration_54_to_55_with_final_head_in_previous_epoch_after_epoch_sync() 
     let new_node = env.node_datas[new_node_idx].client_sender.actor_handle();
     env.test_loop.run_until(
         |data| {
-            let chain = &data.get(&new_node).client.chain;
-            chain.chain_store.store().epoch_store().get_epoch_sync_proof().unwrap().is_some()
+            let chain_store = data.get(&new_node).client.chain.chain_store();
+            chain_store.store().epoch_store().get_epoch_sync_proof().unwrap().is_some()
         },
         Duration::seconds(20),
     );

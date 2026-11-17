@@ -1769,7 +1769,7 @@ impl EpochManager {
             ValidatorInfoIdentifier::BlockHash(h) => {
                 // If we are here, `h` is hash of the latest block of the
                 // current epoch.
-                let aggregator = self.get_epoch_info_aggregator_upto_last(h)?;
+                let aggregator = self.get_epoch_info_aggregator(h)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -2057,8 +2057,7 @@ impl EpochManager {
         self.store.get_block_info(hash)
     }
 
-    /// Returns the epoch statistics up to and including `block_hash`.
-    pub fn get_epoch_info_aggregator_upto_last(
+    pub fn get_epoch_info_aggregator(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<EpochInfoAggregator, EpochError> {
@@ -2080,7 +2079,7 @@ impl EpochManager {
             if prev_block_info.is_genesis() || *prev_block_info.epoch_id() != epoch_id {
                 EpochInfoAggregator::new(epoch_id, *prev_block_info.hash())
             } else {
-                self.get_epoch_info_aggregator_upto_last(prev_block_info.hash())?
+                self.get_epoch_info_aggregator(prev_block_info.hash())?
             };
         self.append_block_to_aggregator(
             &mut aggregator,
@@ -2092,8 +2091,8 @@ impl EpochManager {
         Ok(aggregator)
     }
 
-    /// Appends `block_info` to `aggregator`, crediting the chunk producers anchored at its
-    /// grandparent.
+    /// Appends `block_info` to `aggregator`, crediting the chunk producers that
+    /// `anchored_chunk_producers_for_aggregator` resolves.
     fn append_block_to_aggregator(
         &self,
         aggregator: &mut EpochInfoAggregator,
@@ -2230,7 +2229,7 @@ impl EpochManager {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));
         }
         self.chunk_producer_blacklists.get_or_try_put(anchor.final_hash, |final_hash| {
-            let aggregator = self.get_epoch_info_aggregator_upto_last(final_hash)?;
+            let aggregator = self.get_epoch_info_aggregator(final_hash)?;
             assert_eq!(
                 aggregator.epoch_id, *epoch.epoch_id,
                 "the aggregator of basis {final_hash} must be in the anchor's epoch"

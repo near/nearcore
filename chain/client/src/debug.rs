@@ -396,7 +396,6 @@ impl ClientActor {
             })
             .collect();
 
-        // Only `Full` mode includes the per-validator info.
         let validator_info = match mode {
             EpochInfoMode::Lite => None,
             EpochInfoMode::Full => {
