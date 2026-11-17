@@ -25,6 +25,9 @@ struct EpochInfoAggregatorV53 {
 /// into per-shard chunk production stats and chunk endorsement stats summed over shards.
 ///
 /// Hot store only: the column is not copied to cold storage.
+///
+/// Not safe to run twice. If the node stops before the version bump, restore the store from
+/// the migration snapshot (`store.migration_snapshot`, enabled by default).
 pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
     tracing::info!(target: "migrations", "starting migration from DB version 53 to 54");
 
@@ -158,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_a_store_without_an_aggregator() {
+    fn migrates_store_without_aggregator() {
         let store = create_test_store();
         migrate_53_to_54(&store).unwrap();
         assert!(store.get(DBCol::EpochInfo, AGGREGATOR_KEY).is_none());
