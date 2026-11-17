@@ -91,6 +91,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 hot_store,
                 &self.config.genesis.config,
                 self.home_dir,
+                is_snapshot,
             ),
             DB_VERSION.. => unreachable!(),
         }
