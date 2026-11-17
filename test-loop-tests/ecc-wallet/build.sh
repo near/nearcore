@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# cspell:ignore Ctarget Dwarnings Zbuild
 # Builds the wallet contract and copies the wasm to `res/ecc_wallet.wasm`, which is checked in.
 #
 # The flags match `runtime/near-test-contracts/build.rs`: `-Ctarget-cpu=mvp` and a rebuilt std

@@ -160,6 +160,7 @@ mod tests {
 
     #[test]
     fn test_base64url() {
+        // cspell:ignore foob fooba
         // RFC 4648 test vectors, without padding.
         let vectors: [(&[u8], &str); 7] = [
             (b"", ""),
