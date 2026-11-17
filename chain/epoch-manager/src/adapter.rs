@@ -1230,7 +1230,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             height: anchor_info.height(),
             final_hash: *anchor_info.last_final_block_hash(),
             final_height: anchor_info.last_finalized_height(),
-            epoch_start_height: epoch_manager.get_epoch_start_height_of(&anchor_info)?,
+            epoch_start_height: epoch_manager.get_epoch_start_height_from_info(&anchor_info)?,
         };
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;

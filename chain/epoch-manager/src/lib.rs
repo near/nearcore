@@ -1320,7 +1320,8 @@ impl EpochManager {
                             height: block_info.height(),
                             final_hash: *block_info.last_final_block_hash(),
                             final_height: block_info.last_finalized_height(),
-                            epoch_start_height: self.get_epoch_start_height_of(&block_info)?,
+                            epoch_start_height: self
+                                .get_epoch_start_height_from_info(&block_info)?,
                         },
                         SampleEpoch {
                             epoch_id: &epoch_id,
@@ -1624,12 +1625,12 @@ impl EpochManager {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<BlockHeight, EpochError> {
-        self.get_epoch_start_height_of(self.get_block_info(block_hash)?.as_ref())
+        self.get_epoch_start_height_from_info(self.get_block_info(block_hash)?.as_ref())
     }
 
     /// Height of the first block of `block_info`'s epoch. Reads no `BlockInfo` when
     /// `block_info` starts its epoch, so it works for a block that is not committed yet.
-    pub(crate) fn get_epoch_start_height_of(
+    pub(crate) fn get_epoch_start_height_from_info(
         &self,
         block_info: &BlockInfo,
     ) -> Result<BlockHeight, EpochError> {
@@ -2395,10 +2396,10 @@ impl EpochManager {
         }
         // The anchor's last final block is its ancestor, so it is in the anchor's epoch exactly
         // when it is not below the epoch's first block.
-        if anchor.final_height < anchor.epoch_start_height {
+        let Some(blocks_into_epoch) = anchor.final_height.checked_sub(anchor.epoch_start_height)
+        else {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));
-        }
-        let blocks_into_epoch = anchor.final_height - anchor.epoch_start_height;
+        };
         if blocks_into_epoch < early_kickout_epoch_grace_blocks() {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));
         }
