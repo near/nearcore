@@ -1660,10 +1660,6 @@ impl Client {
                 //
                 // TODO(spice): paths that call get_chunk_clone_from_header on an
                 // invalid chunk will get ChunkMissing. Known affected:
-                //   - state sync: compute_state_response_header will fail to
-                //     build the response. Fix by either skipping malicious
-                //     chunks in the sync header or choosing a different sync
-                //     point.
                 //   - replay-archive: replay_chunk will bail. Fix by checking
                 //     DBCol::InvalidChunks and skipping validation.
                 metrics::SPICE_INVALID_CHUNK_REPLACED_WITH_EMPTY_TOTAL
