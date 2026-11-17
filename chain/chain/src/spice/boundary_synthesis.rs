@@ -556,17 +556,16 @@ pub fn check_pre_spice_execution_result(
     if !applies_chunk_itself(shard_tracker, &header, chunk_id.shard_id) {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
-    // A block this node never processed, e.g. one in the gap state sync leaves, can be
-    // here as a header only.
-    // TODO(spice-sync): from here on the check assumes a node that tracks the shard and
-    // holds the block applied its chunk pre-spice. Spice state sync must keep that true,
-    // or replace it with a marker only a real apply writes (e.g. the recorded state
-    // transition); otherwise a synced node may synthesize from data it never produced.
-    let block = match chain_store.get_block(&chunk_id.block_hash) {
-        Ok(block) => block,
+    // Only applying the chunk writes its chunk extra. State sync leaves blocks this node did not
+    // apply: headers in the gap below the sync block, and blocks it downloads, such as the last
+    // pre-spice block when syncing to the first spice block.
+    let shard_uid = shard_id_to_uid(epoch_manager, chunk_id.shard_id, header.epoch_id())?;
+    match chain_store.chunk_store().get_chunk_extra(&chunk_id.block_hash, &shard_uid) {
+        Ok(_) => {}
         Err(Error::DBNotFoundErr(_)) => return Ok(PreSpiceExecutionResultCheck::NotCheckable),
         Err(err) => return Err(err),
-    };
+    }
+    let block = chain_store.get_block(&chunk_id.block_hash)?;
     let synthesized = execution_result_from_pre_spice_apply(
         chain_store,
         epoch_manager,
@@ -593,7 +592,6 @@ mod tests {
     };
     use near_async::time::Clock;
     use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
-    use near_chain_primitives::Error;
     use near_crypto::{KeyType, SecretKey};
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -688,8 +686,8 @@ mod tests {
     }
 
     /// The consistency check accepts a certified pre-spice result equal to the local synthesis,
-    /// reports one that differs as a mismatch, skips a shard this node does not track, and
-    /// fails on a tracked shard it has no artifacts for.
+    /// reports one that differs as a mismatch, and skips a shard this node does not track or
+    /// never applied.
     #[test]
     #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
     fn test_pre_spice_execution_result_consistency_check() {
@@ -771,17 +769,20 @@ mod tests {
             PreSpiceExecutionResultCheck::NotCheckable,
         );
 
-        // A tracked shard whose chunk this node never applied is a local error.
+        // A tracked shard whose chunk this node holds but never applied, as after state sync to
+        // the first spice block, is not checkable either.
         let unapplied_chunk_id = SpiceChunkId { block_hash: *unapplied_block.hash(), shard_id };
-        let err = check_pre_spice_execution_result(
-            &chain_store,
-            epoch_manager.as_ref(),
-            &tracking_all,
-            &unapplied_chunk_id,
-            &forged,
-        )
-        .unwrap_err();
-        assert!(matches!(err, Error::DBNotFoundErr(_)), "{err}");
+        assert_eq!(
+            check_pre_spice_execution_result(
+                &chain_store,
+                epoch_manager.as_ref(),
+                &tracking_all,
+                &unapplied_chunk_id,
+                &forged,
+            )
+            .unwrap(),
+            PreSpiceExecutionResultCheck::NotCheckable,
+        );
     }
 
     /// A block this node holds only the header of, as in the gap state sync leaves, has

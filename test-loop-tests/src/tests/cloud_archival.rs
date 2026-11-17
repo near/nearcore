@@ -1089,12 +1089,14 @@ fn test_cloud_archival_custom_snapshot_cadence() {
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
 
     // Epoch 4 was snapshotted: first probe hits.
-    let hit_at_45 = exec(find_snapshot_at_or_before(&cloud_storage, 45, shard_id)).unwrap();
-    assert_eq!(hit_at_45, (4, epoch_id_at(&cloud_storage, 45)));
+    let (epoch_height, epoch_id, _) =
+        exec(find_snapshot_at_or_before(&cloud_storage, 45, shard_id)).unwrap();
+    assert_eq!((epoch_height, epoch_id), (4, epoch_id_at(&cloud_storage, 45)));
 
     // Epoch 3 was skipped: probe misses, walks back to epoch 2.
-    let hit_at_35 = exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
-    assert_eq!(hit_at_35, (2, epoch_id_at(&cloud_storage, 25)));
+    let (epoch_height, epoch_id, _) =
+        exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
+    assert_eq!((epoch_height, epoch_id), (2, epoch_id_at(&cloud_storage, 25)));
 
     h.shutdown();
 }
@@ -1128,8 +1130,9 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     // Probe at height 35 (epoch 3, no snapshot). The walk-back lands on
     // `epoch_start_3 - 1 = 29` which is the dropped block; the function must
     // walk further down to a present block in epoch 2 and find its snapshot.
-    let hit = exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
-    assert_eq!(hit, (2, epoch_id_at(&cloud_storage, 25)));
+    let (epoch_height, epoch_id, _) =
+        exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
+    assert_eq!((epoch_height, epoch_id), (2, epoch_id_at(&cloud_storage, 25)));
 
     h.shutdown();
 }
@@ -1223,7 +1226,7 @@ fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
     let (start, target) = (35, 38);
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
-    let (_, snapshot_epoch_id) =
+    let (_, snapshot_epoch_id, _) =
         exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
     let start_epoch_id = epoch_id_at(&cloud_storage, start);
     assert_ne!(snapshot_epoch_id, start_epoch_id, "snapshot must resolve to an earlier epoch");
@@ -1257,7 +1260,7 @@ fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
         own_snapshot_height > start,
         "h={start} must sit below its epoch's snapshot at h={own_snapshot_height}"
     );
-    let (_, resolved_epoch_id) =
+    let (_, resolved_epoch_id, _) =
         exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
     assert_ne!(resolved_epoch_id, start_epoch_id, "the snapshot must resolve to an earlier epoch");
 
@@ -1299,9 +1302,9 @@ fn test_cloud_archival_bootstrap_anchors_on_the_nearest_snapshot() {
     let (start, target) = (14, 22);
     let batch_start =
         cloud_storage.get_shard_batch_for_height(start, shard_id).unwrap().start_height();
-    let (_, near_epoch_id) =
+    let (_, near_epoch_id, _) =
         exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
-    let (_, far_epoch_id) =
+    let (_, far_epoch_id, _) =
         exec(find_snapshot_at_or_before(&cloud_storage, batch_start, shard_id)).unwrap();
     assert_ne!(
         near_epoch_id, far_epoch_id,
