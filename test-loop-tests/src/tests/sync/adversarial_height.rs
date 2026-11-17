@@ -483,8 +483,6 @@ fn test_bootstrapping_node_syncs_despite_far_ahead_claim() {
 //   - Two unresponsive peers advertise a height many epochs ahead
 //   - Add a fresh node with the default epoch sync timeout
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_bootstrapping_node_syncs_despite_two_unresponsive_far_ahead_peers() {
     init_test_logger();
 
@@ -537,4 +535,6 @@ fn slow_test_bootstrapping_node_syncs_despite_two_unresponsive_far_ahead_peers()
         sync_deadline,
     );
     assert!(!env.test_loop.is_denylisted("syncer"), "syncer must not be wiped");
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }

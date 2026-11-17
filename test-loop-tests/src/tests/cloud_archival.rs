@@ -811,7 +811,10 @@ fn test_cloud_archival_genesis_at_height_zero() {
 // TODO(cloud_archival): assert the balance against a bootstrapped block once the
 // reader carries a chain head above genesis. The query resolves against that head,
 // which is genesis here, so the balance comes out of genesis state.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// TODO(spice-test): under spice a missing chunk processes receipts too, while the cloud archive
+// carries processed receipts, outcomes and outgoing receipts only with a new chunk, and the parity
+// walk expects them only there. `test_cloud_archival_bootstraps_from_spice_snapshot` covers the
+// snapshot.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_use_snapshot() {
     // Reader still uses cloud: it's a fresh node with no local data.
@@ -831,6 +834,36 @@ fn test_cloud_archival_use_snapshot() {
     );
     h.kill_historical_reader();
 
+    h.shutdown();
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_cloud_archival_bootstraps_from_spice_snapshot() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().build();
+    h.run_until_epoch(3);
+    h.assert_snapshots_ok();
+
+    // A spice snapshot holds the state its epoch's first block left behind, so it serves the
+    // heights above that block, and the epoch below serves that block's own height.
+    let start = h.epoch_length / 2;
+    let target = h.epoch_length + h.epoch_length / 2;
+    let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
+    let shard_id = CloudArchiveHarness::all_shard_ids()[0];
+    let epoch_id = epoch_id_at(&cloud_storage, target);
+    let epoch_data = exec(cloud_storage.get_epoch_data(epoch_id)).unwrap();
+    let first_height = epoch_data.epoch_start_height() + 1;
+    assert_eq!(
+        exec(find_snapshot_at_or_before(&cloud_storage, first_height, shard_id)).unwrap(),
+        (epoch_data.epoch_info().epoch_height(), epoch_id, first_height),
+    );
+    let (_, epoch_id_below, _) =
+        exec(find_snapshot_at_or_before(&cloud_storage, first_height - 1, shard_id)).unwrap();
+    assert_eq!(epoch_id_below, epoch_id_at(&cloud_storage, start));
+
+    // The bootstrap checks the state root of every height it replays onto the snapshot.
+    h.bootstrap_historical_reader(start, target);
+    h.kill_historical_reader();
     h.shutdown();
 }
 
