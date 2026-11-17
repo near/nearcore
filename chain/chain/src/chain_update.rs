@@ -555,7 +555,7 @@ impl<'a> ChainUpdate<'a> {
             .get_tries()
             .maybe_pin_memtrie_root(shard_uid, chunk_header.prev_state_root())?;
         let apply_result = self.runtime_adapter.apply_chunk(
-            RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
+            RuntimeStorageConfig::new(chunk_header.prev_state_root()),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_uid,
@@ -649,7 +649,7 @@ impl<'a> ChainUpdate<'a> {
             .maybe_pin_memtrie_root(shard_uid, *chunk_extra.state_root())?;
 
         let apply_result = self.runtime_adapter.apply_chunk(
-            RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
+            RuntimeStorageConfig::new(*chunk_extra.state_root()),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
                 shard_uid,

@@ -1761,7 +1761,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 shard_id,
                 &block.prev_block_hash,
                 storage_config.state_root,
-                storage_config.use_flat_storage,
+                true,
             )?,
             StorageDataSource::DbTrieOnly => {
                 // If there is no flat storage on disk, use trie but simulate costs with enabled

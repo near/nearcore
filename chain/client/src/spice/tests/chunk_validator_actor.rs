@@ -566,7 +566,6 @@ fn simulate_chunk_application(
         .apply_chunk(
             RuntimeStorageConfig {
                 state_root: *starting_state_root,
-                use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: near_primitives::sandbox::state_patch::SandboxStatePatch::default(),
             },

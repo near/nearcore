@@ -29,7 +29,7 @@ export RUST_LOG=info
 
 echo "Regenerating trie nodes between heights 109913254 - 110050000 in shard 2"
 # DB writes = 377624
-/home/ubuntu/neard view-state -t cold --readwrite apply-range --start-index 109913254 --end-index 110050000 --shard-id 2 --storage trie-free --save-state cold sequential
+/home/ubuntu/neard view-state -t cold --readwrite apply-range --start-index 109913254 --end-index 110050000 --shard-id 2 --storage trie --save-state cold sequential
 
 
 ##########

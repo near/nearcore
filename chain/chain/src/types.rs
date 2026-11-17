@@ -334,32 +334,20 @@ impl StorageDataSource {
 #[derive(Clone)]
 pub struct RuntimeStorageConfig {
     pub state_root: StateRoot,
-    pub use_flat_storage: bool,
     pub source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
 }
 
 impl RuntimeStorageConfig {
-    pub fn new(state_root: StateRoot, use_flat_storage: bool) -> Self {
-        Self {
-            state_root,
-            use_flat_storage,
-            source: StorageDataSource::Db,
-            state_patch: Default::default(),
-        }
+    pub fn new(state_root: StateRoot) -> Self {
+        Self { state_root, source: StorageDataSource::Db, state_patch: Default::default() }
     }
 
     /// Creates a [RuntimeStorageConfig] with [StorageDataSource::DbTrieOnly].
-    /// Flat storage is disabled because it is implied to be missing.
     ///
     /// This's meant to be used only to replay blocks.
     pub fn new_with_db_trie_only(state_root: StateRoot) -> Self {
-        Self {
-            state_root,
-            use_flat_storage: false,
-            source: StorageDataSource::DbTrieOnly,
-            state_patch: Default::default(),
-        }
+        Self { state_root, source: StorageDataSource::DbTrieOnly, state_patch: Default::default() }
     }
 }
 
