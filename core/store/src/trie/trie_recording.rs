@@ -626,9 +626,7 @@ mod trie_recording_tests {
                 false,
             )
         } else {
-            let mut trie = tries.get_trie_for_shard(shard_uid, state_root);
-            trie.use_access_tracker = true;
-            trie
+            tries.get_trie_for_shard(shard_uid, state_root)
         }
     }
 
@@ -800,8 +798,7 @@ mod trie_recording_tests {
             );
             let tracker = AccountingAccessTracker::default();
             let opts = AccessOptions { trie_access_tracker: &tracker, ..AccessOptions::DEFAULT };
-            let trie =
-                Trie::from_recorded_storage(partial_storage.clone(), state_root, use_flat_storage);
+            let trie = Trie::from_recorded_storage(partial_storage.clone(), state_root);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -819,7 +816,7 @@ mod trie_recording_tests {
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let tracker = AccountingAccessTracker::default();
             let opts = AccessOptions { trie_access_tracker: &tracker, ..AccessOptions::DEFAULT };
-            let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
+            let trie = Trie::from_recorded_storage(partial_storage, state_root)
                 .recording_reads_new_recorder();
             for key in &keys_to_get {
                 assert_eq!(trie.get(key, opts).unwrap(), data_in_trie.get(key).cloned());
@@ -997,17 +994,11 @@ mod trie_recording_tests {
             }
 
             // A validator replays the reads from the proof alone, and stops at the same place.
-            for flat_storage_used in [false, true] {
-                let trie = Trie::from_recorded_storage(
-                    disk_proof.clone(),
-                    budget_trie.state_root,
-                    flat_storage_used,
-                )
+            let trie = Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root)
                 .recording_reads_new_recorder();
-                let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
-                assert_eq!(&reads, disk_reads, "replay, flat storage used: {flat_storage_used}");
-                assert_partial_storage(&trie.recorded_storage().unwrap(), disk_proof);
-            }
+            let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
+            assert_eq!(&reads, disk_reads, "replay");
+            assert_partial_storage(&trie.recorded_storage().unwrap(), disk_proof);
         }
         assert!(stopped_at_node, "no budget was crossed by a trie node");
         assert!(stopped_before_value, "no budget stopped a read before its value");
@@ -1060,7 +1051,7 @@ mod trie_recording_tests {
             proofs.push(proof);
         }
 
-        let trie = Trie::from_recorded_storage(proofs[0].clone(), budget_trie.state_root, false)
+        let trie = Trie::from_recorded_storage(proofs[0].clone(), budget_trie.state_root)
             .recording_reads_new_recorder();
         let reads = read_with_budget(&trie, &budget_trie.data, &keys, LIMIT);
         assert_eq!(reads.failure, Some((0, expected)), "replay");
@@ -1101,9 +1092,8 @@ mod trie_recording_tests {
                 assert_partial_storage(proof, disk_proof);
             }
 
-            let trie =
-                Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root, false)
-                    .recording_reads_new_recorder();
+            let trie = Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root)
+                .recording_reads_new_recorder();
             let reads = read_with_budget(&trie, &budget_trie.data, &keys, limit);
             assert_eq!(&reads, disk_reads, "replay");
         }
@@ -1146,9 +1136,8 @@ mod trie_recording_tests {
             let reads = read_with_budget(&trie, &budget_trie.data, &once, 1);
             assert_eq!(reads, BudgetedReads { failure: None, recorded_size: 0 });
 
-            let trie =
-                Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root, false)
-                    .recording_reads_new_recorder();
+            let trie = Trie::from_recorded_storage(disk_proof.clone(), budget_trie.state_root)
+                .recording_reads_new_recorder();
             let reads = read_with_budget(&trie, &budget_trie.data, &twice, limit);
             assert_eq!(&reads, disk_reads, "replay");
         }

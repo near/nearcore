@@ -2569,7 +2569,7 @@ fn test_apply_eccs_from_storage_proof() {
     // the first run's would count its trie reads as cached in the gas profiles.
     apply_state.trie_access_tracker_state = Default::default();
     let proof = apply_result.proof.clone().unwrap();
-    let trie = Trie::from_recorded_storage(proof, root, false).recording_reads_new_recorder();
+    let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
     let replay_result = apply(trie, &apply_state);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
@@ -2885,10 +2885,9 @@ fn test_apply_eccs_past_recording_budget_from_storage_proof() {
     // A validator replays the chunk from the proof, recording its reads as every apply does,
     // with fresh trie access accounting. The contract code isn't in the proof: the replay finds
     // it in the compiled-contract cache of `apply_state`, standing in for contract distribution.
-    // The first apply charged storage reads as with flat storage, so the replay does too.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.trie_access_tracker_state = Default::default();
-    let trie = Trie::from_recorded_storage(proof, root, true).recording_reads_new_recorder();
+    let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
     let replay_result = apply(trie, &apply_state);
     assert_eq!(replay_result.outcomes, apply_result.outcomes);
     assert_eq!(replay_result.state_root, apply_result.state_root);
@@ -3124,7 +3123,7 @@ fn test_apply_ecc_refused_past_storage_proof_share() {
     // A validator replays the chunk from the proof alone.
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     apply_state.trie_access_tracker_state = Default::default();
-    let trie = Trie::from_recorded_storage(proof, root, true).recording_reads_new_recorder();
+    let trie = Trie::from_recorded_storage(proof, root).recording_reads_new_recorder();
     let transactions: Vec<TransactionEnvelope> = callees
         .iter()
         .map(|account_id| EccTransaction::new(account_id.clone(), ECC_PAYLOAD.to_vec()).into())
@@ -4678,7 +4677,7 @@ fn test_main_storage_proof_size_soft_limit() {
 
     // Since contracts are excluded from the partial state, we will get missing trie error below.
     let partial_storage = apply_result.proof.unwrap();
-    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let storage = Trie::from_recorded_storage(partial_storage, root);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
         storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
@@ -5045,7 +5044,7 @@ fn apply_contract_loading_failure(failure: ContractLoadingFailure) -> ContractLo
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     let replay_result = runtime
         .apply(
-            Trie::from_recorded_storage(apply_result.proof.clone().unwrap(), state_root, false),
+            Trie::from_recorded_storage(apply_result.proof.clone().unwrap(), state_root),
             &None,
             &apply_state,
             &receipts,
@@ -5069,7 +5068,7 @@ fn test_contract_loading_base_failure_skips_contract_metadata() {
     let result = apply_contract_loading_failure(ContractLoadingFailure::Base);
     let partial_storage = result.apply_result.proof.unwrap();
     let state_update =
-        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root));
 
     assert!(matches!(
         state_update.get_ref(
@@ -5086,7 +5085,7 @@ fn test_contract_loading_byte_failure_reads_metadata_but_not_code() {
     let result = apply_contract_loading_failure(ContractLoadingFailure::Bytes);
     let partial_storage = result.apply_result.proof.unwrap();
     let state_update =
-        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root, false));
+        TrieUpdate::new(Trie::from_recorded_storage(partial_storage, result.state_root));
 
     let value_ref = state_update
         .get_ref(&result.code_key, KeyLookupMode::MemOrFlatOrTrie, AccessOptions::DEFAULT)
@@ -5257,7 +5256,7 @@ fn apply_call_to_contract_missing_from_witness(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = apply_reason;
     runtime.apply(
-        Trie::from_recorded_storage(partial_storage, root, false),
+        Trie::from_recorded_storage(partial_storage, root),
         &None,
         &apply_state,
         std::slice::from_ref(&call_receipt),
@@ -5363,7 +5362,7 @@ fn apply_call_to_global_contract_missing_from_witness(
     apply_state.cache = Some(Box::new(FilesystemContractRuntimeCache::test().unwrap()));
     apply_state.apply_reason = ApplyChunkReason::ValidateChunkStateWitness;
     runtime.apply(
-        Trie::from_recorded_storage(partial_storage, root, false),
+        Trie::from_recorded_storage(partial_storage, root),
         &None,
         &apply_state,
         &receipts,
@@ -5533,7 +5532,7 @@ fn apply_call_to_missing_global_contract_for_account(
     let validator_config = RuntimeConfig::test_protocol_version(validator_protocol_version);
     set_config(&mut apply_state, Arc::new(validator_config));
     let apply_result = runtime.apply(
-        Trie::from_recorded_storage(partial_storage, root, false),
+        Trie::from_recorded_storage(partial_storage, root),
         &None,
         &apply_state,
         &receipts,
@@ -5720,7 +5719,6 @@ fn test_promise_yield_indices_missing_trie_value_not_swallowed() {
     let trie = Trie::from_recorded_storage(
         PartialStorage { nodes: PartialState::TrieValues(nodes) },
         root,
-        false,
     );
     let result = runtime.apply(
         trie,
@@ -5901,7 +5899,7 @@ fn test_exclude_contract_code_from_witness() {
     assert!(total_size < CONTRACT_SIZE);
 
     // Check that both contracts are excluded from the storage proof.
-    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let storage = Trie::from_recorded_storage(partial_storage, root);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
         storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
@@ -6007,7 +6005,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     // Check that both contracts are excluded from the storage proof.
     let partial_storage = apply_result.proof.unwrap();
-    let storage = Trie::from_recorded_storage(partial_storage, root, false);
+    let storage = Trie::from_recorded_storage(partial_storage, root);
     let code_key = TrieKey::ContractCode { account_id: alice_account() };
     assert_matches!(
         storage.get(&code_key.to_vec(), AccessOptions::DEFAULT),
