@@ -14,7 +14,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
-use crate::spice::chunk_executor_actor::{CatchupFinished, ChunkExecutorSenderForClient};
+use crate::spice::chunk_executor_actor::ChunkExecutorSenderForClient;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -1870,12 +1870,9 @@ impl ClientActor {
             if let Err(err) = self.client.run_catchup(
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.client.myself_sender.apply_chunks_done.clone()),
+                &self.chunk_executor_sender.catchup_finished,
             ) {
                 tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
-            }
-            if self.client.catchup_finished {
-                self.client.catchup_finished = false;
-                self.chunk_executor_sender.send(CatchupFinished);
             }
         }
 

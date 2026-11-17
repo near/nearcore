@@ -10,6 +10,7 @@ use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::chunk_executor_actor::CatchupFinished;
 use crate::spice::timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
@@ -146,8 +147,6 @@ pub struct Client {
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs: HashMap<CryptoHash, CatchupState>,
-    /// Whether a catchup finished since the client actor last checked.
-    pub(crate) catchup_finished: bool,
     /// Spawns async tasks for catchup state sync.
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     /// Sender for catchup state sync requests.
@@ -501,7 +500,6 @@ impl Client {
                 rng_seed,
             ),
             catchup_state_syncs: HashMap::new(),
-            catchup_finished: false,
             state_sync_future_spawner,
             chain_sender_for_state_sync,
             myself_sender,
@@ -2557,12 +2555,14 @@ impl Client {
         }
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
+    /// Walks through all the ongoing state syncs for future epochs and processes them. Sends
+    /// `CatchupFinished` for each catchup that finishes.
     #[instrument(level = "debug", target = "client", skip_all)]
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        catchup_finished_sender: &Sender<CatchupFinished>,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
@@ -2631,7 +2631,7 @@ impl Client {
                         self.process_block_processing_artifact(block_processing_artifacts);
 
                         self.catchup_state_syncs.remove(&sync_hash);
-                        self.catchup_finished = true;
+                        catchup_finished_sender.send(CatchupFinished);
                     }
                 }
             }
