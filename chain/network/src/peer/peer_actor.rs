@@ -1575,12 +1575,13 @@ impl messaging::Actor for PeerActor {
 
         self.handle.run_later("handshake_timeout",
             self.network_state.config.handshake_timeout.try_into().unwrap(),
-            move |act, _| match act.peer_status {
-                PeerStatus::Connecting { .. } => {
-                    tracing::info!(target: "network", peer_info = %act.peer_info, "handshake timeout expired");
-                    act.stop(ClosingReason::HandshakeFailed);
-                }
-                _ => {}
+            move |act, _| {
+                act.delay_if_registering(|act| {
+                    if let PeerStatus::Connecting { .. } = act.peer_status {
+                        tracing::info!(target: "network", peer_info = %act.peer_info, "handshake timeout expired");
+                        act.stop(ClosingReason::HandshakeFailed);
+                    }
+                })
             },
         );
 

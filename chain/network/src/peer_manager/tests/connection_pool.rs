@@ -1,3 +1,4 @@
+use crate::concurrency::rate;
 use crate::config::{ConnectionEncoding, SignedStructFormat, SocketOptions};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Disconnect, Encoding, PeerMessage};
@@ -15,7 +16,10 @@ use crate::types::Edge;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::db::TestDB;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 // Verify that an inbound Tier3 connection is accepted when we have a pending state sync
 // request for that peer.
@@ -714,4 +718,60 @@ async fn invalid_edge_with_encoding(encoding: Encoding) {
             .await;
         assert!(still_pending, "pending_tier3_requests entry was consumed by a failed edge check");
     }
+}
+
+/// A connection whose handshake timeout elapses while registration is in progress is
+/// established once registration completes, and stays open until it is closed.
+#[tokio::test]
+async fn handshake_timeout_during_registration() {
+    init_test_logger();
+    let mut rng = make_rng(921853235);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut cfg = chain.make_config(rng);
+    cfg.handshake_timeout = time::Duration::seconds(1);
+    // Registration adds the connection's edge to the routing graph and waits for that routing
+    // table update. With one update per 2.5 s, the first registration proceeds right away and
+    // the next one waits up to 2.5 s. The dialing side keeps the default 5 s timeout.
+    cfg.routing_table_update_rate_limit = rate::Limit { qps: 0.4, burst: 1 };
+    let pm = peer_manager::testonly::start(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
+    let pm_a = peer_manager::testonly::start(
+        clock.clock(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let pm_b = peer_manager::testonly::start(
+        clock.clock(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let id_b = pm_b.cfg.node_id();
+
+    // The first connection uses the routing table update that is available at start.
+    pm_a.connect_to(&pm.peer_info(), tcp::Tier::T2).await;
+
+    // The second registration waits for the next routing table update, while `pm`'s handshake
+    // timeout elapses. `connect_to` panics if the connection closes before the handshake
+    // completes.
+    timeout(Duration::from_secs(10), pm_b.connect_to(&pm.peer_info(), tcp::Tier::T2))
+        .await
+        .expect("handshake did not complete");
+    assert!(pm.tcp.tier2.load().ready.contains_key(&id_b));
+    assert!(pm_b.tcp.tier2.load().ready.contains_key(&pm.cfg.node_id()));
+
+    // Closing the connection on `pm` removes it from the pool.
+    pm.disconnect(&id_b).await;
+    timeout(Duration::from_secs(10), async {
+        while pm.tcp.tier2.load().ready.contains_key(&id_b) {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("connection was not removed from the pool");
 }
