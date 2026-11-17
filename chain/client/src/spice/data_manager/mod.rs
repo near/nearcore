@@ -480,7 +480,7 @@ impl SpiceDataManager {
             DataId::ReceiptProof(ReceiptProofId { to_shard, .. }) => {
                 self.shard_final_execution_heads.get(to_shard).is_some_and(|&head| height < head)
             }
-            DataId::Witness(_) => unreachable!("the data manager tracks no witnesses"),
+            DataId::Witness(_) => false,
         }
     }
 
