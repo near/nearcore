@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, ExecutionMetadata, SignedTransaction};
 use near_primitives::types::{BlockHeightDelta, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::trie::TrieNodesCount;
 
@@ -131,8 +131,15 @@ fn compare_node_counts() {
         })
         .collect();
 
-    assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 2, mem_reads: 2 });
-    assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+    if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 4, mem_reads: 0 });
+        assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+        assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+        assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+    } else {
+        assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 2, mem_reads: 2 });
+        assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+        assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+        assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+    }
 }
