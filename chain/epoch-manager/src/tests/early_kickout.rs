@@ -1115,7 +1115,7 @@ enum ForkOrder {
 }
 
 /// The orphan names a newer last final block than the canonical basis. Canonical records
-/// must succeed without an epoch walk.
+/// must succeed.
 fn record_fork_basis_behind_newer_final(order: ForkOrder) {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);

@@ -19,6 +19,7 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
+use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -135,6 +136,21 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         },
         Duration::seconds(20),
     );
+
+    // Epoch sync writes the synced epoch's first block row without recording the block. It must
+    // equal the row the source node wrote when it recorded that block.
+    let new_node_store = env.node(new_node_idx).store();
+    let source_node_store = env.node(source_node).store();
+    let proof = new_node_store.epoch_store().get_epoch_sync_proof().unwrap().unwrap();
+    let synced_epoch_first_block = *proof.current_epoch.first_block_header_in_epoch.hash();
+    let new_node_row = new_node_store
+        .get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref())
+        .map(|row| row.to_vec());
+    let source_node_row = source_node_store
+        .get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref())
+        .map(|row| row.to_vec());
+    assert!(new_node_row.is_some(), "epoch sync must write the synced epoch's first block row");
+    assert_eq!(new_node_row, source_node_row);
 
     let current_height = env.node(0).head().height;
     // Run for at least two more epochs to make sure everything continues to be fine.

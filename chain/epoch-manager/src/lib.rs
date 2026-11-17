@@ -1326,7 +1326,8 @@ impl EpochManager {
                         },
                     )?;
                 }
-                let aggregator = self.aggregator_after(&block_info, &prev_block_info)?;
+                let aggregator =
+                    self.compute_epoch_info_aggregator(&block_info, &prev_block_info)?;
                 store_update.set_epoch_info_aggregator(&current_hash, &aggregator);
 
                 // If this is the last block in the epoch, finalize this epoch.
@@ -2067,7 +2068,7 @@ impl EpochManager {
     /// The epoch statistics up to and including `block_info`: the parent's stored statistics
     /// plus this block, or this block alone when it starts an epoch. Shared by block recording
     /// and the database migration.
-    pub fn aggregator_after(
+    pub fn compute_epoch_info_aggregator(
         &self,
         block_info: &BlockInfo,
         prev_block_info: &BlockInfo,
