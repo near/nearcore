@@ -1,4 +1,4 @@
-# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat isprintable
+# cspell:ignore nearai opencode deepseek anomalyco greptile elif webfetch websearch xhigh uuidgen jsonl splitlines startswith isinstance rfind commat isascii isalnum
 name: NEAR AI PR Review
 
 # Reviews PRs with DeepSeek served by NEAR AI, using the OpenCode agent
@@ -340,7 +340,7 @@ jobs:
                       return fence, False
                   return marker.group(1), True
               if (marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence)
-                      and not line[marker.end():].strip()):
+                      and not line[marker.end():].strip(" \t")):
                   return None, True
               return fence, False
 
@@ -384,17 +384,19 @@ jobs:
           # does is error-prone, so a zero-width space breaks all of them
           # everywhere, code included. Readers see the same text.
           zero_width = chr(0x200B)
-          # Entities are decoded first, so the checks below see what GitHub
-          # shows. <, > and & stay encoded, so no HTML appears. Decoding repeats,
-          # because "&&#35;x40;" decodes to another entity.
+          # Entities for the characters these use are decoded first, so the
+          # checks below see what GitHub shows. Other entities stay as written:
+          # GitHub shows them the same, and decoding them could change the
+          # Markdown, for example a "|" in a table row or a quote in quoted code.
+          # Decoding repeats, because "&&#35;x40;" decodes to another entity.
           entity = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
           def decode(match):
               char = html.unescape(match.group(0))
-              if char == match.group(0) or not char.isprintable() or any(c in "<>&" for c in char):
-                  return match.group(0)
-              return char
+              if len(char) == 1 and char.isascii() and (char.isalnum() or char in "@#-./"):
+                  return char
+              return match.group(0)
 
 
           for _ in range(10):
@@ -405,11 +407,18 @@ jobs:
           else:
               # Deeper nesting: break every entity that still decodes.
               text = entity.sub(lambda m: m.group(0) if decode(m) == m.group(0) else "&" + zero_width + m.group(0)[1:], text)
+          # Inside raw HTML, GitHub also decodes a "&#" form that Markdown does
+          # not, such as "&#x40ghost", so every other "&#" is broken. Decimal
+          # entities are written in hex, so that the "#" rule below does not
+          # change one that is left encoded, such as "&#124;".
+          text = re.sub(r"&(?=#(?![0-9]{1,7};|[xX][0-9a-fA-F]{1,6};))", "&" + zero_width, text)
+          text = re.sub(r"&#([0-9]{1,7});", lambda m: f"&#x{int(m.group(1)):X};", text)
           text = re.sub(r"@(?=[A-Za-z0-9])", "@" + zero_width, text)
           text = re.sub(r"#(?=[0-9])", "#" + zero_width, text)
-          text = re.sub(r"\b(GH\\?)-(?=[0-9])", r"\1-" + zero_width, text, flags=re.IGNORECASE)
-          text = re.sub(r"github(?=\\?\.com\\?/[^/\s\\]+\\?/[^/\s\\]+\\?/(?:issues|pull|discussions)\\?/[0-9])",
-                        "github" + zero_width, text, flags=re.IGNORECASE)
+          text = re.sub(r"(GH\\?)-(?=[0-9])", r"\1-" + zero_width, text, flags=re.IGNORECASE)
+          # GitHub links owner/repo/pull/7 also without its domain, so the number
+          # after the path is broken, which covers full URLs too.
+          text = re.sub(r"(issues|pull|discussions)(\\?/)(?=[0-9])", r"\1\2" + zero_width, text, flags=re.IGNORECASE)
 
           # GitHub rejects comments longer than 65536 characters. A code block left
           # open by the cut is closed, so the note does not render as code.
