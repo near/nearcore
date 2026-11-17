@@ -2209,7 +2209,9 @@ fn test_tracking_again_the_proofs_of_a_block_the_executor_parks_again() {
     let proof_id = DataId::receipt_proof(*source.hash(), from_shard_id, to_shard_id);
     assert!(!actor.is_tracking(&proof_id));
 
-    actor.handle(SpiceTrackBlockData { block_hashes: vec![*source.hash()] });
+    // A block that fails to load does not keep the others untracked.
+    let unknown_block_hash = CryptoHash::hash_bytes(b"unknown block");
+    actor.handle(SpiceTrackBlockData { block_hashes: vec![unknown_block_hash, *source.hash()] });
 
     assert!(actor.is_tracking(&proof_id));
     // `head` certified the source chunk.
