@@ -1122,7 +1122,7 @@ fn assert_seeded_row_is_canonical(
 // The fork names an older last final block than the tip. If that block is in the
 // start-of-epoch window, the seeder writes the canonical row for the fork.
 #[test]
-fn seed_skips_fork_basis_behind_newer_final() {
+fn seed_writes_canonical_row_for_fork_basis_in_start_of_epoch_window() {
     let validators = vec![("test0".parse().unwrap(), STAKE), ("test1".parse().unwrap(), STAKE)];
     let mut em = setup_default_epoch_manager(validators, 10_000, 1, 3, 90, 60);
     const TIP: u64 = 30;
@@ -1671,9 +1671,10 @@ fn seeder_tolerates_post_epoch_sync_third_last_basis() {
     );
 }
 
-// The basis exists but its parent does not. Grace must bypass the missing ancestry.
+// The basis exists but its parent does not. The start-of-epoch window must bypass the
+// missing ancestry.
 #[test]
-fn seeder_recovers_from_hole_behind_in_grace_basis() {
+fn seeder_recovers_from_hole_behind_basis_in_start_of_epoch_window() {
     let fx = epoch_sync_fixture();
 
     let anchor = fx.seed_anchor_final_on(
