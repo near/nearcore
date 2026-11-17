@@ -86,7 +86,8 @@ fn remove_incoming_receipts_proofs_at_or_below_height(
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// N/A under spice: a spice state sync header carries no chunk. Its execution result's merkle path
+// binds it to its shard, see `test_spice_state_sync_header_proves_the_post_state_root`.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_set_state_header_rejects_chunk_from_other_shard() {
     init_test_logger();
@@ -121,7 +122,8 @@ fn test_set_state_header_rejects_chunk_from_other_shard() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+// N/A under spice: a spice state sync header carries no prev chunk header either, see
+// test_set_state_header_rejects_chunk_from_other_shard.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_set_state_header_rejects_prev_chunk_from_other_shard() {
     init_test_logger();
