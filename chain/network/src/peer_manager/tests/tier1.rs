@@ -143,6 +143,53 @@ async fn first_proxy_advertisement() {
     );
 }
 
+/// A node that is its own proxy leaves the TIER1 set, which closes its loop connection, and then
+/// rejoins it. After rejoining, it opens a new loop connection and advertises its address again.
+#[tokio::test]
+async fn loop_connection_after_rejoin() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let pm = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let other_cfg = chain.make_config(rng);
+    let me =
+        vec![PeerAddr { peer_id: pm.cfg.node_id(), addr: **pm.cfg.node_addr.as_ref().unwrap() }];
+
+    tracing::info!(target:"test", "the node joins the TIER1 set and opens a loop connection");
+    let mut events = pm.events.from_now();
+    pm.set_chain_info(peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg])).await;
+    let got = pm.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+    assert_eq!(got.proxies, me);
+    // Both ends of the loop connection report the same stream id.
+    let loop_stream_id = events
+        .recv_until(|ev| match ev {
+            Event::HandshakeCompleted(ev) if ev.tier == tcp::Tier::T1 => Some(ev.stream_id),
+            _ => None,
+        })
+        .await;
+
+    tracing::info!(target:"test", "the node leaves the TIER1 set and tier1_connect closes the loop connection");
+    let mut events = pm.events.from_now();
+    pm.set_chain_info(peer_manager::testonly::make_chain_info(&chain, &[&other_cfg])).await;
+    pm.tier1_connect(&clock.clock()).await;
+    // Each end is removed from the pool before it emits ConnectionClosed.
+    for _ in 0..2 {
+        events
+            .recv_until(|ev| match ev {
+                Event::ConnectionClosed(ev) if ev.stream_id == loop_stream_id => Some(()),
+                _ => None,
+            })
+            .await;
+    }
+
+    tracing::info!(target:"test", "the node rejoins the TIER1 set and opens a new loop connection");
+    pm.set_chain_info(peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg])).await;
+    let got = pm.tier1_advertise_proxies(&clock.clock()).await.unwrap();
+    assert_eq!(got.proxies, me);
+}
+
 #[tokio::test]
 async fn direct_connections() {
     init_test_logger();
