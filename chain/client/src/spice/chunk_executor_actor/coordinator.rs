@@ -71,7 +71,9 @@ pub struct ChunkExecutorActor {
     /// Each owns its own network-receipt buffer (no coordinator-side receipt state).
     per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
     /// The shards whose executor was evicted, with the height and hash of the block that evicted
-    /// it, until that block is final, see [`Self::report_stopped_shards`].
+    /// it, until that block is final, see [`Self::report_stopped_shards`]. Not persisted: startup
+    /// replays the blocks from the final execution head, so a shard the data distributor tracks
+    /// proofs into again gets its executor back, and the block that stopped it evicts it again.
     stopped_shards: HashMap<ShardUId, (BlockHeight, CryptoHash)>,
 
     pub(crate) validator_signer: MutableValidatorSigner,
