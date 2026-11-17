@@ -15091,7 +15091,7 @@ node:</p>
 </li>
 </ul>
 <p>We published a <a href="https://github.com/near/nearcore/blob/master/scripts/recover_missing_archival_data.sh">reference recovery script</a> in the <code>nearcore</code> repository. Your <code>neard</code> setup might be different, so the advice is to thoroughly check the script before running it. For completeness, here we include the set of commands to run:</p>
-<pre><code class="language-bash">neard view-state -t cold --readwrite apply-range --start-index 109913254 --end-index 110050000 --shard-id 2 --storage trie-free --save-state cold sequential
+<pre><code class="language-bash">neard view-state -t cold --readwrite apply-range --start-index 109913254 --end-index 110050000 --shard-id 2 --storage trie --save-state cold sequential
 </code></pre>
 <pre><code class="language-bash">RUST_LOG=debug neard database resharding --height 114580307 --shard-id 0 --restore
 </code></pre>
