@@ -71,6 +71,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
+use near_primitives::types::SpiceUncertifiedChunkInfo;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;
@@ -1727,26 +1728,37 @@ impl SpiceDataDistributorActor {
         let head = self.chain_store.head()?;
         let uncertified_chunks = self.core_reader.get_uncertified_chunks(&head.last_block_hash)?;
         for block_hash in block_hashes {
-            if !is_spice_or_last_pre_spice_block(
-                &self.chain_store,
-                self.epoch_manager.as_ref(),
-                block_hash,
-            )? {
-                continue;
+            if let Err(err) = self.track_data_of_block_again(block_hash, &uncertified_chunks) {
+                tracing::error!(target: "spice_data_distribution", ?err, %block_hash, "failed to track again the data of a block parked again; skipping");
             }
-            let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-            let certified_shards = shard_layout
-                .shard_ids()
-                .filter(|&shard_id| {
-                    let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
-                    uncertified_chunks.iter().all(|chunk_info| chunk_info.chunk_id != chunk_id)
-                })
-                .collect_vec();
-            let output =
-                self.data_manager.handle_block(block_hash, &certified_shards, self.clock.now());
-            self.handle_data_manager_output(output);
         }
+        Ok(())
+    }
+
+    fn track_data_of_block_again(
+        &mut self,
+        block_hash: &CryptoHash,
+        uncertified_chunks: &[SpiceUncertifiedChunkInfo],
+    ) -> Result<(), Error> {
+        if !is_spice_or_last_pre_spice_block(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            block_hash,
+        )? {
+            return Ok(());
+        }
+        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let certified_shards = shard_layout
+            .shard_ids()
+            .filter(|&shard_id| {
+                let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
+                uncertified_chunks.iter().all(|chunk_info| chunk_info.chunk_id != chunk_id)
+            })
+            .collect_vec();
+        let output =
+            self.data_manager.handle_block(block_hash, &certified_shards, self.clock.now());
+        self.handle_data_manager_output(output);
         Ok(())
     }
 
