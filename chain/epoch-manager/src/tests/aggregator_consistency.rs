@@ -15,6 +15,8 @@ use rand::{Rng, SeedableRng};
 /// endorsements.
 #[test]
 fn test_epoch_info_aggregator_matches_recomputation() {
+    let epoch_length = 5;
+    let num_heights = 6 * epoch_length;
     for seed in 0..200 {
         let mut rng = StdRng::seed_from_u64(seed);
         let validators = vec![
@@ -22,9 +24,8 @@ fn test_epoch_info_aggregator_matches_recomputation() {
             ("test2".parse().unwrap(), Balance::from_yoctonear(1_000)),
             ("test3".parse().unwrap(), Balance::from_yoctonear(1_000)),
         ];
-        // Epoch length 5 and 30 heights, so the trees cross several epoch boundaries.
-        let mut em = setup_default_epoch_manager(validators, 5, 2, 3, 90, 60);
-        let blocks = record_random_fork_tree(&mut em, &mut rng, seed, 30);
+        let mut em = setup_default_epoch_manager(validators, epoch_length, 2, 3, 90, 60);
+        let blocks = record_random_fork_tree(&mut em, &mut rng, seed, num_heights);
 
         for (hash, height) in blocks {
             let aggregator = em.get_epoch_info_aggregator_upto_last(&hash).unwrap();
@@ -58,7 +59,7 @@ fn record_random_fork_tree(
             blocks[rng.gen_range(0..blocks.len())]
         };
         let hash = CryptoHash::hash_borsh((seed, height));
-        record_block_with_random_chunks(em, rng, prev, hash, height);
+        record_block_with_random_chunks_and_proposals(em, rng, prev, hash, height);
         blocks.push((hash, height));
     }
     blocks
@@ -66,14 +67,18 @@ fn record_random_fork_tree(
 
 /// Records `hash` on `prev` with a random chunk mask, random endorsement bits for the
 /// produced chunks, and sometimes a stake proposal.
-fn record_block_with_random_chunks(
+fn record_block_with_random_chunks_and_proposals(
     em: &mut EpochManager,
     rng: &mut StdRng,
     (prev_hash, prev_height): (CryptoHash, BlockHeight),
     hash: CryptoHash,
     height: BlockHeight,
 ) {
-    let epoch_id = em.get_epoch_id(&prev_hash).unwrap();
+    let epoch_id = if em.is_next_block_epoch_start(&prev_hash).unwrap() {
+        em.get_next_epoch_id(&prev_hash).unwrap()
+    } else {
+        em.get_epoch_id(&prev_hash).unwrap()
+    };
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
     let chunk_mask: Vec<bool> = shard_layout.shard_ids().map(|_| rng.gen_bool(0.7)).collect();
     let endorsements = shard_layout
