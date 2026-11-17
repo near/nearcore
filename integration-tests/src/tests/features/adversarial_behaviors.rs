@@ -1,6 +1,6 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
-use near_async::messaging::{CanSend, IntoSender, noop};
+use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
@@ -165,7 +165,6 @@ fn slow_test_non_adversarial_case() {
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                noop().into_sender(),
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -298,7 +297,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                noop().into_sender(),
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());

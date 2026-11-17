@@ -47,12 +47,7 @@ fn test_not_process_height_twice() {
     let dup_block_hash = *mut_block.hash();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
-        .receive_block_impl(
-            duplicate_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            noop().into_sender(),
-        )
+        .receive_block_impl(duplicate_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false)
         .unwrap();
     // check that the second block is not being processed
     assert!(!test_utils::is_block_in_processing(&env.clients[0].chain, &dup_block_hash));
@@ -105,7 +100,6 @@ fn test_not_process_same_block_twice() {
         block.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
-        noop().into_sender(),
     );
     assert_matches!(res, Err(near_chain::Error::BlockPendingOptimisticExecution));
 
@@ -115,7 +109,6 @@ fn test_not_process_same_block_twice() {
         block,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
-        noop().into_sender(),
     );
     assert_matches!(res, Ok(_));
 }
@@ -199,12 +192,7 @@ fn test_bad_block_content_vrf() {
     Arc::make_mut(&mut bad_block).set_vrf_value(Value([0u8; 32]));
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            noop().into_sender(),
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -226,12 +214,7 @@ fn test_bad_block_signature() {
     Arc::make_mut(&mut bad_block).mut_header().set_signature(Signature::default());
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            noop().into_sender(),
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -412,9 +395,7 @@ fn test_process_optimistic_block() {
 
     // Start processing block and then optimistic block.
     // Check that optimistic block is not in processing.
-    env.clients[0]
-        .start_process_block(block.into(), Provenance::NONE, noop().into_sender())
-        .unwrap();
+    env.clients[0].start_process_block(block.into(), Provenance::NONE).unwrap();
     let optimistic_block_height = optimistic_block.inner.block_height;
     env.clients[0].chain.preprocess_optimistic_block(optimistic_block, noop().into_sender());
     assert!(

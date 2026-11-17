@@ -6,7 +6,7 @@ use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
 use itertools::Itertools;
-use near_async::messaging::{IntoSender, Sender, noop};
+use near_async::messaging::Sender;
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks_sequential};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{ChainStoreAccess, Provenance};
@@ -45,10 +45,9 @@ impl Client {
         should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, noop().into_sender())?;
+        self.start_process_block(block, provenance)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(noop().into_sender(), should_produce_chunk);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(should_produce_chunk);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -83,7 +82,7 @@ impl Client {
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(noop().into_sender(), true).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(true).0);
         }
         accepted_blocks
     }
@@ -92,7 +91,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(noop().into_sender(), true);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(true);
             return accepted_blocks;
         }
         vec![]
@@ -311,7 +310,7 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         block_inside_messages.lock().push(msg);
     });
     loop {
-        client.run_catchup(&block_catch_up, noop().into_sender())?;
+        client.run_catchup(&block_catch_up)?;
         let mut catchup_done = true;
         for msg in block_messages.lock().drain(..) {
             let results = do_apply_chunks_sequential(

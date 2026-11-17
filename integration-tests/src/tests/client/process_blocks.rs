@@ -1913,7 +1913,7 @@ fn test_validate_chunk_extra() {
         .distribute_and_persist_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(noop().into_sender());
+    env.clients[0].process_blocks_with_missing_chunks();
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.clients[0].chain.test_paused_blocks.resume(block2.hash());
