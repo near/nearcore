@@ -1,6 +1,7 @@
 use crate::blacklist;
 use crate::concurrency::rate;
 use crate::config_json::Tier1Config;
+use crate::network_protocol::Encoding;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_store;
@@ -201,6 +202,34 @@ impl NetworkTransitionConfig {
     };
     /// Preset used by the current release.
     pub const CURRENT: Self = Self::RELEASE_2_15;
+
+    /// Encodings which this node accepts on a connection, in the order of preference.
+    /// The initiating handshake is sent in all of them, and the connection uses the encoding of the
+    /// first message received from the peer.
+    pub(crate) fn connection_encodings(&self) -> &'static [Encoding] {
+        match self.connection_encoding {
+            ConnectionEncoding::ProtobufOnly => &[Encoding::Proto],
+            ConnectionEncoding::PreferBorsh => &[Encoding::Borsh, Encoding::Proto],
+            ConnectionEncoding::BorshOnly => &[Encoding::Borsh],
+        }
+    }
+
+    /// Encoding over which this node signs structs.
+    pub(crate) fn signing_encoding(&self) -> Encoding {
+        match self.signed_struct_format {
+            SignedStructFormat::ProtobufOnly | SignedStructFormat::AcceptBorsh => Encoding::Proto,
+            SignedStructFormat::SendBorsh | SignedStructFormat::BorshOnly => Encoding::Borsh,
+        }
+    }
+
+    /// Whether this node accepts structs signed over `encoding`.
+    pub(crate) fn accepts_signed_encoding(&self, encoding: Encoding) -> bool {
+        match (self.signed_struct_format, encoding) {
+            (SignedStructFormat::ProtobufOnly, Encoding::Borsh) => false,
+            (SignedStructFormat::BorshOnly, Encoding::Proto) => false,
+            _ => true,
+        }
+    }
 }
 
 impl Default for NetworkTransitionConfig {
@@ -695,6 +724,19 @@ impl NetworkConfig {
             "routing_graph_max_edges_per_source must be <= routing_graph_max_edges"
         );
 
+        // A struct signed with borsh can't be expressed in protobuf. A handshake sent in protobuf
+        // would lack the OwnedAccount, and the peer wouldn't know that this node is a validator.
+        let signs_with_borsh = self.transition.signing_encoding() == Encoding::Borsh;
+        let may_send_protobuf = self.transition.connection_encodings().contains(&Encoding::Proto);
+        if signs_with_borsh && may_send_protobuf {
+            anyhow::bail!(
+                "signed_struct_format({:?}) signs structs with borsh, which requires \
+                 connection_encoding({:?}) to be BorshOnly",
+                self.transition.signed_struct_format,
+                self.transition.connection_encoding,
+            );
+        }
+
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }
@@ -733,7 +775,7 @@ mod test {
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::{AccountData, VersionedAccountData, to_unix_nanos};
+    use crate::network_protocol::{AccountData, Encoding, VersionedAccountData, to_unix_nanos};
     use crate::rate_limits::messages_limits::{
         RateLimitedPeerMessageKey::BlockHeaders, SingleMessageConfig,
     };
@@ -917,8 +959,11 @@ mod test {
             version: 0,
             timestamp: to_unix_nanos(clock.now_utc()),
         };
-        let sad = ad.sign(&signer.into()).unwrap();
-        assert!(sad.payload().len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+        let signer = signer.into();
+        for encoding in [Encoding::Proto, Encoding::Borsh] {
+            let sad = ad.clone().sign(&signer, encoding).unwrap();
+            assert!(sad.signed_len() <= network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES);
+        }
     }
 
     #[test]

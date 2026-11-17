@@ -4,7 +4,7 @@ Generation brief for `spec/contract-vm.md`. Follow `../CONVENTIONS.md`.
 
 ## Scope
 Execution of WASM smart contracts: contract preparation/validation, the supported VM
-backends, the host-function (bindings) API exposed to contracts via `VMLogic`, gas
+backends, the host-function (bindings) API exposed to contracts, gas
 metering of WASM ops and host calls, registers/memory, promise creation from within a
 contract, and compiled-contract caching.
 
@@ -16,11 +16,18 @@ contract, and compiled-contract caching.
 
 ## Code to read
 - `runtime/near-vm-runner/src/runner.rs` — `run`, `prepare`, VM dispatch by `VMKind`.
-- `runtime/near-vm-runner/src/logic/logic.rs` — `VMLogic`, all host functions,
-  `VMContext`, `ExecutionResultState`, `VMOutcome`.
+- `runtime/near-vm-runner/src/wasmtime_runner/{mod,logic}.rs` — the wasmtime backend,
+  the host state (`Ctx`) and every host function. NOTE: the `VMLogic` struct and the
+  legacy host-function implementations were removed in 2.14.0; `logic/logic.rs` now
+  holds only `VMContext`, `ExecutionResultState` and `VMOutcome`.
 - `runtime/near-vm-runner/src/logic/{gas_counter,dependencies,context,errors}.rs`.
-- `runtime/near-vm-runner/src/{cache,prepare}.rs` — caching, wasm validation/instrumentation.
-- `runtime/near-vm/` — NearVM backend (overview only).
+- `runtime/near-vm-runner/src/{cache,prepare}.rs` and
+  `runtime/near-vm-runner/src/prepare/{prepare_v3,instrument_v3}.rs` — caching, wasm
+  validation/instrumentation. NOTE: `prepare_v2` was removed in 2.14.0.
+- `runtime/near-vm-runner/src/{features,imports}.rs` — the wasm feature allow-list and
+  the version/config gating of host-function imports.
+- NOTE: the `runtime/near-vm*` engine crates (the NearVM backend) were deleted in
+  2.14.0. Wasmtime is the only backend with an implementation.
 - `core/parameters/src/vm.rs`, `core/parameters/src/cost.rs` — VM limits, `ExtCosts`,
   wasm op costs.
 - `docs/RuntimeSpec/{FunctionCall,Preparation}.md`,

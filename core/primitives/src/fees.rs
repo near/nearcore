@@ -475,6 +475,12 @@ fn permission_exec_fees(
     key_fee.checked_add(nonce_fee.total()).unwrap()
 }
 
+/// The price the gas attached to a chain's first receipts is bought at, given the gas price the
+/// chunk is applied with.
+pub fn receipt_gas_price(config: &RuntimeConfig, current_gas_price: Balance) -> Balance {
+    std::cmp::max(current_gas_price, config.min_gas_purchase_price)
+}
+
 /// Returns the total cost of converting a `tx` into a receipt, including the
 /// costs of the spawned receipts.
 pub fn tx_cost(
@@ -545,7 +551,7 @@ pub fn calculate_tx_cost(
     // Gas attached to the receipt is purchased at a price which should be at least as large as
     // min_gas_purchase_price. Later it might be burned at a lower price, in which case the price
     // difference will be refunded.
-    let receipt_gas_price = std::cmp::max(current_gas_price, config.min_gas_purchase_price);
+    let receipt_gas_price = receipt_gas_price(config, current_gas_price);
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let gas_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
     let deposit_cost = total_deposit(actions)?;
@@ -563,7 +569,7 @@ pub fn calculate_tx_cost(
 }
 
 /// Describes what an external contract call burns before its method runs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EccCost {
     /// Total amount of gas burnt by the fees of the call.
     pub gas_burnt: Gas,
@@ -593,6 +599,27 @@ pub fn ecc_cost(
         .checked_add_result(function_call_exec_fee(fees, num_bytes))?;
     let burnt_amount = safe_gas_to_balance(gas_price, burnt.gas)?;
     Ok(EccCost { gas_burnt: burnt.gas, compute_burnt: burnt.compute, burnt_amount })
+}
+
+/// Returns `cost`, the fees of an external call, plus those of a self-addressed
+/// `UniversalStateInit` action carrying the `state_init` it installs, all burnt at once.
+pub fn ecc_cost_with_state_init(
+    config: &RuntimeConfig,
+    cost: &EccCost,
+    state_init: &RawStateInit,
+    gas_price: Balance,
+) -> Result<EccCost, IntegerOverflowError> {
+    let fees = &config.fees;
+    let fee = universal_state_init_fee(fees, state_init, |fee| fee.send_fee(true))?
+        .checked_add_result(universal_state_init_fee(fees, state_init, Fee::exec_fee)?)?;
+    Ok(EccCost {
+        gas_burnt: cost.gas_burnt.checked_add_result(fee.gas)?,
+        compute_burnt: safe_add_compute(cost.compute_burnt, fee.compute)?,
+        burnt_amount: safe_add_balance(
+            cost.burnt_amount,
+            safe_gas_to_balance(gas_price, fee.gas)?,
+        )?,
+    })
 }
 
 /// The signature scheme of a signer key, used to key the per-scheme
@@ -1170,14 +1197,15 @@ mod tests {
     }
 
     /// With the parameters of the version that enables external contract calls, the fees of the
-    /// largest payload leave most of the authorization budget to the contract.
+    /// largest payload leave most of the authorization budget to the contract. The payload here
+    /// is as large as the cap on a call's size, a bit larger than any call that keeps to it.
     #[test]
     fn ecc_cost_of_max_payload_fits_budget() {
         let config_store = RuntimeConfigStore::new();
         let protocol_version = ProtocolFeature::ExternalContractCalls.protocol_version();
         let config = config_store.get_config(protocol_version);
         let limit_config = &config.wasm_config.limit_config;
-        let payload = vec![0; limit_config.max_transaction_size as usize];
+        let payload = vec![0; config.external_calls_config.max_call_size as usize];
         let ecc = EccTransaction::new("contract.near".parse().unwrap(), payload);
         let cost = ecc_cost(config, &ecc, Balance::from_yoctonear(1)).unwrap();
         assert!(

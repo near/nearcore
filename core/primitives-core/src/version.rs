@@ -70,6 +70,11 @@ pub enum ProtocolFeature {
     /// `CodeDoesNotExist`. Previously chunk validators rejected such a state
     /// witness as incomplete, which stalled the shard.
     FailCallToMissingGlobalContract,
+    /// BLS12-381 host functions with a per-element cost and the yield resume
+    /// host functions accept input from a register (`len == u64::MAX`).
+    /// Before, they charged gas for `u64::MAX` bytes before they read the
+    /// register, and failed with `IntegerOverflow`.
+    FixRegisterInputCharging,
     /// A bandwidth request for a destination shard that is listed as its own parent
     /// no longer chains that shard's outgoing buffer onto itself.
     FixSelfMappedShardBandwidthRequest,
@@ -98,6 +103,30 @@ pub enum ProtocolFeature {
     /// Reject `BlockHeaderV7` in epochs before Spice. Without this feature, `validate_header`
     /// accepts it there and the header is handled like `BlockHeaderV6`.
     RejectBlockHeaderV7BeforeSpice,
+    /// A new access key, gas key nonce, NEAR implicit account key or universal account bootstrap
+    /// nonce starts at `h * 1e6 - 1` instead of `(h - 1) * 1e6`, where `h` is the creation height. A transaction executed at `h` that deletes and re-adds
+    /// its own key can then not run again with the same hash. See `initial_nonce_value` in
+    /// `near-runtime`.
+    RaiseInitialAccessKeyNonce,
+    /// Reject blocks whose body carries a non-empty deprecated `challenges` field.
+    RejectBlockChallenges,
+    /// Track protocol-level contract warmness and cold compilation bytes,
+    /// limiting how many cold contract bytes can be compiled per chunk.
+    /// (not fully implemented, yet. only stabilize when it is fully implemented,
+    /// including payment for new state)
+    ContractCompilationStatus,
+    /// Adds `creation_protocol_version` to action receipts and pins the
+    /// execution fees of the receipt to its creation protocol version.
+    /// This ensures that the fees prepaid at creation match the fees that are
+    /// charged during execution.
+    PinReceiptFees,
+    /// Read each gas key nonce before `DeleteKey` removes it, so the storage
+    /// proof limits count the trie nodes that the removal records.
+    ReadGasKeyNoncesBeforeRemoval,
+    /// Apply skips, with no outcome, a chunk's transaction whose routing account (the signer, or
+    /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
+    /// shares its id with the outcome of the same transaction in its own shard.
+    SkipForeignShardTransactions,
 }
 
 impl ProtocolFeature {
@@ -122,15 +151,22 @@ impl ProtocolFeature {
             ProtocolFeature::FixSelfMappedShardBandwidthRequest => 89,
             ProtocolFeature::UpdatedEthWalletContract => 89,
             ProtocolFeature::FixContractLoadingCost => 89,
+            ProtocolFeature::RaiseInitialAccessKeyNonce => 89,
             ProtocolFeature::RaisePerReceiptStorageProofLimit => 89,
+            ProtocolFeature::FixRegisterInputCharging => 89,
+            ProtocolFeature::PinReceiptFees => 89,
+            ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
+            ProtocolFeature::ExternalContractCalls => 89,
+            ProtocolFeature::SkipForeignShardTransactions => 89,
+            ProtocolFeature::RejectBlockChallenges => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::ExternalContractCalls => 150,
             ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
+            ProtocolFeature::ContractCompilationStatus => 158,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -178,7 +214,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 157;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 158;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

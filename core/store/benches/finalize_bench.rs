@@ -25,7 +25,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkV2, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV3,
     ShardChunkV2, ShardChunkWithEncoding, ShardProof,
 };
-use near_primitives::transaction::{Action, TransactionEnvelope, ValidatedTransaction};
+use near_primitives::transaction::{Action, TransactionEnvelope, ValidatedTransactionEnvelope};
 use near_primitives::types::{AccountId, Balance, Gas, ShardId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolFeature};
@@ -191,7 +191,7 @@ fn create_shard_chunk(
 }
 
 fn create_encoded_shard_chunk(
-    validated_txs: Vec<ValidatedTransaction>,
+    validated_txs: Vec<ValidatedTransactionEnvelope>,
     receipts: Vec<Receipt>,
 ) -> (ShardChunkWithEncoding, Vec<Vec<MerklePathItem>>) {
     let rs = ReedSolomon::new(33, 67).unwrap();

@@ -2,7 +2,7 @@
 //! the chunks at the spice activation boundary.
 
 use crate::Chain;
-use crate::spice::boundary::applies_chunk_itself;
+use crate::spice::chunk_application::applies_chunk_itself;
 use crate::stateless_validation::chunk_validation::{
     validate_receipt_proof, validate_source_receipt_proofs,
 };
@@ -553,7 +553,7 @@ pub fn check_pre_spice_execution_result(
     if header.is_spice() {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
-    if !applies_chunk_itself(shard_tracker, epoch_manager, &header, chunk_id.shard_id)? {
+    if !applies_chunk_itself(shard_tracker, &header, chunk_id.shard_id) {
         return Ok(PreSpiceExecutionResultCheck::NotCheckable);
     }
     // A block this node never processed, e.g. one in the gap state sync leaves, can be
@@ -612,6 +612,7 @@ mod tests {
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;
 
@@ -634,8 +635,11 @@ mod tests {
         let shard_uid = shard_layout.shard_uids().next().unwrap();
         let shard_id = shard_uid.shard_id();
 
-        let receipts =
-            vec![Receipt::new_balance_refund(&"user".parse().unwrap(), Balance::from_near(1))];
+        let receipts = vec![Receipt::new_balance_refund(
+            &"user".parse().unwrap(),
+            Balance::from_near(1),
+            PROTOCOL_VERSION,
+        )];
         let extra_with_chunk = ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"a"));
         let extra_missing_chunk =
             ChunkExtra::new_with_only_state_root(&CryptoHash::hash_bytes(b"b"));

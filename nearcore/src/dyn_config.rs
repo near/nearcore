@@ -1,5 +1,5 @@
 use crate::config::Config;
-use near_chain_configs::UpdatableClientConfig;
+use near_chain_configs::{UpdatableClientConfig, default_ecc_time_share};
 use near_dyn_configs::{UpdatableConfigLoaderError, UpdatableConfigs, UpdatableValidatorSigner};
 use near_o11y::log_config::LogConfig;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -66,6 +66,7 @@ pub fn get_updatable_client_config(config: &Config) -> UpdatableClientConfig {
         expected_shutdown: config.expected_shutdown,
         resharding_config: config.resharding_config,
         produce_chunk_add_transactions_time_limit: config.produce_chunk_add_transactions_time_limit,
+        ecc_time_share: config.ecc_time_share.unwrap_or_else(default_ecc_time_share),
         block_production_tracking_delay: config.consensus.block_production_tracking_delay,
         min_block_production_delay: config.consensus.min_block_production_delay,
         max_block_production_delay: config.consensus.max_block_production_delay,

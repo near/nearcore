@@ -125,7 +125,8 @@ fn slow_test_repro_1183() {
                                     &InMemorySigner::test_signer(&from),
                                     Balance::from_yoctonear(1),
                                     *block.header().prev_hash(),
-                                ),
+                                )
+                                .into(),
                                 is_forwarded: false,
                                 check_only: false,
                             });
@@ -359,12 +360,12 @@ fn test_rpc_forwards_retried_transaction() {
         env.rpc_node().head().last_block_hash,
     );
     env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
-        transaction: tx1.clone(),
+        transaction: tx1.clone().into(),
         is_forwarded: false,
         check_only: false,
     });
     env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
-        transaction: tx1.clone(),
+        transaction: tx1.clone().into(),
         is_forwarded: false,
         check_only: false,
     });
@@ -393,12 +394,12 @@ fn test_rpc_forwards_retried_transaction() {
         env.rpc_node().head().last_block_hash,
     );
     env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
-        transaction: tx2.clone(),
+        transaction: tx2.clone().into(),
         is_forwarded: false,
         check_only: false,
     });
     env.node_datas[rpc_data_idx].rpc_handler_sender.send(ProcessTxRequest {
-        transaction: tx2.clone(),
+        transaction: tx2.clone().into(),
         is_forwarded: false,
         check_only: false,
     });

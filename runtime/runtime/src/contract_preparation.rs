@@ -6,7 +6,6 @@ use near_parameters::RuntimeConfig;
 use near_parameters::vm::Config as VmConfig;
 use near_primitives::account::Account;
 use near_primitives::gas::Gas;
-use near_primitives::transaction::FunctionCallAction;
 use near_primitives::types::{AccountId, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::AccessOptions;
@@ -44,12 +43,13 @@ pub(crate) fn prepare_contract_metadata(
     account_id: &AccountId,
     account: &Account,
     state_update: &TrieUpdate,
-    function_call: &FunctionCallAction,
+    method_name: &str,
+    prepaid_gas: Gas,
     execution_mode: &ExecutionMode,
     access: AccessOptions,
     protocol_version: ProtocolVersion,
 ) -> Result<ContractPreparation, StorageError> {
-    let gas_counter = gas_counter(config, execution_mode, function_call.gas);
+    let gas_counter = gas_counter(config, execution_mode, prepaid_gas);
     let account_contract = account.contract().into_owned();
     if !config.wasm_config.fix_contract_loading_cost {
         let identifier = RuntimeContractIdentifier::resolve(
@@ -64,7 +64,7 @@ pub(crate) fn prepare_contract_metadata(
         let gas_counter = Box::new(PreparedContractGasCounter::Legacy(gas_counter));
         return Ok(ContractPreparation::Ready { contract, gas_counter });
     }
-    let base_charged = match gas_counter.charge_loading_base(&function_call.method_name) {
+    let base_charged = match gas_counter.charge_loading_base(method_name) {
         Ok(base_charged) => base_charged,
         Err(abort) => return Ok(ContractPreparation::Aborted(abort)),
     };

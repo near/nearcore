@@ -62,7 +62,7 @@ async fn ultra_slow_test_sync_state_stake_change() {
         genesis_hash,
     );
     tx_processor1.send(ProcessTxRequest {
-        transaction: unstake_transaction,
+        transaction: unstake_transaction.into(),
         is_forwarded: false,
         check_only: false,
     });

@@ -8,7 +8,7 @@ use crate::hash::{CryptoHash, hash};
 use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use crate::universal_state_init::UniversalStateInit;
+use crate::universal_state_init::{RawStateInit, UniversalStateInit};
 use crate::utils::derive_universal_account_id;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -24,6 +24,7 @@ use schemars::json_schema;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
+use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
@@ -553,33 +554,49 @@ impl schemars::JsonSchema for SignedTransaction {
 
 /// First byte of the borsh encoding of an [`EccTransaction`], which tells it apart from the
 /// signed transactions (see [`TransactionEnvelope`]).
-const ECC_ESCAPE_BYTE: u8 = 0xFF;
+pub(crate) const ECC_ESCAPE_BYTE: u8 = 0xFF;
 
 /// Version of the borsh encoding of an [`EccTransaction`], the byte after [`ECC_ESCAPE_BYTE`].
 const ECC_VERSION: u8 = 0;
 
 /// Name of the contract method an [`EccTransaction`] calls. Only an external call or a view
 /// call can run it; an ordinary `FunctionCall` action to it fails.
-///
-/// TODO(ecc): The `__nightly_` prefix is temporary; the final name will be chosen when the feature
-/// is stabilized.
-pub const ECC_METHOD_NAME: &str = "__nightly_external_call";
+pub const ECC_METHOD_NAME: &str = "__external_call";
 
 /// An external contract call (ECC): a call that carries no signer, public key, nonce or
 /// signature. A clean return from the target's standardized method serves as authorization.
-#[derive(Eq, Debug, Clone, ProtocolSchema)]
+#[derive(Eq, Clone, ProtocolSchema)]
 pub struct EccTransaction {
     /// The contract accepting and paying for the call. An ECC is self-addressed, so this is
     /// also the receiver.
     contract_id: AccountId,
     payload: Vec<u8>,
+    /// A universal account's state init, installed before the run on an uninitialized account.
+    state_init: Option<RawStateInit>,
     hash: CryptoHash,
+    hash_without_state_init: CryptoHash,
     size: u64,
 }
 
 impl EccTransaction {
     pub fn new(contract_id: AccountId, payload: Vec<u8>) -> Self {
-        let mut tx = Self { contract_id, payload, hash: CryptoHash::default(), size: 0 };
+        Self::new_with_state_init(contract_id, payload, None)
+    }
+
+    /// A call that carries `state_init`, if any.
+    pub fn new_with_state_init(
+        contract_id: AccountId,
+        payload: Vec<u8>,
+        state_init: Option<RawStateInit>,
+    ) -> Self {
+        let mut tx = Self {
+            contract_id,
+            payload,
+            state_init,
+            hash: CryptoHash::default(),
+            hash_without_state_init: CryptoHash::default(),
+            size: 0,
+        };
         tx.init();
         tx
     }
@@ -588,6 +605,15 @@ impl EccTransaction {
         let bytes = borsh::to_vec(self).expect("failed to serialize an ECC transaction");
         self.hash = hash(&bytes);
         self.size = bytes.len() as u64;
+        self.hash_without_state_init = match self.state_init {
+            None => self.hash,
+            Some(_) => self.without_state_init().hash,
+        };
+    }
+
+    /// The same call with no state init.
+    pub fn without_state_init(&self) -> Self {
+        Self::new(self.contract_id.clone(), self.payload.clone())
     }
 
     pub fn contract_id(&self) -> &AccountId {
@@ -598,8 +624,12 @@ impl EccTransaction {
         &self.payload
     }
 
-    pub fn into_parts(self) -> (AccountId, Vec<u8>) {
-        (self.contract_id, self.payload)
+    pub fn state_init(&self) -> Option<&RawStateInit> {
+        self.state_init.as_ref()
+    }
+
+    pub fn into_parts(self) -> (AccountId, Vec<u8>, Option<RawStateInit>) {
+        (self.contract_id, self.payload, self.state_init)
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -608,6 +638,12 @@ impl EccTransaction {
 
     pub fn hash(&self) -> &CryptoHash {
         &self.hash
+    }
+
+    /// The hash each copy's unique id comes from, so a copy that carries the state init and one
+    /// that does not get the same id at the same height.
+    pub fn hash_without_state_init(&self) -> &CryptoHash {
+        &self.hash_without_state_init
     }
 
     /// Full borsh-serialized size. There is no signature, so this is also the wire size.
@@ -629,7 +665,150 @@ impl EccTransaction {
         if size > max_tx_size {
             return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_tx_size });
         }
+        let max_ecc_size = config.external_calls_config.max_call_size;
+        if size > max_ecc_size {
+            return Err(InvalidTxError::TransactionSizeExceeded { size, limit: max_ecc_size });
+        }
         Ok(())
+    }
+}
+
+/// Why the external calls of a chunk, taken together, make the chunk invalid.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum InvalidExternalCalls {
+    #[error("the chunk has more than one external call to {contract_id}")]
+    ContractCalledTwice { contract_id: AccountId },
+    #[error("external calls take {size} bytes, past their share of {limit} bytes")]
+    SizeShareExceeded { size: u64, limit: u64 },
+    #[error("the chunk has {count} external calls, more than the limit of {limit}")]
+    TooManyCalls { count: u64, limit: u64 },
+}
+
+/// The external calls of a chunk so far, against the rules on them taken together: at most one
+/// call per contract, no more than `max_calls_per_chunk` calls, and no more than their share of
+/// the chunk's transaction bytes. A chunk whose calls break a rule is invalid.
+///
+/// Validation checks a chunk with it (`check_external_calls_in_chunk`), and the chunk producer
+/// packs calls with it, so that both keep to the same rules.
+///
+/// Before external calls a chunk holds none, as each fails its own validity check, so the rules
+/// don't look at the protocol version. The limits are zero then, so `has_room` is false.
+#[derive(Debug)]
+pub struct ExternalCallsValidity {
+    contracts: HashSet<AccountId>,
+    count: u64,
+    size: u64,
+    max_count: u64,
+    size_share: u64,
+}
+
+impl ExternalCallsValidity {
+    /// No external calls yet, in a chunk under `config`.
+    pub fn new(config: &RuntimeConfig) -> Self {
+        let calls_config = &config.external_calls_config;
+        Self {
+            contracts: HashSet::new(),
+            count: 0,
+            size: 0,
+            max_count: calls_config.max_calls_per_chunk,
+            size_share: calls_config.transactions_size_share(&config.witness_config),
+        }
+    }
+
+    /// Reserves room for `ecc` if the chunk's external calls would still keep to the rules with
+    /// it. Nothing is added until the reservation is committed, and dropping it adds nothing, so
+    /// a caller can still decide against the call in between. The reservation borrows `self`
+    /// mutably, so nothing else can be added before it is committed or dropped.
+    pub fn reserve(
+        &mut self,
+        ecc: &EccTransaction,
+    ) -> Result<ExternalCallReservation<'_>, InvalidExternalCalls> {
+        let contract_id = ecc.contract_id();
+        if self.contracts.contains(contract_id) {
+            let contract_id = contract_id.clone();
+            return Err(InvalidExternalCalls::ContractCalledTwice { contract_id });
+        }
+        let count = self.count.saturating_add(1);
+        if count > self.max_count {
+            return Err(InvalidExternalCalls::TooManyCalls { count, limit: self.max_count });
+        }
+        let size = self.size.saturating_add(ecc.get_size());
+        if size > self.size_share {
+            return Err(InvalidExternalCalls::SizeShareExceeded { size, limit: self.size_share });
+        }
+        Ok(ExternalCallReservation { calls: self, contract_id: contract_id.clone(), count, size })
+    }
+
+    /// Adds `ecc` to the chunk's external calls if they still keep to the rules with it.
+    /// Otherwise adds nothing.
+    pub fn add(&mut self, ecc: &EccTransaction) -> Result<(), InvalidExternalCalls> {
+        self.reserve(ecc)?.commit();
+        Ok(())
+    }
+
+    /// Whether the chunk holds an external call to `contract_id`, so that it can't hold another.
+    pub fn has_call_to(&self, contract_id: &AccountId) -> bool {
+        self.contracts.contains(contract_id)
+    }
+
+    /// Whether some external call could still be added: there is room for one more call, and
+    /// a byte left of the size share.
+    pub fn has_room(&self) -> bool {
+        self.count < self.max_count && self.size < self.size_share
+    }
+
+    /// The bytes the chunk's external calls take.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+/// Room for one external call in a chunk, which `ExternalCallsValidity::reserve` found keeps to
+/// the rules. Committing it adds the call; dropping it leaves the chunk's calls as they were.
+///
+/// It holds the call's contract and the totals with the call added, not the call itself, so the
+/// caller is free to move the call while the reservation is held.
+#[must_use = "the call is only added when the reservation is committed"]
+#[derive(Debug)]
+pub struct ExternalCallReservation<'a> {
+    calls: &'a mut ExternalCallsValidity,
+    contract_id: AccountId,
+    count: u64,
+    size: u64,
+}
+
+impl ExternalCallReservation<'_> {
+    /// Adds the reserved call to the chunk's external calls.
+    pub fn commit(self) {
+        let Self { calls, contract_id, count, size } = self;
+        calls.contracts.insert(contract_id);
+        calls.count = count;
+        calls.size = size;
+    }
+}
+
+/// Checks the rules on a chunk's external calls taken together, as `ExternalCallsValidity`
+/// describes. A chunk that fails this is invalid.
+pub fn check_external_calls_in_chunk<'a>(
+    config: &RuntimeConfig,
+    transactions: impl IntoIterator<Item = &'a TransactionEnvelope>,
+) -> Result<(), InvalidExternalCalls> {
+    let mut calls = ExternalCallsValidity::new(config);
+    for ecc in transactions.into_iter().filter_map(TransactionEnvelope::as_unsigned) {
+        calls.add(ecc)?;
+    }
+    Ok(())
+}
+
+impl fmt::Debug for EccTransaction {
+    /// Abbreviates the payload, which is arbitrary bytes of up to the transaction size limit.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EccTransaction")
+            .field("contract_id", &self.contract_id)
+            .field("payload", &format_args!("{}", AbbrBytes(&self.payload)))
+            .field("state_init", &AbbrBytes(self.state_init.as_ref().map(|init| init.0.as_slice())))
+            .field("hash", &self.hash)
+            .finish()
     }
 }
 
@@ -644,7 +823,8 @@ impl BorshSerialize for EccTransaction {
         BorshSerialize::serialize(&ECC_ESCAPE_BYTE, writer)?;
         BorshSerialize::serialize(&ECC_VERSION, writer)?;
         self.contract_id.serialize(writer)?;
-        self.payload.serialize(writer)
+        self.payload.serialize(writer)?;
+        self.state_init.serialize(writer)
     }
 }
 
@@ -666,7 +846,49 @@ impl BorshDeserialize for EccTransaction {
         }
         let contract_id = AccountId::deserialize_reader(reader)?;
         let payload = Vec::<u8>::deserialize_reader(reader)?;
-        Ok(Self::new(contract_id, payload))
+        let state_init = Option::<RawStateInit>::deserialize_reader(reader)?;
+        Ok(Self::new_with_state_init(contract_id, payload, state_init))
+    }
+}
+
+impl serde::Serialize for EccTransaction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let borsh = borsh::to_vec(self).map_err(|err| {
+            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
+        })?;
+        serializer.serialize_str(&to_base64(&borsh))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EccTransaction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let borsh = from_base64(&base64).map_err(|err| {
+            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
+        })?;
+        borsh::from_slice::<Self>(&borsh).map_err(|err| {
+            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
+        })
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for EccTransaction {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "EccTransaction".to_string().into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        json_schema!({
+            "type": "string",
+            "format": "byte"
+        })
     }
 }
 
@@ -696,6 +918,15 @@ impl TransactionEnvelope {
         match self {
             Self::Signed(tx) => tx.hash(),
             Self::Unsigned(tx) => tx.hash(),
+        }
+    }
+
+    /// The hash a transaction's id comes from: a signed transaction's hash, or an external call's
+    /// hash without its state init, which every copy of the call shares.
+    pub fn id_hash(&self) -> &CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash(),
+            Self::Unsigned(call) => call.hash_without_state_init(),
         }
     }
 
@@ -730,6 +961,23 @@ impl TransactionEnvelope {
         self.as_signed().map(|tx| tx.transaction.block_hash())
     }
 
+    /// The account that decides which shard the transaction goes to: the signer, or the
+    /// contract for an ECC.
+    pub fn routing_account_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.transaction.signer_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+
+    /// The account the transaction is addressed to. An ECC is self-addressed.
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => tx.transaction.receiver_id(),
+            Self::Unsigned(tx) => tx.contract_id(),
+        }
+    }
+
     pub fn as_signed(&self) -> Option<&SignedTransaction> {
         match self {
             Self::Signed(tx) => Some(tx),
@@ -740,6 +988,15 @@ impl TransactionEnvelope {
     pub fn into_signed(self) -> Option<SignedTransaction> {
         match self {
             Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+
+    /// The id `tx` status takes for this transaction, if it is known before the transaction lands.
+    /// A signed transaction's id is its hash, and an external call's depends on its block.
+    pub fn outcome_id_before_inclusion(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Signed(tx) => Some(tx.get_hash()),
             Self::Unsigned(_) => None,
         }
     }
@@ -811,47 +1068,6 @@ impl BorshDeserialize for TransactionEnvelope {
     }
 }
 
-impl serde::Serialize for TransactionEnvelope {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let borsh = borsh::to_vec(self).map_err(|err| {
-            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
-        })?;
-        serializer.serialize_str(&to_base64(&borsh))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TransactionEnvelope {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let borsh = from_base64(&base64).map_err(|err| {
-            D::Error::custom(&format!("the value could not be decoded from base64 due to: {}", err))
-        })?;
-        borsh::from_slice::<Self>(&borsh).map_err(|err| {
-            D::Error::custom(&format!("the value could not be decoded from borsh due to: {}", err))
-        })
-    }
-}
-
-#[cfg(feature = "schemars")]
-impl schemars::JsonSchema for TransactionEnvelope {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "TransactionEnvelope".to_string().into()
-    }
-
-    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        json_schema!({
-            "type": "string",
-            "format": "byte"
-        })
-    }
-}
-
 /// An [`EccTransaction`] that passed [`EccTransaction::check_valid_for_config`]. There is no
 /// signature to verify: the contract's own check at apply time takes its place.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -885,6 +1101,15 @@ impl ValidatedEcc {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.0.get_hash()
+    }
+
+    pub fn hash_without_state_init(&self) -> &CryptoHash {
+        self.0.hash_without_state_init()
+    }
+
+    /// The same call with no state init, which passes the same checks.
+    pub fn without_state_init(&self) -> Self {
+        Self(self.0.without_state_init())
     }
 
     pub fn get_size(&self) -> u64 {
@@ -943,6 +1168,24 @@ impl ValidatedTransactionEnvelope {
             Self::Unsigned(tx) => tx.contract_id(),
         }
     }
+
+    pub fn into_envelope(self) -> TransactionEnvelope {
+        match self {
+            Self::Signed(tx) => tx.into_signed_tx().into(),
+            Self::Unsigned(tx) => tx.into_ecc().into(),
+        }
+    }
+}
+
+/// Serializes as the [`TransactionEnvelope`] it validated, so that the root of a chunk's
+/// transactions can be computed without copying them.
+impl BorshSerialize for ValidatedTransactionEnvelope {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Self::Signed(tx) => tx.to_signed_tx().serialize(writer),
+            Self::Unsigned(tx) => tx.to_ecc().serialize(writer),
+        }
+    }
 }
 
 impl From<ValidatedTransaction> for ValidatedTransactionEnvelope {
@@ -972,6 +1215,20 @@ pub enum ExecutionStatus {
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
     SuccessReceiptId(CryptoHash) = 3,
+}
+
+impl ExecutionStatus {
+    /// Whether the execution changed state. Only a transaction that failed validation without
+    /// paying for gas did not.
+    pub fn has_changed_state(&self) -> bool {
+        match self {
+            ExecutionStatus::Failure(TxExecutionError::InvalidTxError(err)) => err.uses_nonce(),
+            ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+            | ExecutionStatus::Unknown
+            | ExecutionStatus::SuccessValue(_)
+            | ExecutionStatus::SuccessReceiptId(_) => true,
+        }
+    }
 }
 
 impl fmt::Debug for ExecutionStatus {
@@ -1145,15 +1402,25 @@ impl ExecutionOutcomeWithId {
         Self::failed_with_gas_burnt(transaction, error, Gas::ZERO, Balance::ZERO)
     }
 
-    /// Like [`Self::failed`], for an ECC. Its contract stands in for the signer as the executor.
-    pub fn failed_ecc(transaction: &EccTransaction, error: InvalidTxError) -> Self {
+    /// The outcome of a refused ECC. Its contract stands in for the signer as the executor.
+    /// Unlike a transaction's, an ECC's outcome id is not its hash: see `create_ecc_outcome_id`.
+    ///
+    /// Nobody pays for a refused call, so it burns no gas and no tokens, and doesn't move the next
+    /// gas price. The work validators did on it is reported as compute, which counts toward the
+    /// chunk's compute limit.
+    pub fn refused_ecc(
+        id: CryptoHash,
+        transaction: &EccTransaction,
+        error: TxExecutionError,
+        compute_usage: Compute,
+    ) -> Self {
         Self {
-            id: transaction.get_hash(),
+            id,
             outcome: ExecutionOutcome {
                 executor_id: transaction.contract_id().clone(),
-                status: ExecutionStatus::Failure(TxExecutionError::InvalidTxError(error)),
+                status: ExecutionStatus::Failure(error),
                 gas_burnt: Gas::ZERO,
-                compute_usage: Some(0),
+                compute_usage: Some(compute_usage),
                 tokens_burnt: Balance::ZERO,
                 ..Default::default()
             },
@@ -1224,6 +1491,7 @@ pub struct ExecutionOutcomeWithProof {
 mod tests {
     use super::*;
     use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+    use crate::merkle::merklize;
     use crate::universal_state_init::UniversalStateInitV1;
     use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
@@ -1468,9 +1736,44 @@ mod tests {
         let ecc = test_ecc();
         let other_contract = EccTransaction::new("other.near".parse().unwrap(), vec![1, 2, 3]);
         let other_payload = EccTransaction::new(ecc.contract_id().clone(), vec![]);
-        for other in [other_contract, other_payload] {
+        let other_state_init = test_ecc_with_state_init();
+        for other in [other_contract, other_payload, other_state_init] {
             assert_ne!(other.get_hash(), ecc.get_hash());
         }
+    }
+
+    fn test_ecc_with_state_init() -> EccTransaction {
+        let ecc = test_ecc();
+        let state_init = Some(RawStateInit(vec![4, 5, 6]));
+        EccTransaction::new_with_state_init(
+            ecc.contract_id().clone(),
+            ecc.payload().to_vec(),
+            state_init,
+        )
+    }
+
+    /// The copy of a call with its state init and the copy without differ in bytes, and share the
+    /// hash their unique ids come from: the hash of the copy without the state init.
+    #[test]
+    fn test_ecc_hash_without_state_init() {
+        let without = test_ecc();
+        let with = test_ecc_with_state_init();
+        assert_eq!(without.hash_without_state_init(), without.hash());
+        assert_eq!(with.hash_without_state_init(), without.hash());
+        assert_eq!(with.without_state_init().hash(), without.hash());
+        assert_eq!(with.without_state_init().state_init(), None);
+        assert_eq!(TransactionEnvelope::from(with).id_hash(), without.hash());
+    }
+
+    #[test]
+    fn test_ecc_with_state_init_borsh_roundtrip() {
+        let ecc = test_ecc_with_state_init();
+        let bytes = borsh::to_vec(&ecc).unwrap();
+        assert_eq!(ecc.get_size(), bytes.len() as u64);
+        let decoded = EccTransaction::try_from_slice(&bytes).unwrap();
+        assert_eq!(decoded.state_init(), ecc.state_init());
+        assert_eq!(decoded.hash(), ecc.hash());
+        assert_eq!(decoded.hash_without_state_init(), ecc.hash_without_state_init());
     }
 
     #[test]
@@ -1489,20 +1792,17 @@ mod tests {
     }
 
     #[test]
-    fn test_envelope_json_roundtrip() {
-        let mut envelopes = vec![TransactionEnvelope::from(test_ecc())];
-        envelopes.extend(test_signed_txs().into_iter().map(TransactionEnvelope::from));
-        for envelope in envelopes {
-            let json = serde_json::to_string(&envelope).unwrap();
-            assert_eq!(serde_json::from_str::<TransactionEnvelope>(&json).unwrap(), envelope);
-        }
+    fn test_ecc_json_roundtrip() {
+        let ecc = test_ecc();
+        let json = serde_json::to_string(&ecc).unwrap();
+        assert_eq!(serde_json::from_str::<EccTransaction>(&json).unwrap(), ecc);
     }
 
     #[test]
     fn test_ecc_check_valid_for_config() {
-        let config = RuntimeConfig::test();
-        let envelope = TransactionEnvelope::from(test_ecc());
         let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let envelope = TransactionEnvelope::from(test_ecc());
 
         assert_eq!(
             envelope.check_valid_for_config(&config, feature_version - 1),
@@ -1521,10 +1821,192 @@ mod tests {
         );
     }
 
+    /// An external call may take up to `max_call_size` bytes, far less than any transaction may.
+    #[test]
+    fn test_ecc_check_valid_for_config_max_call_size() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let limit = config.external_calls_config.max_call_size;
+        assert!(limit < config.wasm_config.limit_config.max_transaction_size);
+
+        let at_limit = ecc_of_size("wallet.near", limit);
+        assert_eq!(at_limit.get_size(), limit);
+        assert_eq!(at_limit.check_valid_for_config(&config, feature_version), Ok(()));
+
+        let over_limit = ecc_of_size("wallet.near", limit + 1);
+        assert_eq!(
+            over_limit.check_valid_for_config(&config, feature_version),
+            Err(InvalidTxError::TransactionSizeExceeded { size: limit + 1, limit })
+        );
+    }
+
+    /// An external call to `contract_id` of exactly `size` bytes.
+    fn ecc_of_size(contract_id: &str, size: u64) -> EccTransaction {
+        let contract_id: AccountId = contract_id.parse().unwrap();
+        let overhead = EccTransaction::new(contract_id.clone(), vec![]).get_size();
+        let payload_len = usize::try_from(size - overhead).unwrap();
+        EccTransaction::new(contract_id, vec![0; payload_len])
+    }
+
+    #[test]
+    fn test_check_external_calls_in_chunk_size_share() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let share = config.external_calls_config.transactions_size_share(&config.witness_config);
+        let max_call_size = config.external_calls_config.max_call_size;
+        let contract_ids = ["a.near", "b.near", "c.near", "d.near", "e.near", "f.near"];
+
+        // Full-size calls up to the share, and a last one that takes what is left.
+        let mut size_left = share;
+        let mut at_share = vec![];
+        for contract_id in contract_ids {
+            let size = size_left.min(max_call_size);
+            at_share.push(TransactionEnvelope::from(ecc_of_size(contract_id, size)));
+            size_left -= size;
+            if size_left == 0 {
+                break;
+            }
+        }
+        assert_eq!(size_left, 0, "the calls don't reach the share of {share} bytes");
+        // Signed transactions don't count toward the share.
+        let with_signed: Vec<TransactionEnvelope> = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain(at_share.iter().cloned())
+            .collect();
+        assert_eq!(check_external_calls_in_chunk(&config, &with_signed), Ok(()));
+
+        // One byte more than the share.
+        let mut past_share = at_share;
+        let last = past_share.pop().unwrap().as_unsigned().unwrap().clone();
+        let bigger = ecc_of_size(last.contract_id().as_str(), last.get_size() + 1);
+        past_share.push(bigger.into());
+        assert_eq!(
+            check_external_calls_in_chunk(&config, &past_share),
+            Err(InvalidExternalCalls::SizeShareExceeded { size: share + 1, limit: share })
+        );
+    }
+
+    #[test]
+    fn test_check_external_calls_in_chunk_one_call_per_contract() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let contract_id: AccountId = "wallet.near".parse().unwrap();
+        let first = EccTransaction::new(contract_id.clone(), vec![1]);
+        let other = EccTransaction::new("other.near".parse().unwrap(), vec![1]);
+        let called_twice =
+            Err(InvalidExternalCalls::ContractCalledTwice { contract_id: contract_id.clone() });
+
+        // Different payloads.
+        let second = EccTransaction::new(contract_id.clone(), vec![2]);
+        let txs = [&first, &other, &second].map(|ecc| TransactionEnvelope::from(ecc.clone()));
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+
+        // The same call twice.
+        let txs = [&first, &first].map(|ecc| TransactionEnvelope::from(ecc.clone()));
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+
+        // The same call with its state init and without.
+        let with_state_init = EccTransaction::new_with_state_init(
+            contract_id.clone(),
+            first.payload().to_vec(),
+            Some(RawStateInit(vec![1])),
+        );
+        let txs = [&with_state_init, &first].map(|ecc| TransactionEnvelope::from(ecc.clone()));
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), called_twice);
+
+        // A signed transaction from the contract's account isn't an external call to it.
+        let signer = InMemorySigner::test_signer(&contract_id);
+        let transfer = SignedTransaction::send_money(
+            1,
+            contract_id,
+            "bob.near".parse().unwrap(),
+            &signer,
+            Balance::from_yoctonear(1),
+            CryptoHash::default(),
+        );
+        let txs = [TransactionEnvelope::from(transfer), first.into(), other.into()];
+        assert_eq!(check_external_calls_in_chunk(&config, &txs), Ok(()));
+    }
+
+    #[test]
+    fn test_check_external_calls_in_chunk_max_calls() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let limit = config.external_calls_config.max_calls_per_chunk;
+        // Small calls to different contracts, far within the size share.
+        let calls = |count: u64| -> Vec<TransactionEnvelope> {
+            (0..count)
+                .map(|i| EccTransaction::new(format!("c{i}.near").parse().unwrap(), vec![1]))
+                .map(TransactionEnvelope::from)
+                .collect()
+        };
+
+        // Signed transactions don't count toward the limit.
+        let at_limit: Vec<TransactionEnvelope> = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain(calls(limit))
+            .collect();
+        assert_eq!(check_external_calls_in_chunk(&config, &at_limit), Ok(()));
+
+        assert_eq!(
+            check_external_calls_in_chunk(&config, &calls(limit + 1)),
+            Err(InvalidExternalCalls::TooManyCalls { count: limit + 1, limit })
+        );
+    }
+
+    /// A call that breaks a rule is not added, and the calls before it stay as they were. Once
+    /// the chunk holds as many calls as it may, there is no room for more.
+    #[test]
+    fn test_external_calls_validity() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let call = |i: u64| EccTransaction::new(format!("c{i}.near").parse().unwrap(), vec![1]);
+        let mut calls = ExternalCallsValidity::new(&config);
+        assert!(calls.has_room());
+
+        let first = call(0);
+        assert_eq!(calls.add(&first), Ok(()));
+        assert!(calls.has_call_to(first.contract_id()));
+        assert!(!calls.has_call_to(call(1).contract_id()));
+        let size = calls.size();
+        assert_eq!(size, first.get_size());
+        let twice = EccTransaction::new(first.contract_id().clone(), vec![2]);
+        let called_twice = Err(InvalidExternalCalls::ContractCalledTwice {
+            contract_id: first.contract_id().clone(),
+        });
+        assert_eq!(calls.reserve(&twice).map(drop), called_twice);
+        assert_eq!(calls.add(&twice), called_twice);
+        assert_eq!(calls.size(), size);
+
+        // A dropped reservation adds nothing; a committed one adds the call.
+        let reserved = call(1);
+        drop(calls.reserve(&reserved).unwrap());
+        assert!(!calls.has_call_to(reserved.contract_id()));
+        assert_eq!(calls.size(), size);
+        calls.reserve(&reserved).unwrap().commit();
+        assert!(calls.has_call_to(reserved.contract_id()));
+        assert_eq!(calls.size(), size + reserved.get_size());
+
+        let limit = config.external_calls_config.max_calls_per_chunk;
+        for i in 2..limit {
+            assert_eq!(calls.add(&call(i)), Ok(()));
+        }
+        assert!(!calls.has_room());
+        let too_many = Err(InvalidExternalCalls::TooManyCalls { count: limit + 1, limit });
+        assert_eq!(calls.add(&call(limit)), too_many);
+        assert!(!calls.has_call_to(call(limit).contract_id()));
+
+        // Before external calls the limits are zero, so there is never room.
+        let config = RuntimeConfig::test_protocol_version(feature_version - 1);
+        assert!(!ExternalCallsValidity::new(&config).has_room());
+    }
+
     #[test]
     fn test_validated_envelope() {
-        let config = RuntimeConfig::test();
         let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
 
         let ecc = TransactionEnvelope::from(test_ecc());
         let validated =
@@ -1551,6 +2033,34 @@ mod tests {
             };
             assert_eq!(validated_tx.into_signed_tx(), signed_tx);
         }
+    }
+
+    /// The root of a chunk's transactions is computed over the validated ones, and has to be the
+    /// root over the envelopes that go into the chunk.
+    #[test]
+    fn test_validated_envelope_serializes_as_the_envelope() {
+        let feature_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = RuntimeConfig::test_protocol_version(feature_version);
+        let envelopes = test_signed_txs()
+            .into_iter()
+            .map(TransactionEnvelope::from)
+            .chain([TransactionEnvelope::from(test_ecc())])
+            .collect::<Vec<_>>();
+
+        let validated = envelopes
+            .iter()
+            .map(|envelope| {
+                ValidatedTransactionEnvelope::new(&config, envelope.clone(), feature_version)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        for (envelope, validated) in envelopes.iter().zip(&validated) {
+            assert_eq!(borsh::to_vec(validated).unwrap(), borsh::to_vec(envelope).unwrap());
+        }
+        assert_eq!(merklize(&validated), merklize(&envelopes));
+        let back = validated.into_iter().map(ValidatedTransactionEnvelope::into_envelope);
+        assert_eq!(back.collect::<Vec<_>>(), envelopes);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::{
-    Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerMessage,
-    Ping, Pong, RawRoutedMessage, T2MessageBody, TieredMessageBody,
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
+    PeerMessage, PeerMessageFrames, Ping, Pong, RawRoutedMessage, T2MessageBody, TieredMessageBody,
 };
 use crate::tcp;
 use crate::types::{Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo};
@@ -265,13 +265,20 @@ impl Connection {
         protocol_version: Option<ProtocolVersion>,
     ) -> Result<Self, ConnectError> {
         let mut stream = PeerStream::new(stream, recv_timeout);
-        let (message, _timestamp) = match stream.recv_message().await {
-            Ok(m) => m,
-            Err(RecvError::Parse(len)) => {
-                tracing::debug!(target: "network", %len, "dropping a non protobuf message, probably an extra handshake");
-                stream.recv_message().await?
+        // A node which supports borsh sends its handshake in borsh, which is two frames (a header
+        // and a body), before the protobuf copy. This listener speaks protobuf only, so skip
+        // those frames.
+        const MAX_SKIPPED_FRAMES: usize = 2;
+        let mut skipped = 0;
+        let message = loop {
+            match stream.recv_message().await {
+                Ok((message, _timestamp)) => break message,
+                Err(RecvError::Parse(len)) if skipped < MAX_SKIPPED_FRAMES => {
+                    skipped += 1;
+                    tracing::debug!(target: "network", %len, "dropping a non protobuf message, probably a borsh handshake");
+                }
+                Err(err) => return Err(err.into()),
             }
-            Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
         };
 
         let (peer_id, nonce, handshake_protocol_version) = match message {
@@ -508,9 +515,10 @@ impl PeerStream {
     }
 
     async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
-        let mut msg = msg.serialize();
-        let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
-        buf.append(&mut msg);
+        // The raw API speaks protobuf only.
+        let frames = msg.serialize_with_encoding(Encoding::Proto);
+        let mut buf = (frames.body.len() as u32).to_le_bytes().to_vec();
+        buf.extend_from_slice(&frames.body);
         self.stream.stream.write_all(&buf).await
     }
 
@@ -558,7 +566,9 @@ impl PeerStream {
         }
 
         self.buf.advance(4);
-        let msg = PeerMessage::deserialize(&self.buf[..msg_length]);
+        let msg = PeerMessage::deserialize_frames(&PeerMessageFrames::proto(
+            self.buf[..msg_length].to_vec(),
+        ));
         self.buf.advance(msg_length);
 
         // make sure we can probably read the next message in one syscall next time
@@ -566,7 +576,7 @@ impl PeerStream {
         if max_len_after_next_read < 512 {
             self.buf.reserve(512 - max_len_after_next_read);
         }
-        msg.map(|m| {
+        msg.map(|(_, m)| {
             tracing::debug!(target: "network", connection = ?&self, message = %&m, msg_length, "received peer message");
             (m, first_byte_time)
         })

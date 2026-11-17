@@ -1,5 +1,9 @@
 use crate::logic::HostError;
+use crate::logic::mocks::mock_external::MockAction;
+use crate::logic::tests::helpers::{assert_costs, reset_costs_counter};
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
+use crate::map;
+use near_parameters::ExtCosts;
 use near_primitives_core::types::Balance;
 
 #[test]
@@ -320,4 +324,199 @@ fn test_promise_yield_create_with_id_one_yocto_deducts_with_nonzero_balance() {
         Balance::ZERO,
         "non-zero-balance call is not subsidized"
     );
+}
+
+#[test]
+fn test_promise_yield_resume_register_payload_without_fix() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = false;
+    let mut logic = logic_builder.build();
+
+    // Setup: create a yield. The host function writes its data id to register 0.
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    logic
+        .promise_yield_create(method_name.len, method_name.ptr, args.len, args.ptr, 0, 1, 0)
+        .unwrap();
+    logic.wrapped_internal_write_register(1, b"payload").unwrap();
+
+    // Apply: resume with the payload in register 1.
+    let result = logic.promise_yield_resume(u64::MAX, 0, u64::MAX, 1);
+
+    // Check: the host function charges gas for `u64::MAX` payload bytes before it reads the
+    // register.
+    assert_eq!(result, Err(HostError::IntegerOverflow.into()));
+}
+
+#[test]
+fn test_promise_yield_resume_register_payload() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = true;
+    let mut logic = logic_builder.build();
+
+    // Setup: create a yield. The host function writes its data id to register 0.
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    logic
+        .promise_yield_create(method_name.len, method_name.ptr, args.len, args.ptr, 0, 1, 0)
+        .unwrap();
+    logic.wrapped_internal_write_register(1, b"payload").unwrap();
+    reset_costs_counter();
+
+    // Apply: resume with the payload in register 1.
+    let result = logic.promise_yield_resume(u64::MAX, 0, u64::MAX, 1);
+
+    // Check: the resume succeeds, pays for each payload byte, and submits the register content
+    // as the payload.
+    assert_eq!(result, Ok(1));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::yield_resume_byte: 7,
+        ExtCosts::read_register_base: 2,
+        ExtCosts::read_register_byte: 32 + 7,
+    });
+    drop(logic);
+    assert!(matches!(
+        logic_builder.ext.action_log.last(),
+        Some(MockAction::YieldResume { data, .. }) if data == b"payload"
+    ));
+}
+
+#[test]
+fn test_promise_yield_resume_with_yield_id_register_payload_without_fix() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = false;
+    let mut logic = logic_builder.build();
+
+    // Setup: create a yield with a user yield id.
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    let amount = logic.internal_mem_write(&[0u8; 16]);
+    let yield_id = logic.internal_mem_write(&[1u8; 32]);
+    logic
+        .promise_yield_create_with_id(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            amount.ptr,
+            0,
+            1,
+            yield_id.len,
+            yield_id.ptr,
+        )
+        .unwrap();
+    logic.wrapped_internal_write_register(1, b"payload").unwrap();
+
+    // Apply: resume with the payload in register 1.
+    let result = logic.promise_yield_resume_with_yield_id(yield_id.len, yield_id.ptr, u64::MAX, 1);
+
+    // Check: the host function charges gas for `u64::MAX` payload bytes before it reads the
+    // register.
+    assert_eq!(result, Err(HostError::IntegerOverflow.into()));
+}
+
+#[test]
+fn test_promise_yield_resume_with_yield_id_register_payload() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = true;
+    let mut logic = logic_builder.build();
+
+    // Setup: create a yield with a user yield id.
+    let method_name = logic.internal_mem_write(b"callback");
+    let args = logic.internal_mem_write(b"args");
+    let amount = logic.internal_mem_write(&[0u8; 16]);
+    let yield_id = logic.internal_mem_write(&[1u8; 32]);
+    logic
+        .promise_yield_create_with_id(
+            method_name.len,
+            method_name.ptr,
+            args.len,
+            args.ptr,
+            amount.ptr,
+            0,
+            1,
+            yield_id.len,
+            yield_id.ptr,
+        )
+        .unwrap();
+    logic.wrapped_internal_write_register(1, b"payload").unwrap();
+    reset_costs_counter();
+
+    // Apply: resume with the payload in register 1.
+    let result = logic.promise_yield_resume_with_yield_id(yield_id.len, yield_id.ptr, u64::MAX, 1);
+
+    // Check: the resume succeeds, pays for each payload byte, and submits the register content
+    // as the payload.
+    assert_eq!(result, Ok(1));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::yield_resume_byte: 7,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 7,
+    });
+    drop(logic);
+    assert!(matches!(
+        logic_builder.ext.action_log.last(),
+        Some(MockAction::YieldResume { data, .. }) if data == b"payload"
+    ));
+}
+
+#[test]
+fn test_promise_yield_resume_out_of_bounds_payload() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = true;
+    let mut logic = logic_builder.build();
+
+    // Setup: a data id in memory and a payload range past the end of guest memory.
+    let data_id = logic.internal_mem_write(&[1u8; 32]);
+    let payload_len = 7;
+    let payload_ptr = 1 << 40;
+    reset_costs_counter();
+
+    // Apply: resume with the out-of-bounds payload.
+    let result = logic.promise_yield_resume(data_id.len, data_id.ptr, payload_len, payload_ptr);
+
+    // Check: the resume fails on the payload read and does not pay for payload bytes.
+    assert_eq!(result, Err(HostError::MemoryAccessViolation.into()));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 32 + payload_len,
+    });
+}
+
+#[test]
+fn test_promise_yield_resume_with_yield_id_out_of_bounds_payload() {
+    let mut logic_builder = VMLogicBuilder::default();
+    logic_builder.config.fix_register_input_charging = true;
+    let mut logic = logic_builder.build();
+
+    // Setup: a yield id in memory and a payload range past the end of guest memory.
+    let yield_id = logic.internal_mem_write(&[1u8; 32]);
+    let payload_len = 7;
+    let payload_ptr = 1 << 40;
+    reset_costs_counter();
+
+    // Apply: resume with the out-of-bounds payload.
+    let result = logic.promise_yield_resume_with_yield_id(
+        yield_id.len,
+        yield_id.ptr,
+        payload_len,
+        payload_ptr,
+    );
+
+    // Check: the resume fails on the payload read and does not pay for payload bytes.
+    assert_eq!(result, Err(HostError::MemoryAccessViolation.into()));
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::yield_resume_base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 32 + payload_len,
+    });
 }

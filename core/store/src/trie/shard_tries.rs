@@ -13,7 +13,9 @@ use crate::trie::mem::metrics::{
     set_background_load_status,
 };
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
-use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
+use crate::trie::trie_storage::{
+    NewTrieNodes, TrieCache, TrieCachingStorage, TrieStorageWithNewNodes,
+};
 use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
@@ -132,6 +134,14 @@ impl ShardTries {
         is_view || self.get_memtries(shard_uid).is_none()
     }
 
+    fn create_storage(&self, shard_uid: ShardUId, is_view: bool) -> Arc<dyn TrieStorage> {
+        if let Some(cache) = self.get_trie_cache_for(shard_uid, is_view) {
+            Arc::new(self.create_caching_storage(cache, shard_uid, is_view))
+        } else {
+            Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
+        }
+    }
+
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
@@ -139,12 +149,7 @@ impl ShardTries {
         is_view: bool,
         block_hash: Option<CryptoHash>,
     ) -> Trie {
-        let storage: Arc<dyn TrieStorage> =
-            if let Some(cache) = self.get_trie_cache_for(shard_uid, is_view) {
-                Arc::new(self.create_caching_storage(cache, shard_uid, is_view))
-            } else {
-                Arc::new(TrieDBStorage::new(self.0.store.clone(), shard_uid))
-            };
+        let storage = self.create_storage(shard_uid, is_view);
         let flat_storage_chunk_view = block_hash
             .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
         // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
@@ -180,6 +185,25 @@ impl ShardTries {
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
+    }
+
+    /// A trie at `new_root`, the state root that applying a chunk led to, before the chunk's
+    /// changes are in the store: it finds the nodes the chunk added in `new_nodes`, and the rest in
+    /// the store as of the chunk's start.
+    ///
+    /// Like the trie that chunk validators replay a chunk on, it has no memtrie and no flat
+    /// storage, so reads go through the trie nodes and record them. A read costs the same gas as
+    /// on the trie of apply, which is what the chunk producer needs to run a call on the state a
+    /// chunk is about to leave.
+    pub fn get_trie_with_new_nodes(
+        &self,
+        shard_uid: ShardUId,
+        new_root: StateRoot,
+        new_nodes: NewTrieNodes,
+    ) -> Trie {
+        let storage = self.create_storage(shard_uid, false);
+        let storage = Arc::new(TrieStorageWithNewNodes::new(new_nodes, storage));
+        Trie::new(storage, new_root, None)
     }
 
     pub fn get_trie_with_block_hash_for_shard(

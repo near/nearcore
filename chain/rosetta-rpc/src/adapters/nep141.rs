@@ -111,6 +111,7 @@ pub(crate) async fn get_fungible_token_balance_for_account(
         account_id: near_account_id::AccountId::from_str(contract_address)?,
         method_name,
         args: args.into(),
+        state_init: None,
     };
     let query_response = view_client_addr
         .send_async(near_client::Query { block_reference, request })

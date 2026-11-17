@@ -144,7 +144,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 
     // Delete NEAR-implicit account.
     let delete_account_tx = SignedTransaction::delete_account(
-        // Because AccessKeyNonceRange is enabled, correctness of this nonce is guaranteed.
+        // The key was created below `height`, so its nonce is below this one.
         (height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
         near_implicit_account_id.clone(),
         near_implicit_account_id.clone(),

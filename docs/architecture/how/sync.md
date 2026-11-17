@@ -149,6 +149,29 @@ After headers are synced, the node downloads the full state snapshot at a
 sync hash (near the beginning of the most recent epoch). For each shard the
 node tracks, it downloads state parts from peers and assembles the full state.
 
+Nodes learn about snapshot hosts through gossip. Each node that creates a state
+snapshot signs a `SnapshotHostInfo` and broadcasts it, and every node forwards
+each info it stores to all of its Tier 2 peers. The local cache has a fixed
+number of slots (`snapshot_hosts_cache_size`). A host keeps its slot while it
+keeps publishing, and a new host is admitted only into a free slot, so a peer
+cannot push known hosts out by flooding infos signed with fresh keys. Infos
+that get no slot are dropped before their signatures are checked and are not
+forwarded. The node's own info and the infos of validators' nodes, as listed in
+their `AccountData`, take reserved slots that don't count toward the limit. A
+validator's node is dropped once its `AccountData` stops listing it, so each
+validator holds at most one.
+
+Infos are kept only for epochs within one epoch of the latest block header. The
+client reports that header's epoch to the network once header sync has caught
+up, which happens before state sync starts, and again whenever it changes. Until
+the first report, infos for any epoch are accepted. When it arrives, infos
+outside the window are discarded, so an info claiming a far-future epoch cannot
+hold a slot indefinitely.
+
+While the node is more than an epoch behind on blocks, the network also takes
+the set of validators from the latest header rather than from the last
+processed block, so it recognizes the current validators during state sync.
+
 State header and part requests are sent to snapshot hosts over Tier 3. The
 requester opens a Tier 3 connection to the address the host advertises and
 sends its requests over it, and the host sends the acknowledgements and the
@@ -374,18 +397,20 @@ so catchup can finish within an epoch.
 
 In other words, there are three modes for applying chunks and two code paths,
 either through the normal `process_block` (blue) or through `catchup_blocks`
-(orange). When `process_block`, either that the shard states for the next epoch
-are ready, corresponding to `IsCaughtUp` and all shards the node is tracking in
-this, or will be tracking in the next, epoch will be applied, or when the
-states are not ready, corresponding to `NotCaughtUp`, then only the shards for
-this epoch will be applied. When `catchup_blocks`, shards for the next epoch
-will be applied.
+(orange). The catch-up shards are the ones the node will track in the next
+epoch but tracks in neither this epoch nor the one before, so their state comes
+from state sync. When `process_block`, either the state of the catch-up shards
+is ready, corresponding to `IncludeCatchupShards`, and all shards the node is
+tracking in this, or will be tracking in the next, epoch will be applied, or it
+is not ready, corresponding to `ExcludeCatchupShards`, and all of them but the
+catch-up shards will be applied. When `catchup_blocks`, only the catch-up
+shards will be applied, corresponding to `OnlyCatchupShards`.
 
 ```rust
 enum ApplyChunksMode {
-    IsCaughtUp,
-    CatchingUp,
-    NotCaughtUp,
+    IncludeCatchupShards,
+    ExcludeCatchupShards,
+    OnlyCatchupShards,
 }
 ```
 

@@ -1,3 +1,6 @@
+use crate::types::query::RpcQueryError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, BlockHeight};
 use std::num::NonZeroU32;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -46,6 +49,12 @@ pub enum RpcViewStateError {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error("State of contract {contract_account_id} is too large to be viewed")]
     TooLargeContractState {
@@ -99,6 +108,11 @@ impl From<crate::types::query::RpcQueryError> for RpcViewStateError {
                 block_height,
                 block_hash,
             } => Self::UnknownAccount { requested_account_id, block_height, block_hash },
+            RpcQueryError::UninitializedAccount {
+                requested_account_id,
+                block_height,
+                block_hash,
+            } => Self::UninitializedAccount { requested_account_id, block_height, block_hash },
             crate::types::query::RpcQueryError::GarbageCollectedBlock { block_height, .. } => {
                 Self::InternalError {
                     error_message: format!(

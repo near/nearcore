@@ -143,7 +143,7 @@ fn slow_test_validator_restart_under_cross_shard_load() {
                 anchor_hash,
             );
             live_nodes[j % NUM_CLIENTS].rpc_handler_sender.send(ProcessTxRequest {
-                transaction: tx,
+                transaction: tx.into(),
                 is_forwarded: false,
                 check_only: false,
             });

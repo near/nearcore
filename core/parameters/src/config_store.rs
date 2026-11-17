@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
-use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::types::{ProtocolVersion, VmGeneration};
 use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -19,14 +19,20 @@ macro_rules! include_config {
 /// Later version are calculated by applying diffs to this base.
 static BASE_CONFIG: &str = include_config!("parameters.yaml");
 
+/// Protocol versions that change the consensus VM generation.
+///
+/// Add a version whenever its VM config changes. Do not immediately remove
+/// deployed versions from this when they fall below `MIN_SUPPORTED_PROTOCOL_VERSION`.
+/// At least one vm generation below `MIN_SUPPORTED_PROTOCOL_VERSION` must be
+/// maintained, older entries may be removed safely.
+const VM_GENERATION_VERSIONS: &[ProtocolVersion] = &[0, 85, 87, 88, 89, 157];
+
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (87, include_config!("87.yaml")),
     (88, include_config!("88.yaml")),
     (89, include_config!("89.yaml")),
-    (150, include_config!("150.yaml")),
-    (155, include_config!("155.yaml")),
     (157, include_config!("157.yaml")),
 ];
 
@@ -116,7 +122,7 @@ impl RuntimeConfigStore {
 
     /// Constructs test store.
     pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
+        Self::new_custom(BTreeMap::from([(0, Arc::new(runtime_config))]))
     }
 
     /// Constructs store with custom configs. This should only be used for testing.
@@ -160,6 +166,14 @@ impl RuntimeConfigStore {
             .1
     }
 
+    /// Protocol version of the most recent VM configuration change.
+    pub fn vm_generation(&self, protocol_version: ProtocolVersion) -> VmGeneration {
+        // requirement for `partition_point`: strictly increasing numbers,
+        // guaranteed by the static-check-1.
+        let index = VM_GENERATION_VERSIONS.partition_point(|&version| version <= protocol_version);
+        VmGeneration(VM_GENERATION_VERSIONS[index - 1])
+    }
+
     /// Returns a mutable borrow of `RuntimeConfig` for the corresponding protocol version.
     /// See [`Self::get_config`] for the clamping behavior.
     pub fn get_config_mut(&mut self, protocol_version: ProtocolVersion) -> &mut Arc<RuntimeConfig> {
@@ -174,12 +188,24 @@ impl RuntimeConfigStore {
     }
 }
 
+/// static-check-1: a zero baseline and strictly increasing entries cover every
+/// protocol version.
+const _: () = {
+    assert!(VM_GENERATION_VERSIONS[0] == 0);
+    let mut index = 1;
+    while index < VM_GENERATION_VERSIONS.len() {
+        assert!(VM_GENERATION_VERSIONS[index - 1] < VM_GENERATION_VERSIONS[index]);
+        index += 1;
+    }
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{cost::ActionCosts, parameter_table::FeeComponent};
     use near_primitives_core::types::Gas;
     use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
+    use num_rational::Rational32;
     use std::collections::HashSet;
 
     #[test]
@@ -362,6 +388,22 @@ mod tests {
             |version| store.get_config(version).wasm_config.limit_config.max_gas_burnt_external;
         assert_eq!(budget(version), Gas::from_teragas(20));
         assert_eq!(budget(version - 1), Gas::ZERO);
+
+        let limits = |version| store.get_config(version).external_calls_config;
+        let after = limits(version);
+        assert_eq!(after.max_call_size, 20_480);
+        assert_eq!(after.max_call_recorded_size, 51_200);
+        assert_eq!(after.chunk_compute_share, Rational32::new(2, 5));
+        assert_eq!(after.chunk_storage_proof_share, Rational32::new(1, 10));
+        assert_eq!(after.chunk_transactions_size_share, Rational32::new(1, 40));
+        assert_eq!(after.max_calls_per_chunk, 100);
+        let before = limits(version - 1);
+        assert_eq!(before.max_call_size, 0);
+        assert_eq!(before.max_call_recorded_size, 0);
+        assert_eq!(before.chunk_compute_share, Rational32::from_integer(0));
+        assert_eq!(before.chunk_storage_proof_share, Rational32::from_integer(0));
+        assert_eq!(before.chunk_transactions_size_share, Rational32::from_integer(0));
+        assert_eq!(before.max_calls_per_chunk, 0);
     }
 
     /// Same pairing for the canonical universal state init: the flag and the fees it comes
@@ -394,6 +436,30 @@ mod tests {
                     <= limits.per_receipt_storage_proof_size_limit as u64,
                 "max storage value does not fit at protocol version {version}"
             );
+        }
+    }
+
+    /// Tests th validity of `VM_GENERATION_VERSIONS`.
+    ///
+    /// If this fails, you have probably made a change that requires the
+    /// consensus-level Wasm code cache to be invalidated on a protocol upgrade.
+    /// If so, simply add the protocol version to `VM_GENERATION_VERSIONS`.
+    #[test]
+    fn vm_generation_versions_match_vm_config_changes() {
+        let store = RuntimeConfigStore::new();
+        // The first generation is a historical identity: its defining diff may
+        // already have been folded away. Validate every subsequent version.
+        let mut expected = store.vm_generation(MIN_SUPPORTED_PROTOCOL_VERSION);
+        // Include scheduled diffs and listed generations, even in stable builds.
+        // This catches both missing transitions and entries without a VM change.
+        let last_version = PROTOCOL_VERSION
+            .max(CONFIG_DIFFS.last().unwrap().0)
+            .max(*VM_GENERATION_VERSIONS.last().unwrap());
+        for version in MIN_SUPPORTED_PROTOCOL_VERSION + 1..=last_version {
+            if store.get_config(version).wasm_config != store.get_config(version - 1).wasm_config {
+                expected = VmGeneration(version);
+            }
+            assert_eq!(store.vm_generation(version), expected, "protocol version {version}");
         }
     }
 

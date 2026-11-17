@@ -3,7 +3,8 @@
 
 use super::ChunkExecutorActor;
 use near_chain::Error;
-use near_chain::spice::boundary::{is_last_pre_spice_block, shards_applied_itself};
+use near_chain::spice::boundary::is_last_pre_spice_block;
+use near_chain::spice::chunk_application::shards_applied_itself;
 use near_primitives::hash::CryptoHash;
 
 impl ChunkExecutorActor {
@@ -37,7 +38,7 @@ impl ChunkExecutorActor {
         }
         // The proofs are on disk now; a first spice block parked on them, as after a
         // restart, is re-driven like after a regular apply.
-        self.try_progress_receiving_shards(&outgoing_proofs);
+        self.try_progress_receiving_shards(block_hash, &outgoing_proofs);
         Ok(())
     }
 }

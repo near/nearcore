@@ -5,13 +5,12 @@ use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
 use near_async::time::Duration;
 use near_o11y::testonly::init_test_logger;
-use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::Balance;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
-use near_primitives::version::PROTOCOL_VERSION;
-use std::collections::BTreeMap;
+use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
 /// Deploy and call a contract during a pre-upgrade epoch, then assert the
@@ -23,29 +22,20 @@ use std::sync::Arc;
 fn slow_test_cache_warming_across_vm_config_change() {
     init_test_logger();
 
-    let old_protocol = PROTOCOL_VERSION - 1;
-    let new_protocol = PROTOCOL_VERSION;
+    let runtime_config_store = RuntimeConfigStore::new();
+    // Exercise the latest real VM transition supported by this build, rather
+    // than injecting a config change at a version with no consensus generation bump.
+    let new_protocol = runtime_config_store.vm_generation(PROTOCOL_VERSION).0;
+    assert!(new_protocol > MIN_SUPPORTED_PROTOCOL_VERSION);
+    let old_protocol = new_protocol - 1;
     let epoch_length = 10;
     let user = create_account_id("user");
 
-    // Inject a RuntimeConfigStore where the new protocol has a different
-    // wasm_config so that cache_keys_differ() returns true and triggers warming.
-    let base_store = RuntimeConfigStore::new();
-    let old_runtime_config = base_store.get_config(old_protocol).clone();
-    let mut new_wasm = old_runtime_config.wasm_config.as_ref().clone();
-    new_wasm.regular_op_cost += 1;
-    let new_runtime_config = Arc::new(RuntimeConfig {
-        wasm_config: Arc::new(new_wasm),
-        ..old_runtime_config.as_ref().clone()
-    });
+    // The real config transition must change the cache key to trigger warming.
     assert_ne!(
-        old_runtime_config.wasm_config.non_crypto_hash(),
-        new_runtime_config.wasm_config.non_crypto_hash(),
+        runtime_config_store.get_config(old_protocol).wasm_config.non_crypto_hash(),
+        runtime_config_store.get_config(new_protocol).wasm_config.non_crypto_hash(),
     );
-    let runtime_config_store = RuntimeConfigStore::new_custom(BTreeMap::from([
-        (old_protocol, old_runtime_config),
-        (new_protocol, new_runtime_config),
-    ]));
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
     let mut env = TestLoopBuilder::new()

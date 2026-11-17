@@ -200,7 +200,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
                 anchor_hash,
             );
             node_datas[0].rpc_handler_sender.send(ProcessTxRequest {
-                transaction: tx,
+                transaction: tx.into(),
                 is_forwarded: false,
                 check_only: false,
             });

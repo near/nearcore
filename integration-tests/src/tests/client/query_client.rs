@@ -131,7 +131,11 @@ async fn test_execution_outcome_for_chunk() {
     let tx_hash = transaction.get_hash();
     let res = actor_handles
         .rpc_handler_actor
-        .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+        .send_async(ProcessTxRequest {
+            transaction: transaction.into(),
+            is_forwarded: false,
+            check_only: false,
+        })
         .await
         .unwrap();
     assert!(matches!(res, ProcessTxResponse::ValidTx));
@@ -143,6 +147,7 @@ async fn test_execution_outcome_for_chunk() {
             tx_hash,
             signer_account_id: "test".parse().unwrap(),
             fetch_receipt: false,
+            external_call_sent_at: None,
         })
         .await
         .unwrap()

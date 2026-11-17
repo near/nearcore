@@ -1,4 +1,4 @@
-use crate::archive::cloud_reader_trie_utils::BatchTrieUpdate;
+use crate::archive::cloud_reader_trie_utils::{BatchTrieUpdate, ChangedKey};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -7,8 +7,10 @@ use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::StatePartId;
-use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ShardId};
-use near_primitives::utils::index_to_bytes;
+use near_primitives::types::{
+    BlockHeight, EpochHeight, EpochId, RawStateChangesWithTrieKey, ShardId,
+};
+use near_primitives::utils::{chunk_transaction_outcome_ids, index_to_bytes};
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{
@@ -198,7 +200,7 @@ pub(crate) async fn pull_shard_batch(
     let mut update = store.store_update();
     for height in start_height..=shard_batch.end_height() {
         if let Some(shard_data) = shard_batch.get_data_at_height(height) {
-            save_shard_data(&mut update, shard_uid, shard_data);
+            save_shard_data(&mut update, shard_uid, height, shard_data);
         }
     }
     update.commit();
@@ -216,6 +218,7 @@ pub(crate) fn apply_batch_state_changes(
 ) -> Result<CryptoHash, CloudArchivalReaderError> {
     let start_height = from_height.max(shard_batch.start_height());
     let mut update = BatchTrieUpdate::new(tries, shard_uid, state_root);
+    update.read_ahead(&batch_trie_keys(shard_batch, start_height));
     for height in start_height..=shard_batch.end_height() {
         let Some(shard_data) = shard_batch.get_data_at_height(height) else {
             continue;
@@ -234,6 +237,33 @@ pub(crate) fn apply_batch_state_changes(
     // TODO(cloud_archival): consider one commit per window, so a retry refcounts once.
     update.commit();
     Ok(state_root)
+}
+
+/// The distinct trie keys `shard_batch` changes at or above `start_height`, each with
+/// whether some height leaves it deleted.
+fn batch_trie_keys(shard_batch: &ShardBatch, start_height: BlockHeight) -> Vec<ChangedKey> {
+    let mut keys = HashMap::new();
+    for height in start_height..=shard_batch.end_height() {
+        let Some(shard_data) = shard_batch.get_data_at_height(height) else {
+            continue;
+        };
+        add_trie_keys(&mut keys, shard_data.state_changes());
+    }
+    let mut changed_keys = Vec::new();
+    for (trie_key, deleted) in keys {
+        changed_keys.push(ChangedKey { trie_key, deleted });
+    }
+    changed_keys
+}
+
+/// Adds one height's changed keys to `keys`, flagging a key whose value the height leaves
+/// deleted.
+fn add_trie_keys(keys: &mut HashMap<Vec<u8>, bool>, state_changes: &[RawStateChangesWithTrieKey]) {
+    for change in state_changes {
+        // The last change is the value the height leaves, which is the one `apply` writes.
+        let deleted = change.changes.last().is_some_and(|last| last.data.is_none());
+        *keys.entry(change.trie_key.to_vec()).or_insert(false) |= deleted;
+    }
 }
 
 /// The state root `shard_uid` stands at under `block_hash`, which is the root the height
@@ -310,6 +340,8 @@ pub(crate) fn save_epoch_data(update: &mut StoreUpdate, epoch_data: &EpochData) 
 pub(crate) fn save_shard_data(
     update: &mut StoreUpdate,
     shard_uid: ShardUId,
+    // The height of the block `shard_data` belongs to, which includes its new chunk.
+    height: BlockHeight,
     shard_data: &ShardData,
 ) {
     let block_hash = shard_data.block_hash();
@@ -326,7 +358,7 @@ pub(crate) fn save_shard_data(
         update.trie_store_update().set_state_changes(row_key, changes);
     }
     if let Some(new_chunk) = shard_data.new_chunk() {
-        save_new_chunk_data(update, block_hash, shard_id, new_chunk);
+        save_new_chunk_data(update, block_hash, height, shard_id, new_chunk);
     }
 }
 
@@ -334,6 +366,8 @@ pub(crate) fn save_shard_data(
 fn save_new_chunk_data(
     update: &mut StoreUpdate,
     block_hash: &CryptoHash,
+    // The height of block `block_hash`.
+    height: BlockHeight,
     shard_id: ShardId,
     new_chunk: &NewChunkData,
 ) {
@@ -353,6 +387,8 @@ fn save_new_chunk_data(
         shard_id,
         new_chunk.transaction_result_for_block(),
     );
+    let external_calls = external_calls_with_outcome(new_chunk, height);
+    chain_store_update.set_external_call_hashes(block_hash, &external_calls);
     // TODO(cloud_archival): address the rc columns a re-pull counts twice, in case we
     // need gc at the reader.
     for transaction in chunk.to_transactions() {
@@ -363,6 +399,25 @@ fn save_new_chunk_data(
         let bytes = borsh::to_vec(receipt).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Receipts, receipt.get_hash().as_ref(), &bytes);
     }
+}
+
+/// The unique id and the transaction hash of each external call in `new_chunk` that has an
+/// outcome, for the chunk included in the block at `height`.
+fn external_calls_with_outcome(
+    new_chunk: &NewChunkData,
+    height: BlockHeight,
+) -> Vec<(CryptoHash, CryptoHash)> {
+    let transactions = new_chunk.chunk().to_transactions();
+    let outcome_ids = new_chunk.transaction_result_for_block().iter().map(|(id, _)| *id);
+    let mut external_calls = Vec::new();
+    for (tx, id) in
+        transactions.iter().zip(chunk_transaction_outcome_ids(transactions, height, outcome_ids))
+    {
+        if let (Some(call), Some(id)) = (tx.as_unsigned(), id) {
+            external_calls.push((id, *call.hash()));
+        }
+    }
+    external_calls
 }
 
 /// First present block below `height`. Errors if no such block exists in cloud
@@ -451,4 +506,47 @@ pub(crate) async fn pull_epoch_data(
         "pulled epoch data"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add_trie_keys;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{
+        AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
+    };
+    use std::collections::HashMap;
+
+    fn changed_key(index: u8, values: &[Option<u8>]) -> RawStateChangesWithTrieKey {
+        let account_id: AccountId = "test.near".parse().unwrap();
+        let mut changes = Vec::new();
+        for value in values {
+            let data = value.map(|value| vec![value]);
+            changes.push(RawStateChange { cause: StateChangeCause::InitialState, data });
+        }
+        RawStateChangesWithTrieKey {
+            trie_key: TrieKey::ContractData { account_id, key: vec![index] },
+            changes,
+        }
+    }
+
+    /// A key is flagged once a height leaves it deleted, whatever later heights do, and not
+    /// when a height deletes it and sets it again.
+    #[test]
+    fn test_add_trie_keys_flags_keys_a_height_leaves_deleted() {
+        let mut keys = HashMap::new();
+        add_trie_keys(
+            &mut keys,
+            &[
+                changed_key(0, &[None]),
+                changed_key(1, &[None, Some(1)]),
+                changed_key(2, &[Some(2)]),
+            ],
+        );
+        add_trie_keys(&mut keys, &[changed_key(0, &[Some(0)]), changed_key(2, &[Some(3)])]);
+
+        let key = |index| changed_key(index, &[]).trie_key.to_vec();
+        let expected = HashMap::from([(key(0), true), (key(1), false), (key(2), false)]);
+        assert_eq!(keys, expected);
+    }
 }

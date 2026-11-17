@@ -1508,7 +1508,7 @@ fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
 /// Submit a transaction to the node with the given account id.
 fn submit_tx(node_datas: &[NodeExecutionData], rpc_id: &AccountId, tx: SignedTransaction) {
     let process_tx_request =
-        ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+        ProcessTxRequest { transaction: tx.into(), is_forwarded: false, check_only: false };
     let rpc_node_data = get_node_data(node_datas, rpc_id);
     rpc_node_data.rpc_handler_sender.send(process_tx_request);
 }

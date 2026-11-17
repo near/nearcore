@@ -42,6 +42,7 @@ fn test_max_gas_burnt_view() {
             account_id: contract_account.clone(),
             method_name: "fibonacci".to_owned(),
             args: vec![n].into(),
+            state_init: None,
         })
     };
     let decode_result = |result: &[u8]| u64::from_le_bytes(result.try_into().unwrap());

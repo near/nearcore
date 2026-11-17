@@ -485,7 +485,7 @@ impl ChainStore {
         check_transaction_validity_period(
             &self.store,
             prev_block_header,
-            base_block_hash,
+            Some(base_block_hash),
             self.transaction_validity_period,
         )
     }

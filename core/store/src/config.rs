@@ -53,17 +53,6 @@ pub struct StoreConfig {
     /// Enable fetching account and access key data ahead of time to avoid IO latency.
     pub enable_receipt_prefetching: bool,
 
-    /// TODO: use `PrefetchConfig` for SWEAT prefetching.
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
-    /// This config option is temporary and will be removed once flat storage is implemented.
-    pub sweat_prefetch_receivers: Vec<String>,
-    /// List of allowed predecessor accounts for SWEAT prefetching.
-    /// This config option is temporary and will be removed once flat storage is implemented.
-    pub sweat_prefetch_senders: Vec<String>,
-
-    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
-    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
-
     /// List of shard UIDs for which we should load the tries in memory.
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
@@ -208,25 +197,6 @@ impl Default for StoreConfig {
             view_trie_cache: TrieCacheConfig::default(),
 
             enable_receipt_prefetching: true,
-            // cspell:ignore vfinal
-            sweat_prefetch_receivers: vec![
-                "token.sweat".to_owned(),
-                "vfinal.token.sweat.testnet".to_owned(),
-            ],
-            sweat_prefetch_senders: vec![
-                "oracle.sweat".to_owned(),
-                "sweat_the_oracle.testnet".to_owned(),
-            ],
-            claim_sweat_prefetch_config: vec![PrefetchConfig {
-                receiver: "claim.sweat".to_owned(),
-                sender: "token.sweat".to_owned(),
-                method_name: "record_batch_for_hold".to_owned(),
-            }],
-            kaiching_prefetch_config: vec![PrefetchConfig {
-                receiver: "earn.kaiching".to_owned(),
-                sender: "wallet.kaiching".to_owned(),
-                method_name: "ft_on_transfer".to_owned(),
-            }],
 
             // TODO(#9511): Consider adding here shard id 3 or all shards after
             // this feature will be tested. Until that, use at your own risk.
@@ -602,18 +572,6 @@ impl RocksDbCfConfig {
             max_write_buffer_number: 4,
         }
     }
-}
-
-/// Parameters for prefetching certain contract calls.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct PrefetchConfig {
-    /// Receipt receiver, or contract account id.
-    pub receiver: String,
-    /// Receipt sender.
-    pub sender: String,
-    /// Contract method name.
-    pub method_name: String,
 }
 
 #[cfg(test)]

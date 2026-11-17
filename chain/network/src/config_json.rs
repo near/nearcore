@@ -154,7 +154,7 @@ pub struct Config {
     /// Maximum number of peer states to keep in memory.
     #[serde(default = "default_peer_states_cache_size")]
     pub peer_states_cache_size: u32,
-    /// Maximum number of snapshot hosts to keep in memory.
+    /// Maximum number of snapshot hosts to keep in memory, not counting validators.
     #[serde(default = "default_snapshot_hosts_cache_size")]
     pub snapshot_hosts_cache_size: u32,
     // Remove peers that were not active for this amount of time.

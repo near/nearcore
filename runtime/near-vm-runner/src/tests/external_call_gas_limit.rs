@@ -31,7 +31,7 @@ fn run_external_call(budget: Gas, code: &[u8]) -> VMOutcome {
     let context = VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "alice".parse().unwrap(),
-        signer_account_pk: vec![],
+        signer_account_pk: None,
         predecessor_account_id: "alice".parse().unwrap(),
         refund_to_account_id: "alice".parse().unwrap(),
         input: Rc::from(Vec::new()),

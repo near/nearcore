@@ -707,7 +707,7 @@ fn whole_spec(all_schemas: SchemasMap, all_paths: PathsMap) -> OpenApi {
         openapi: "3.0.0".to_string(),
         info: okapi::openapi3::Info {
             title: "NEAR Protocol JSON RPC API".to_string(),
-            version: "1.3.38".to_string(),
+            version: "1.3.41".to_string(),
             ..Default::default()
         },
         paths: all_paths,
@@ -753,11 +753,11 @@ fn main() {
         "block_effects".to_string(),
         "Returns changes in block for given block height or hash over all transactions for all the types. Includes changes like account_touched, access_key_touched, data_touched, contract_code_touched.".to_string(),
     );
-    add_spec_for_path::<RpcSendTransactionRequest, CryptoHash, RpcTransactionError>(
+    add_spec_for_path::<RpcSendTransactionRequest, Option<CryptoHash>, RpcTransactionError>(
         &mut all_schemas,
         &mut all_paths,
         "broadcast_tx_async".to_string(),
-        "[Deprecated] Sends a transaction and immediately returns transaction hash. Consider using send_tx instead.".to_string(),
+        "[Deprecated] Sends a transaction and immediately returns transaction hash, or null for an external call, whose id depends on the block that includes it. Consider using send_tx instead.".to_string(),
     );
     add_spec_for_path::<RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionError>(
         &mut all_schemas,

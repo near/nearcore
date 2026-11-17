@@ -117,8 +117,8 @@ impl Pulls {
             .collect()
     }
 
-    /// Splits a producer's wants into requests within `max_ids_per_request` and
-    /// `max_parts_per_request`; one item's ordinals may span requests.
+    /// Splits a producer's wants into requests within the request limits; one item's ordinals
+    /// may span requests.
     fn pack_requests(
         &self,
         producer: AccountId,

@@ -255,6 +255,7 @@ mod tests {
     use near_primitives::types::{
         AccountId, Balance, BlockExecutionResults, BlockHeight, ShardId, SpiceChunkId,
     };
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::adapter::StoreAdapter;
     use std::collections::{BTreeSet, HashMap};
     use std::sync::Arc;
@@ -349,8 +350,8 @@ mod tests {
         let deposit = 100 * u128::from(height) + u128::from(from_shard_index);
         let amount = Balance::from_yoctonear(deposit);
         let receipts = vec![
-            Receipt::new_balance_refund(&test_receiver(), amount),
-            Receipt::new_balance_refund(&other_receiver(), amount),
+            Receipt::new_balance_refund(&test_receiver(), amount, PROTOCOL_VERSION),
+            Receipt::new_balance_refund(&other_receiver(), amount, PROTOCOL_VERSION),
         ];
         let (root, proofs) = Chain::create_receipts_proofs_from_outgoing_receipts(
             &shard_layout,
@@ -1106,6 +1107,7 @@ mod tests {
                 proof.0.push(Receipt::new_balance_refund(
                     &"smuggled".parse().unwrap(),
                     Balance::from_near(1),
+                    PROTOCOL_VERSION,
                 ));
             }
         }

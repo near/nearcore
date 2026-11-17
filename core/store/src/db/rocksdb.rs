@@ -784,7 +784,11 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
     if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        let merge =
+            move |key: &[u8], existing: Option<&[u8]>, operands: &::rocksdb::MergeOperands| {
+                RocksDB::refcount_merge(col, key, existing, operands)
+            };
+        opts.set_merge_operator("refcount merge", merge, merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
 
@@ -924,11 +928,12 @@ impl RocksDB {
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
     pub(crate) fn refcount_merge(
+        col: DBCol,
         _new_key: &[u8],
         existing: Option<&[u8]>,
         operands: &::rocksdb::MergeOperands,
     ) -> Option<Vec<u8>> {
-        Some(refcount::refcount_merge(existing, operands))
+        Some(refcount::refcount_merge(col, existing, operands))
     }
 
     /// Compaction filter for DBCol::State

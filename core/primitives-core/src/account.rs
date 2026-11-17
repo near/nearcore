@@ -234,8 +234,8 @@ pub struct UninitializedAccountV1 {
     /// re-created account starts above every nonce its previous incarnation
     /// could have signed for, so the old bytes cannot bootstrap it either.
     ///
-    /// Seeded exactly as a newly created access key is:
-    /// `(creation_block_height - 1) * ACCESS_KEY_NONCE_RANGE_MULTIPLIER`.
+    /// Seeded exactly as a newly created access key is, from the creation height; see
+    /// [`AccessKey::nonce`].
     ///
     /// Dropped by [`Account::initialize`]: once the state init has installed
     /// the access keys, each of them carries its own nonce.
@@ -278,7 +278,7 @@ impl Account {
     /// uninitialized, with no access keys, code or data, until
     /// [`Self::initialize`] is called.
     ///
-    /// `bootstrap_nonce` should be `initial_nonce_value(block_height)` of the
+    /// `bootstrap_nonce` should be the initial access key nonce at the height of the
     /// block creating the account; see [`UninitializedAccountV1::bootstrap_nonce`].
     pub fn new_uninitialized(
         amount: Balance,
@@ -800,7 +800,8 @@ impl BorshSerialize for Account {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AccessKey {
     /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
-    /// is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.
+    /// is set to `block_height * 1e6 - 1` (`(block_height - 1) * 1e6` before protocol version 89)
+    /// to avoid tx hash collision on access key re-creation.
     /// See <https://github.com/near/nearcore/issues/3779> for more details.
     pub nonce: Nonce,
 

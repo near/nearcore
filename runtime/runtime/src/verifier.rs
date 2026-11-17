@@ -1,27 +1,33 @@
-use crate::action_validation::{validate_actions, validate_actions_with_mode};
-use crate::config::{EccCost, TransactionCost};
+use crate::action_validation::{
+    validate_actions, validate_actions_with_mode, validate_universal_state_init,
+};
+use crate::config::{EccCost, TransactionCost, ecc_cost, ecc_cost_with_state_init};
 use crate::near_primitives::account::Account;
 use crate::{AccessKeyUpdate, PendingConstraints, TxVerdict, VerificationResult};
 use near_crypto::PublicKey;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, FunctionCallPermission};
 use near_primitives::errors::{
-    DepositCostFailureReason, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
+    DepositCostFailureReason, IntegerOverflowError, InvalidAccessKeyError, InvalidTxError,
+    ReceiptValidationError,
 };
 use near_primitives::receipt::{
     DataReceipt, Receipt, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, EccTransaction, NonceMode, SignedTransaction, Transaction, TransactionEnvelope,
-    ValidatedTransaction,
+    ValidatedEcc, ValidatedTransaction, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{AccountId, Balance, BlockHeight, Nonce, StorageUsage};
+use near_primitives::universal_state_init::{DecodeMode, RawStateInit, UniversalStateInit};
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::NonceIndex;
 use near_store::{
-    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
+    StorageError, TrieAccess, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
+use std::borrow::Borrow;
+use std::collections::HashSet;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -118,6 +124,34 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx, current_protocol_version)
 }
 
+/// Like [`validate_transaction`], but for a transaction of either kind, and it hands back what it
+/// validated. Unlike `ValidatedTransactionEnvelope::new`, it validates the actions of a signed
+/// transaction too, so this is the one to use for a transaction that just arrived.
+#[allow(clippy::result_large_err)]
+pub fn validate_envelope(
+    config: &RuntimeConfig,
+    envelope: TransactionEnvelope,
+    current_protocol_version: ProtocolVersion,
+) -> Result<ValidatedTransactionEnvelope, (InvalidTxError, TransactionEnvelope)> {
+    match envelope {
+        TransactionEnvelope::Signed(signed_tx) => {
+            validate_transaction(config, signed_tx, current_protocol_version)
+                .map(ValidatedTransactionEnvelope::Signed)
+                .map_err(|(err, signed_tx)| (err, signed_tx.into()))
+        }
+        TransactionEnvelope::Unsigned(ecc) => {
+            let ecc = ValidatedEcc::new(config, ecc, current_protocol_version)
+                .map_err(|(err, ecc)| (err, ecc.into()))?;
+            if let Err(err) =
+                validate_ecc_state_init(config, ecc.to_ecc(), current_protocol_version)
+            {
+                return Err((err, ecc.into_ecc().into()));
+            }
+            Ok(ValidatedTransactionEnvelope::Unsigned(ecc))
+        }
+    }
+}
+
 /// Like [`validate_transaction`], but for a transaction of either kind.
 pub fn validate_transaction_envelope(
     config: &RuntimeConfig,
@@ -131,9 +165,39 @@ pub fn validate_transaction_envelope(
                 .map_err(|(err, _)| err)
         }
         TransactionEnvelope::Unsigned(ecc) => {
-            ecc.check_valid_for_config(config, current_protocol_version)
+            validate_external_call(config, ecc, current_protocol_version)
         }
     }
+}
+
+/// The validity checks of an external call that apply runs, its state init's included.
+pub(crate) fn validate_external_call(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    ecc.check_valid_for_config(config, current_protocol_version)?;
+    validate_ecc_state_init(config, ecc, current_protocol_version)
+}
+
+/// Validates the state init an external call carries, if any, with the checks a
+/// `UniversalStateInit` action to the contract gets.
+fn validate_ecc_state_init(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), InvalidTxError> {
+    let Some(state_init) = ecc.state_init() else {
+        return Ok(());
+    };
+    validate_universal_state_init(
+        &config.wasm_config.limit_config,
+        state_init,
+        ecc.contract_id(),
+        current_protocol_version,
+        ValidateReceiptMode::NewReceipt,
+    )
+    .map_err(InvalidTxError::ActionsValidation)
 }
 
 /// Set new `signer` and `access_key` in `state_update`.
@@ -276,16 +340,19 @@ pub fn verify_and_charge_tx_ephemeral<E>(
 ///
 /// This performs no mutation. The fees are not charged here: the contract pays for them from
 /// the balance the call leaves, only if it accepts the call.
-pub fn verify_ecc_ephemeral(
-    contract: Option<&Account>,
+///
+/// Returns the contract's account as it was passed in, so a caller that passes `&mut Account`
+/// gets it back to update.
+pub fn verify_ecc_ephemeral<A: Borrow<Account>>(
+    contract: Option<A>,
     ecc: &EccTransaction,
     cost: &EccCost,
-) -> Result<(), InvalidTxError> {
+) -> Result<A, InvalidTxError> {
     let contract_id = ecc.contract_id();
     let Some(contract) = contract else {
-        return Err(InvalidTxError::SignerDoesNotExist { signer_id: contract_id.clone() });
+        return Err(InvalidTxError::ContractNotFound { contract_id: contract_id.clone() });
     };
-    let balance = contract.amount();
+    let balance = contract.borrow().amount();
     if balance < cost.burnt_amount {
         return Err(InvalidTxError::NotEnoughBalance {
             signer_id: contract_id.clone(),
@@ -293,7 +360,7 @@ pub fn verify_ecc_ephemeral(
             cost: cost.burnt_amount,
         });
     }
-    Ok(())
+    Ok(contract)
 }
 
 /// Resolve the signer's account and what authorizes the transaction against it:
@@ -330,6 +397,50 @@ pub fn get_signer_and_authorization(
             }))
         }
     }
+}
+
+/// Whether the account of `ecc`'s contract has a contract, or gets one from the state init the call
+/// installs. A call to any other account has nothing to run, so nobody should spend on it.
+pub fn call_can_run_at_account(
+    state_update: &dyn TrieAccess,
+    ecc: &EccTransaction,
+) -> Result<bool, StorageError> {
+    let Some(account) = get_account(state_update, ecc.contract_id())? else {
+        return Ok(false);
+    };
+    let Some(state_init) = state_init_to_install(&account, ecc) else {
+        return Ok(account.contract().is_some());
+    };
+    // Decoding is bounded by the call's size limit, as in its validity check.
+    let state_init = UniversalStateInit::from_raw(state_init, DecodeMode::Strict);
+    Ok(state_init.is_ok_and(|state_init| state_init.code().is_some()))
+}
+
+/// The fees `ecc` pays before its run when `account` is its contract's account, the install of its
+/// state init included.
+pub fn ecc_cost_for_account(
+    config: &RuntimeConfig,
+    ecc: &EccTransaction,
+    account: Option<&Account>,
+    gas_price: Balance,
+) -> Result<EccCost, IntegerOverflowError> {
+    let cost = ecc_cost(config, ecc, gas_price)?;
+    match account.and_then(|account| state_init_to_install(account, ecc)) {
+        None => Ok(cost),
+        Some(state_init) => ecc_cost_with_state_init(config, &cost, state_init, gas_price),
+    }
+}
+
+/// The state init `ecc` installs on `account`: the call's own, on an uninitialized account. An
+/// initialized account ignores it for free, as it does a repeated `UniversalStateInit` action.
+pub(crate) fn state_init_to_install<'a>(
+    account: &Account,
+    ecc: &'a EccTransaction,
+) -> Option<&'a RawStateInit> {
+    if account.is_initialized() {
+        return None;
+    }
+    ecc.state_init()
 }
 
 /// Whether this transaction is a self-signed state init that may proceed without
@@ -601,7 +712,7 @@ pub fn verify_and_charge_bootstrap_tx_ephemeral(
     // Strict regardless of what the transaction asked for, so that exactly one
     // nonce is ever admissible. Monotonic would let the signer pick any value
     // above the floor, and the keys the state init installs start at
-    // `initial_nonce_value(execution_height)`, which can sit *below* such a
+    // `initial_nonce_value(execution_height, ..)`, which can sit *below* such a
     // choice: the same signed bytes would then replay through the ordinary path
     // once the account is initialized. Forcing Strict also lets a V0
     // transaction bootstrap, since V0 cannot express a nonce mode at all.
@@ -846,14 +957,29 @@ pub(crate) fn validate_receipt(
     })?;
 
     match receipt.versioned_receipt() {
-        VersionedReceiptEnum::Action(action_receipt)
-        | VersionedReceiptEnum::PromiseYield(action_receipt) => validate_action_receipt(
+        VersionedReceiptEnum::Action(action_receipt) => validate_action_receipt(
             limit_config,
             action_receipt,
             receipt.receiver_id(),
             current_protocol_version,
             mode,
         ),
+        VersionedReceiptEnum::PromiseYield(action_receipt) => {
+            // Applying a PromiseYield receipt stores it under its only input data id.
+            let num_inputs = action_receipt.input_data_ids().len();
+            if num_inputs != 1 {
+                return Err(ReceiptValidationError::InvalidPromiseYieldInputDataCount {
+                    number_of_input_data_dependencies: num_inputs as u64,
+                });
+            }
+            validate_action_receipt(
+                limit_config,
+                action_receipt,
+                receipt.receiver_id(),
+                current_protocol_version,
+                mode,
+            )
+        }
         VersionedReceiptEnum::Data(data_receipt)
         | VersionedReceiptEnum::PromiseResume(data_receipt) => {
             validate_data_receipt(limit_config, &data_receipt)
@@ -891,6 +1017,13 @@ fn validate_action_receipt(
         });
     }
 
+    // Input data is read and removed from the state once per id, so a repeated id would make
+    // the second read fail. Honest receipts get a fresh data id for every dependency.
+    let mut seen_data_ids = HashSet::new();
+    if let Some(data_id) = receipt.input_data_ids().iter().find(|id| !seen_data_ids.insert(*id)) {
+        return Err(ReceiptValidationError::DuplicateInputDataId { data_id: *data_id });
+    }
+
     if let Some(account_id) = receipt.refund_to() {
         AccountId::validate(account_id.as_ref()).map_err(|_| {
             ReceiptValidationError::InvalidRefundTo { account_id: account_id.to_string() }
@@ -926,21 +1059,25 @@ fn validate_data_receipt(
 mod tests {
     use super::*;
     use crate::access_keys::{action_add_key, initial_nonce_value};
-    use crate::config::{ecc_cost, tx_cost};
+    use crate::config::tx_cost;
     use crate::near_primitives::shard_layout::ShardUId;
     use crate::near_primitives::trie_key::TrieKey;
     use crate::{ActionResult, ApplyState};
+    use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, PublicKeyHandle, SecretKey, Signer};
+    use near_parameters::RuntimeConfigStore;
     use near_primitives::account::{
         AccessKey, AccessKeyPermission, AccountContract, FunctionCallPermission,
     };
-    use near_primitives::action::{TransferToGasKeyAction, UniversalStateInitAction};
+    use near_primitives::action::{
+        GlobalContractIdentifier, TransferToGasKeyAction, UniversalStateInitAction,
+    };
     use near_primitives::apply::ApplyChunkReason;
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::ActionsValidationError;
     use near_primitives::hash::{CryptoHash, hash};
-    use near_primitives::receipt::ActionReceipt;
+    use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         AddKeyAction, CreateAccountAction, DeployContractAction, TransactionNonce, TransferAction,
@@ -1075,7 +1212,6 @@ mod tests {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
@@ -1083,9 +1219,12 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
+            prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
+            config_store: Arc::new(RuntimeConfigStore::test()),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -1153,7 +1292,7 @@ mod tests {
             signer,
             tries.new_trie_update(ShardUId::single_shard(), root),
             Balance::from_yoctonear(100),
-            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT),
+            initial_nonce_value(TEST_GAS_KEY_BLOCK_HEIGHT, PROTOCOL_VERSION),
         )
     }
 
@@ -2091,11 +2230,82 @@ mod tests {
         let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
-            &Receipt::new_balance_refund(&alice_account(), Balance::from_yoctonear(10)),
+            &Receipt::new_balance_refund(
+                &alice_account(),
+                Balance::from_yoctonear(10),
+                PROTOCOL_VERSION,
+            ),
             PROTOCOL_VERSION,
             ValidateReceiptMode::NewReceipt,
         )
         .expect("valid receipt");
+    }
+
+    #[test]
+    fn test_validate_promise_yield_receipt_input_count() {
+        let limit_config = test_limit_config();
+        let promise_yield = |input_data_ids| {
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: alice_account(),
+                receiver_id: alice_account(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::PromiseYield(ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: Balance::from_yoctonear(100),
+                    output_data_receivers: vec![],
+                    input_data_ids,
+                    actions: vec![],
+                }),
+            })
+        };
+        let hash = |byte| CryptoHash::hash_bytes(&[byte]);
+        for mode in [ValidateReceiptMode::NewReceipt, ValidateReceiptMode::ExistingReceipt] {
+            let validate =
+                |receipt| validate_receipt(&limit_config, &receipt, PROTOCOL_VERSION, mode);
+            validate(promise_yield(vec![hash(1)])).expect("exactly one input is valid");
+            for input_data_ids in [vec![], vec![hash(1), hash(2)]] {
+                let number_of_input_data_dependencies = input_data_ids.len() as u64;
+                assert_eq!(
+                    validate(promise_yield(input_data_ids)),
+                    Err(ReceiptValidationError::InvalidPromiseYieldInputDataCount {
+                        number_of_input_data_dependencies
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_validate_action_receipt_duplicate_input_data_ids() {
+        let limit_config = test_limit_config();
+        let hash = |byte| CryptoHash::hash_bytes(&[byte]);
+        let action_receipt = |input_data_ids| {
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: alice_account(),
+                receiver_id: alice_account(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: Balance::from_yoctonear(100),
+                    output_data_receivers: vec![],
+                    input_data_ids,
+                    actions: vec![],
+                }),
+            })
+        };
+        for mode in [ValidateReceiptMode::NewReceipt, ValidateReceiptMode::ExistingReceipt] {
+            let validate =
+                |receipt| validate_receipt(&limit_config, &receipt, PROTOCOL_VERSION, mode);
+            validate(action_receipt(vec![])).expect("no inputs is valid");
+            validate(action_receipt(vec![hash(1), hash(2), hash(3)])).expect("distinct inputs");
+            // The duplicate doesn't have to be adjacent.
+            assert_eq!(
+                validate(action_receipt(vec![hash(1), hash(2), hash(1)])),
+                Err(ReceiptValidationError::DuplicateInputDataId { data_id: hash(1) })
+            );
+        }
     }
 
     #[test]
@@ -2564,7 +2774,7 @@ mod tests {
     fn test_bootstrap_nonce_floor_is_account_scoped() {
         let config = RuntimeConfig::test();
         let gas_price = Balance::from_yoctonear(5000);
-        // Stands in for `initial_nonce_value(creation_height)`; only its relation
+        // Stands in for `initial_nonce_value(creation_height, ..)`; only its relation
         // to the transaction nonce matters, since no block height is passed.
         const BOOTSTRAP_NONCE: Nonce = 1_000;
 
@@ -3146,8 +3356,8 @@ mod tests {
     fn test_verify_ecc_missing_contract() {
         let (ecc, cost) = ecc_and_cost();
         assert_eq!(
-            verify_ecc_ephemeral(None, &ecc, &cost),
-            Err(InvalidTxError::SignerDoesNotExist { signer_id: ecc.contract_id().clone() })
+            verify_ecc_ephemeral(None::<&Account>, &ecc, &cost),
+            Err(InvalidTxError::ContractNotFound { contract_id: ecc.contract_id().clone() })
         );
     }
 
@@ -3170,6 +3380,90 @@ mod tests {
     fn test_verify_ecc_exact_balance() {
         let (ecc, cost) = ecc_and_cost();
         let contract = account_new(cost.burnt_amount, CryptoHash::default());
-        assert_eq!(verify_ecc_ephemeral(Some(&contract), &ecc, &cost), Ok(()));
+        assert_eq!(verify_ecc_ephemeral(Some(&contract), &ecc, &cost), Ok(&contract));
+    }
+
+    /// A state init with one storage entry, and `code_hash` as the global contract it installs.
+    fn ecc_state_init(code_hash: Option<CryptoHash>) -> RawStateInit {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: code_hash.map(GlobalContractIdentifier::CodeHash),
+            data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw()
+    }
+
+    /// A call's state init gets the checks of a `UniversalStateInit` action: it must be the
+    /// contract's own and decode.
+    #[test]
+    fn test_ecc_state_init_validity() {
+        let config = RuntimeConfig::test();
+        let state_init = ecc_state_init(None);
+        let own_account = derive_universal_account_id(&state_init);
+        let validate = |contract_id: AccountId, state_init: RawStateInit| {
+            let ecc = EccTransaction::new_with_state_init(contract_id, vec![], Some(state_init));
+            validate_transaction_envelope(&config, &ecc.into(), PROTOCOL_VERSION)
+        };
+
+        assert_eq!(validate(own_account, state_init.clone()), Ok(()));
+        assert_matches!(
+            validate(alice_account(), state_init),
+            Err(InvalidTxError::ActionsValidation(
+                ActionsValidationError::InvalidUniversalStateInitReceiver { .. }
+            ))
+        );
+        let malformed = RawStateInit(vec![7, 7, 7]);
+        assert_eq!(
+            validate(derive_universal_account_id(&malformed), malformed),
+            Err(InvalidTxError::ActionsValidation(
+                ActionsValidationError::MalformedUniversalStateInit
+            ))
+        );
+    }
+
+    /// An uninitialized account holds a contract for a call whose state init installs code, and
+    /// an initialized one only if it has a contract, whatever the call carries.
+    #[test]
+    fn test_call_can_run_at_account_with_state_init() {
+        let with_code = ecc_state_init(Some(hash(b"code")));
+        let account_id = derive_universal_account_id(&with_code);
+        let call = |state_init| {
+            EccTransaction::new_with_state_init(account_id.clone(), vec![], state_init)
+        };
+        let holds_contract = |account: &Account, ecc: &EccTransaction| {
+            let tries = TestTriesBuilder::new().build();
+            let mut state_update =
+                tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
+            set_account(&mut state_update, account_id.clone(), account);
+            call_can_run_at_account(&state_update, ecc).unwrap()
+        };
+
+        let uninitialized = Account::new_uninitialized(TESTING_INIT_BALANCE, 100, 1);
+        assert!(holds_contract(&uninitialized, &call(Some(with_code.clone()))));
+        assert!(!holds_contract(&uninitialized, &call(Some(ecc_state_init(None)))));
+        assert!(!holds_contract(&uninitialized, &call(None)));
+        let without_contract = account_new(TESTING_INIT_BALANCE, CryptoHash::default());
+        assert!(!holds_contract(&without_contract, &call(Some(with_code))));
+    }
+
+    /// Before the run, a call that installs its state init needs the balance for the install's
+    /// fees too.
+    #[test]
+    fn test_verify_ecc_balance_covers_state_init_fees() {
+        let config = RuntimeConfig::test();
+        let gas_price = Balance::from_yoctonear(100_000_000);
+        let state_init = ecc_state_init(None);
+        let account_id = derive_universal_account_id(&state_init);
+        let ecc = EccTransaction::new_with_state_init(account_id, vec![], Some(state_init.clone()));
+        let call_cost = ecc_cost(&config, &ecc, gas_price).unwrap();
+        let account = Account::new_uninitialized(call_cost.burnt_amount, 100, 1);
+
+        let cost = ecc_cost_for_account(&config, &ecc, Some(&account), gas_price).unwrap();
+
+        assert_eq!(state_init_to_install(&account, &ecc), Some(&state_init));
+        assert_matches!(
+            verify_ecc_ephemeral(Some(&account), &ecc, &cost),
+            Err(InvalidTxError::NotEnoughBalance { .. })
+        );
     }
 }

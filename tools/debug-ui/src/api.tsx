@@ -146,11 +146,6 @@ export type SyncStatusView =
         };
     };
 
-export interface ShardSyncDownloadView {
-    downloads: { error: boolean; done: boolean }[];
-    status: string;
-}
-
 export interface DebugBlockStatusData {
     blocks: DebugBlockStatus[];
     missed_heights: MissedHeightInfo[];

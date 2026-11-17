@@ -25,9 +25,6 @@ mod process_node;
 mod runtime_node;
 mod thread_node;
 
-pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
-pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
-
 pub fn configure_chain_spec() -> Genesis {
     Genesis::test(vec![alice_account(), bob_account()], 2)
 }

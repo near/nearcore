@@ -83,9 +83,10 @@ The account ID of the access key owner.
 
 ### public_key
 
-`type: PublicKey`
+`type: PublicKeyHandle`
 
-The public key for the access key in JSON-friendly string format. E.g. `ed25519:5JFfXMziKaotyFM1t4hfzuwh8GZMYCiKHfqw1gTEWMYT`
+The public key for the access key in JSON-friendly string format. E.g. `ed25519:5JFfXMziKaotyFM1t4hfzuwh8GZMYCiKHfqw1gTEWMYT`.
+An ML-DSA-65 key is stored as a hash of the key (SHA3-256 with a domain tag): `ml-dsa-65-hash:` followed by the hash in base58.
 
 ### access_key
 
@@ -94,12 +95,43 @@ The public key for the access key in JSON-friendly string format. E.g. `ed25519:
 The access key serialized in JSON format.
 
 
+## GasKeyNonce
+
+`type: Unnamed struct`
+
+Record that contains the nonce of one nonce index of a gas key. See [Gas Key Nonces](../DataStructures/AccessKey.md#gas-key-nonces).
+
+### account_id
+
+`type: AccountId`
+
+The account ID of the gas key owner.
+
+### public_key
+
+`type: PublicKeyHandle`
+
+The public key of the gas key, in the same format as for [AccessKey](#accesskey).
+
+### index
+
+`type: u16`
+
+The nonce index.
+
+### nonce
+
+`type: u64`
+
+The nonce for this nonce index.
+
+
 ## PostponedReceipt
 
 `type: Box<Receipt>` [Receipt](../RuntimeSpec/Receipts.md)
 
 Record that contains a receipt that was postponed on a shard (e.g. it's waiting for incoming data).
-The receipt is in JSON-friendly format. The receipt can only be an `ActionReceipt`.
+The receipt is in JSON-friendly format. The receipt can only be an action receipt (`Action` or `ActionV2`).
 
 NOTE: Box is used to decrease fixed size of the entire enum.
 
@@ -132,9 +164,8 @@ Optional data encoded as base64 format or null in JSON.
 
 ## DelayedReceipt
 
-`type: Box<Receipt>` [Receipt](../RuntimeSpec/Receipts.md)
+`type: DelayedReceipt`, serialized as the receipt [Receipt](../RuntimeSpec/Receipts.md)
 
 Record that contains a receipt that was delayed on a shard. It means the shard was overwhelmed with receipts and it processes receipts from backlog.
 The receipt is in JSON-friendly format.  See [Delayed Receipts](../RuntimeSpec/Components/RuntimeCrate.md#delayed-receipts) for details.
 
-NOTE: Box is used to decrease fixed size of the entire enum.

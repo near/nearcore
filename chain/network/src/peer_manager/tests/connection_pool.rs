@@ -1,6 +1,7 @@
-use crate::config::SocketOptions;
+use crate::concurrency::rate;
+use crate::config::{ConnectionEncoding, SignedStructFormat, SocketOptions};
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Disconnect, PeerMessage};
+use crate::network_protocol::{Disconnect, Encoding, PeerMessage};
 use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo, to_unix_nanos};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
@@ -15,12 +16,21 @@ use crate::types::Edge;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::db::TestDB;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 // Verify that an inbound Tier3 connection is accepted when we have a pending state sync
 // request for that peer.
 #[tokio::test]
 async fn expected_tier3_accepted() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        expected_tier3_accepted_with_encoding(encoding).await;
+    }
+}
+
+async fn expected_tier3_accepted_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853234);
     let rng = &mut rng;
@@ -52,7 +62,7 @@ async fn expected_tier3_accepted() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier3Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -85,6 +95,12 @@ async fn expected_tier3_accepted() {
 // so the keepalive attempt itself terminates the session.
 #[tokio::test]
 async fn duplicate_handshake_closes_tier3() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        duplicate_handshake_closes_tier3_with_encoding(encoding).await;
+    }
+}
+
+async fn duplicate_handshake_closes_tier3_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853235);
     let rng = &mut rng;
@@ -115,7 +131,7 @@ async fn duplicate_handshake_closes_tier3() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     let handshake = Handshake {
         protocol_version: PROTOCOL_VERSION,
         oldest_supported_version: PROTOCOL_VERSION,
@@ -160,6 +176,12 @@ async fn duplicate_handshake_closes_tier3() {
 // (not rejected as a disallowed message).
 #[tokio::test]
 async fn t3_disconnect() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        t3_disconnect_with_encoding(encoding).await;
+    }
+}
+
+async fn t3_disconnect_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -190,7 +212,7 @@ async fn t3_disconnect() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier3Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -277,6 +299,12 @@ async fn slow_test_connection_spam_security_test() {
 
 #[tokio::test]
 async fn loop_connection() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        loop_connection_with_encoding(encoding).await;
+    }
+}
+
+async fn loop_connection_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -307,7 +335,7 @@ async fn loop_connection() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -344,6 +372,12 @@ async fn loop_connection() {
 
 #[tokio::test]
 async fn owned_account_mismatch() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        owned_account_mismatch_with_encoding(encoding).await;
+    }
+}
+
+async fn owned_account_mismatch_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -365,7 +399,7 @@ async fn owned_account_mismatch() {
     let stream_id = stream.id();
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
-    let mut stream = Stream::new(stream);
+    let mut stream = Stream::new_with_encoding(stream, encoding);
     let cfg = chain.make_config(rng);
     let signer = cfg.validator.signer.get().unwrap();
     stream
@@ -389,7 +423,7 @@ async fn owned_account_mismatch() {
                     peer_id: data::make_peer_id(rng),
                     timestamp: to_unix_nanos(clock.now_utc()),
                 }
-                .sign(&signer),
+                .sign(&signer, Encoding::Proto),
             ),
         }))
         .await;
@@ -403,6 +437,91 @@ async fn owned_account_mismatch() {
         })
         .await;
     assert_eq!(ClosingReason::OwnedAccountMismatch, reason);
+}
+
+/// A handshake with an `OwnedAccount` signed in an encoding which the node doesn't accept closes
+/// the connection.
+#[tokio::test]
+async fn owned_account_signed_encoding() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    for signed_struct_format in [
+        SignedStructFormat::ProtobufOnly,
+        SignedStructFormat::AcceptBorsh,
+        SignedStructFormat::SendBorsh,
+        SignedStructFormat::BorshOnly,
+    ] {
+        let mut pm_cfg = chain.make_config(rng);
+        // A node which signs with borsh has to use borsh-only connections.
+        pm_cfg.transition.connection_encoding = ConnectionEncoding::BorshOnly;
+        pm_cfg.transition.signed_struct_format = signed_struct_format;
+        let pm = peer_manager::testonly::start(
+            clock.clock(),
+            near_store::db::TestDB::new(),
+            pm_cfg,
+            chain.clone(),
+        )
+        .await;
+
+        for signed_encoding in [Encoding::Proto, Encoding::Borsh] {
+            let stream =
+                tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2, &SocketOptions::default())
+                    .await
+                    .unwrap();
+            let stream_id = stream.id();
+            let port = stream.local_addr.port();
+            let mut events = pm.events.from_now();
+            // A borsh-signed OwnedAccount can be sent only in a borsh-encoded handshake.
+            let mut stream = Stream::new_with_encoding(stream, Encoding::Borsh);
+            let cfg = chain.make_config(rng);
+            let signer = cfg.validator.signer.get().unwrap();
+            stream
+                .write_single_encoding(&PeerMessage::Tier2Handshake(Handshake {
+                    protocol_version: PROTOCOL_VERSION,
+                    oldest_supported_version: PROTOCOL_VERSION,
+                    sender_peer_id: cfg.node_id(),
+                    target_peer_id: pm.cfg.node_id(),
+                    sender_listen_port: Some(port),
+                    sender_chain_info: chain.get_peer_chain_info(),
+                    partial_edge_info: PartialEdgeInfo::new(
+                        &cfg.node_id(),
+                        &pm.cfg.node_id(),
+                        Edge::create_fresh_nonce(&clock.clock()),
+                        &cfg.node_key,
+                    ),
+                    owned_account: Some(
+                        OwnedAccount {
+                            account_key: signer.public_key(),
+                            peer_id: cfg.node_id(),
+                            timestamp: to_unix_nanos(clock.now_utc()),
+                        }
+                        .sign(&signer, signed_encoding),
+                    ),
+                }))
+                .await;
+            let closing_reason = events
+                .recv_until(|ev| match ev {
+                    Event::ConnectionClosed(ev) if ev.stream_id == stream_id => {
+                        Some(Some(ev.reason))
+                    }
+                    Event::HandshakeCompleted(ev) if ev.stream_id == stream_id => Some(None),
+                    _ => None,
+                })
+                .await;
+            let want = match (signed_struct_format, signed_encoding) {
+                (SignedStructFormat::ProtobufOnly, Encoding::Borsh)
+                | (SignedStructFormat::BorshOnly, Encoding::Proto) => {
+                    Some(ClosingReason::OwnedAccountDisallowedEncoding)
+                }
+                _ => None,
+            };
+            assert_eq!(want, closing_reason, "{signed_struct_format:?} {signed_encoding:?}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -445,6 +564,12 @@ async fn owned_account_conflict() {
 
 #[tokio::test]
 async fn invalid_edge() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        invalid_edge_with_encoding(encoding).await;
+    }
+}
+
+async fn invalid_edge_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -493,7 +618,7 @@ async fn invalid_edge() {
             let stream_id = stream.id();
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
-            let mut stream = Stream::new(stream);
+            let mut stream = Stream::new_with_encoding(stream, encoding);
             let signer = cfg.validator.signer.get().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,
@@ -509,7 +634,7 @@ async fn invalid_edge() {
                         peer_id: cfg.node_id(),
                         timestamp: to_unix_nanos(clock.now_utc()),
                     }
-                    .sign(&signer),
+                    .sign(&signer, Encoding::Proto),
                 ),
             };
             let handshake = match tier {
@@ -554,7 +679,7 @@ async fn invalid_edge() {
         let stream_id = stream.id();
         let port = stream.local_addr.port();
         let mut events = pm.events.from_now();
-        let mut stream = Stream::new(stream);
+        let mut stream = Stream::new_with_encoding(stream, encoding);
         let signer = cfg.validator.signer.get().unwrap();
         let handshake = Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -570,7 +695,7 @@ async fn invalid_edge() {
                     peer_id: cfg.node_id(),
                     timestamp: to_unix_nanos(clock.now_utc()),
                 }
-                .sign(&signer),
+                .sign(&signer, Encoding::Proto),
             ),
         };
         stream.write(&PeerMessage::Tier3Handshake(handshake)).await;
@@ -593,4 +718,60 @@ async fn invalid_edge() {
             .await;
         assert!(still_pending, "pending_tier3_requests entry was consumed by a failed edge check");
     }
+}
+
+/// A connection whose handshake timeout elapses while registration is in progress is
+/// established once registration completes, and stays open until it is closed.
+#[tokio::test]
+async fn handshake_timeout_during_registration() {
+    init_test_logger();
+    let mut rng = make_rng(921853235);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut cfg = chain.make_config(rng);
+    cfg.handshake_timeout = time::Duration::seconds(1);
+    // Registration adds the connection's edge to the routing graph and waits for that routing
+    // table update. With one update per 2.5 s, the first registration proceeds right away and
+    // the next one waits up to 2.5 s. The dialing side keeps the default 5 s timeout.
+    cfg.routing_table_update_rate_limit = rate::Limit { qps: 0.4, burst: 1 };
+    let pm = peer_manager::testonly::start(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
+    let pm_a = peer_manager::testonly::start(
+        clock.clock(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let pm_b = peer_manager::testonly::start(
+        clock.clock(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let id_b = pm_b.cfg.node_id();
+
+    // The first connection uses the routing table update that is available at start.
+    pm_a.connect_to(&pm.peer_info(), tcp::Tier::T2).await;
+
+    // The second registration waits for the next routing table update, while `pm`'s handshake
+    // timeout elapses. `connect_to` panics if the connection closes before the handshake
+    // completes.
+    timeout(Duration::from_secs(10), pm_b.connect_to(&pm.peer_info(), tcp::Tier::T2))
+        .await
+        .expect("handshake did not complete");
+    assert!(pm.tcp.tier2.load().ready.contains_key(&id_b));
+    assert!(pm_b.tcp.tier2.load().ready.contains_key(&pm.cfg.node_id()));
+
+    // Closing the connection on `pm` removes it from the pool.
+    pm.disconnect(&id_b).await;
+    timeout(Duration::from_secs(10), async {
+        while pm.tcp.tier2.load().ready.contains_key(&id_b) {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("connection was not removed from the pool");
 }

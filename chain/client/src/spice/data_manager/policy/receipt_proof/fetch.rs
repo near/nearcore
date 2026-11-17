@@ -1,6 +1,6 @@
 use crate::spice::chunk_executor_actor::receipt_proof_exists;
-use crate::spice::data_manager::DataId;
-use near_chain::spice::boundary::shards_applied_itself;
+use crate::spice::data_manager::{DataId, ReceiptProofId};
+use near_chain::spice::chunk_application::shards_applied_itself;
 use near_chain::{Block, Error};
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::EpochManagerAdapter;
@@ -31,7 +31,11 @@ fn needed_shards(
     let destinations = shard_layout
         .shard_ids()
         .filter(|shard_id| {
-            shard_tracker.should_apply_chunk(ApplyChunksMode::IsCaughtUp, block.hash(), *shard_id)
+            shard_tracker.should_apply_chunk(
+                ApplyChunksMode::IncludeCatchupShards,
+                block.hash(),
+                *shard_id,
+            )
         })
         .collect();
     Ok(NeededShards { sources, destinations })
@@ -95,7 +99,10 @@ pub(crate) fn made_pullable_by(
             continue;
         }
         for to_shard in &needed.destinations {
-            ids.push(DataId::ReceiptProof { source: source.clone(), to_shard: *to_shard });
+            ids.push(DataId::ReceiptProof(ReceiptProofId {
+                source: source.clone(),
+                to_shard: *to_shard,
+            }));
         }
     }
     Ok(ids)

@@ -306,7 +306,7 @@ pub enum HostError {
     ProhibitedInView {
         method_name: String,
     },
-    /// `method_name` is not allowed in external contract calls
+    /// `method_name` is not allowed in external contract calls, or in the receipts they lead to
     ProhibitedInExternalCall {
         method_name: String,
     },
@@ -355,7 +355,7 @@ pub enum HostError {
     Deprecated {
         method_name: String,
     },
-    /// General errors for ECDSA recover.
+    /// Invalid input to `ecrecover`. See `ecrecover` for the cases.
     ECRecoverError {
         msg: String,
     },
@@ -364,8 +364,7 @@ pub enum HostError {
     AltBn128InvalidInput {
         msg: String,
     },
-    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
-    /// derived from bytes).
+    /// Invalid input to `ed25519_verify`. See `ed25519_verify` for the cases.
     Ed25519VerifyInvalidInput {
         msg: String,
     },

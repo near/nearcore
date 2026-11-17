@@ -220,8 +220,3 @@ impl MockPeerManagerAdapter {
         handled
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct SetAdvOptions {
-    pub set_max_peers: Option<u64>,
-}

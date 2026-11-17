@@ -31,7 +31,6 @@ members = [
     "chain/indexer",
     "chain/indexer-primitives",
     "chain/jsonrpc",
-    "chain/jsonrpc-adversarial-primitives",
     "chain/jsonrpc-primitives",
     "chain/jsonrpc/client",
     "chain/jsonrpc/jsonrpc-tests",
@@ -80,7 +79,6 @@ members = [
     "tools/replay",
     "tools/restaked",
     "tools/state-viewer",
-    "tools/storage-usage-delta-calculator",
     "tools/themis",
     "tools/undo-block",
     "utils/config",
@@ -221,7 +219,7 @@ near-client-primitives = { path = "chain/client-primitives" }
 near-cloud-archive-tool = { path = "tools/cloud-archive" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
-nearcore = { path = "nearcore" }
+nearcore = { path = "nearcore", default-features = false }
 near-crypto = { path = "core/crypto", default-features = false }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
@@ -232,7 +230,6 @@ near-fmt = { path = "utils/fmt" }
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
-near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client-internal = { path = "chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
     "full",
@@ -271,6 +268,7 @@ num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
 
 okapi = { git = "https://github.com/near/near-okapi-fork.git", rev = "fd7de89e130ab99a546f04e3faefcd53044f98d0", features = ["schemars-alpha"] } # Upstream crate can be used as soon as schemars 1.0 is supported https://github.com/GREsau/okapi/pull/161
+object = { version = "0.39", default-features = false }
 object_store = { version = "0.13", features = ["gcp"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.32", features = ["trace"] }
@@ -307,7 +305,7 @@ rlp = "0.5.2"
 # When upgrading: core/store/src/db/rocksdb.rs matches the "Direct I/O is not
 # supported" message from RocksDB's DB::Open to give operators a config hint.
 rocksdb = { version = "0.24.0", default-features = false }
-rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
+rusqlite = { version = "0.43.0", features = ["bundled", "chrono", "fallible_uint", "functions"] }
 rust-s3 = { version = "0.36", features = ["blocking"] }
 rustix = "1"
 secp256k1 = { version = "0.27.0", default-features = false }

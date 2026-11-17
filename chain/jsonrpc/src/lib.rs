@@ -95,9 +95,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ProcessedReceiptMetadata;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{
-    AccountId, BlockId, BlockReference, EpochId, ShardId, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, ShardId, TransactionOrReceiptId,
 };
 #[cfg(feature = "protocol_feature_spice")]
 use near_primitives::views::ChunkExecutionProofView;
@@ -536,6 +536,26 @@ pub struct GCSenderForRpc(AsyncSender<near_client::gc_actor::NetworkAdversarialM
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, near_network::debug::DebugStatus>);
 
+/// The transaction `tx_status_fetch` waits for.
+enum TransactionToWaitFor {
+    /// A transaction or an inclusion of an external call, known by its id.
+    Known(Box<TransactionInfo>),
+    /// An external call known by its hash without its state init, sent when the head was at
+    /// `sent_at`. It is waited on this way until an inclusion of it is found.
+    ExternalCall { call: Box<TransactionInfo>, sent_at: BlockHeight },
+}
+
+/// The inclusion of the external call that `status` reports, asked about by its hash as `asked`.
+fn reported_inclusion(asked: &TransactionInfo, status: &RpcTransactionResponse) -> TransactionInfo {
+    let (_, sender_account_id) = asked.to_tx_hash_and_account();
+    // Only `send_tx` waits on an external call by its hash, and it asks for no receipts.
+    let Some(outcome) = status.final_execution_outcome.clone() else {
+        return asked.clone();
+    };
+    let tx_hash = outcome.into_outcome().transaction_outcome.id;
+    TransactionInfo::TransactionId { tx_hash, sender_account_id: sender_account_id.clone() }
+}
+
 struct JsonRpcHandler {
     indexer_requests: Semaphore,
     clock: Clock,
@@ -670,7 +690,7 @@ impl JsonRpcHandler {
             }
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).to_string();
+                    let tx = self.send_tx_async(params).map(|id| id.to_string());
                     Result::<_, std::convert::Infallible>::Ok(tx)
                 })
                 .await
@@ -957,15 +977,15 @@ impl JsonRpcHandler {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
-    fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> CryptoHash {
-        let tx = request_data.signed_transaction;
-        let hash = tx.get_hash();
+    fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> Option<CryptoHash> {
+        let tx = request_data.transaction;
+        let id = tx.outcome_id_before_inclusion();
         self.process_tx_sender.send(ProcessTxRequest {
             transaction: tx,
             is_forwarded: false,
             check_only: false, // if we set true here it will not actually send the transaction
         });
-        hash
+        id
     }
 
     async fn tx_exists(
@@ -984,7 +1004,12 @@ impl JsonRpcHandler {
                     // TODO(optimization): Introduce a view_client method to only get transaction
                     // status without the information about execution outcomes.
                     let signer_account_id = signer_account_id.clone();
-                    let request = TxStatus { tx_hash, signer_account_id, fetch_receipt: false };
+                    let request = TxStatus {
+                        tx_hash,
+                        signer_account_id,
+                        fetch_receipt: false,
+                        external_call_sent_at: None,
+                    };
                     let tx_status = self.view_client_send(request).await;
                     match tx_status {
                         // Observed with an execution outcome: the transaction exists.
@@ -1029,7 +1054,7 @@ impl JsonRpcHandler {
     /// `finality` forces the execution to wait until the desired finality level is reached
     async fn tx_status_fetch(
         &self,
-        tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
+        mut transaction: TransactionToWaitFor,
         finality: near_primitives::views::TxExecutionStatus,
         fetch_receipt: bool,
     ) -> Result<
@@ -1039,6 +1064,13 @@ impl JsonRpcHandler {
         // If the request times out before any poll completes we report that we never got a
         // usable status; each poll that keeps us waiting replaces this with a better cause.
         let mut timeout_error_cause = TimeoutErrorCause::default();
+        // The transaction the last poll checked, reported on timeout.
+        let mut tx_info = match &transaction {
+            TransactionToWaitFor::Known(tx_info)
+            | TransactionToWaitFor::ExternalCall { call: tx_info, .. } => {
+                TransactionInfo::clone(tx_info)
+            }
+        };
 
         let poll_tx_status = async {
             // Create a new watch::Receiver to watch for new blocks. Mark the current block as seen.
@@ -1046,9 +1078,36 @@ impl JsonRpcHandler {
             new_block_watcher.mark_unchanged();
 
             loop {
-                match self.tx_status_fetch_single(&tx_info, &finality, fetch_receipt).await {
-                    ControlFlow::Break(outcome) => break outcome,
+                let external_call_sent_at = match &transaction {
+                    TransactionToWaitFor::ExternalCall { sent_at, .. } => Some(*sent_at),
+                    TransactionToWaitFor::Known(_) => None,
+                };
+                match self
+                    .tx_status_fetch_single(
+                        &tx_info,
+                        &finality,
+                        fetch_receipt,
+                        external_call_sent_at,
+                    )
+                    .await
+                {
+                    ControlFlow::Break(outcome) => return outcome,
                     ControlFlow::Continue(cause) => timeout_error_cause = cause,
+                }
+                // Once an inclusion of an external call is found, wait on it by its id.
+                if let (Some(_), TimeoutErrorCause::Pending { status }) =
+                    (external_call_sent_at, &timeout_error_cause)
+                {
+                    tx_info = reported_inclusion(&tx_info, status);
+                    transaction = TransactionToWaitFor::Known(Box::new(tx_info.clone()));
+                }
+                // A node without the shard cannot find the call's inclusion, so waiting could only
+                // time out. TODO(ecc): ask a node that tracks the shard.
+                if external_call_sent_at.is_some()
+                    && matches!(timeout_error_cause, TimeoutErrorCause::DoesNotTrackShard { .. })
+                {
+                    let cause = std::mem::take(&mut timeout_error_cause);
+                    return self.tx_status_on_timeout(&tx_info, fetch_receipt, cause);
                 }
                 new_block_watcher.changed().await.map_err(|_| {
                     RpcTransactionError::InternalError {
@@ -1068,6 +1127,19 @@ impl JsonRpcHandler {
             })
     }
 
+    /// The height of this node's chain head.
+    async fn chain_head_height(&self) -> Result<BlockHeight, RpcTransactionError> {
+        let internal_error =
+            |error: String| RpcTransactionError::InternalError { debug_info: error };
+        let block = self
+            .view_client_sender
+            .send_async(GetBlock(BlockReference::latest()))
+            .await
+            .map_err(|error| internal_error(error.to_string()))?
+            .map_err(|error| internal_error(error.to_string()))?;
+        Ok(block.header.height)
+    }
+
     /// Runs a single `TxStatus` check for the `poll_tx_status` loop.
     ///
     /// Returns `ControlFlow::Break` with the final response/error once the
@@ -1080,9 +1152,11 @@ impl JsonRpcHandler {
         tx_info: &TransactionInfo,
         finality: &TxExecutionStatus,
         fetch_receipt: bool,
+        external_call_sent_at: Option<BlockHeight>,
     ) -> ControlFlow<Result<RpcTransactionResponse, RpcTransactionError>, TimeoutErrorCause> {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
-        let request = TxStatus { tx_hash, signer_account_id: account_id.clone(), fetch_receipt };
+        let signer_account_id = account_id.clone();
+        let request = TxStatus { tx_hash, signer_account_id, fetch_receipt, external_call_sent_at };
         match self.view_client_send(request).await {
             // The node tracks the shard and observed the transaction. Stop once it reaches
             // the requested finality; otherwise keep polling, remembering how far it got.
@@ -1150,7 +1224,7 @@ impl JsonRpcHandler {
     /// invalid, or `Ok(())` when it is valid or we cannot check it (we only have its hash).
     async fn detect_invalid_tx(&self, tx_info: &TransactionInfo) -> Result<(), InvalidTxError> {
         let Some(tx) = tx_info.to_signed_tx() else { return Ok(()) };
-        match self.send_tx_internal(tx.clone(), true).await {
+        match self.send_tx_internal(tx.clone().into(), true).await {
             Ok(ProcessTxResponse::InvalidTx(context)) => Err(context),
             _ => Ok(()),
         }
@@ -1158,15 +1232,16 @@ impl JsonRpcHandler {
 
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
     /// any new side-effects and the result will be the same unless we garbage collected it
-    /// already).
+    /// already). An ECC has no nonce to tell a repeat by, so only the pool of a chunk producer
+    /// for the contract's shard drops a copy of it, for as long as the first one is still pooled.
+    /// Any other node forwards every repeat.
     async fn send_tx_internal(
         &self,
-        tx: SignedTransaction,
+        tx: TransactionEnvelope,
         check_only: bool,
-    ) -> Result<ProcessTxResponse, near_jsonrpc_primitives::types::transactions::RpcTransactionError>
-    {
+    ) -> Result<ProcessTxResponse, RpcTransactionError> {
         let tx_hash = tx.get_hash();
-        let signer_account_id = tx.transaction.signer_id().clone();
+        let signer_account_id = tx.as_signed().map(|tx| tx.transaction.signer_id().clone());
         let response = self
             .process_tx_sender
             .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })
@@ -1175,12 +1250,11 @@ impl JsonRpcHandler {
 
         // If we receive InvalidNonce error, it might be the case that the transaction was
         // resubmitted, and we should check if that is the case and return ValidTx response to
-        // maintain idempotence of the send_tx method.
-        if let ProcessTxResponse::InvalidTx(
-            near_primitives::errors::InvalidTxError::InvalidNonce { .. },
-        ) = response
+        // maintain idempotence of the send_tx method. An ECC has no nonce.
+        if let ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. }) = response
+            && let Some(signer_account_id) = &signer_account_id
         {
-            if self.tx_exists(tx_hash, &signer_account_id).await? {
+            if self.tx_exists(tx_hash, signer_account_id).await? {
                 return Ok(ProcessTxResponse::ValidTx);
             }
         }
@@ -1190,11 +1264,8 @@ impl JsonRpcHandler {
 
     async fn send_tx(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
+        request_data: RpcSendTransactionRequest,
+    ) -> Result<RpcTransactionResponse, RpcTransactionError> {
         metrics::report_wait_until_metric("send_tx", &request_data.wait_until);
 
         if request_data.wait_until == TxExecutionStatus::None {
@@ -1204,21 +1275,26 @@ impl JsonRpcHandler {
                 final_execution_status: TxExecutionStatus::None,
             });
         }
-        let tx = request_data.signed_transaction;
-        match self.send_tx_internal(tx.clone(), false).await? {
-            ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
-                self.tx_status_fetch(
-                    near_jsonrpc_primitives::types::transactions::TransactionInfo::from_signed_tx(tx.clone()),
-                    request_data.wait_until,
-                    false,
-                ).await
+        let tx = request_data.transaction;
+        let transaction = match &tx {
+            TransactionEnvelope::Signed(signed_tx) => {
+                let tx_info = TransactionInfo::from_signed_tx(signed_tx.clone());
+                TransactionToWaitFor::Known(Box::new(tx_info))
             }
-            network_client_response=> {
-                Err(
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                        network_client_response
-                    )
-                )
+            TransactionEnvelope::Unsigned(call) => TransactionToWaitFor::ExternalCall {
+                call: Box::new(TransactionInfo::TransactionId {
+                    tx_hash: *call.hash_without_state_init(),
+                    sender_account_id: call.contract_id().clone(),
+                }),
+                sent_at: self.chain_head_height().await?,
+            },
+        };
+        match self.send_tx_internal(tx, false).await? {
+            ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
+                self.tx_status_fetch(transaction, request_data.wait_until, false).await
+            }
+            network_client_response => {
+                Err(RpcTransactionError::from_network_client_responses(network_client_response))
             }
         }
     }
@@ -1231,7 +1307,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         self.send_tx(RpcSendTransactionRequest {
-            signed_transaction: request_data.signed_transaction,
+            transaction: request_data.transaction,
             wait_until: TxExecutionStatus::ExecutedOptimistic,
         })
         .await
@@ -1973,6 +2049,7 @@ impl JsonRpcHandler {
                     account_id: request_data.account_id,
                     method_name: request_data.method_name,
                     args: request_data.args,
+                    state_init: request_data.state_init,
                 },
             ))
             .await;
@@ -2007,7 +2084,11 @@ impl JsonRpcHandler {
         metrics::report_wait_until_metric(method_name, &request_data.wait_until);
 
         let tx_status = self
-            .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
+            .tx_status_fetch(
+                TransactionToWaitFor::Known(Box::new(request_data.transaction_info)),
+                request_data.wait_until,
+                fetch_receipt,
+            )
             .await?;
         Ok(tx_status.rpc_into())
     }

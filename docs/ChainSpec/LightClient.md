@@ -1,5 +1,12 @@
 # Light Client
 
+> **Note:** This page is out of date and may contain errors. Do not use it as the only reference
+> when you build a light client. Have any light client implementation reviewed independently before
+> you use it in production.
+>
+> The [near/near-light-client](https://github.com/near/near-light-client) implementation is archived
+> and no longer maintained. Avoid using it.
+
 The state of the light client is defined by:
 
 1. `BlockHeaderInnerLiteView` for the current head (which contains `height`, `epoch_id`, `next_epoch_id`, `prev_state_root`, `outcome_root`, `timestamp`, the hash of the block producers set for the next epoch `next_bp_hash`, and the merkle root of all the block hashes `block_merkle_root`);
@@ -286,6 +293,20 @@ block_merkle_root = compute_root(block_hash, block_proof)
 ```
 
 which must match the block merkle root in the light client block of the light client head.
+
+#### What a Proof Shows
+
+A verified proof shows that the outcome was committed in block `H`. It does not show that the outcome is the only one
+with its `id`.
+
+A receipt has exactly one outcome on the canonical chain. A chunk receives receipts only through the incoming receipt
+proofs that validators check, so no chunk producer can add a receipt to a chunk. A receipt outcome can be relied on
+whether it succeeded or failed.
+
+A transaction can have several. A transaction outcome that succeeded shows that the transaction ran, but one that
+failed does not show that the transaction never ran. To act on the result of a transaction, verify the outcomes of the
+receipts it produced, for example the receipt that ran on a bridge contract and logged an event. Do not treat a failed
+transaction outcome as proof that the transaction did not happen.
 
 ## RPC end-points
 

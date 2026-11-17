@@ -238,30 +238,40 @@ impl MemTrieNodeId {
     /// Decrements the refcount, deallocating the node if it reaches zero.
     /// Returns the new refcount.
     pub(crate) fn remove_ref(&self, arena: &mut impl ArenaWithDealloc) -> u32 {
-        // It's possible that in a hybrid memory setup, we are accessing the read-only part of memory.
-        // In that case, we don't need to decrement the refcount.
-        if !arena.memory_mut().is_mutable(self.pos) {
-            return 1;
+        // Trie depth is bounded only by key length, so the freed subtree is walked with an
+        // explicit stack rather than recursion.
+        let mut to_unref: SmallVec<[ArenaPos; NUM_CHILDREN]> = SmallVec::new();
+        to_unref.push(self.pos);
+        // Refcount of `self`, the first node visited.
+        let mut result = None;
+
+        while let Some(pos) = to_unref.pop() {
+            // It's possible that in a hybrid memory setup, we are accessing the read-only part of
+            // memory. In that case, we don't need to decrement the refcount.
+            let new_refcount = if arena.memory_mut().is_mutable(pos) {
+                // Refcount is always encoded as the first four bytes of the node memory.
+                // cspell:words unref
+                let refcount_memory = arena.memory_mut().raw_slice_mut(pos, size_of::<u32>());
+                let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
+                let new_refcount = refcount.strict_sub(1);
+                refcount_memory.copy_from_slice(new_refcount.to_le_bytes().as_ref());
+                if new_refcount == 0 {
+                    // Read the children before the node is freed.
+                    let node_ptr = MemTrieNodeId { pos }.as_ptr(arena.memory());
+                    for child in node_ptr.view().iter_children() {
+                        to_unref.push(child.id().pos);
+                    }
+                    let alloc_size = node_ptr.size_of_allocation();
+                    arena.dealloc(pos, alloc_size);
+                }
+                new_refcount
+            } else {
+                1
+            };
+            result.get_or_insert(new_refcount);
         }
-        // Refcount is always encoded as the first four bytes of the node memory.
-        // cspell:words unref
-        let refcount_memory = arena.memory_mut().raw_slice_mut(self.pos, size_of::<u32>());
-        let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
-        let new_refcount = refcount.strict_sub(1);
-        refcount_memory.copy_from_slice(new_refcount.to_le_bytes().as_ref());
-        if new_refcount == 0 {
-            let mut children_to_unref: SmallVec<[ArenaPos; NUM_CHILDREN]> = SmallVec::new();
-            let node_ptr = self.as_ptr(arena.memory());
-            for child in node_ptr.view().iter_children() {
-                children_to_unref.push(child.id().pos);
-            }
-            let alloc_size = node_ptr.size_of_allocation();
-            arena.dealloc(self.pos, alloc_size);
-            for child in &children_to_unref {
-                MemTrieNodeId { pos: *child }.remove_ref(arena);
-            }
-        }
-        new_refcount
+
+        result.expect("the node itself is always visited")
     }
 }
 

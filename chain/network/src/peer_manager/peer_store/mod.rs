@@ -15,6 +15,7 @@ use imbl::hashmap::Entry;
 use imbl::{HashMap, HashSet};
 use lru::LruCache;
 use near_async::time;
+use near_o11y::log_assert_fail;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
@@ -85,6 +86,13 @@ struct Inner {
     // It can happens that some peers don't have known address, so
     // they will not be present in this list, otherwise they will be present.
     addr_peers: HashMap<SocketAddr, VerifiedPeer>,
+}
+
+/// A ban stays in place until `unban` lifts it.
+fn set_status_unless_banned(peer_state: &mut KnownPeerState, status: KnownPeerStatus) {
+    if !peer_state.status.is_banned() {
+        peer_state.status = status;
+    }
 }
 
 impl Inner {
@@ -371,16 +379,19 @@ impl PeerStore {
     pub fn peer_connected(&self, clock: &time::Clock, peer_info: &PeerInfo) {
         let mut inner = self.0.lock();
         inner.add_signed_peer(clock, peer_info.clone());
-        let entry = inner.peer_states.get_mut(&peer_info.id).unwrap();
+        let Some(entry) = inner.peer_states.get_mut(&peer_info.id) else {
+            log_assert_fail!("peer {} is missing in the peer store after insertion", peer_info.id);
+            return;
+        };
         entry.last_seen = clock.now_utc();
-        entry.status = KnownPeerStatus::Connected;
+        set_status_unless_banned(entry, KnownPeerStatus::Connected);
     }
 
     pub fn peer_disconnected(&self, clock: &time::Clock, peer_id: &PeerId) -> anyhow::Result<()> {
         let mut inner = self.0.lock();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             peer_state.last_seen = clock.now_utc();
-            peer_state.status = KnownPeerStatus::NotConnected;
+            set_status_unless_banned(peer_state, KnownPeerStatus::NotConnected);
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
@@ -409,29 +420,26 @@ impl PeerStore {
         };
         if result.is_err() {
             // Marks the peer status as Unknown (as we failed to connect to it).
-            peer_state.status = KnownPeerStatus::Unknown;
+            set_status_unless_banned(peer_state, KnownPeerStatus::Unknown);
         }
         peer_state.last_outbound_attempt =
             Some((clock.now_utc(), result.map_err(|err| err.to_string())));
         peer_state.last_seen = clock.now_utc();
     }
 
-    pub fn peer_ban(
-        &self,
-        clock: &time::Clock,
-        peer_id: &PeerId,
-        ban_reason: ReasonForBan,
-    ) -> anyhow::Result<()> {
+    pub fn peer_ban(&self, clock: &time::Clock, peer_id: &PeerId, ban_reason: ReasonForBan) {
         tracing::warn!(target: "network", %peer_id, ?ban_reason, "banning peer");
         let mut inner = self.0.lock();
-        if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
-            let now = clock.now_utc();
-            peer_state.last_seen = now;
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
-        } else {
-            bail!("Peer {} is missing in the peer store", peer_id);
-        }
-        Ok(())
+        // A peer that has connected only on TIER1 or TIER3 may be missing from the store.
+        let peer_info = PeerInfo { id: peer_id.clone(), addr: None, account_id: None };
+        inner.add_signed_peer(clock, peer_info);
+        let Some(peer_state) = inner.peer_states.get_mut(peer_id) else {
+            log_assert_fail!("peer {} is missing in the peer store after insertion", peer_id);
+            return;
+        };
+        let now = clock.now_utc();
+        peer_state.last_seen = now;
+        peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.

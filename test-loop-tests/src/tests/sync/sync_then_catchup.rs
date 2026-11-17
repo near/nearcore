@@ -91,6 +91,10 @@ fn test_sync_then_shard_catchup() {
     // Continue running past 3 more epoch boundaries to trigger shard schedule
     // rotation and catchup multiple times.
     env.node_runner(new_node_idx).run_for_number_of_blocks(3 * epoch_length as usize);
+
+    // Every completed catchup must drop its CatchupState; otherwise the map retains
+    // one entry per completed catchup for the life of the process.
+    assert!(env.node(new_node_idx).client().catchup_state_syncs.is_empty());
 }
 
 // Scenario: Same as above but the node joins within the epoch_sync_horizon,

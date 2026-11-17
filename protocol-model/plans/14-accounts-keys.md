@@ -17,8 +17,13 @@ association (local / global / global-by-account), access keys and their permissi
 ## Code to read
 - `core/primitives-core/src/account.rs` — `Account` V1/V2, `AccountContract`,
   `AccessKey`, `AccessKeyPermission`, `FunctionCallPermission`, `GasKeyInfo`.
-- `core/primitives-core/src/account_id/` (or `near-account-id`) — account-id validity,
-  implicit accounts.
+- The external `near-account-id` crate (`AccountId`, `AccountType`, `validate`,
+  `get_account_type`) — account-id validity and the implicit/universal account kinds.
+  It is not vendored; resolve the version from the workspace `Cargo.toml`/`Cargo.lock`.
+- `core/primitives-core/src/universal_account_id.rs`,
+  `core/primitives-core/src/universal_state_init.rs`,
+  `core/primitives-core/src/deterministic_account_id.rs` — the `0u` universal-account
+  scheme (id derivation, codec) and the deterministic-account scheme.
 - `runtime/runtime/src/access_keys.rs` — key add/delete/update, nonce handling.
 - `runtime/runtime/src/verifier.rs` — access-key authorization & nonce checks at tx
   validation (cross-link).

@@ -5,7 +5,7 @@
         "description": "Access key provides limited access to an account. Each access key belongs to some account and\nis identified by a unique (within the account) public key. One account may have large number of\naccess keys. Access keys allow to act on behalf of the account by restricting transactions\nthat can be issued.\n`account_id,public_key` is a key in the state",
         "properties": {
           "nonce": {
-            "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce\nis set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation.\nSee <https://github.com/near/nearcore/issues/3779> for more details.",
+            "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce\nis set to `block_height * 1e6 - 1` (`(block_height - 1) * 1e6` before protocol version 89)\nto avoid tx hash collision on access key re-creation.\nSee <https://github.com/near/nearcore/issues/3779> for more details.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
@@ -1331,6 +1331,36 @@
             ],
             "title": "ReservedMethodName",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The actions in the receipt removed more gas key nonces than\n`max_gas_key_nonces_removed_per_receipt` allows.",
+            "properties": {
+              "TotalNumberOfGasKeyNoncesRemovedExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_nonces": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_nonces",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfGasKeyNoncesRemovedExceeded"
+            ],
+            "title": "TotalNumberOfGasKeyNoncesRemovedExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionErrorKind"
@@ -2438,6 +2468,36 @@
             ],
             "title": "TransferToUniversalAccountNotAllowed",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The `AddKey` actions in one receipt add more gas key nonces in total than\nallowed.",
+            "properties": {
+              "TotalNumberOfGasKeyNoncesAddedExceeded": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "number_of_nonces": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_nonces",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "TotalNumberOfGasKeyNoncesAddedExceeded"
+            ],
+            "title": "TotalNumberOfGasKeyNoncesAddedExceeded",
+            "type": "object"
           }
         ],
         "title": "ActionsValidationError"
@@ -2468,6 +2528,31 @@
         ],
         "title": "AddKeyAction",
         "type": "object"
+      },
+      "AuthorizationContext": {
+        "description": "What authorized a chain of receipts: an access key that signed a transaction, or an\nexternal call its contract accepted.",
+        "oneOf": [
+          {
+            "enum": [
+              "ExternalContractCall"
+            ],
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "AccessKey": {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            },
+            "required": [
+              "AccessKey"
+            ],
+            "title": "AccessKey",
+            "type": "object"
+          }
+        ],
+        "title": "AuthorizationContext"
       },
       "BandwidthRequest": {
         "description": "`BandwidthRequest` describes the size of receipts that a shard would like to send to another shard.\nWhen a shard wants to send a lot of receipts to another shard, it needs to create a request and wait\nfor a bandwidth grant from the bandwidth scheduler.",
@@ -3094,6 +3179,42 @@
         "title": "ChunkDistributionUris",
         "type": "object"
       },
+      "ChunkEccTransactionView": {
+        "description": "An external call as a chunk holds it. Its unique id is unknown in a chunk that no block on the\ncanonical chain includes.",
+        "properties": {
+          "contract_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "state_init": {
+            "default": null,
+            "description": "The universal account state init the call carries.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transaction_id": {
+            "description": "The unique id of this copy of the call, its outcome id. `None` when no block on the\ncanonical chain includes the chunk.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "contract_id",
+          "payload"
+        ],
+        "title": "ChunkEccTransactionView",
+        "type": "object"
+      },
       "ChunkHeaderView": {
         "description": "Contains main info about the chunk.",
         "properties": {
@@ -3224,6 +3345,48 @@
         ],
         "title": "ChunkHeaderView",
         "type": "object"
+      },
+      "ChunkTransactionView": {
+        "description": "A transaction as a chunk holds it, written like a `TransactionEnvelopeView`.",
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "const": "signed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "title": "Signed",
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChunkEccTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "const": "external_call",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "title": "ExternalCall",
+            "type": "object"
+          }
+        ],
+        "title": "ChunkTransactionView"
       },
       "CloudArchivalWriterConfig": {
         "description": "Configuration for a cloud-based archival writer. If this config is present, the writer is enabled and\nwrites chunk-related data based on the tracked shards. This config also controls additional archival\nbehavior such as block data and polling interval.",
@@ -3971,22 +4134,40 @@
         "title": "DurationAsStdSchemaProvider",
         "type": "object"
       },
+      "EccTransaction": {
+        "format": "byte",
+        "title": "EccTransaction",
+        "type": "string"
+      },
       "EccTransactionView": {
         "properties": {
           "contract_id": {
             "$ref": "#/components/schemas/AccountId"
           },
-          "hash": {
-            "$ref": "#/components/schemas/CryptoHash"
-          },
           "payload": {
             "type": "string"
+          },
+          "state_init": {
+            "default": null,
+            "description": "The universal account state init this copy of the call carries.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "transaction_id": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CryptoHash"
+              }
+            ],
+            "description": "The unique id of this copy of the call, its outcome id."
           }
         },
         "required": [
           "contract_id",
           "payload",
-          "hash"
+          "transaction_id"
         ],
         "title": "EccTransactionView",
         "type": "object"
@@ -4913,6 +5094,135 @@
         "title": "ExtCostsConfigView",
         "type": "object"
       },
+      "ExternalCallChunkLimit": {
+        "description": "A share of a chunk's limits that its external calls used up, with what the chunk's earlier\nexternal calls used and the share.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The compute used by the chunk's earlier external calls reached their share of the chunk's\ncompute limit.",
+            "properties": {
+              "Compute": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "used": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "used",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Compute"
+            ],
+            "title": "Compute",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The storage proof recorded by the chunk's earlier external calls reached their share of\nthe chunk's storage proof limit.",
+            "properties": {
+              "StorageProof": {
+                "properties": {
+                  "limit": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "used": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "used",
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "StorageProof"
+            ],
+            "title": "StorageProof",
+            "type": "object"
+          }
+        ],
+        "title": "ExternalCallChunkLimit"
+      },
+      "ExternalCallsConfigView": {
+        "description": "Limits on external contract calls, per call and per chunk.",
+        "properties": {
+          "chunk_compute_share": {
+            "description": "The share of the chunk's compute limit that its external calls may use.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "chunk_storage_proof_share": {
+            "description": "The share of `main_storage_proof_size_soft_limit` that a chunk's external calls may\nrecord.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "chunk_transactions_size_share": {
+            "description": "The share of `combined_transactions_size_limit` that a chunk's external calls may take.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "max_call_recorded_size": {
+            "description": "Max storage proof an external call's run may record, in bytes.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_call_size": {
+            "description": "Max size of an external contract call, in bytes.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_calls_per_chunk": {
+            "description": "Max number of external calls in a chunk.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_call_size",
+          "max_call_recorded_size",
+          "chunk_compute_share",
+          "chunk_storage_proof_share",
+          "chunk_transactions_size_share",
+          "max_calls_per_chunk"
+        ],
+        "title": "ExternalCallsConfigView",
+        "type": "object"
+      },
       "ExternalStorageLocation": {
         "description": "Supported external storage backends and their minimal config.",
         "oneOf": [
@@ -5047,10 +5357,10 @@
           "transaction": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/SignedTransactionView"
+                "$ref": "#/components/schemas/TransactionEnvelopeView"
               }
             ],
-            "description": "Signed Transaction"
+            "description": "The transaction, signed or an external call."
           },
           "transaction_outcome": {
             "allOf": [
@@ -5058,7 +5368,7 @@
                 "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
               }
             ],
-            "description": "The execution outcome of the signed transaction."
+            "description": "The execution outcome of the transaction."
           }
         },
         "required": [
@@ -5098,10 +5408,10 @@
           "transaction": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/SignedTransactionView"
+                "$ref": "#/components/schemas/TransactionEnvelopeView"
               }
             ],
-            "description": "Signed Transaction"
+            "description": "The transaction, signed or an external call."
           },
           "transaction_outcome": {
             "allOf": [
@@ -5109,7 +5419,7 @@
                 "$ref": "#/components/schemas/ExecutionOutcomeWithIdView"
               }
             ],
-            "description": "The execution outcome of the signed transaction."
+            "description": "The execution outcome of the transaction."
           }
         },
         "required": [
@@ -6425,7 +6735,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "`method_name` is not allowed in external contract calls",
+            "description": "`method_name` is not allowed in external contract calls, or in the receipts they lead to",
             "properties": {
               "ProhibitedInExternalCall": {
                 "properties": {
@@ -6580,7 +6890,7 @@
             "$ref": "#/components/schemas/IndexerExecutionOutcomeWithOptionalReceipt"
           },
           "transaction": {
-            "$ref": "#/components/schemas/SignedTransactionView"
+            "$ref": "#/components/schemas/TransactionEnvelopeView"
           }
         },
         "required": [
@@ -7176,6 +7486,55 @@
             ],
             "title": "NotEnoughBalanceForDeposit",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The target of an external contract call has no contract, or no account.",
+            "properties": {
+              "ContractNotFound": {
+                "properties": {
+                  "contract_id": {
+                    "$ref": "#/components/schemas/AccountId"
+                  }
+                },
+                "required": [
+                  "contract_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ContractNotFound"
+            ],
+            "title": "ContractNotFound",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "An external contract call didn't run because the chunk's external calls reached one of\ntheir shares of the chunk's limits.",
+            "properties": {
+              "ExternalCallChunkShareReached": {
+                "properties": {
+                  "share": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ExternalCallChunkLimit"
+                      }
+                    ],
+                    "description": "The share that was reached: what the chunk's earlier external calls used, and the\nshare."
+                  }
+                },
+                "required": [
+                  "share"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ExternalCallChunkShareReached"
+            ],
+            "title": "ExternalCallChunkShareReached",
+            "type": "object"
           }
         ],
         "title": "InvalidTxError"
@@ -7319,6 +7678,18 @@
               }
             ],
             "description": "Max amount of gas that can be burnt by an external contract call,\nexcluding gas attached to promises."
+          },
+          "max_gas_key_nonces_added_per_receipt": {
+            "description": "Max number of gas key nonces the `AddKey` actions in one receipt may add,\nin total, including the actions inside a delegate action.\n\nEach nonce adds to the receipt's execution fees and so to its congestion\ngas, but the send fee does not depend on the number of nonces.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_gas_key_nonces_removed_per_receipt": {
+            "description": "Max number of gas key nonces the actions in one receipt may remove, in\ntotal. Checked at execution, because the count comes from state.\n\nRemovals are charged as compute only, and the chunk compute limit is\nchecked between receipts, so without this bound one receipt can use\nmany times the chunk compute limit.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "max_globals_per_contract": {
             "description": "If present, stores max number of globals (entries in the wasm global\nsection) a contract may declare.",
@@ -7920,6 +8291,17 @@
         ],
         "title": "NonceMode"
       },
+      "OptionalCryptoHash": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CryptoHash"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "OptionalCryptoHash"
+      },
       "PeerId": {
         "allOf": [
           {
@@ -8170,6 +8552,26 @@
                     },
                     "type": "array"
                   },
+                  "authorization_context": {
+                    "description": "What authorized the chain, absent if the receipt doesn't record it",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/AuthorizationContext"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "creation_protocol_version": {
+                    "description": "The protocol version the receipt was created at, absent if the receipt doesn't record it",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "gas_price": {
                     "$ref": "#/components/schemas/NearToken"
                   },
@@ -8203,12 +8605,19 @@
                     "$ref": "#/components/schemas/AccountId"
                   },
                   "signer_public_key": {
-                    "$ref": "#/components/schemas/PublicKey"
+                    "description": "The key of the transaction that started the chain, absent in an external call's chain",
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/PublicKey"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "signer_id",
-                  "signer_public_key",
                   "gas_price",
                   "output_data_receivers",
                   "input_data_ids",
@@ -8518,6 +8927,52 @@
             ],
             "title": "InvalidRefundTo",
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `PromiseYield` receipt must have exactly one input data dependency.",
+            "properties": {
+              "InvalidPromiseYieldInputDataCount": {
+                "properties": {
+                  "number_of_input_data_dependencies": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "number_of_input_data_dependencies"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "InvalidPromiseYieldInputDataCount"
+            ],
+            "title": "InvalidPromiseYieldInputDataCount",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The same input data id is listed more than once in an ActionReceipt.",
+            "properties": {
+              "DuplicateInputDataId": {
+                "properties": {
+                  "data_id": {
+                    "$ref": "#/components/schemas/CryptoHash"
+                  }
+                },
+                "required": [
+                  "data_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DuplicateInputDataId"
+            ],
+            "title": "DuplicateInputDataId",
+            "type": "object"
           }
         ],
         "title": "ReceiptValidationError"
@@ -8638,6 +9093,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -8662,6 +9128,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -8683,6 +9160,17 @@
               },
               "method_name": {
                 "type": "string"
+              },
+              "state_init": {
+                "description": "Runs the call as if this were installed, unless the account already has its state.",
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StateInitView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "sync_checkpoint": {
                 "$ref": "#/components/schemas/SyncCheckpoint"
@@ -8787,7 +9275,7 @@
           },
           "transactions": {
             "items": {
-              "$ref": "#/components/schemas/TransactionEnvelopeView"
+              "$ref": "#/components/schemas/ChunkTransactionView"
             },
             "type": "array"
           }
@@ -8922,6 +9410,24 @@
               }
             ],
             "description": "Time between running doomslug timer."
+          },
+          "ecc_pool_size_share": {
+            "description": "The share of the size limit of the transaction pool that ECCs may fill. Zero keeps ECCs out\nof the pool.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "ecc_time_share": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MutableConfigValue"
+              }
+            ],
+            "description": "The share of `produce_chunk_add_transactions_time_limit` that ECCs may take when a chunk is\nproduced. Signed transactions go first, and ECCs get what they leave of the limit, but no\nmore than this share of it. If there is no time limit, the share is of the default one.\nZero keeps ECCs out of chunks."
           },
           "enable_early_prepare_transactions": {
             "description": "If true, transactions for the next chunk will be prepared early, right after the previous chunk's\npost-state is ready. This can help produce chunks faster, for high-throughput chains.\nThe current implementation increases latency on low-load chains, which will be fixed in the future.\nThe default is disabled.",
@@ -10096,9 +10602,29 @@
         "type": "object"
       },
       "RpcSendTransactionRequest": {
+        "description": "On the wire, a signed transaction goes in `signed_tx_base64` and an ECC in\n`external_call_base64`, so requests with a signed transaction look as they did before ECCs.",
         "properties": {
+          "external_call_base64": {
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "signed_tx_base64": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "description": "A signed transaction. Exactly one of this and `external_call_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "wait_until": {
             "allOf": [
@@ -10109,9 +10635,6 @@
             "default": "EXECUTED_OPTIMISTIC"
           }
         },
-        "required": [
-          "signed_tx_base64"
-        ],
         "title": "RpcSendTransactionRequest",
         "type": "object"
       },
@@ -10968,7 +11491,7 @@
             "type": "integer"
           },
           "bootstrap_nonce": {
-            "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+            "description": "The account's current bootstrap nonce, present only while it is\nuninitialized. A self-signed state init, the one transaction such an\naccount can send, must use exactly `bootstrap_nonce + 1`. This is the\nonly way for a client to learn it: there is no access key to query.",
             "format": "uint64",
             "minimum": 0,
             "type": [
@@ -11342,6 +11865,31 @@
               }
             ],
             "description": "The configuration for congestion control."
+          },
+          "external_calls_config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExternalCallsConfigView"
+              }
+            ],
+            "default": {
+              "chunk_compute_share": [
+                0,
+                1
+              ],
+              "chunk_storage_proof_share": [
+                0,
+                1
+              ],
+              "chunk_transactions_size_share": [
+                0,
+                1
+              ],
+              "max_call_recorded_size": 0,
+              "max_call_size": 0,
+              "max_calls_per_chunk": 0
+            },
+            "description": "Limits on external contract calls, per call and per chunk."
           },
           "min_gas_purchase_price": {
             "allOf": [
@@ -12043,6 +12591,36 @@
             ],
             "title": "BandwidthSchedulerStateUpdate",
             "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "const": "contract_compilation_status_update",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "title": "ContractCompilationStatusUpdate",
+            "type": "object"
+          },
+          {
+            "properties": {
+              "transaction_id": {
+                "$ref": "#/components/schemas/CryptoHash"
+              },
+              "type": {
+                "const": "external_call_processing",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "transaction_id"
+            ],
+            "title": "ExternalCallProcessing",
+            "type": "object"
           }
         ],
         "title": "StateChangeCauseView"
@@ -12143,7 +12721,7 @@
                     "description": "Liquid (non-staked) account balance, in yoctoNEAR."
                   },
                   "bootstrap_nonce": {
-                    "description": "The nonce an uninitialized account's own transactions must use, present\nonly while it is uninitialized. A self-signed state init is the one\ntransaction such an account can send, and this is the only way for a\nclient to learn the nonce it must carry: there is no access key to query.",
+                    "description": "The account's current bootstrap nonce, present only while it is\nuninitialized. A self-signed state init, the one transaction such an\naccount can send, must use exactly `bootstrap_nonce + 1`. This is the\nonly way for a client to learn it: there is no access key to query.",
                     "format": "uint64",
                     "minimum": 0,
                     "type": [
@@ -12623,6 +13201,53 @@
         ],
         "title": "StateChangesRequestView"
       },
+      "StateInitView": {
+        "description": "The initial state of a `0s` or `0u` account, as its state-init action carries it.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "deterministic": {
+                "properties": {
+                  "code": {
+                    "$ref": "#/components/schemas/GlobalContractIdentifierView"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "code",
+                  "data"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "deterministic"
+            ],
+            "title": "Deterministic",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "universal": {
+                "$ref": "#/components/schemas/RawStateInit"
+              }
+            },
+            "required": [
+              "universal"
+            ],
+            "title": "Universal",
+            "type": "object"
+          }
+        ],
+        "title": "StateInitView"
+      },
       "StateItem": {
         "description": "Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.",
         "properties": {
@@ -12808,6 +13433,31 @@
               "MemTrieLoadingError"
             ],
             "title": "MemTrieLoadingError",
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A read would record more of the trie than the recording budget set on it allows.\nSee `TrieUpdate::with_recording_budget`.",
+            "properties": {
+              "RecordingBudgetExceeded": {
+                "properties": {
+                  "limit": {
+                    "description": "The budget, in bytes of recorded storage proof.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "limit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "RecordingBudgetExceeded"
+            ],
+            "title": "RecordingBudgetExceeded",
             "type": "object"
           }
         ],
@@ -12998,13 +13648,43 @@
         "title": "TrackedShardsConfig"
       },
       "TransactionEnvelopeView": {
-        "description": "A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it\nalways had.",
+        "description": "A transaction of either kind, in a chunk, a tx status result or an indexer message.",
         "oneOf": [
           {
-            "$ref": "#/components/schemas/SignedTransactionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "const": "signed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "title": "Signed",
+            "type": "object"
           },
           {
-            "$ref": "#/components/schemas/EccTransactionView"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EccTransactionView"
+              }
+            ],
+            "properties": {
+              "kind": {
+                "const": "external_call",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "title": "ExternalCall",
+            "type": "object"
           }
         ],
         "title": "TransactionEnvelopeView"
@@ -13877,10 +14557,33 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "name": "signed_tx_base64",
-          "required": true,
+          "name": "external_call_base64",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "description": "A signed transaction. Exactly one of this and `external_call_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {
@@ -15135,6 +15838,21 @@
           }
         },
         {
+          "name": "state_init",
+          "required": false,
+          "schema": {
+            "description": "Runs the call as if this were installed, unless the account already has its state.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StateInitView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "sync_checkpoint",
           "required": false,
           "schema": {
@@ -15386,10 +16104,33 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "name": "signed_tx_base64",
-          "required": true,
+          "name": "external_call_base64",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "description": "A signed transaction. Exactly one of this and `external_call_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {
@@ -15408,10 +16149,10 @@
       "result": {
         "name": "result",
         "schema": {
-          "$ref": "#/components/schemas/CryptoHash"
+          "$ref": "#/components/schemas/OptionalCryptoHash"
         }
       },
-      "summary": "Sends a transaction and immediately returns hash (deprecated: use send_tx)",
+      "summary": "Sends a transaction and immediately returns hash, or null for an external call (deprecated: use send_tx)",
       "tags": [
         {
           "name": "transaction"
@@ -15427,10 +16168,33 @@
       "paramStructure": "by-name",
       "params": [
         {
-          "name": "signed_tx_base64",
-          "required": true,
+          "name": "external_call_base64",
+          "required": false,
           "schema": {
-            "$ref": "#/components/schemas/SignedTransaction"
+            "description": "An external contract call (ECC). Exactly one of this and `signed_tx_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EccTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signed_tx_base64",
+          "required": false,
+          "schema": {
+            "description": "A signed transaction. Exactly one of this and `external_call_base64` is expected.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SignedTransaction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         {

@@ -17,6 +17,7 @@ enum ContractType {
 }
 
 /// Tracks deployments of this contract.
+#[derive(Clone)]
 struct DeployedContract {
     /// The deployed contract
     code: ContractCode,
@@ -68,6 +69,15 @@ impl ContractsTracker {
 
     fn call(&mut self, code_hash: CodeHash) {
         self.contract_calls.insert(code_hash);
+    }
+
+    /// A tracker that has the same deployments, and no calls.
+    fn clone_deploys(&self) -> Self {
+        Self {
+            uncommitted_deploys: self.uncommitted_deploys.clone(),
+            committed_deploys: self.committed_deploys.clone(),
+            contract_calls: HashSet::new(),
+        }
     }
 
     fn deploy(&mut self, code: ContractCode, contract_type: ContractType) {
@@ -146,6 +156,17 @@ impl ContractStorage {
         Self { storage, tracker: Arc::new(Mutex::new(Some(ContractsTracker::default()))) }
     }
 
+    /// A storage over the same trie storage that sees the same contract deployments, committed or
+    /// not, and has no record of calls and no link to this one. It lets the chunk producer run
+    /// a contract that was deployed in a chunk that is applied, but not saved yet.
+    pub fn clone_deploys(&self) -> Self {
+        let tracker = self.tracker.lock().as_ref().map(ContractsTracker::clone_deploys);
+        Self {
+            storage: Arc::clone(&self.storage),
+            tracker: Arc::new(Mutex::new(Some(tracker.unwrap_or_default()))),
+        }
+    }
+
     /// Retrieves the contract code by its hash.
     ///
     /// This is called when preparing (eg. compiling) the contract for execution optimistically, and
@@ -157,9 +178,8 @@ impl ContractStorage {
             let guard = self.tracker.lock();
             // The tracker may be finalized before the receipt preparation pipeline calls this function.
             // In this case we should skip checking the tracker and directly read from the storage.
-            // Note that this does not cause any correctness issue, because the pipeline stops processing when
-            // it hits a new deployment, so the contract requested by the pipeline will not be in the committed or
-            // uncommitted deployment list.
+            // This does not affect correctness: the tracker is finalized when the chunk apply is
+            // done, and the result of a pipeline task that is still running then is never used.
             if let Some(tracker) = guard.as_ref()
                 && let Some(contract) = tracker.get(code_hash.into())
             {
@@ -377,6 +397,30 @@ mod tests {
         for contract in new_contracts {
             assert_eq!(contract_storage.get(*contract.hash()).unwrap().hash(), contract.hash());
         }
+    }
+
+    /// A clone for the chunk producer sees the contracts deployed so far, committed or not, and
+    /// has no link to the original: later deploys and calls go to one of them only.
+    #[test]
+    fn test_contract_storage_clone_deploys() {
+        let contracts = (0..3).map(|i| ContractCode::new(vec![i], None)).collect_vec();
+        let contract_storage = ContractStorage::new(Arc::new(MockTrieStorage::new()));
+        contract_storage.record_deploy(contracts[0].clone_for_tests());
+        contract_storage.commit_deploys();
+        contract_storage.record_deploy(contracts[1].clone_for_tests());
+        contract_storage.record_call(*contracts[0].hash());
+
+        let clone = contract_storage.clone_deploys();
+
+        for contract in &contracts[..2] {
+            assert_eq!(clone.get(*contract.hash()).unwrap().hash(), contract.hash());
+        }
+        clone.record_deploy(contracts[2].clone_for_tests());
+        assert!(contract_storage.get(*contracts[2].hash()).is_none());
+        // Neither the calls nor the deployments of the original are in the clone's record.
+        assert!(clone.finalize().contract_accesses.is_empty());
+        contract_storage.rollback_deploys();
+        assert_eq!(contract_storage.finalize().contract_accesses.len(), 1);
     }
 
     /// Tests a scenario with old (already existing in the storage) and new contracts and calling `get` after rolling back some deploys.

@@ -41,6 +41,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         account_creation_config: AccountCreationConfig::default(),
         congestion_control_config: latest_runtime_config.congestion_control_config,
         witness_config: latest_runtime_config.witness_config,
+        external_calls_config: latest_runtime_config.external_calls_config,
         bandwidth_scheduler_config: latest_runtime_config.bandwidth_scheduler_config,
         min_gas_purchase_price: latest_runtime_config.min_gas_purchase_price,
         account_creation_charge: latest_runtime_config.account_creation_charge,

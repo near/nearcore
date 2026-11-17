@@ -380,6 +380,7 @@ impl GlobalContractsTestEnv {
             account_id: account.clone(),
             method_name: "log_something".to_owned(),
             args: Vec::new().into(),
+            state_init: None,
         };
         let response = self.runtime_query(query);
         let QueryResponseKind::CallResult(call_result) = response.kind else { unreachable!() };

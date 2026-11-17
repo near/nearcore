@@ -109,4 +109,16 @@ ignore = [
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
     "RUSTSEC-2026-0429",
+
+    # RUSTSEC-2026-0441: pin-utils is unmaintained. Two dependencies pull it in:
+    # futures-util 0.3.31, and nix 0.26 <- webrtc-util <- stun/turn
+    # (near-network STUN client and test server).
+    # TODO: remove this entry after both changes:
+    # 1. Update futures to >= 0.3.32 (drops pin-utils). That release deprecates
+    #    `UnboundedReceiver::try_next`, so move its callers in
+    #    chain/client/src/spice to `try_recv` first.
+    # 2. Remove nix 0.26: the latest webrtc-util (0.17.3) still depends on it,
+    #    so either wait for a stun/turn release that drops it, or replace
+    #    stun/turn in near-network.
+    "RUSTSEC-2026-0441",
 ]

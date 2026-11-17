@@ -121,7 +121,7 @@ impl SpiceDataManager {
         sender: &AccountId,
         block_epochs: &[(EpochId, EpochId)],
     ) -> Result<Vec<PublicKey>, Error> {
-        let [source_shard, _] = id.shard_endpoints();
+        let source_shard = id.producing_chunk().shard_id;
         let mut keys = Vec::new();
         for (epoch_id, next_epoch_id) in block_epochs {
             // The validator lookup comes first, so a non-validator costs no producer list.

@@ -34,7 +34,6 @@ pub mod test;
 mod types;
 mod utils;
 
-pub const BASE_PATH: &str = "";
 pub const API_VERSION: &str = "1.4.4";
 pub const BLOCKCHAIN: &str = "nearprotocol";
 
@@ -935,7 +934,7 @@ async fn construction_submit(
     let transaction_submission = state
         .tx_handler_addr
         .send_async(near_client::ProcessTxRequest {
-            transaction: signed_transaction.into_inner(),
+            transaction: signed_transaction.into_inner().into(),
             is_forwarded: false,
             check_only: false,
         })

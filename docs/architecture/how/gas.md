@@ -16,7 +16,7 @@ The topic is split into several sections.
     - [Buying Gas](#buying-gas-for-a-transaction): How are NEAR tokens converted to gas?
     - [Burning Gas](#burning-gas): Who receives burnt tokens?
     - [Gas in Contract Calls](#gas-in-contract-calls): How is gas attached to calls?
-    - [Contract Reward](#contract-reward): How smart contract earn a reward.
+    - [Contract Reward](#contract-reward): How smart contracts earned a reward up to protocol version 86.
 2. [Gas Price](#gas-price):
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
@@ -25,22 +25,19 @@ The topic is split into several sections.
 
 ## Gas Flow
 
-On the highest level, gas is bought by the signer, burnt during execution, and
-contracts receive a part of the burnt gas as a reward. We will discuss each step
-in more details.
+On the highest level, gas is bought by the signer and burnt during execution. Up
+to protocol version 86, contracts also receive a part of the burnt gas as a
+reward. We will discuss each step in more details.
 
 ### Buying Gas for a Transaction
 
 A signer pays all the gas required for a transaction upfront. However, there is
 no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
-tokens from the balance of the signer's account. The fee is calculated as `gas
-amount` * `gas price`. The gas amount for actions included in a `SignedTransaction`
+tokens from the balance of the signer's account. The fee is calculated from the
+`gas amount` and the `gas price`. The gas amount for actions included in a `SignedTransaction`
 are all fixed, except for function calls where the user needs to specify the attached
 gas amount for the dynamic execution part.
 (See [here](https://docs.near.org/protocol/transactions/gas#cost-for-common-actions) for more details.)
-
-If the account has insufficient balance to pay for this, it will fail with a
-`NotEnoughBalance` error, with the required balance included in the error message.
 
 The `gas amount` is not a field of `SignedTransaction`, nor is it something the
 signer can choose. It is only a virtual field that is computed on-chain following
@@ -50,22 +47,83 @@ The `gas price` is a variable that may change during the execution of the
 transaction. The way it is implemented today, a single transaction can be
 charged a different gas price for different receipts.
 
-Already we can see a fundamental problem: Gas is bought once at the beginning
-but the gas price may change during execution. To solve this incompatibility,
-the protocol used to calculate a pessimistic gas price for the initial purchase.
-Later on, the delta between real and pessimistic gas prices would be refunded at
-the end of every receipt execution.
+From protocol version 85 (nearcore 2.13.0), with the adoption of
+[NEP-642](https://github.com/near/NEPs/pull/642), the gas of a transaction is
+priced in three steps:
+
+| Step | Gas | Price |
+| --- | --- | --- |
+| Convert the `SignedTransaction` into a receipt | The gas burnt for the conversion | The current `gas price` |
+| Buy gas for the receipt | All other gas, including the gas attached to function calls | The receipt gas price: the higher of the current `gas price` and `min_gas_purchase_price`, which is 1 NEAR per Pgas (10^9 yoctoNEAR per gas) |
+| Execute the receipt | The gas that the receipt burns | The burn price: the lower of the receipt gas price and the `gas price` of the block that executes the receipt |
+
+The signer pays for the first two steps upfront. After a receipt is executed,
+the signer gets a refund for the gas that the receipt did not use, at the
+receipt gas price. The refund also includes the price difference for the burnt
+gas, which is `gas_burnt * (receipt_gas_price - burn_price)`. If the receipt
+creates an account, the runtime keeps part of this price difference and burns
+it as the account creation charge. At the usual gas price, the execution fee
+for creating the account and this charge add up to `account_creation_charge`
+(0.007 NEAR).
+
+For example, a receipt with 100 Tgas bought at 1 NEAR per Pgas costs 0.1 NEAR
+upfront. Say it burns 20 Tgas at a burn price of 0.1 NEAR per Pgas, and it
+attaches no gas to new receipts. Then its execution costs 0.002 NEAR, and the
+refund is 0.098 NEAR. That is 0.08 NEAR for the 80 Tgas that the receipt did
+not use, plus 0.018 NEAR for the price difference of the 20 Tgas that it
+burnt. The example leaves out the conversion step and the gas refund fee,
+which is currently 0.
+
+If the account has insufficient balance to pay for the gas and the attached
+deposits, it will fail with a `NotEnoughBalance` error, with the required
+balance included in the error message.
+
+From protocol version 85 (nearcore 2.13.0), a transaction can also be signed
+with a gas key. Then the gas is paid from the balance stored on the gas key,
+and the deposits are paid from the account balance. If the gas key balance is
+too small, the transaction fails with a `NotEnoughGasKeyBalance` error. Gas
+refunds for such a transaction go back to the gas key balance. If the gas key
+no longer exists, they go to the account balance.
+
+Protocol upgrades can also change the static fees, the gas costs of creating a
+receipt and of executing its actions. A receipt's gas is purchased with the fees
+of the protocol version it is created at. Since `PinReceiptFees` (protocol
+version 89), action receipts record that version as `creation_protocol_version`,
+and the runtime charges and refunds their static fees with the fees of that
+version, also when they execute after a fee change. A receipt created by a
+contract records the version it was created at, since the contract paid its
+static fees with the fees of that version. The receipt of the inner actions of a
+meta transaction records the version of the relayer's receipt, which prepaid
+them. Only the compute costs of the fees, which limit the work done in a chunk,
+follow the current fees. Before `PinReceiptFees`, refunds were computed with the
+current fees, so a receipt that executed after a fee increase could be refunded
+gas it never purchased.
+
+#### Earlier gas pricing
+
+Gas is bought once at the beginning, but the gas price may change during
+execution. Before protocol version 78, the protocol solved this with a
+pessimistic gas price for the initial purchase. Later on, the delta between
+real and pessimistic gas prices would be refunded at the end of every receipt
+execution.
 
 Generating a refund receipts for every executed function call has become a
 non-trivial overhead, limiting total throughput. Therefore, with the adoption of
 [NEP-536](https://github.com/near/NEPs/pull/536) the model was changed.
 
-With version 78 and onward, the protocol simply ignores gas price changes
-between time of purchase and time of use. A transaction buys gas at one price
-and burns it at the same price. While this avoids the need for refunds due to
-price changes, it also means that transactions with deep receipt calls can end
+From protocol version 78 to 84, the protocol simply ignored gas price changes
+between time of purchase and time of use. A transaction bought gas at one price
+and burnt it at the same price. While this avoided the need for refunds due to
+price changes, it also meant that transactions with deep receipt calls could end
 up with a cheaper gas price competing for the same chunk space. The community
 took note of this trade-off and agreed to take it.
+
+Protocol version 85 changed this again, as described above. Compared with
+protocol versions 78 to 84, almost every receipt again produces a gas refund
+receipt when the gas price is below `min_gas_purchase_price`. A transaction
+that creates no account costs the same at the usual gas price. But the signer
+needs a larger balance upfront, because `min_gas_purchase_price` is 10 times
+the lowest block gas price of 0.1 NEAR per Pgas.
 
 ### Burning Gas
 
@@ -120,17 +178,19 @@ gas is left by subtracting the `used_gas()` from the `prepaid_gas()` host
 function results. But they cannot use all the available gas, since that would
 prevent the current function call from executing to the end.
 
-The gas attached to a function can be at most `max_total_prepaid_gas`, which is
-300 Tgas since the mainnet launch. Note that this limit is per
-`SignedTransaction`, not per function call. In other words, batched function
-calls share this limit.
+The gas attached to function calls can be at most `max_total_prepaid_gas`. It
+was 300 Tgas from the mainnet launch, and it is 1 Pgas (1000 Tgas) since
+protocol version 83 (nearcore 2.11.0). Note that this limit applies to the
+total gas attached to all function calls in one `SignedTransaction` or one
+receipt, not to each function call. In other words, batched function calls
+share this limit. Function calls inside a delegate action count toward it too.
 
 There is also a limit to how much single call can burn, `max_gas_burnt`, which
-used to be 200 Tgas but has been increased to 300 Tgas in protocol version 52.
-(Note: When attaching gas to an outgoing function call, this is not counted as
-gas burnt.) However, given a call can never burn more than was attached anyway,
-this second limit is obsolete with the current configuration where the two limits
-are equal.
+used to be 200 Tgas, was increased to 300 Tgas in protocol version 52, and to
+1 Pgas in protocol version 83. (Note: When attaching gas to an outgoing
+function call, this is not counted as gas burnt.) However, given a call can
+never burn more than was attached anyway, this second limit is obsolete with
+the current configuration where the two limits are equal.
 
 Since protocol version 53, with the stabilization of
 [NEP-264](https://github.com/near/NEPs/blob/master/neps/nep-0264.md), contract
@@ -143,8 +203,8 @@ per call.
 
 ### Gas in External Contract Calls
 
-External contract calls (the `ExternalContractCalls` protocol feature, not yet
-stable) let a contract authorize a call from a user who has no balance. The
+External contract calls (the `ExternalContractCalls` protocol feature) let a
+contract authorize a call from a user who has no balance. The
 contract pays for the gas, so there is no `attached_gas` and the
 `prepaid_gas()` host function fails. Instead, two limits apply:
 
@@ -153,30 +213,164 @@ contract pays for the gas, so there is no `attached_gas` and the
 - The gas burnt plus the gas attached to outgoing promises can be at most
   `max_total_prepaid_gas`.
 
-The contract pays for all the gas the call uses from its balance, at the gas
-price of the call: the gas it burns, the gas attached to function calls, and
-the execution fees of all actions and receipts. As in other calls, the VM only
-counts the gas against the fixed limits above; the runtime charges the
-contract after the call, and rejects the call if the balance can't pay. A
-rejected call pays nothing, so the VM doesn't need to stop a call as soon as
-the balance runs out: the call can't do more unpaid work than any call the
-contract rejects. While the call runs, its balance is the real balance of the
-contract, which it can spend on deposits and transfers; if it doesn't leave
-enough to pay for the fees and the gas, the call is rejected. This is the same
-way storage staking is checked after a call. A promise gets
-exactly the gas it was created with: unspent gas is not distributed by weight,
-because there is no prepaid gas to distribute.
+The contract pays for all the gas the call uses from its balance. The gas it
+burns costs the gas price of the block, the price signed transactions in the
+chunk pay. The gas attached to function calls and the execution fees of all
+actions and receipts cost the price a signed transaction buys that gas at, the
+block's gas price or `min_gas_purchase_price` if that is higher, which the
+receipts carry. As in other calls, the VM only counts the gas against
+the fixed limits above; the runtime charges the contract after the call, and
+rejects the call if the balance can't pay. A rejected call pays nothing, so
+the VM doesn't need to stop a call as soon as the balance runs out: the call
+can't do more unpaid work than any call the contract rejects. While the call
+runs, its balance is the real balance of the contract, which it can spend on
+deposits and transfers; if it doesn't leave enough to pay for the fees and the
+gas, the call is rejected. This is the same way storage staking is checked
+after a call. A promise gets exactly the gas it was created with: unspent gas
+is not distributed by weight, because there is no prepaid gas to distribute.
 
 Before the method runs, the call burns the fees of a self-addressed function
 call with the same method name and input: receipt creation, the function call
 base fee, and the per-byte fee for the method name and the payload, each with
 its send and execution part. There is no signature, so there is no signature
 verification fee. The fees count toward `max_gas_burnt_external`, so a larger
-payload leaves less of the budget to the method. With the largest payload the
-fees are about 8 Tgas. The contract must be able to afford the fees, or the
-call is rejected before any contract code is loaded. Like the rest of the
-call, the fees are charged after the call, and only if the contract accepts
-it.
+payload leaves less of the budget to the method. With the largest payload, up
+to the 20 KiB cap on a call's size, the fees are about 1.3 Tgas. The contract
+must exist, have a contract deployed or get one from the call's state init
+(below), and be able to afford the fees, or the call is rejected before any
+contract code is loaded.
+
+A call may carry the state init of a universal account. If the account is not
+initialized yet, the call installs the state init right before the method runs,
+and also burns the fees of a `UniversalStateInit` action with it. Those fees
+count toward `max_gas_burnt_external` too, and a call whose fees use all of it
+is rejected before the install. If the contract rejects the call, the install
+is rolled back. An account that is initialized already ignores the state init,
+and the chunk producer packs the call without it. Like the rest of the call,
+all these fees are charged after the call, and only if the contract accepts it.
+
+A rejected call pays nothing, but it isn't free for the chunk. The compute of
+the work validators did on it, fees included, counts toward the chunk's
+compute limit, so that work stays bounded. This holds even for a call rejected
+before any contract code runs, for example because the contract's account
+doesn't exist or has no contract: validators still check it, so the compute of
+its fees counts. The one exception is a call rejected because the chunk's
+external calls reached one of their shares, described below. A rejected call
+burns no gas, though, and its outcome reports no gas burnt: nobody pays for it,
+so it doesn't add to the chunk's gas used or move the next gas price, which
+everyone else pays. An honest chunk producer runs each call before including it
+and leaves out the ones that would be rejected. An accepted call's fees and the
+gas it burns count toward the chunk's gas like any other.
+
+Since a rejected call costs nobody anything, further limits bound the work
+validators do on external calls, per call and per chunk. Besides
+`max_gas_burnt_external`, a call is limited in:
+
+- its size: at most `max_external_call_size`, 20 KiB. A larger call is
+  invalid.
+- the storage proof its run records: at most
+  `max_external_call_recorded_size`, 50 KiB. A read that records the trie node
+  crossing the limit fails the call with `RecordedStorageExceeded`, and a value
+  whose length would cross it isn't read at all. The limit applies to the
+  install of a state init and the run, not to reading the contract's account
+  before them.
+
+  A contract's storage can sit deep in the trie. In the worst case, a
+  64-character account, the path takes about 39 KB, which leaves a run about
+  11.9 KB for its own reads. A state init that installs a global contract by
+  its publisher's account id records the path to that contract too, so a
+  wallet's state init should name its global contract by code hash.
+
+  Each removal counts a fixed 2000 bytes, the estimate the per-receipt storage
+  proof limit uses too, even for a key that isn't there. So removals are costly
+  in an external call: it can remove no more than 25 keys, and fewer, as the
+  trie nodes it reads count as well. Larger cleanups belong in the receipts the
+  call creates.
+
+All the external calls of a chunk together get a share of the chunk's limits:
+
+| Limit | Share | With the current limits |
+| ----- | ----- | ----------------------- |
+| `combined_transactions_size_limit` | `external_calls_chunk_transactions_size_share`, 1/40 | about 100 KiB |
+| the chunk's compute limit, its gas limit | `external_calls_chunk_compute_share`, 2/5 | 400 Tgas of a 1000 Tgas chunk |
+| `main_storage_proof_size_soft_limit` | `external_calls_chunk_storage_proof_share`, 1/10 | 400 KB |
+
+Each share fits five calls that use as much of it as a call can.
+
+The size share is a validity rule, checked along with the size of each call: a
+chunk whose external calls take more is invalid. So is a chunk with two
+external calls to the same contract, and a chunk with more than
+`max_external_calls_per_chunk` external calls, 100, however small they are.
+The chunk producer keeps to these rules when it packs calls: one call per
+contract, the size share and the number of calls.
+
+The compute and storage proof shares are checked at apply, before each call.
+What a call uses is known only once it ran, so a call is admitted as long as
+the calls before it in the chunk are still below both shares, and the chunk
+can pass a share by at most one call. A call admitted counts toward the shares
+whatever comes of it, rejected or accepted: the compute of its fees and its
+run, and the storage proof recorded from reading the contract's account to the
+end of the run. A call that finds a share reached is rejected with
+`ExternalCallChunkShareReached` before anything is read for it, not even the
+contract's account, so it adds nothing to the storage proof. Only such a call
+adds nothing to the shares; a call rejected after it was admitted counts
+toward them like any other. A call refused for its own validity, such as one
+with a malformed state init, counts the compute of its fees toward the compute
+share without the share check, and records no storage proof;
+`max_external_calls_per_chunk` bounds how many such calls a chunk holds.
+
+Unlike every other rejected call, a call rejected because a share was reached
+counts no compute toward the chunk, not even that of its fees. This is on
+purpose: rejecting it takes far less work than the fees stand for, less than
+reading an account. If it counted the compute of its fees, a chunk producer
+could fill its chunk's compute limit with calls it knows will be rejected, so
+that the chunk processes no receipts, at no cost to anyone and with the chunk
+still produced and rewarded. The work of rejecting such calls is bounded by
+`max_external_calls_per_chunk` instead.
+
+The producer puts signed transactions into the chunk first, and then runs the
+calls one at a time on a thread of their own, on the state at the start of the
+chunk. A call sees its contract's balance after the signed transactions ahead of
+it in the chunk, and only the state read by a call that is accepted counts toward
+the chunk's storage proof. The producer counts each accepted call toward the
+compute and storage proof shares as apply does, and takes no more calls once one
+of them has no room, leaving the rest in the pool. It counts the storage proof
+of each call alone, so a trie node shared with an earlier call counts again, and
+a chunk may hold fewer calls than apply would admit. A contract's run stops only
+when it ends or runs out of gas, so the producer waits for a call only for what
+is left of the time limit for adding transactions
+(`produce_chunk_add_transactions_time_limit`) after the signed ones, and at most
+`ecc_time_share` of it (1/2 by default). A call that is not done by then is left
+out of the chunk and runs on in the background, and the producer takes no other
+call until it is done. The call is dropped from the pool if it had the whole
+share to itself, since it would not finish next time either, and stays in the
+pool otherwise. `ecc_pool_size_share` (1/10 by default) is the
+share of the transaction pool that calls may fill. Setting either share to zero
+keeps calls out of chunks, or out of the pool.
+
+Early preparation of the next chunk starts before the changes of the parent
+chunk are in a trie, so the calls would read what the parent wrote from those
+pending changes, which records nothing, while apply reads it from the trie. The
+producer runs the calls on a trie at the parent's new state root instead. Its
+nodes are the ones that the parent's apply sends once it has finalized its
+changes, and the store has the rest, so the calls read and record what apply
+does. The first call waits for the nodes, until the end of the time limit for
+the whole preparation, or for the time of the calls if there is no such limit,
+and the time of the calls starts when the nodes are there. If they do not come
+in time, if the apply of the parent fails, or if the preparation is cancelled,
+no call goes into that chunk and the calls stay in the pool. The trie has no
+memtrie, so its reads come from the store and are slower. Signed transactions
+still read what the parent wrote from the pending changes, which records
+nothing.
+
+An accepted call's promises become receipts, as a function call's do. Every
+receipt in the chain they start has the contract as its signer and names the
+external call as what authorized it, so gas refunds go to the contract's
+balance and `signer_account_pk` fails. Only the fees and the gas the call burnt
+count as burnt; the gas attached to the receipts travels with them. A call that
+creates a yielded promise is rejected, since the yield's id would differ
+between the chunk producer's run and apply; a call that resumes a yield is
+accepted.
 
 ### Contract Reward
 
@@ -186,6 +380,11 @@ opposite design choice from the "smart contract pays" model that for example
 [Cycles in the Internet
 Computer](https://internetcomputer.org/docs/current/developer-docs/gas-cost#details-cost-of-compute-and-storage-transactions-on-the-internet-computer)
 implement.
+
+From protocol version 87 (nearcore 2.14.0), this is no longer the case.
+Contracts receive no part of the gas fee, and all burnt gas is removed from the
+total supply. The rest of this section describes the contract reward up to
+protocol version 86.
 
 The idea is that it gives contract developers a source of income and hence an
 incentive to create useful contracts that are commonly used. But there are also
@@ -201,8 +400,9 @@ How much contracts receive from execution depends on two things.
    `action_function_call` fee, are burnt 100%.
 2. The remainder of the burnt gas is multiplied by the runtime configuration
    parameter
-   [`burnt_gas_reward`](../../../core/parameters/res/runtime_configs/parameters.snap#L5C5-L5C5)
-   which currently is at 30%.
+   [`burnt_gas_reward`](../../../core/parameters/res/runtime_configs/parameters.snap#L6)
+   which is 30% up to protocol version 86. From protocol version 87 (nearcore
+   2.14.0), it is 0%.
 
 During receipt execution, nearcore code tracks the `gas_burnt_for_function_call`
 separately from other gas burning to enable this contract reward calculations.
@@ -259,7 +459,9 @@ After executing the transaction, there might be unspent gas left. For function
 calls, this is the normal case, since attaching exactly the right amount of gas
 is tricky. Additionally, in case of receipt failure, some actions that did not
 start execution will have the execution gas unspent. This gas is converted back
-to NEAR tokens and sent as a refund transfer to the original signer.
+to NEAR tokens and sent as a refund transfer to the original signer. If the
+transaction was signed with a gas key, the refund goes to the balance of that
+gas key.
 
 Before protocol version 78, the full gas amount would be refunded and the refund
 transfer action was executed for free. With [NEP-536](https://github.com/near/NEPs/pull/536)
@@ -283,8 +485,12 @@ is still executed for free, since the gas price is set to 0. This keeps it in
 line with balance refunds. However, when the gas refund is produced, at least 1
 Tgas has been burnt on receipt execution, which more than covers for a transfer.
 
-Finally, we can have a complete diagram, including the gas refund penalty.
+The following diagram is a historical illustration of the complete gas flow.
+It shows the contract reward, which was paid up to protocol version 86, and
+the proposed 5% gas refund fee, which is currently 0. It also buys and burns gas
+at one gas price, as from protocol version 78 to 84. The current rules are
+described above.
 
-![Complete Gas Flow
+![Historical Complete Gas Flow
 Diagram](https://github.com/user-attachments/assets/28aea744-979d-4e1b-88b5-541b38ce58ca)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-2867060321 -->

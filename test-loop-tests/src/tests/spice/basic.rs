@@ -884,8 +884,11 @@ fn schedule_send_money_txs(
                     anchor_hash,
                 );
                 sent_txs.lock().insert(tx.get_hash());
-                let process_tx_request =
-                    ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
+                let process_tx_request = ProcessTxRequest {
+                    transaction: tx.into(),
+                    is_forwarded: false,
+                    check_only: false,
+                };
                 node_data[i % clients.len()].rpc_handler_sender.send(process_tx_request);
             },
         );

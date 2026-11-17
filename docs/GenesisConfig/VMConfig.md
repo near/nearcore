@@ -1,6 +1,8 @@
 # VMConfig
 
 Config of wasm operations.
+The fields from `max_gas_burnt` to `max_total_log_length` belong to the limit config.
+In the JSON view they are nested under the `limit_config` key of `wasm_config`.
 
 ## ext_costs
 
@@ -12,7 +14,7 @@ Costs for runtime externals
 
 `type: u32
 
-Gas cost of a growing memory by single page.
+Not charged. `memory.grow` is charged with `linear_op_base_cost` and `linear_op_unit_cost`.
 
 ## regular_op_cost
 
@@ -24,13 +26,13 @@ Gas cost of a regular operation.
 
 `type: u64
 
-Base gas cost of a bulk memory/table operation.
+Base gas cost of a bulk memory/table operation, `memory.grow` or `table.grow`.
 
 ## linear_op_unit_cost
 
 `type: u64
 
-Gas cost per unit of a bulk memory/table operation.
+Gas cost per unit of a bulk memory/table operation, `memory.grow` or `table.grow`.
 
 ## max_gas_burnt
 
@@ -48,11 +50,12 @@ How tall the stack is allowed to grow?
 
 `type: u32
 
+The initial number of memory pages.
+
 ## max_memory_pages
 
 `type: u32
 
-The initial number of memory pages.
 What is the maximal memory pages amount is allowed to have for
 a contract.
 
@@ -80,8 +83,9 @@ Maximum number of registers that can be used simultaneously.
 
 Maximum number of log entries.
 
-## max_log_len
+## max_total_log_length
 
-`type: u64
+`type: u64`
 
-Maximum length of a single log, in bytes.
+Maximum total length, in bytes, of all log messages emitted by one function call execution.
+The value is 16384.

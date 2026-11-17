@@ -1,12 +1,15 @@
 /// Contains types that belong to the `network protocol.
 mod edge;
+mod message_kind;
 mod peer;
 mod proto_conv;
 mod state_sync;
+mod trace_context;
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use bytesize::{KIB, MIB};
 pub use edge::*;
+pub use message_kind::*;
 use near_primitives::genesis::GenesisId;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::spice::partial_data::SpicePartialData;
@@ -40,9 +43,11 @@ mod _proto {
     include!(concat!(env!("OUT_DIR"), "/proto/mod.rs"));
 }
 
+use crate::config::NetworkTransitionConfig;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
+use crate::network_protocol::trace_context::TraceContext;
 use crate::spice::data_distribution::SpiceDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
@@ -60,7 +65,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -70,6 +75,7 @@ use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
+use std::io;
 use std::sync::Arc;
 use tracing::Span;
 
@@ -82,6 +88,73 @@ const MAX_SMALL_MESSAGE_SIZE: usize = (512 * KIB) as usize;
 const MAX_MEDIUM_MESSAGE_SIZE: usize = (32 * MIB) as usize;
 const MAX_LARGE_MESSAGE_SIZE: usize = (128 * MIB) as usize;
 const MAX_HUGE_MESSAGE_SIZE: usize = (512 * MIB) as usize;
+
+/// Serialization format of network messages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+pub enum Encoding {
+    Proto,
+    Borsh,
+}
+
+/// Frames of a serialized `PeerMessage`. A single frame is sent as its length (`u32`, little endian)
+/// followed by its bytes.
+///
+/// A protobuf-encoded message is sent as a single frame, without a header. Every borsh-encoded
+/// message is sent as two frames: the header (`PeerMessageHeader`) and the body (`PeerMessage`).
+/// The receiver reads the header first and decides what to do with the body (e.g. enforces the
+/// size limit of the message kind) before reading it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeerMessageFrames {
+    pub encoding: Encoding,
+    /// Header of a borsh-encoded message, `None` for a protobuf-encoded message.
+    pub header: Option<Vec<u8>>,
+    /// The protobuf-encoded message, or the borsh-encoded body.
+    pub body: Vec<u8>,
+}
+
+impl PeerMessageFrames {
+    /// Frames of a protobuf-encoded message.
+    pub fn proto(body: Vec<u8>) -> Self {
+        Self { encoding: Encoding::Proto, header: None, body }
+    }
+
+    /// Total size of the frames, without their lengths.
+    pub fn len(&self) -> usize {
+        self.header.as_ref().map_or(0, Vec::len) + self.body.len()
+    }
+}
+
+/// Header of a borsh-encoded message, sent as a separate frame before the body.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+pub(crate) enum PeerMessageHeader {
+    V1(PeerMessageHeaderV1) = 0,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeerMessageHeaderV1 {
+    kind: PeerMessageKind,
+    trace_context: Option<TraceContext>,
+}
+
+impl PeerMessageHeader {
+    fn new(kind: PeerMessageKind, trace_context: Option<TraceContext>) -> Self {
+        Self::V1(PeerMessageHeaderV1 { kind, trace_context })
+    }
+
+    pub(crate) fn kind(&self) -> PeerMessageKind {
+        match self {
+            Self::V1(header) => header.kind,
+        }
+    }
+
+    pub(crate) fn trace_context(&self) -> Option<&TraceContext> {
+        match self {
+            Self::V1(header) => header.trace_context.as_ref(),
+        }
+    }
+}
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct PeerAddr {
@@ -180,6 +253,16 @@ pub(crate) fn from_unix_nanos(nanos: u64) -> time::Utc {
     time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("u64 nanoseconds are in range")
 }
 
+/// Converts `t` to nanoseconds since the unix epoch. Saturates before 1677 and after 2262.
+pub(crate) fn to_unix_nanos_i64(t: time::Utc) -> i64 {
+    t.unix_timestamp_nanos().clamp(i64::MIN.into(), i64::MAX.into()) as i64
+}
+
+/// Converts nanoseconds since the unix epoch to UTC time.
+pub(crate) fn from_unix_nanos_i64(nanos: i64) -> time::Utc {
+    time::Utc::from_unix_timestamp_nanos(nanos.into()).expect("i64 nanoseconds are in range")
+}
+
 /// Limit on the size of the serialized AccountData message.
 /// It is important to have such a constraint on the serialized proto,
 /// because it may contain many unknown fields (which are dropped during parsing).
@@ -210,7 +293,7 @@ pub const MAX_SHARDS_PER_SNAPSHOT_HOST_INFO: usize = 512;
 pub const MAX_TRACKED_SHARDS_PER_PEER: usize = 128;
 
 impl VersionedAccountData {
-    /// Serializes AccountData to proto and signs it using `signer`.
+    /// Serializes AccountData using `encoding` and signs it using `signer`.
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),
     /// as this would likely be a bug.
     /// Returns an error if the serialized data is too large to be broadcasted.
@@ -219,25 +302,34 @@ impl VersionedAccountData {
     /// due to account_id mismatch. Then instead of panicking we could return an error
     /// and the caller (who constructs the arguments) would do an unwrap(). This would
     /// constitute a cleaner never-panicking interface.
-    pub fn sign(self, signer: &ValidatorSigner) -> anyhow::Result<SignedAccountData> {
+    pub fn sign(
+        self,
+        signer: &ValidatorSigner,
+        encoding: Encoding,
+    ) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
             signer.public_key(),
             "AccountData.account_key doesn't match the signer's account_key"
         );
-        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
+        let signed_bytes = match encoding {
+            Encoding::Proto => proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap(),
+            Encoding::Borsh => self.borsh_signed_bytes(),
+        };
+        if signed_bytes.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
             anyhow::bail!(
                 "payload size = {}, max is {}",
-                payload.len(),
+                signed_bytes.len(),
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        let signature = signer.sign_bytes(&payload);
-        Ok(SignedAccountData {
-            account_data: self,
-            payload: AccountKeySignedPayload { payload, signature },
-        })
+        let signature = AccountKeySignature::new(encoding, signed_bytes, signer);
+        Ok(SignedAccountData { account_data: self, signature })
+    }
+
+    /// Bytes signed in `AccountKeySignature::Borsh`.
+    fn borsh_signed_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(&(ACCOUNT_DATA_SIGNATURE_DIFFERENTIATOR, self)).unwrap()
     }
 
     /// `timestamp` as UTC time.
@@ -253,23 +345,38 @@ impl std::ops::Deref for VersionedAccountData {
     }
 }
 
+/// Signature differentiators are prepended to the borsh encoding of the signed structs, which
+/// keeps their signatures from being valid for other data signed with the same account key.
+const ACCOUNT_DATA_SIGNATURE_DIFFERENTIATOR: &str = "AccountData";
+const OWNED_ACCOUNT_SIGNATURE_DIFFERENTIATOR: &str = "OwnedAccount";
+
+/// Signature of a struct, made with an account key.
 #[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
-pub struct AccountKeySignedPayload {
-    payload: Vec<u8>,
-    signature: near_crypto::Signature,
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+enum AccountKeySignature {
+    /// Signature of `payload`, the protobuf encoding of the struct. Protobuf encoding is not
+    /// canonical, so the encoding is kept: it is needed to verify the signature and to relay the
+    /// struct unchanged. The struct itself is kept as well, and it has to match the encoding.
+    Proto { payload: Vec<u8>, signature: Signature } = 0,
+    /// Signature of the borsh encoding of the struct, preceded by its signature differentiator.
+    Borsh(Signature) = 1,
 }
 
-impl AccountKeySignedPayload {
-    pub fn len(&self) -> usize {
-        self.payload.len()
+impl AccountKeySignature {
+    /// Signs `signed_bytes`, the encoding of the struct with `encoding`.
+    fn new(encoding: Encoding, signed_bytes: Vec<u8>, signer: &ValidatorSigner) -> Self {
+        let signature = signer.sign_bytes(&signed_bytes);
+        match encoding {
+            Encoding::Proto => Self::Proto { payload: signed_bytes, signature },
+            Encoding::Borsh => Self::Borsh(signature),
+        }
     }
-    pub fn signature(&self) -> &near_crypto::Signature {
-        &self.signature
-    }
-    fn verify(&self, key: &PublicKey) -> Result<(), ()> {
-        match self.signature.verify(&self.payload, key) {
-            true => Ok(()),
-            false => Err(()),
+
+    fn encoding(&self) -> Encoding {
+        match self {
+            Self::Proto { .. } => Encoding::Proto,
+            Self::Borsh(_) => Encoding::Borsh,
         }
     }
 }
@@ -280,9 +387,7 @@ impl AccountKeySignedPayload {
 #[derive(PartialEq, Eq, Debug, Hash, Clone, BorshSerialize, BorshDeserialize)]
 pub struct SignedAccountData {
     account_data: VersionedAccountData,
-    // Serialized and signed AccountData. It is kept together with the account data, so
-    // verifying the signature checks that it encodes the account data.
-    payload: AccountKeySignedPayload,
+    signature: AccountKeySignature,
 }
 
 impl std::ops::Deref for SignedAccountData {
@@ -293,18 +398,37 @@ impl std::ops::Deref for SignedAccountData {
 }
 
 impl SignedAccountData {
-    pub fn payload(&self) -> &AccountKeySignedPayload {
-        &self.payload
+    /// Encoding of the data covered by the signature.
+    pub fn encoding(&self) -> Encoding {
+        self.signature.encoding()
+    }
+
+    /// Size of the data covered by the signature, see `MAX_ACCOUNT_DATA_SIZE_BYTES`.
+    pub fn signed_len(&self) -> usize {
+        match &self.signature {
+            AccountKeySignature::Proto { payload, .. } => payload.len(),
+            AccountKeySignature::Borsh(_) => self.account_data.borsh_signed_bytes().len(),
+        }
     }
 
     /// Verifies the signature with the account key, and that it covers the account data.
-    pub fn verify(&self) -> Result<(), ()> {
-        if VersionedAccountData::from_proto_bytes(&self.payload.payload).ok().as_ref()
-            != Some(&self.account_data)
-        {
+    /// Data signed in an encoding which `transition_config` doesn't accept is invalid.
+    pub fn verify(&self, transition_config: &NetworkTransitionConfig) -> Result<(), ()> {
+        if !transition_config.accepts_signed_encoding(self.encoding()) {
             return Err(());
         }
-        self.payload.verify(&self.account_key)
+        let valid = match &self.signature {
+            AccountKeySignature::Proto { payload, signature } => {
+                // The signed protobuf bytes have to encode the account data.
+                VersionedAccountData::from_proto_bytes(payload).ok().as_ref()
+                    == Some(&self.account_data)
+                    && signature.verify(payload, &self.account_key)
+            }
+            AccountKeySignature::Borsh(signature) => {
+                signature.verify(&self.account_data.borsh_signed_bytes(), &self.account_key)
+            }
+        };
+        if valid { Ok(()) } else { Err(()) }
     }
 }
 
@@ -319,30 +443,33 @@ pub struct OwnedAccount {
 }
 
 impl OwnedAccount {
-    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Serializes OwnedAccount using `encoding` and signs it using `signer`.
     /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
     /// as this would likely be a bug.
-    pub fn sign(self, signer: &ValidatorSigner) -> SignedOwnedAccount {
+    pub fn sign(self, signer: &ValidatorSigner, encoding: Encoding) -> SignedOwnedAccount {
         assert_eq!(
             self.account_key,
             signer.public_key(),
             "OwnedAccount.account_key doesn't match the signer's account_key"
         );
-        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        let signature = signer.sign_bytes(&payload);
-        SignedOwnedAccount {
-            owned_account: self,
-            payload: AccountKeySignedPayload { payload, signature },
-        }
+        let signed_bytes = match encoding {
+            Encoding::Proto => proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap(),
+            Encoding::Borsh => self.borsh_signed_bytes(),
+        };
+        let signature = AccountKeySignature::new(encoding, signed_bytes, signer);
+        SignedOwnedAccount { owned_account: self, signature }
+    }
+
+    /// Bytes signed in `AccountKeySignature::Borsh`.
+    fn borsh_signed_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(&(OWNED_ACCOUNT_SIGNATURE_DIFFERENTIATOR, self)).unwrap()
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, BorshSerialize, BorshDeserialize)]
 pub struct SignedOwnedAccount {
     owned_account: OwnedAccount,
-    // Serialized and signed OwnedAccount. It is kept together with the owned account, so
-    // verifying the signature checks that it encodes the owned account.
-    payload: AccountKeySignedPayload,
+    signature: AccountKeySignature,
 }
 
 impl std::ops::Deref for SignedOwnedAccount {
@@ -353,18 +480,28 @@ impl std::ops::Deref for SignedOwnedAccount {
 }
 
 impl SignedOwnedAccount {
-    pub fn payload(&self) -> &AccountKeySignedPayload {
-        &self.payload
+    /// Encoding of the data covered by the signature.
+    pub fn encoding(&self) -> Encoding {
+        self.signature.encoding()
     }
 
     /// Verifies the signature with the account key, and that it covers the owned account.
-    pub fn verify(&self) -> Result<(), ()> {
-        if OwnedAccount::from_proto_bytes(&self.payload.payload).ok().as_ref()
-            != Some(&self.owned_account)
-        {
+    /// An owned account signed in an encoding which `transition_config` doesn't accept is invalid.
+    pub fn verify(&self, transition_config: &NetworkTransitionConfig) -> Result<(), ()> {
+        if !transition_config.accepts_signed_encoding(self.encoding()) {
             return Err(());
         }
-        self.payload.verify(&self.account_key)
+        let valid = match &self.signature {
+            AccountKeySignature::Proto { payload, signature } => {
+                // The signed protobuf bytes have to encode the owned account.
+                OwnedAccount::from_proto_bytes(payload).ok().as_ref() == Some(&self.owned_account)
+                    && signature.verify(payload, &self.account_key)
+            }
+            AccountKeySignature::Borsh(signature) => {
+                signature.verify(&self.owned_account.borsh_signed_bytes(), &self.account_key)
+            }
+        };
+        if valid { Ok(()) } else { Err(()) }
     }
 }
 
@@ -512,27 +649,62 @@ pub enum ParsePeerMessageError {
     ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
     ProtoConv(#[source] proto_conv::ParsePeerMessageError),
+    #[error("BorshDecode")]
+    BorshDecode(#[from] io::Error),
 }
 
 impl PeerMessage {
-    /// Serializes a message and attaches current Span's context to the message.
-    pub(crate) fn serialize(&self) -> Vec<u8> {
-        let mut msg = proto::PeerMessage::from(self);
-        let cx = Span::current().context();
-        msg.trace_context = inject_trace_context(&cx);
-        msg.write_to_bytes().unwrap()
+    /// Serializes a message using `encoding`.
+    /// Both encodings carry the current Span's context: protobuf messages in the message itself,
+    /// borsh messages in the header.
+    pub(crate) fn serialize_with_encoding(&self, encoding: Encoding) -> PeerMessageFrames {
+        match encoding {
+            Encoding::Proto => {
+                let mut msg = proto::PeerMessage::from(self);
+                let cx = Span::current().context();
+                msg.trace_context = inject_trace_context(&cx);
+                PeerMessageFrames::proto(msg.write_to_bytes().unwrap())
+            }
+            Encoding::Borsh => {
+                let trace_context = TraceContext::from_context(&Span::current().context());
+                let header =
+                    borsh::to_vec(&PeerMessageHeader::new(self.kind(), trace_context)).unwrap();
+                PeerMessageFrames {
+                    encoding: Encoding::Borsh,
+                    header: Some(header),
+                    body: borsh::to_vec(self).unwrap(),
+                }
+            }
+        }
     }
 
-    pub(crate) fn deserialize(data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+    /// Deserializes a message from its frames, also returning the parsed borsh header, if any.
+    pub(crate) fn deserialize_frames(
+        frames: &PeerMessageFrames,
+    ) -> Result<(Option<PeerMessageHeader>, PeerMessage), ParsePeerMessageError> {
         let span = tracing::trace_span!(target: "network", "deserialize").entered();
-        Ok({
-            let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
-                .map_err(ParsePeerMessageError::ProtoDecode)?;
-            if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
-                span.clone().or_current().add_link(extracted_span_context);
+        match frames.encoding {
+            Encoding::Proto => {
+                let proto_msg: proto::PeerMessage =
+                    proto::PeerMessage::parse_from_bytes(&frames.body)
+                        .map_err(ParsePeerMessageError::ProtoDecode)?;
+                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                    span.clone().or_current().add_link(extracted_span_context);
+                }
+                let msg =
+                    (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?;
+                Ok((None, msg))
             }
-            (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
-        })
+            Encoding::Borsh => {
+                let header =
+                    frames.header.as_deref().map(PeerMessageHeader::try_from_slice).transpose()?;
+                if let Some(span_context) = header.as_ref().and_then(|h| h.trace_context()) {
+                    span.clone().or_current().add_link(span_context.span_context());
+                }
+                let msg = PeerMessage::try_from_slice(&frames.body)?;
+                Ok((header, msg))
+            }
+        }
     }
 
     pub(crate) fn msg_variant(&self) -> &'static str {
@@ -545,78 +717,7 @@ impl PeerMessage {
     /// Maximum allowed size (in bytes) of the encoded form of a message of this type.
     /// Incoming messages larger than this are dropped before being processed.
     pub(crate) fn max_size(&self) -> usize {
-        use T1MessageBody::*;
-        use T2MessageBody::*;
-        use TieredMessageBody::{T1, T2};
-
-        match self {
-            PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::StateRequestHeader(_, _)
-            | PeerMessage::StateRequestPart(_, _, _)
-            | PeerMessage::StateRequestAck(_)
-            | PeerMessage::RequestUpdateNonce(_)
-            | PeerMessage::Tier1Handshake(_)
-            | PeerMessage::Tier2Handshake(_)
-            | PeerMessage::Tier3Handshake(_)
-            | PeerMessage::Disconnect(_)
-            | PeerMessage::HandshakeFailure(_, _)
-            | PeerMessage::LastEdge(_)
-            | PeerMessage::PeersRequest(_)
-            | PeerMessage::Challenge(_) // challenges are disabled
-            | PeerMessage::EpochSyncRequest => MAX_SMALL_MESSAGE_SIZE,
-
-            PeerMessage::PeersResponse(_)
-            | PeerMessage::Transaction(_)
-            | PeerMessage::SyncRoutingTable(_)
-            | PeerMessage::SyncAccountsData(_)
-            | PeerMessage::SyncSnapshotHosts(_)
-            | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Block(_)
-            | PeerMessage::OptimisticBlock(_) => MAX_MEDIUM_MESSAGE_SIZE,
-
-            PeerMessage::VersionedStateResponse(_) => MAX_LARGE_MESSAGE_SIZE,
-            PeerMessage::EpochSyncResponse(_) => MAX_HUGE_MESSAGE_SIZE,
-            PeerMessage::Routed(msg) => match msg.body() {
-                T1(body) => match body.as_ref() {
-                    BlockApproval(_) | VersionedChunkEndorsement(_) | SpiceChunkEndorsement(_) => {
-                        MAX_SMALL_MESSAGE_SIZE
-                    }
-
-                    PartialEncodedChunkForward(_)
-                    | ChunkContractAccesses(_)
-                    | ContractCodeRequest(_)
-                    | SpiceDataRequest(_)
-                    | SpiceChunkContractAccesses(_)
-                    | SpiceContractCodeRequest(_)
-                    | VersionedPartialEncodedChunk(_) => MAX_MEDIUM_MESSAGE_SIZE,
-
-                    PartialEncodedStateWitness(_)
-                    | PartialEncodedStateWitnessForward(_)
-                    | VersionedPartialEncodedStateWitness(_)
-                    | VersionedPartialEncodedStateWitnessForward(_)
-                    | ContractCodeResponse(_)
-                    | SpicePartialData(_)
-                    | SpiceContractCodeResponse(_) => MAX_LARGE_MESSAGE_SIZE,
-                },
-                T2(body) => match body.as_ref() {
-                    TxStatusRequest(_, _)
-                    | Ping(_)
-                    | Pong(_)
-                    | ChunkStateWitnessAck(_)
-                    | StatePartRequest(_)
-                    | StateHeaderRequest(_)
-                    | StateRequestAck(_) => MAX_SMALL_MESSAGE_SIZE,
-
-                    ForwardTx(_)
-                    | PartialEncodedChunkRequest(_)
-                    | TxStatusResponse(_)
-                    | PartialEncodedChunkResponse(_) => MAX_MEDIUM_MESSAGE_SIZE,
-
-                    | PartialEncodedContractDeploys(_) => MAX_LARGE_MESSAGE_SIZE,
-                },
-            },
-        }
+        self.kind().max_size()
     }
 }
 
@@ -861,7 +962,7 @@ impl T1MessageBody {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum T2MessageBody {
-    ForwardTx(SignedTransaction) = 0,
+    ForwardTx(TransactionEnvelope) = 0,
     TxStatusRequest(AccountId, CryptoHash) = 1,
     TxStatusResponse(Box<FinalExecutionOutcomeView>) = 2,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 3,
@@ -944,7 +1045,7 @@ impl T2MessageBody {
 #[repr(u8)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval) = 0,
-    ForwardTx(SignedTransaction) = 1,
+    ForwardTx(TransactionEnvelope) = 1,
     TxStatusRequest(AccountId, CryptoHash) = 2,
     TxStatusResponse(FinalExecutionOutcomeView) = 3,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg) = 11,
@@ -1018,7 +1119,7 @@ impl fmt::Debug for RoutedMessageBody {
                 write!(f, "TxStatusRequest({}, {})", account_id, hash)
             }
             RoutedMessageBody::TxStatusResponse(response) => {
-                write!(f, "TxStatusResponse({})", response.transaction.hash)
+                write!(f, "TxStatusResponse({})", response.transaction.id())
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
@@ -1208,9 +1309,9 @@ impl From<TieredMessageBody> for RoutedMessageBody {
     }
 }
 
-/// Legacy routed message carried in the protobuf `routed` field by nodes released before
-/// `routed_v3` was sent. It is only used to deserialize those messages and convert them to V3;
-/// it is deliberately not a variant of `RoutedMessage`, so it cannot be received over borsh.
+/// Routed message as encoded in the protobuf `routed` field, the only wire format for routed
+/// messages. It is deliberately not a variant of `RoutedMessage`, so it cannot be received over
+/// borsh.
 #[derive(
     borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema,
 )]
@@ -1230,7 +1331,6 @@ pub struct RoutedMessageV1 {
     pub body: RoutedMessageBody,
 }
 
-/// V3 message will remove the signature field for T1.
 /// Contains the body as a `TieredMessageBody` instead of `RoutedMessageBody`.
 /// All other fields are the same as in previous versions.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
@@ -1245,9 +1345,9 @@ pub struct RoutedMessageV3 {
     pub ttl: u8,
     /// Message
     pub body: TieredMessageBody,
-    /// Signature only for T2 messages.
-    pub signature: Option<Signature>,
-    /// The time the Routed message was created by `author`.
+    /// Signature from `author` over `target`, `author` and `body`.
+    pub signature: Signature,
+    /// The time the Routed message was created by `author`, in nanoseconds since the unix epoch.
     pub created_at: Option<i64>,
     /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
@@ -1265,9 +1365,7 @@ impl RoutedMessageV3 {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.as_ref().is_some_and(|signature| {
-            signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
-        })
+        self.signature.verify(self.hash_tiered().as_ref(), self.author.public_key())
     }
 
     pub fn expect_response(&self) -> bool {
@@ -1316,9 +1414,9 @@ impl RoutedMessage {
         }
     }
 
-    pub fn signature(&self) -> Option<&Signature> {
+    pub fn signature(&self) -> &Signature {
         match self {
-            RoutedMessage::V3(msg) => msg.signature.as_ref(),
+            RoutedMessage::V3(msg) => &msg.signature,
         }
     }
 
@@ -1592,14 +1690,14 @@ impl RawRoutedMessage {
         let author = PeerId::new(node_key.public_key());
         let body = RoutedMessageBody::from(self.body.clone());
         let hash = RoutedMessage::build_hash(&self.target, &author, &body);
-        let signature = Some(node_key.sign(hash.as_ref()));
+        let signature = node_key.sign(hash.as_ref());
         RoutedMessage::V3(RoutedMessageV3 {
             target: self.target,
             author,
             signature,
             ttl: routed_message_ttl,
             body: self.body,
-            created_at: now.map(|t| t.unix_timestamp()),
+            created_at: now.map(to_unix_nanos_i64),
             num_hops: 0,
         })
     }

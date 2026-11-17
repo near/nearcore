@@ -33,7 +33,6 @@ from configured_logger import logger
 from key import Key
 import state_sync_lib
 
-# cspell:ignore nretry pmap preemptible proxify uefi useragent
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
@@ -427,8 +426,8 @@ class BaseNode(object):
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
         resp = self.get_access_key_list(acc, finality)
-        if resp.get('error', {}).get('cause',
-                                     {}).get('name') == 'UNKNOWN_ACCOUNT':
+        error_name = resp.get('error', {}).get('cause', {}).get('name')
+        if error_name in ('UNKNOWN_ACCOUNT', 'UNINITIALIZED_ACCOUNT'):
             return None
         for access_key in resp['result']['keys']:
             if access_key['public_key'] == pk:
@@ -586,7 +585,9 @@ class LocalNode(BaseNode):
         self.change_config({
             'network': {
                 'addr': f'0.0.0.0:{port}',
-                'blacklist': list(blacklist)
+                'blacklist': list(blacklist),
+                'public_addrs': [self._public_addr()],
+                'allow_private_ip_in_public_addrs': True,
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
@@ -603,6 +604,10 @@ class LocalNode(BaseNode):
 
     def addr(self):
         return ("127.0.0.1", self.port)
+
+    def _public_addr(self) -> str:
+        host, port = self.addr()
+        return f'{self.node_key.pk}@{host}:{port}'
 
     def rpc_addr(self):
         return ("127.0.0.1", self.rpc_port)
@@ -708,6 +713,7 @@ class LocalNode(BaseNode):
         self.node_key = new_key
         with open(os.path.join(self.node_dir, "node_key.json"), 'w+') as f:
             json.dump(new_key.to_json(), f)
+        self.change_config({'network': {'public_addrs': [self._public_addr()]}})
 
     def cleanup(self):
         if self.cleaned:

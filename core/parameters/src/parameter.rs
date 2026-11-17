@@ -43,6 +43,21 @@ pub enum Parameter {
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     CombinedTransactionsSizeLimit,
 
+    // External contract calls config
+    /// Max size of an external contract call, in bytes.
+    MaxExternalCallSize,
+    /// Max storage proof an external call's run may record, in bytes.
+    MaxExternalCallRecordedSize,
+    /// The share of the chunk's compute limit that its external calls may use.
+    ExternalCallsChunkComputeShare,
+    /// The share of `main_storage_proof_size_soft_limit` that a chunk's external calls may
+    /// record.
+    ExternalCallsChunkStorageProofShare,
+    /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
+    ExternalCallsChunkTransactionsSizeShare,
+    /// Max number of external contract calls in a chunk.
+    MaxExternalCallsPerChunk,
+
     // Account creation config
     MinAllowedTopLevelAccountLength,
     RegistrarAccountId,
@@ -224,6 +239,10 @@ pub enum Parameter {
     MaxUniversalStateInitKeys,
     /// Max number of storage entries the state-init actions in one receipt may carry, in total.
     MaxStateInitEntries,
+    /// Max number of gas key nonces the actions in one receipt may add, in total.
+    MaxGasKeyNoncesAddedPerReceipt,
+    /// Max number of gas key nonces the actions in one receipt may remove, in total.
+    MaxGasKeyNoncesRemovedPerReceipt,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
     MinContractSizePerLocal,
@@ -251,6 +270,8 @@ pub enum Parameter {
     // Flag for the `CanonicalUniversalStateInit` protocol feature.
     CanonicalUniversalStateInit,
     FixMlDsaCostCharging,
+    // Flag for the `FixRegisterInputCharging` protocol feature.
+    FixRegisterInputCharging,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -387,6 +408,8 @@ impl Parameter {
             Parameter::MaxReceiptTotalInputSize,
             Parameter::MaxUniversalStateInitKeys,
             Parameter::MaxStateInitEntries,
+            Parameter::MaxGasKeyNoncesAddedPerReceipt,
+            Parameter::MaxGasKeyNoncesRemovedPerReceipt,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
             Parameter::MinContractSizePerLocal,

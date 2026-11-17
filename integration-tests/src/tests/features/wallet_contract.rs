@@ -155,7 +155,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
 
     // Try to send money from ETH-implicit account using `(block_height - 1) * 1e6` as a nonce.
-    // That would be a good nonce for any access key, but the transaction should fail nonetheless because there is no access key.
+    // That nonce is above the nonce of any access key created below `block_height`, but the transaction should fail nonetheless because there is no access key.
     let nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     let send_money_from_eth_implicit_account_tx = SignedTransaction::send_money(
         nonce,

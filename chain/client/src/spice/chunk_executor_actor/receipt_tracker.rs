@@ -36,6 +36,10 @@ impl UnverifiedReceiptTracker {
         core_reader: &SpiceCoreReader,
         source_block: &CryptoHash,
     ) -> Result<(), Error> {
+        // Nothing buffered against `source_block`: skip reading its block and execution results.
+        if !self.proofs_by_source_block.contains_key(source_block) {
+            return Ok(());
+        }
         let block = match chain_store.get_block(source_block) {
             Ok(block) => block,
             // Source block not on disk yet — nothing to drain. A later receipt or
@@ -68,8 +72,7 @@ impl UnverifiedReceiptTracker {
         Ok(())
     }
 
-    /// Drop receipts buffered against source blocks at or below the final
-    /// execution head — they can never be applied.
+    /// Drop receipts buffered against source blocks at or below the final execution head.
     pub(crate) fn prune_below_final_head(
         &mut self,
         chain_store: &ChainStoreAdapter,
@@ -78,7 +81,6 @@ impl UnverifiedReceiptTracker {
         let mut stale = Vec::new();
         for source_block in self.proofs_by_source_block.keys().copied() {
             match chain_store.get_block_header(&source_block) {
-                // At or below the final head: can never be applied again — drop it.
                 Ok(header) if header.height() <= final_head.height => stale.push(source_block),
                 Ok(_) => {}
                 // Source block not on disk yet: a receipt can outrun its block, so the

@@ -382,6 +382,7 @@ async fn test_query_call_function() {
                 account_id: "test1".parse().unwrap(),
                 method_name: "run_test".to_string(),
                 args: vec![].into(),
+                state_init: None,
             },
         })
         .await
@@ -1459,6 +1460,7 @@ async fn test_experimental_call_function() {
             account_id: "test1".parse().unwrap(),
             method_name: "run_test".to_string(),
             args: vec![].into(),
+            state_init: None,
         })
         .await
         .unwrap();
@@ -1485,6 +1487,7 @@ async fn test_experimental_call_function_nonexisting_method() {
             account_id: account,
             method_name: "nonexisting".to_string(),
             args: vec![].into(),
+            state_init: None,
         })
         .await;
 

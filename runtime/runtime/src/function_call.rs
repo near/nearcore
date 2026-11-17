@@ -1,5 +1,6 @@
 use crate::config::safe_add_compute;
 use crate::contract_code::RuntimeContractIdentifier;
+use crate::contract_compilation_status::record_contract_compilation;
 use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
@@ -11,11 +12,11 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceiptV2, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
+    AuthorizationContext, DataReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt,
 };
 use near_primitives::transaction::FunctionCallAction;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
-use near_primitives::types::{AccountId, EpochInfoProvider};
+use near_primitives::types::{AccountId, Balance, EpochInfoProvider};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::AccessOptions;
 use near_store::{
@@ -28,8 +29,94 @@ use near_vm_runner::logic::errors::{
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{ExecutionMode, VMContext, VMOutcome};
+use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::Arc;
+
+/// Who signs and pays for the receipts a contract run creates.
+pub(crate) struct NewReceiptSigner<'a> {
+    pub signer_id: &'a AccountId,
+    pub authorization_context: Cow<'a, AuthorizationContext>,
+    pub gas_price: Balance,
+}
+
+/// Turns the promises of a successful contract run into receipts without ids.
+pub(crate) fn new_receipts(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    account_id: &AccountId,
+    receipt_manager: ReceiptManager,
+    signer: &NewReceiptSigner,
+) -> Result<Vec<Receipt>, StorageError> {
+    let config = &apply_state.config;
+    // Fetch metadata for PromiseYield timeout queue
+    let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
+    let initial_promise_yield_indices = promise_yield_indices.clone();
+
+    let mut new_receipts: Vec<_> = receipt_manager
+        .action_receipts
+        .into_iter()
+        .map(|receipt| {
+            // If the newly created receipt is a PromiseYield, enqueue a timeout for it
+            if receipt.is_promise_yield {
+                enqueue_promise_yield_timeout(
+                    state_update,
+                    &mut promise_yield_indices,
+                    account_id.clone(),
+                    receipt.input_data_ids[0],
+                    apply_state.block_height
+                        + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+                );
+            }
+
+            let authorization_context = signer.authorization_context.as_ref().clone();
+            let new_receipt = ReceiptEnum::new_action_receipt_from_promise(
+                apply_state.current_protocol_version,
+                signer.signer_id.clone(),
+                receipt.refund_to,
+                authorization_context,
+                signer.gas_price,
+                receipt.output_data_receivers,
+                receipt.input_data_ids,
+                receipt.actions,
+                receipt.is_promise_yield,
+            );
+
+            Receipt::V0(ReceiptV0 {
+                predecessor_id: account_id.clone(),
+                receiver_id: receipt.receiver_id,
+                // The caller sets the actual receipt ID: apply_action_receipt in its
+                // "Generating receipt IDs" section, or set_ecc_receipt_ids for an external call
+                receipt_id: CryptoHash::default(),
+                receipt: new_receipt,
+            })
+        })
+        .collect();
+
+    // Create data receipts for resumed yields
+    new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
+        let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
+
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            // The caller sets the actual receipt ID: apply_action_receipt in its
+            // "Generating receipt IDs" section, or set_ecc_receipt_ids for an external call
+            receipt_id: CryptoHash::default(),
+            receipt: if receipt.is_promise_resume {
+                ReceiptEnum::PromiseResume(new_data_receipt)
+            } else {
+                ReceiptEnum::Data(new_data_receipt)
+            },
+        })
+    }));
+
+    // Commit metadata for yielded promises queue
+    if promise_yield_indices != initial_promise_yield_indices {
+        set_promise_yield_indices(state_update, &promise_yield_indices);
+    }
+    Ok(new_receipts)
+}
 
 pub(crate) fn action_function_call(
     state_update: &mut TrieUpdate,
@@ -93,6 +180,23 @@ pub(crate) fn action_function_call(
             let contract =
                 preparation_pipeline.get_contract(receipt, code_ext, gas_counter, action_index);
             record_contract_call(runtime_ext.trie_update, &contract_id, &apply_state.apply_reason)?;
+            if ProtocolFeature::ContractCompilationStatus
+                .enabled(apply_state.current_protocol_version)
+            {
+                if let Some(code_len) = contract_id.resolve_code_len(
+                    runtime_ext.trie_update,
+                    AccessOptions::DEFAULT,
+                    &epoch_info_provider.chain_id(),
+                    apply_state.current_protocol_version,
+                )? {
+                    record_contract_compilation(
+                        runtime_ext.trie_update,
+                        apply_state,
+                        contract_id.hash(),
+                        code_len,
+                    )?;
+                }
+            }
 
             execute_function_call(
                 contract,
@@ -169,75 +273,13 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        // Fetch metadata for PromiseYield timeout queue
-        let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
-        let initial_promise_yield_indices = promise_yield_indices.clone();
-
-        let mut new_receipts: Vec<_> = receipt_manager
-            .action_receipts
-            .into_iter()
-            .map(|receipt| {
-                // If the newly created receipt is a PromiseYield, enqueue a timeout for it
-                if receipt.is_promise_yield {
-                    enqueue_promise_yield_timeout(
-                        state_update,
-                        &mut promise_yield_indices,
-                        account_id.clone(),
-                        receipt.input_data_ids[0],
-                        apply_state.block_height
-                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
-                    );
-                }
-
-                let new_action_receipt = ActionReceiptV2 {
-                    signer_id: action_receipt.signer_id().clone(),
-                    signer_public_key: action_receipt.signer_public_key().clone(),
-                    refund_to: receipt.refund_to,
-                    gas_price: action_receipt.gas_price(),
-                    output_data_receivers: receipt.output_data_receivers,
-                    input_data_ids: receipt.input_data_ids,
-                    actions: receipt.actions,
-                };
-                let new_receipt = if receipt.is_promise_yield {
-                    ReceiptEnum::PromiseYieldV2(new_action_receipt)
-                } else {
-                    ReceiptEnum::ActionV2(new_action_receipt)
-                };
-
-                Receipt::V0(ReceiptV0 {
-                    predecessor_id: account_id.clone(),
-                    receiver_id: receipt.receiver_id,
-                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                    // "Generating receipt IDs" section
-                    receipt_id: CryptoHash::default(),
-                    receipt: new_receipt,
-                })
-            })
-            .collect();
-
-        // Create data receipts for resumed yields
-        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
-            let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
-
-            Receipt::V0(ReceiptV0 {
-                predecessor_id: account_id.clone(),
-                receiver_id: account_id.clone(),
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-                receipt: if receipt.is_promise_resume {
-                    ReceiptEnum::PromiseResume(new_data_receipt)
-                } else {
-                    ReceiptEnum::Data(new_data_receipt)
-                },
-            })
-        }));
-
-        // Commit metadata for yielded promises queue
-        if promise_yield_indices != initial_promise_yield_indices {
-            set_promise_yield_indices(state_update, &promise_yield_indices);
-        }
-
+        let signer = NewReceiptSigner {
+            signer_id: action_receipt.signer_id(),
+            authorization_context: action_receipt.authorization_context(),
+            gas_price: action_receipt.gas_price(),
+        };
+        let new_receipts =
+            new_receipts(state_update, apply_state, account_id, receipt_manager, &signer)?;
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
         result.subsidized_amount =
@@ -272,8 +314,9 @@ pub(crate) fn function_call_context(
     VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id().clone(),
-        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key())
-            .expect("Failed to serialize"),
+        signer_account_pk: action_receipt.signer_public_key().map(|signer_public_key| {
+            borsh::to_vec(signer_public_key).expect("Failed to serialize")
+        }),
         predecessor_account_id: predecessor_id.clone(),
         refund_to_account_id: action_receipt.refund_to().as_ref().unwrap_or(predecessor_id).clone(),
         input: Rc::from(function_call.args.clone()),
@@ -396,7 +439,10 @@ pub(crate) fn execute_function_call(
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
         Err(VMRunnerError::WasmCompilationUnknownError { debug_message }) => {
-            if !context.is_view() {
+            // A view call of the external call method runs as an external call, not in view mode.
+            let is_view =
+                context.is_view() || apply_state.apply_reason == ApplyChunkReason::ViewTrackedShard;
+            if !is_view {
                 // Internal and external calls change state. Do not commit a
                 // potentially nondeterministic error on chain.
                 panic!("wasm compilation unknown error: {debug_message}");
@@ -418,8 +464,8 @@ pub(crate) fn execute_function_call(
             outcome.used_gas = outcome.used_gas.checked_add_result(distributed)?;
         }
         // An external call has no prepaid gas to distribute: promises get
-        // exactly the gas they were created with, which the contract has
-        // already paid for. Gas weights have no effect.
+        // exactly the gas they were created with, which the contract pays for
+        // after the run. Gas weights have no effect.
         ExecutionMode::External { .. } => {}
         // View calls cannot create promises.
         ExecutionMode::View(_) => {}
@@ -433,7 +479,7 @@ pub(crate) fn execute_function_call(
 /// For local and global contracts, verifies the contract exists in the trie
 /// and records its code hash for distribution to validators. Built-in wallet
 /// contracts and absent contracts are skipped.
-fn record_contract_call(
+pub(crate) fn record_contract_call(
     state_update: &TrieUpdate,
     contract_id: &RuntimeContractIdentifier,
     apply_reason: &ApplyChunkReason,

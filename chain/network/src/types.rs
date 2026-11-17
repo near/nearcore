@@ -36,7 +36,7 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -225,7 +225,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 pub enum SnapshotHostEvent {
-    /// Triggered when the chain head progresses. Updates the epoch height threshold for discarding old snapshot infos.
+    /// Epoch of the latest block header, sent once header sync has caught up with the network
+    /// and again whenever it changes. Bounds the epochs of the snapshot infos the network keeps.
     ChainProgressed { epoch_height: EpochHeight },
     /// Triggers the network to broadcast the snapshot host info to all peers.
     SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
@@ -283,7 +284,7 @@ pub enum NetworkRequests {
     /// Forwarding a chunk part to a validator tracking the shard
     PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
     /// Valid transaction but since we are not validators we send this transaction to current validators.
-    ForwardTx(AccountId, SignedTransaction),
+    ForwardTx(AccountId, TransactionEnvelope),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.

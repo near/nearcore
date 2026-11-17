@@ -789,7 +789,7 @@ impl PartialEncodedStateWitnessTracker {
                     shard_id = %key.chunk.shard_id,
                     tag_witness_distribution = true)
                 .entered();
-                match self.decode_state_witness(&encoded_witness) {
+                match self.decode_state_witness(&encoded_witness, key.chunk.shard_id) {
                     Ok(decoded) => decoded,
                     Err(err) => {
                         tracing::error!(target: "client", ?err, ?key, "failed to decode witness");
@@ -913,16 +913,17 @@ impl PartialEncodedStateWitnessTracker {
     fn decode_state_witness(
         &self,
         encoded_witness: &EncodedChunkStateWitness,
+        key_shard_id: ShardId,
     ) -> Result<(ChunkStateWitness, ChunkStateWitnessSize), Error> {
         let decode_start = std::time::Instant::now();
 
         let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header().shard_id();
 
-        // Record metrics after validating the witness
+        // Label with the validated part key shard. The decoded header is not
+        // yet checked against the key, so its shard id is producer controlled.
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
-            .with_label_values(&[&witness_shard.to_string()])
+            .with_label_values(&[&key_shard_id.to_string()])
             .observe(decode_elapsed_seconds);
 
         Ok((witness, raw_witness_size))

@@ -15,6 +15,7 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{BlockId, BlockReference, EpochReference, MaybeBlockId, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -230,7 +231,7 @@ impl JsonRpcClient {
         JsonRpcClient { transport, server_addr: None }
     }
 
-    pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<String> {
+    pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<Option<String>> {
         call_method(&self.transport, "broadcast_tx_async", [tx])
     }
 
@@ -480,10 +481,10 @@ impl JsonRpcClient {
 
     pub fn send_tx(
         &self,
-        signed_transaction: near_primitives::transaction::SignedTransaction,
+        transaction: impl Into<TransactionEnvelope>,
         wait_until: near_primitives::views::TxExecutionStatus,
     ) -> RpcRequest<RpcTransactionResponse> {
-        let request = RpcSendTransactionRequest { signed_transaction, wait_until };
+        let request = RpcSendTransactionRequest { transaction: transaction.into(), wait_until };
         call_method(&self.transport, "send_tx", request)
     }
 }

@@ -24,8 +24,9 @@ use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::receipt::{
-    ActionReceipt, ActionReceiptV2, DataReceipt, DataReceiver, GlobalContractDistributionReceipt,
-    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion,
+    DataReceipt, DataReceiver, GlobalContractDistributionReceipt, Receipt, ReceiptEnum, ReceiptV0,
+    VersionedActionReceipt, VersionedReceiptEnum,
 };
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::{ShardChunkHeaderInnerV4, ShardChunkHeaderInnerV5};
@@ -37,7 +38,7 @@ use crate::state_part::StatePartIndex;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, EccTransaction, ExecutionMetadata, ExecutionOutcome,
+    DeployContractAction, ECC_ESCAPE_BYTE, EccTransaction, ExecutionMetadata, ExecutionOutcome,
     ExecutionOutcomeWithIdAndProof, ExecutionStatus, NonceMode, PartialExecutionOutcome,
     PartialExecutionStatus, SignedTransaction, StakeAction, TransactionEnvelope, TransferAction,
 };
@@ -50,6 +51,7 @@ use crate::types::{
     StateRoot, StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
 };
 use crate::universal_state_init::RawStateInit;
+use crate::utils::create_ecc_outcome_id;
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, PublicKeyHandle, Signature};
@@ -68,6 +70,7 @@ use serde_with::rust::double_option;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::io::{Error as IoError, Read, Write};
 use std::num::NonZeroU32;
 use std::ops::Range;
 use std::sync::Arc;
@@ -100,10 +103,10 @@ pub struct AccountView {
     /// `UniversalStateInit` arrives. Omitted for initialized accounts.
     #[serde(default, skip_serializing_if = "AccountState::is_initialized")]
     pub state: AccountState,
-    /// The nonce an uninitialized account's own transactions must use, present
-    /// only while it is uninitialized. A self-signed state init is the one
-    /// transaction such an account can send, and this is the only way for a
-    /// client to learn the nonce it must carry: there is no access key to query.
+    /// The account's current bootstrap nonce, present only while it is
+    /// uninitialized. A self-signed state init, the one transaction such an
+    /// account can send, must use exactly `bootstrap_nonce + 1`. This is the
+    /// only way for a client to learn it: there is no access key to query.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_nonce: Option<Nonce>,
 }
@@ -300,12 +303,6 @@ pub struct CallResult {
     pub logs: Vec<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct QueryError {
-    pub error: String,
-    pub logs: Vec<String>,
-}
-
 /// Describes information about an access key including its on-trie
 /// identifier. For ed25519/secp256k1 access keys the `public_key` field
 /// is the full public key (string form unchanged from before); for
@@ -393,6 +390,21 @@ pub enum QueryResponseKind {
     GasKeyNonces(GasKeyNoncesView),
 }
 
+/// The initial state of a `0s` or `0u` account, as its state-init action carries it.
+#[serde_as]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum StateInitView {
+    Deterministic {
+        code: GlobalContractIdentifierView,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        #[cfg_attr(feature = "schemars", schemars(with = "BTreeMap<String, String>"))]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+    },
+    Universal(RawStateInit),
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "request_type", rename_all = "snake_case")]
@@ -434,6 +446,9 @@ pub enum QueryRequest {
         method_name: String,
         #[serde(rename = "args_base64")]
         args: FunctionArgs,
+        /// Runs the call as if this were installed, unless the account already has its state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state_init: Option<StateInitView>,
     },
     ViewGlobalContractCode {
         code_hash: CryptoHash,
@@ -634,20 +649,6 @@ pub struct NetworkGraphView {
     pub next_hops: HashMap<PeerId, Vec<PeerId>>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ShardSyncDownloadView {
-    pub downloads: Vec<DownloadStatusView>,
-    pub status: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DownloadStatusView {
-    pub error: bool,
-    pub done: bool,
-}
-
 /// Status of the [catchup](https://near.github.io/nearcore/architecture/how/sync.html#catchup) process
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -707,15 +708,6 @@ impl PartElapsedTimeView {
     pub fn new(part_id: &StatePartIndex, elapsed_ms: u128) -> PartElapsedTimeView {
         Self { part_id: *part_id, elapsed_ms }
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct BlockByChunksView {
-    pub height: BlockHeight,
-    pub hash: CryptoHash,
-    pub block_status: String,
-    pub chunk_status: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -1324,23 +1316,30 @@ impl BlockView {
 pub struct ChunkView {
     pub author: AccountId,
     pub header: ChunkHeaderView,
-    pub transactions: Vec<TransactionEnvelopeView>,
+    pub transactions: Vec<ChunkTransactionView>,
     pub receipts: Vec<ReceiptView>,
 }
 
 impl ChunkView {
-    pub fn from_author_chunk(author: AccountId, chunk: ShardChunk) -> Self {
+    /// The view of `chunk`. `height_included`, the height of the block that includes it, gives
+    /// its external calls their unique ids; without it they have none.
+    pub fn from_author_chunk(
+        author: AccountId,
+        chunk: ShardChunk,
+        height_included: Option<BlockHeight>,
+    ) -> Self {
+        let transaction_view = |tx| ChunkTransactionView::new(tx, height_included);
         match chunk {
             ShardChunk::V1(chunk) => Self {
                 author,
                 header: ShardChunkHeader::V1(chunk.header).into(),
-                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                transactions: chunk.transactions.into_iter().map(transaction_view).collect(),
                 receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
             ShardChunk::V2(chunk) => Self {
                 author,
                 header: chunk.header.into(),
-                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                transactions: chunk.transactions.into_iter().map(transaction_view).collect(),
                 receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
@@ -1780,40 +1779,233 @@ impl From<SignedTransaction> for SignedTransactionView {
 }
 
 #[serde_as]
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct EccTransactionView {
     pub contract_id: AccountId,
     #[serde_as(as = "Base64")]
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub payload: Vec<u8>,
-    pub hash: CryptoHash,
+    /// The unique id of this copy of the call, its outcome id.
+    pub transaction_id: CryptoHash,
+    /// The universal account state init this copy of the call carries.
+    #[serde_as(as = "Option<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
+    pub state_init: Option<Vec<u8>>,
 }
 
-impl From<EccTransaction> for EccTransactionView {
-    fn from(tx: EccTransaction) -> Self {
-        let hash = tx.get_hash();
-        let (contract_id, payload) = tx.into_parts();
-        Self { contract_id, payload, hash }
+impl EccTransactionView {
+    /// The view of the copy of `tx` whose unique id is `transaction_id`.
+    pub fn new(tx: EccTransaction, transaction_id: CryptoHash) -> Self {
+        let (contract_id, payload, state_init) = tx.into_parts();
+        let state_init = state_init.map(|state_init| state_init.0);
+        Self { contract_id, payload, transaction_id, state_init }
     }
 }
 
-/// A transaction in a chunk. Untagged so that a signed transaction keeps the JSON shape it
-/// always had.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+/// Reads transaction views written before they carried `kind`, as signed transactions.
+#[derive(serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(untagged)]
-pub enum TransactionEnvelopeView {
+enum BackwardCompatibleTransactionEnvelopeView {
+    Tagged(TaggedTransactionEnvelopeView),
     Signed(SignedTransactionView),
+}
+
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TaggedTransactionEnvelopeView {
+    Signed(SignedTransactionView),
+    ExternalCall(EccTransactionView),
+}
+
+/// A transaction of either kind, in a chunk, a tx status result or an indexer message.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
+#[serde(tag = "kind", from = "BackwardCompatibleTransactionEnvelopeView")]
+pub enum TransactionEnvelopeView {
+    #[serde(rename = "signed")]
+    Signed(SignedTransactionView),
+    #[serde(rename = "external_call")]
     Unsigned(EccTransactionView),
 }
 
-impl From<TransactionEnvelope> for TransactionEnvelopeView {
-    fn from(tx: TransactionEnvelope) -> Self {
+impl From<BackwardCompatibleTransactionEnvelopeView> for TransactionEnvelopeView {
+    fn from(view: BackwardCompatibleTransactionEnvelopeView) -> Self {
+        match view {
+            BackwardCompatibleTransactionEnvelopeView::Tagged(
+                TaggedTransactionEnvelopeView::Signed(tx),
+            )
+            | BackwardCompatibleTransactionEnvelopeView::Signed(tx) => Self::Signed(tx),
+            BackwardCompatibleTransactionEnvelopeView::Tagged(
+                TaggedTransactionEnvelopeView::ExternalCall(tx),
+            ) => Self::Unsigned(tx),
+        }
+    }
+}
+
+impl From<SignedTransactionView> for TransactionEnvelopeView {
+    fn from(tx: SignedTransactionView) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl TransactionEnvelopeView {
+    /// The id of the transaction's outcome. A signed transaction's is its hash, and an external
+    /// call's is the unique id of its copy.
+    pub fn id(&self) -> CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash,
+            Self::Unsigned(tx) => tx.transaction_id,
+        }
+    }
+
+    pub fn as_signed(&self) -> Option<&SignedTransactionView> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::Unsigned(_) => None,
+        }
+    }
+}
+
+/// An external call as a chunk holds it. Its unique id is unknown in a chunk that no block on the
+/// canonical chain includes.
+#[serde_as]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ChunkEccTransactionView {
+    pub contract_id: AccountId,
+    #[serde_as(as = "Base64")]
+    #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+    pub payload: Vec<u8>,
+    /// The unique id of this copy of the call, its outcome id. `None` when no block on the
+    /// canonical chain includes the chunk.
+    pub transaction_id: Option<CryptoHash>,
+    /// The universal account state init the call carries.
+    #[serde_as(as = "Option<Base64>")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
+    pub state_init: Option<Vec<u8>>,
+}
+
+/// Reads chunk transactions from nodes that write them without `kind`, as signed transactions.
+// TODO(ecc): remove after the protocol upgrade, once every node writes `kind`.
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+enum BackwardCompatibleChunkTransactionView {
+    Tagged(TaggedChunkTransactionView),
+    Signed(SignedTransactionView),
+}
+
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TaggedChunkTransactionView {
+    Signed(SignedTransactionView),
+    ExternalCall(ChunkEccTransactionView),
+}
+
+/// A transaction as a chunk holds it, written like a `TransactionEnvelopeView`.
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!from))]
+#[serde(tag = "kind", from = "BackwardCompatibleChunkTransactionView")]
+pub enum ChunkTransactionView {
+    #[serde(rename = "signed")]
+    Signed(SignedTransactionView),
+    #[serde(rename = "external_call")]
+    Unsigned(ChunkEccTransactionView),
+}
+
+impl From<BackwardCompatibleChunkTransactionView> for ChunkTransactionView {
+    fn from(view: BackwardCompatibleChunkTransactionView) -> Self {
+        match view {
+            BackwardCompatibleChunkTransactionView::Tagged(TaggedChunkTransactionView::Signed(
+                tx,
+            ))
+            | BackwardCompatibleChunkTransactionView::Signed(tx) => Self::Signed(tx),
+            BackwardCompatibleChunkTransactionView::Tagged(
+                TaggedChunkTransactionView::ExternalCall(tx),
+            ) => Self::Unsigned(tx),
+        }
+    }
+}
+
+impl ChunkTransactionView {
+    /// The view of `tx`. `height_included`, the height of the block that includes its chunk,
+    /// gives an external call its unique id; without it the call has none.
+    pub fn new(tx: TransactionEnvelope, height_included: Option<BlockHeight>) -> Self {
         match tx {
             TransactionEnvelope::Signed(tx) => Self::Signed(tx.into()),
-            TransactionEnvelope::Unsigned(tx) => Self::Unsigned(tx.into()),
+            TransactionEnvelope::Unsigned(tx) => {
+                let transaction_id = height_included
+                    .map(|height| create_ecc_outcome_id(tx.hash_without_state_init(), height));
+                let (contract_id, payload, state_init) = tx.into_parts();
+                let state_init = state_init.map(|state_init| state_init.0);
+                Self::Unsigned(ChunkEccTransactionView {
+                    contract_id,
+                    payload,
+                    transaction_id,
+                    state_init,
+                })
+            }
         }
+    }
+
+    /// The id of the transaction's outcome, `None` for an external call without a unique id.
+    pub fn id(&self) -> Option<CryptoHash> {
+        match self {
+            Self::Signed(tx) => Some(tx.hash),
+            Self::Unsigned(tx) => tx.transaction_id,
+        }
+    }
+
+    /// The transaction's view outside a chunk, where an external call takes `transaction_id`, its
+    /// outcome's id, as its unique id.
+    pub fn into_transaction_view(self, transaction_id: CryptoHash) -> TransactionEnvelopeView {
+        match self {
+            Self::Signed(tx) => TransactionEnvelopeView::Signed(tx),
+            Self::Unsigned(tx) => TransactionEnvelopeView::Unsigned(EccTransactionView {
+                contract_id: tx.contract_id,
+                payload: tx.payload,
+                transaction_id,
+                state_init: tx.state_init,
+            }),
+        }
+    }
+}
+
+/// A signed transaction keeps the bytes of its `SignedTransactionView`, which never start with
+/// the escape byte an external call's view starts with.
+impl BorshSerialize for TransactionEnvelopeView {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), IoError> {
+        match self {
+            Self::Signed(tx) => tx.serialize(writer),
+            Self::Unsigned(tx) => {
+                ECC_ESCAPE_BYTE.serialize(writer)?;
+                tx.serialize(writer)
+            }
+        }
+    }
+}
+
+impl BorshDeserialize for TransactionEnvelopeView {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> Result<Self, IoError> {
+        let prefix = [u8::deserialize_reader(reader)?];
+        if prefix[0] == ECC_ESCAPE_BYTE {
+            return Ok(Self::Unsigned(EccTransactionView::deserialize_reader(reader)?));
+        }
+        let mut reader = prefix.chain(reader);
+        Ok(Self::Signed(SignedTransactionView::deserialize_reader(&mut reader)?))
     }
 }
 
@@ -1858,24 +2050,6 @@ impl fmt::Debug for FinalExecutionStatus {
             }
         }
     }
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[borsh(use_discriminant = true)]
-#[repr(u8)]
-pub enum ServerError {
-    TxExecutionError(TxExecutionError) = 0,
-    Timeout = 1,
-    Closed = 2,
 }
 
 #[serde_as]
@@ -2289,9 +2463,9 @@ pub struct FinalExecutionOutcomeView {
     /// FinalExecutionStatus::Failure - the result of the first leaf receipt_id
     /// FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id
     pub status: FinalExecutionStatus,
-    /// Signed Transaction
-    pub transaction: SignedTransactionView,
-    /// The execution outcome of the signed transaction.
+    /// The transaction, signed or an external call.
+    pub transaction: TransactionEnvelopeView,
+    /// The execution outcome of the transaction.
     pub transaction_outcome: ExecutionOutcomeWithIdView,
     /// The execution outcome of receipts.
     pub receipts_outcome: Vec<ExecutionOutcomeWithIdView>,
@@ -2458,7 +2632,9 @@ pub struct DataReceiverView {
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
-        signer_public_key: PublicKey,
+        /// The key of the transaction that started the chain, absent in an external call's chain
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signer_public_key: Option<PublicKey>,
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -2467,6 +2643,12 @@ pub enum ReceiptEnumView {
         is_promise_yield: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         refund_to: Option<AccountId>,
+        /// What authorized the chain, absent if the receipt doesn't record it
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authorization_context: Option<AuthorizationContext>,
+        /// The protocol version the receipt was created at, absent if the receipt doesn't record it
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        creation_protocol_version: Option<ProtocolVersion>,
     } = 0,
     Data {
         data_id: CryptoHash,
@@ -2539,9 +2721,19 @@ impl ReceiptEnumView {
         action_receipt: VersionedActionReceipt,
         is_promise_yield: bool,
     ) -> ReceiptEnumView {
+        // The fields that only an ActionReceiptV3 has.
+        let (authorization_context, creation_protocol_version) = match &action_receipt {
+            VersionedActionReceipt::V1(_) | VersionedActionReceipt::V2(_) => (None, None),
+            VersionedActionReceipt::V3(action_receipt) => {
+                let authorization_context = action_receipt.authorization_context.clone();
+                let CreationProtocolVersion(creation_protocol_version) =
+                    action_receipt.creation_protocol_version;
+                (Some(authorization_context), Some(creation_protocol_version))
+            }
+        };
         ReceiptEnumView::Action {
             signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.signer_public_key().clone(),
+            signer_public_key: action_receipt.signer_public_key().cloned(),
             gas_price: action_receipt.gas_price(),
             output_data_receivers: action_receipt
                 .output_data_receivers()
@@ -2561,8 +2753,27 @@ impl ReceiptEnumView {
             actions: action_receipt.actions().iter().cloned().map(Into::into).collect(),
             is_promise_yield,
             refund_to: action_receipt.refund_to().clone(),
+            authorization_context,
+            creation_protocol_version,
         }
     }
+}
+
+/// The version of the receipt that an action receipt view was made from, with the fields that
+/// depend on the version.
+enum ActionReceiptViewVersion {
+    V1 {
+        signer_public_key: PublicKey,
+    },
+    V2 {
+        signer_public_key: PublicKey,
+        refund_to: Option<AccountId>,
+    },
+    V3 {
+        authorization_context: AuthorizationContext,
+        refund_to: Option<AccountId>,
+        creation_protocol_version: CreationProtocolVersion,
+    },
 }
 
 impl TryFrom<ReceiptView> for Receipt {
@@ -2583,7 +2794,60 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                     is_promise_yield,
                     refund_to,
+                    authorization_context,
+                    creation_protocol_version,
                 } => {
+                    // Determine the version of the action receipt view based on
+                    // the presence of `creation_protocol_version`,
+                    // `authorization_context`, `signer_public_key` and
+                    // `refund_to`.
+                    let version = match (
+                        creation_protocol_version,
+                        &authorization_context,
+                        &signer_public_key,
+                    ) {
+                        (Some(creation_protocol_version), Some(authorization_context), _) => {
+                            let authorization_context = authorization_context.clone();
+                            let creation_protocol_version =
+                                CreationProtocolVersion(creation_protocol_version);
+                            ActionReceiptViewVersion::V3 {
+                                authorization_context,
+                                refund_to,
+                                creation_protocol_version,
+                            }
+                        }
+                        (None, None, Some(signer_public_key)) => {
+                            let signer_public_key = signer_public_key.clone();
+                            if refund_to.is_some() {
+                                ActionReceiptViewVersion::V2 { signer_public_key, refund_to }
+                            } else {
+                                ActionReceiptViewVersion::V1 { signer_public_key }
+                            }
+                        }
+                        (None, None, None) => {
+                            return Err("an action receipt view names no signer key and no \
+                                        authorization_context"
+                                .into());
+                        }
+                        // The two fields are the fields of an ActionReceiptV3, so a view has
+                        // both or neither.
+                        (Some(_), None, _) | (None, Some(_), _) => {
+                            return Err("an action receipt view has only one of \
+                                        creation_protocol_version and authorization_context"
+                                .into());
+                        }
+                    };
+                    // The view of an ActionReceiptV3 names the key that signed the
+                    // transaction both as `signer_public_key` and in `authorization_context`.
+                    if let Some(authorization_context) = authorization_context
+                        && let Some(signer_public_key) = signer_public_key
+                        && authorization_context
+                            != AuthorizationContext::AccessKey(signer_public_key)
+                    {
+                        return Err("an action receipt view's signer_public_key disagrees with \
+                                    its authorization_context"
+                            .into());
+                    }
                     let output_data_receivers: Vec<_> = output_data_receivers
                         .into_iter()
                         .map(|data_receiver_view| DataReceiver {
@@ -2597,38 +2861,58 @@ impl TryFrom<ReceiptView> for Receipt {
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<Vec<_>, _>>()?;
-                    // Note that this is not consistent with how `new_receipts` are
-                    // created by the runtime - there we always create ActionReceiptV2.
-                    // ActionReceiptV2 without refund_to becomes V1 after a roundtrip
-                    // through views. This will be fixed with #14709.
-                    if refund_to.is_some() {
-                        let action_receipt = ActionReceiptV2 {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                            refund_to,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYieldV2(action_receipt)
-                        } else {
-                            ReceiptEnum::ActionV2(action_receipt)
+                    match version {
+                        ActionReceiptViewVersion::V1 { signer_public_key } => {
+                            let action_receipt = ActionReceipt {
+                                signer_id,
+                                signer_public_key,
+                                gas_price,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYield(action_receipt)
+                            } else {
+                                ReceiptEnum::Action(action_receipt)
+                            }
                         }
-                    } else {
-                        let action_receipt = ActionReceipt {
-                            signer_id,
-                            signer_public_key,
-                            gas_price,
-                            output_data_receivers,
-                            input_data_ids,
-                            actions,
-                        };
-                        if is_promise_yield {
-                            ReceiptEnum::PromiseYield(action_receipt)
-                        } else {
-                            ReceiptEnum::Action(action_receipt)
+                        ActionReceiptViewVersion::V2 { signer_public_key, refund_to } => {
+                            let action_receipt = ActionReceiptV2 {
+                                signer_id,
+                                signer_public_key,
+                                gas_price,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                                refund_to,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYieldV2(action_receipt)
+                            } else {
+                                ReceiptEnum::ActionV2(action_receipt)
+                            }
+                        }
+                        ActionReceiptViewVersion::V3 {
+                            authorization_context,
+                            refund_to,
+                            creation_protocol_version,
+                        } => {
+                            let action_receipt = ActionReceiptV3 {
+                                signer_id,
+                                refund_to,
+                                authorization_context,
+                                gas_price,
+                                creation_protocol_version,
+                                output_data_receivers,
+                                input_data_ids,
+                                actions,
+                            };
+                            if is_promise_yield {
+                                ReceiptEnum::PromiseYieldV3(action_receipt)
+                            } else {
+                                ReceiptEnum::ActionV3(action_receipt)
+                            }
                         }
                     }
                 }
@@ -2981,6 +3265,8 @@ pub enum StateChangeCauseView {
     ValidatorAccountsUpdate,
     Migration,
     BandwidthSchedulerStateUpdate,
+    ContractCompilationStatusUpdate,
+    ExternalCallProcessing { transaction_id: CryptoHash },
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -3014,6 +3300,12 @@ impl From<StateChangeCause> for StateChangeCauseView {
             // changed to => unreachable!()
             StateChangeCause::_UnusedReshardingV2 => Self::BandwidthSchedulerStateUpdate,
             StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
+            StateChangeCause::ContractCompilationStatusUpdate => {
+                Self::ContractCompilationStatusUpdate
+            }
+            StateChangeCause::ExternalCallProcessing { transaction_id } => {
+                Self::ExternalCallProcessing { transaction_id }
+            }
         }
     }
 }
@@ -3217,28 +3509,68 @@ impl CongestionInfoView {
 #[cfg(not(feature = "nightly"))]
 mod tests {
     use super::{
-        ChunkHeaderView, ExecutionMetadataView, FinalExecutionOutcomeViewEnum,
+        ChunkHeaderView, ChunkTransactionView, EccTransactionView, ExecutionMetadataView,
+        FinalExecutionOutcomeViewEnum, QueryRequest, ReceiptView, StateInitView,
         TransactionEnvelopeView,
     };
+    use crate::action::{Action, TransferAction};
     use crate::profile_data_v2::ProfileDataV2;
     use crate::profile_data_v3::ProfileDataV3;
+    use crate::receipt::{
+        ActionReceipt, ActionReceiptV2, ActionReceiptV3, AuthorizationContext,
+        CreationProtocolVersion, Receipt, ReceiptEnum, ReceiptV0,
+    };
     use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use crate::transaction::{
-        EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
+        ECC_ESCAPE_BYTE, EccTransaction, ExecutionMetadata, SignedTransaction, TransactionEnvelope,
     };
     use crate::trie_split::TrieSplit;
-    use crate::version::MIN_SUPPORTED_PROTOCOL_VERSION;
+    use crate::universal_state_init::RawStateInit;
+    use crate::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use crate::views::GlobalContractIdentifierView;
     use assert_matches::assert_matches;
-    use near_crypto::InMemorySigner;
+    use borsh::BorshDeserialize;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey};
     use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::serialize::to_base64;
     use near_primitives_core::types::Balance;
     use serde_json::json;
+    use std::collections::BTreeMap;
 
-    /// The untagged view tells its variants apart by their fields, and a signed transaction keeps
-    /// the JSON shape it always had.
+    /// Each `state_init` form's JSON round-trips, and an unset one is left out.
     #[test]
-    fn test_transaction_envelope_view_json_roundtrip() {
+    fn test_call_function_state_init_json() {
+        let call = |state_init| QueryRequest::CallFunction {
+            account_id: "alice.near".parse().unwrap(),
+            method_name: "get".to_owned(),
+            args: vec![].into(),
+            state_init,
+        };
+        // cspell:ignore AQID
+        let cases = [
+            (call(None), None),
+            (
+                call(Some(StateInitView::Universal(RawStateInit(vec![1, 2, 3])))),
+                Some(json!({"universal": "AQID"})),
+            ),
+            (
+                call(Some(StateInitView::Deterministic {
+                    code: GlobalContractIdentifierView::AccountId("code.near".parse().unwrap()),
+                    data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+                })),
+                Some(
+                    json!({"deterministic": {"code": {"account_id": "code.near"}, "data": {"aw==": "dg=="}}}),
+                ),
+            ),
+        ];
+        for (request, state_init) in cases {
+            let value = serde_json::to_value(&request).unwrap();
+            assert_eq!(value.get("state_init"), state_init.as_ref());
+            assert_eq!(serde_json::from_value::<QueryRequest>(value).unwrap(), request);
+        }
+    }
+
+    fn signed_transaction_view() -> TransactionEnvelopeView {
         let signer = InMemorySigner::test_signer(&"alice.near".parse().unwrap());
         let signed_tx = SignedTransaction::send_money(
             1,
@@ -3248,19 +3580,93 @@ mod tests {
             Balance::from_yoctonear(1),
             CryptoHash::default(),
         );
-        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        TransactionEnvelopeView::Signed(signed_tx.into())
+    }
 
-        let signed_view = TransactionEnvelopeView::from(TransactionEnvelope::from(signed_tx));
-        let ecc_view = TransactionEnvelopeView::from(TransactionEnvelope::from(ecc));
+    fn external_call_view() -> TransactionEnvelopeView {
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        TransactionEnvelopeView::Unsigned(EccTransactionView::new(
+            ecc,
+            CryptoHash::hash_bytes(b"id"),
+        ))
+    }
+
+    /// Both kinds round-trip in JSON, and a signed transaction keeps its fields beside `kind`.
+    #[test]
+    fn test_transaction_envelope_view_json_roundtrip() {
+        let signed_view = signed_transaction_view();
+        let ecc_view = external_call_view();
         assert_matches!(signed_view, TransactionEnvelopeView::Signed(_));
         assert_matches!(ecc_view, TransactionEnvelopeView::Unsigned(_));
 
-        for view in [signed_view.clone(), ecc_view] {
+        for view in [signed_view.clone(), ecc_view.clone()] {
             let json = serde_json::to_value(&view).unwrap();
             assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), view);
         }
         let signed_json = serde_json::to_value(&signed_view).unwrap();
+        assert_eq!(signed_json["kind"], "signed");
         assert_eq!(signed_json["signer_id"], "alice.near");
+        let ecc_json = serde_json::to_value(&ecc_view).unwrap();
+        assert_eq!(ecc_json["kind"], "external_call");
+        assert_eq!(ecc_json["transaction_id"], json!(ecc_view.id()));
+        assert_eq!(ecc_json["state_init"], serde_json::Value::Null);
+    }
+
+    /// The view of a copy that carries a state init shows it, under the unique id of the copy
+    /// without it.
+    #[test]
+    fn test_external_call_view_with_state_init() {
+        let without = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![4, 5, 6])),
+        );
+        let view = ChunkTransactionView::new(TransactionEnvelope::from(with), Some(1));
+        let without_view = ChunkTransactionView::new(TransactionEnvelope::from(without), Some(1));
+        assert_eq!(view.id(), without_view.id());
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["state_init"], json!(to_base64(&[4, 5, 6])));
+        assert_eq!(serde_json::from_value::<ChunkTransactionView>(json).unwrap(), view);
+    }
+
+    /// An external call in a chunk no canonical block includes has no unique id, `null` in JSON.
+    #[test]
+    fn test_chunk_transaction_view_without_unique_id() {
+        let ecc = EccTransaction::new("wallet.near".parse().unwrap(), vec![1, 2, 3]);
+        let view = ChunkTransactionView::new(TransactionEnvelope::from(ecc), None);
+        assert_eq!(view.id(), None);
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["kind"], "external_call");
+        assert_eq!(json["transaction_id"], serde_json::Value::Null);
+        assert_eq!(serde_json::from_value::<ChunkTransactionView>(json).unwrap(), view);
+    }
+
+    /// JSON written before transaction views carried `kind` decodes as a signed transaction.
+    #[test]
+    fn test_transaction_envelope_view_json_without_kind() {
+        let signed_view = signed_transaction_view();
+        let mut json = serde_json::to_value(&signed_view).unwrap();
+        json.as_object_mut().unwrap().remove("kind");
+        assert_eq!(serde_json::from_value::<TransactionEnvelopeView>(json).unwrap(), signed_view);
+    }
+
+    /// A signed transaction's view keeps the borsh bytes of its `SignedTransactionView`, and an
+    /// external call's view, which starts with the escape byte, round-trips.
+    #[test]
+    fn test_transaction_envelope_view_borsh() {
+        let signed_view = signed_transaction_view();
+        let TransactionEnvelopeView::Signed(signed_tx_view) = &signed_view else { unreachable!() };
+        let signed_bytes = borsh::to_vec(&signed_view).unwrap();
+        assert_eq!(signed_bytes, borsh::to_vec(signed_tx_view).unwrap());
+
+        let ecc_view = external_call_view();
+        let ecc_bytes = borsh::to_vec(&ecc_view).unwrap();
+        assert_eq!(ecc_bytes[0], ECC_ESCAPE_BYTE);
+
+        for (view, bytes) in [(signed_view, signed_bytes), (ecc_view, ecc_bytes)] {
+            assert_eq!(TransactionEnvelopeView::try_from_slice(&bytes).unwrap(), view);
+        }
     }
 
     #[test]
@@ -3292,7 +3698,6 @@ mod tests {
     #[test]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
-        use near_primitives_core::version::PROTOCOL_VERSION;
 
         let config_store = RuntimeConfigStore::new();
         let config = config_store.get_config(PROTOCOL_VERSION);
@@ -3338,6 +3743,168 @@ mod tests {
         }));
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
+    }
+
+    /// A receipt goes through its JSON view and back with the same bytes.
+    fn assert_receipt_view_round_trip(receipt: Receipt) -> serde_json::Value {
+        let json = serde_json::to_value(ReceiptView::from(receipt.clone())).unwrap();
+        let view: ReceiptView = serde_json::from_value(json.clone()).unwrap();
+        let round_trip = Receipt::try_from(view).unwrap();
+        assert_eq!(borsh::to_vec(&round_trip).unwrap(), borsh::to_vec(&receipt).unwrap());
+        json
+    }
+
+    fn action_receipt_with(receipt: ReceiptEnum) -> Receipt {
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: "contract.near".parse().unwrap(),
+            receiver_id: "callee.near".parse().unwrap(),
+            receipt_id: CryptoHash::hash_bytes(b"receipt"),
+            receipt,
+        })
+    }
+
+    /// The receipts of an external call's chain use tags 7 and 8, and their view names the
+    /// external call as what authorized them and the version they were created at.
+    #[test]
+    fn test_external_call_receipt_view_round_trip() {
+        let creation_protocol_version = CreationProtocolVersion(PROTOCOL_VERSION - 1);
+        let action_receipt = ActionReceiptV3 {
+            signer_id: "contract.near".parse().unwrap(),
+            refund_to: None,
+            authorization_context: AuthorizationContext::ExternalContractCall,
+            gas_price: Balance::from_yoctonear(100),
+            creation_protocol_version,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![Action::Transfer(TransferAction { deposit: Balance::from_near(1) })],
+        };
+        let action = ReceiptEnum::ActionV3(action_receipt.clone());
+        let promise_yield = ReceiptEnum::PromiseYieldV3(action_receipt);
+        assert_eq!(borsh::to_vec(&action).unwrap()[0], 7);
+        assert_eq!(borsh::to_vec(&promise_yield).unwrap()[0], 8);
+
+        for receipt in [action, promise_yield] {
+            let mut json = assert_receipt_view_round_trip(action_receipt_with(receipt));
+            let view = &mut json["receipt"]["Action"];
+            assert_eq!(view["authorization_context"], json!("ExternalContractCall"));
+            assert_eq!(view["creation_protocol_version"], json!(PROTOCOL_VERSION - 1));
+            assert!(view.get("signer_public_key").is_none());
+
+            // A view of an external call's receipt without the creation version does not convert.
+            view.as_object_mut().unwrap().remove("creation_protocol_version");
+            let view: ReceiptView = serde_json::from_value(json).unwrap();
+            assert!(Receipt::try_from(view).is_err());
+        }
+    }
+
+    /// The V3 receipts of a signed transaction stay V3 through the view, which shows the version
+    /// they were created at.
+    #[test]
+    fn test_signed_v3_receipt_view_round_trip() {
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let refund_tos = [None, Some("refund.near".parse().unwrap())];
+        for refund_to in refund_tos {
+            let action_receipt = ActionReceiptV3 {
+                signer_id: "signer.near".parse().unwrap(),
+                refund_to,
+                authorization_context: AuthorizationContext::AccessKey(signer_public_key.clone()),
+                gas_price: Balance::from_yoctonear(100),
+                creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION - 1),
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![],
+            };
+            let action = ReceiptEnum::ActionV3(action_receipt.clone());
+            let promise_yield = ReceiptEnum::PromiseYieldV3(action_receipt);
+            for receipt in [action, promise_yield] {
+                let json = assert_receipt_view_round_trip(action_receipt_with(receipt));
+                let view = &json["receipt"]["Action"];
+                assert_eq!(view["signer_public_key"], json!(signer_public_key));
+                assert_eq!(view["creation_protocol_version"], json!(PROTOCOL_VERSION - 1));
+            }
+        }
+    }
+
+    /// The V1 and V2 receipts of a signed transaction keep their version through the view, which
+    /// shows the key that signed it as `signer_public_key`. The view has none of the fields that
+    /// only an `ActionReceiptV3` has.
+    #[test]
+    fn test_signed_receipt_view_round_trip() {
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let v1 = ReceiptEnum::Action(ActionReceipt {
+            signer_id: "signer.near".parse().unwrap(),
+            signer_public_key: signer_public_key.clone(),
+            gas_price: Balance::from_yoctonear(100),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![],
+        });
+        let v2 = ReceiptEnum::ActionV2(ActionReceiptV2 {
+            signer_id: "signer.near".parse().unwrap(),
+            refund_to: Some("refund.near".parse().unwrap()),
+            signer_public_key: signer_public_key.clone(),
+            gas_price: Balance::from_yoctonear(100),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![],
+        });
+        for receipt in [v1, v2] {
+            let json = assert_receipt_view_round_trip(action_receipt_with(receipt));
+            let view = &json["receipt"]["Action"];
+            assert_eq!(view["signer_public_key"], json!(signer_public_key));
+            assert!(view.get("authorization_context").is_none());
+            assert!(view.get("creation_protocol_version").is_none());
+        }
+    }
+
+    /// A receipt view whose signer key disagrees with its authorization context does not convert.
+    #[test]
+    fn test_receipt_view_with_contradicting_key_is_refused() {
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let other_public_key = PublicKey::from_seed(KeyType::ED25519, "other");
+        let receipt = action_receipt_with(ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: "signer.near".parse().unwrap(),
+            refund_to: None,
+            authorization_context: AuthorizationContext::AccessKey(signer_public_key),
+            gas_price: Balance::from_yoctonear(100),
+            creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![],
+        }));
+        let json = assert_receipt_view_round_trip(receipt);
+        let contradicting_contexts =
+            [json!("ExternalContractCall"), json!({"AccessKey": other_public_key})];
+        for authorization_context in contradicting_contexts {
+            let mut json = json.clone();
+            json["receipt"]["Action"]["authorization_context"] = authorization_context;
+            let view: ReceiptView = serde_json::from_value(json).unwrap();
+            assert!(Receipt::try_from(view).is_err());
+        }
+    }
+
+    /// The view of an action receipt has both `authorization_context` and
+    /// `creation_protocol_version`, the fields of an `ActionReceiptV3`, or neither.
+    #[test]
+    fn test_receipt_view_with_one_v3_field_is_refused() {
+        let signer_public_key = PublicKey::empty(KeyType::ED25519);
+        let receipt = action_receipt_with(ReceiptEnum::ActionV3(ActionReceiptV3 {
+            signer_id: "signer.near".parse().unwrap(),
+            refund_to: None,
+            authorization_context: AuthorizationContext::AccessKey(signer_public_key),
+            gas_price: Balance::from_yoctonear(100),
+            creation_protocol_version: CreationProtocolVersion(PROTOCOL_VERSION),
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![],
+        }));
+        let json = assert_receipt_view_round_trip(receipt);
+        for field in ["authorization_context", "creation_protocol_version"] {
+            let mut json = json.clone();
+            json["receipt"]["Action"].as_object_mut().unwrap().remove(field);
+            let view: ReceiptView = serde_json::from_value(json).unwrap();
+            assert!(Receipt::try_from(view).is_err());
+        }
     }
 
     #[test]

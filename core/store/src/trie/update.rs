@@ -13,6 +13,7 @@ use near_primitives::types::{
 };
 use near_primitives_core::code::ContractCode;
 use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 
 mod iterator;
 
@@ -31,6 +32,14 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 pub struct TrieUpdate {
     pub trie: Trie,
     contract_storage: ContractStorage,
+    /// Code whose compilation was reached during this chunk, including failed receipts.
+    ///
+    /// Code executed that was already compiled, according to the consensus
+    /// contract compilation status, is excluded.
+    ///
+    /// Unlike deployments, this is not rolled back with receipt state.
+    /// Maps code-hash to code-length.
+    contract_compilations: BTreeMap<CryptoHash, u64>,
     committed: RawStateChanges,
     prospective: TrieUpdates,
 }
@@ -76,12 +85,40 @@ pub struct TrieUpdateResult {
     pub contract_updates: ContractUpdates,
 }
 
+/// A `TrieUpdate` whose trie has a recording budget set, from
+/// `TrieUpdate::with_recording_budget`. Clears the budget when dropped, however the scope is
+/// left.
+pub struct RecordingBudget<'a> {
+    trie_update: &'a mut TrieUpdate,
+}
+
+impl Deref for RecordingBudget<'_> {
+    type Target = TrieUpdate;
+
+    fn deref(&self) -> &TrieUpdate {
+        self.trie_update
+    }
+}
+
+impl DerefMut for RecordingBudget<'_> {
+    fn deref_mut(&mut self) -> &mut TrieUpdate {
+        self.trie_update
+    }
+}
+
+impl Drop for RecordingBudget<'_> {
+    fn drop(&mut self) {
+        self.trie_update.trie.clear_recording_budget();
+    }
+}
+
 impl TrieUpdate {
     pub fn new(trie: Trie) -> Self {
         let trie_storage = trie.storage.clone();
         Self {
             trie,
             contract_storage: ContractStorage::new(trie_storage),
+            contract_compilations: BTreeMap::new(),
             committed: Default::default(),
             prospective: Default::default(),
         }
@@ -90,10 +127,12 @@ impl TrieUpdate {
     /// Clones the `TrieUpdate` for transaction preparation.
     /// The cloned `TrieUpdate` will have a new recorder for trie reads,
     /// while sharing the same underlying committed and prospective changes.
+    /// It sees the contracts deployed in them too, so the producer can run those contracts.
     pub fn clone_for_tx_preparation(&self) -> TrieUpdate {
         Self {
             trie: self.trie.recording_reads_new_recorder(),
-            contract_storage: ContractStorage::new(self.trie.storage.clone()),
+            contract_storage: self.contract_storage.clone_deploys(),
+            contract_compilations: BTreeMap::new(),
             committed: self.committed.clone(),
             prospective: self.prospective.clone(),
         }
@@ -111,8 +150,31 @@ impl TrieUpdate {
         &self.trie
     }
 
+    /// Caps what the trie may record at `limit` more bytes until the returned guard is dropped,
+    /// as `Trie::set_recording_budget` describes. Reads go through the guard, which derefs to
+    /// this update.
+    ///
+    /// Returns `None` if the trie doesn't record: the budget counts recorded bytes, so it would
+    /// cap nothing, and reads would go on uncapped.
+    #[must_use = "the budget is cleared when the guard is dropped"]
+    pub fn with_recording_budget(&mut self, limit: usize) -> Option<RecordingBudget<'_>> {
+        self.trie.recorder.as_ref()?;
+        self.trie.set_recording_budget(limit);
+        Some(RecordingBudget { trie_update: self })
+    }
+
     pub fn contract_storage(&self) -> &ContractStorage {
         &self.contract_storage
+    }
+
+    /// Records a deterministic compilation attempt, not a local cache miss or a
+    /// speculative background preparation. Repeated uses of the same code count once.
+    pub fn record_contract_compilation(&mut self, code_hash: CryptoHash, code_len: u64) {
+        self.contract_compilations.insert(code_hash, code_len);
+    }
+
+    pub fn take_contract_compilations(&mut self) -> BTreeMap<CryptoHash, u64> {
+        std::mem::take(&mut self.contract_compilations)
     }
 
     pub fn get_ref(
@@ -320,6 +382,7 @@ mod tests {
     use super::*;
     use crate::ShardUId;
     use crate::test_utils::TestTriesBuilder;
+    use crate::trie::NewTrieNodes;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     const SHARD_VERSION: u32 = 1;
@@ -359,6 +422,73 @@ mod tests {
             values,
             vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec()]
         );
+    }
+
+    /// A trie over the nodes that a chunk added reads what the chunk's state holds before the
+    /// changes are in the store, and records what the trie of the stored changes does, so a call
+    /// run on it reads and records as it does in apply.
+    #[test]
+    fn trie_with_new_nodes_reads_and_records_like_the_stored_trie() {
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+        let tries = TestTriesBuilder::new()
+            .with_shard_layout(shard_layout)
+            .with_flat_storage(true)
+            .with_in_memory_tries(true)
+            .build();
+        let key = |index: u32| test_key(format!("key{index:04}").into_bytes());
+        let cause = StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() };
+
+        // A state in the store with enough keys for a trie of some depth.
+        let mut update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
+        (0..300).for_each(|index| update.set(key(index), vec![1; 100]));
+        update.commit(cause.clone());
+        let trie_changes = update.finalize().unwrap().trie_changes;
+        let mut store_update = tries.store_update();
+        let old_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit();
+        tries.apply_memtrie_changes(&trie_changes, shard_uid, 1);
+
+        // A chunk that overwrites a key with a large value, adds a key and removes one.
+        let mut update = tries.new_trie_update(shard_uid, old_root);
+        update.set(key(7), vec![2; 5000]);
+        update.set(key(1000), vec![3; 100]);
+        update.remove(key(8));
+        update.commit(cause);
+        let trie_changes = update.finalize().unwrap().trie_changes;
+        let new_root = trie_changes.new_root;
+        let new_nodes = NewTrieNodes::from_changes(&trie_changes);
+        assert!(!new_nodes.is_empty());
+        let with_new_nodes = tries.get_trie_with_new_nodes(shard_uid, new_root, new_nodes);
+
+        // What a read finds and records.
+        let read = |trie: &Trie, key: &TrieKey| {
+            let update = TrieUpdate::new(trie.recording_reads_new_recorder());
+            let value = update.get(key, AccessOptions::DEFAULT).unwrap();
+            (value, update.trie.recorded_storage_size_upper_bound())
+        };
+        let keys = (0..300).chain([1000]).map(key).collect::<Vec<_>>();
+
+        // The changes are not in the store yet, and the store alone can't read them: only the
+        // trie that has the new nodes does.
+        let store_only = tries.get_view_trie_for_shard(shard_uid, new_root);
+        let store_only = TrieUpdate::new(store_only.recording_reads_new_recorder());
+        assert!(store_only.get(&key(1000), AccessOptions::DEFAULT).is_err());
+        let before_store = keys.iter().map(|key| read(&with_new_nodes, key)).collect::<Vec<_>>();
+        assert_eq!(before_store[7].0, Some(vec![2; 5000]));
+        assert_eq!(before_store[8].0, None);
+        assert_eq!(before_store[300].0, Some(vec![3; 100]));
+
+        // Once they are stored, every key reads the same from the trie that has them in memory
+        // and from the stored one, and records the same.
+        let mut store_update = tries.store_update();
+        assert_eq!(tries.apply_all(&trie_changes, shard_uid, &mut store_update), new_root);
+        store_update.commit();
+        tries.apply_memtrie_changes(&trie_changes, shard_uid, 2);
+        let stored = tries.get_trie_for_shard(shard_uid, new_root);
+        for (index, key) in keys.iter().enumerate() {
+            assert_eq!(before_store[index], read(&stored, key), "key {index}");
+        }
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
+use crate::config::{
+    BandwidthSchedulerConfig, CongestionControlConfig, ExternalCallsConfig, WitnessConfig,
+};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, SignatureKind,
     StorageUsageConfig,
@@ -459,6 +461,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 canonical_universal_state_init: params
                     .get(Parameter::CanonicalUniversalStateInit)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,
+                fix_register_input_charging: params.get(Parameter::FixRegisterInputCharging)?,
                 ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
                 bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
@@ -476,6 +479,16 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
+            external_calls_config: ExternalCallsConfig {
+                max_call_size: params.get(Parameter::MaxExternalCallSize)?,
+                max_call_recorded_size: params.get(Parameter::MaxExternalCallRecordedSize)?,
+                chunk_compute_share: params.get(Parameter::ExternalCallsChunkComputeShare)?,
+                chunk_storage_proof_share: params
+                    .get(Parameter::ExternalCallsChunkStorageProofShare)?,
+                chunk_transactions_size_share: params
+                    .get(Parameter::ExternalCallsChunkTransactionsSizeShare)?,
+                max_calls_per_chunk: params.get(Parameter::MaxExternalCallsPerChunk)?,
             },
             bandwidth_scheduler_config: BandwidthSchedulerConfig {
                 max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,

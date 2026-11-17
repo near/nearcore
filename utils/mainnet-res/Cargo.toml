@@ -14,12 +14,9 @@ workspace = true
 [dependencies]
 serde_json.workspace = true
 
-near-account-id.workspace = true
 near-chain-configs.workspace = true
-near-primitives.workspace = true
 
 [features]
 nightly = [
   "near-chain-configs/nightly",
-  "near-primitives/nightly",
 ]

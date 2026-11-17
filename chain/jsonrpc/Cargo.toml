@@ -36,7 +36,6 @@ near-jsonrpc-client-internal.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-epoch-manager.workspace = true
 near-store.workspace = true
-near-jsonrpc-adversarial-primitives = { workspace = true, optional = true }
 near-chain-primitives.workspace = true
 
 [features]
@@ -44,14 +43,12 @@ test_features = [
     "near-client/test_features",
     "near-network/test_features",
     "near-jsonrpc-primitives/test_features",
-    "near-jsonrpc-adversarial-primitives/test_features",
     "near-primitives/test_features",
 ]
 nightly = [
     "near-chain-configs/nightly",
     "near-client-primitives/nightly",
     "near-client/nightly",
-    "near-jsonrpc-adversarial-primitives/nightly",
     "near-jsonrpc-client-internal/nightly",
     "near-jsonrpc-primitives/nightly",
     "near-network/nightly",
@@ -60,6 +57,3 @@ nightly = [
 ]
 sandbox = ["near-client/sandbox", "near-o11y/sandbox"]
 protocol_feature_spice = ["near-client/protocol_feature_spice"]
-
-[package.metadata.cargo-machete]
-ignored = ["near-jsonrpc-adversarial-primitives"]

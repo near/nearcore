@@ -111,7 +111,7 @@ An account with a NEAR-implicit or ETH-implicit account ID can only be created b
 
 - The account will be created with the account ID.
 - The account balance will have a transfer balance deposited to it.
-- If this is NEAR-implicit account, it will have a new full access key with the ED25519-curve public key of `decode_hex(account_id)` and nonce `(block_height - 1) * MULTIPLIER` (to address an issues discussed [here](https://gov.near.org/t/issue-with-access-key-nonce/749)).
+- If this is NEAR-implicit account, it will have a new full access key with the ED25519-curve public key of `decode_hex(account_id)` and nonce `block_height * MULTIPLIER - 1` (`(block_height - 1) * MULTIPLIER` before protocol version 89) (to address an issues discussed [here](https://gov.near.org/t/issue-with-access-key-nonce/749)).
 - If this is ETH-implicit account, it will have the [Wallet Contract](#wallet-contract) deployed, which can only be used by the owner of the Secp256K1 private key where `'0x' + keccak256(public_key)[12:32].hex()` matches the account ID.
 
 Implicit account can not be created using `CreateAccount` action to avoid being able to hijack the account without having the corresponding private key.
@@ -145,8 +145,12 @@ Deterministic accounts have a fixed code and fixed initial state associated with
 
 The initial state of a deterministic account is fully defined by an instance of `DeterministicAccountStateInit`.
 
-Key-value pairs in `data` must be at most `max_length_storage_key` and `max_length_storage_value` bytes long,
-respectively. These parameters are currently both set to 4Mib (4194304 bytes).
+Keys in `data` must be at most `max_length_storage_key` bytes long (currently 2048 bytes). Values in `data` must be at
+most `max_length_storage_value` bytes long (currently 4 MiB, 4194304 bytes).
+
+From protocol version 87 (nearcore 2.14.0), all state init actions in one receipt together can carry at most
+`max_state_init_entries` data entries (currently 1500). State init actions inside a delegate action count too. Before
+protocol version 87, there is no practical limit on the number of entries.
 
 ```rust
 pub enum DeterministicAccountStateInit {
@@ -173,8 +177,11 @@ bytes. Then use the following formula: `'0s' + keccak256(bytes)[12:32].hex()`.
 
 ### Deterministic account creation
 
-Deterministic accounts cannot be created with a `CreateAccount` nor with a `Transfer` action.
-A special action, `DeterministicStateInitAction`, is required.
+Deterministic accounts cannot be created with a `CreateAccount` action.
+A `Transfer` that is the only action of its receipt creates the account, but without code or data.
+A refund receipt cannot create an account, even when its only action is a `Transfer` (see [Refunds](../RuntimeSpec/Refunds.md)).
+If a refund goes to a deterministic account that does not exist yet, the refund fails and its amount is burnt.
+A special action, `DeterministicStateInitAction`, is required to initialize it.
 This action validates that the account id matches its initial state.
 
 As with all account types, you have to attach a large enough deposit to cover for the account storage. If the code and

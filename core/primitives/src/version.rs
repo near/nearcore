@@ -22,9 +22,6 @@ pub use near_primitives_core::version::ProtocolFeature;
 pub use near_primitives_core::version::assert_supported_protocol_version;
 pub use near_primitives_core::version::clamp_to_supported_protocol_version;
 
-/// Minimum gas price proposed in NEP 92 and the associated protocol version
-pub const MIN_GAS_PRICE_NEP_92: Balance = Balance::from_yoctonear(1_000_000_000);
-
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = Balance::from_yoctonear(100_000_000);
 
