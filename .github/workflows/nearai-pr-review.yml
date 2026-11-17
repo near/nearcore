@@ -77,11 +77,15 @@ jobs:
             .claude/skills/pr-review/SKILL.md
             AGENTS.md
 
-      # Greptile and the Claude review start on the same event. Wait for their
-      # checks so their comments exist before they are fetched, because the
-      # model is told not to repeat them. This is best effort: a check that does
-      # not appear within the grace period is skipped, for example after that
-      # reviewer is removed. Runs started by a comment do not wait.
+      # Greptile, the Claude review and Copilot start on the same event. Wait
+      # for them so their comments exist before they are fetched, because the
+      # model is told not to repeat them. Greptile and Claude report a check.
+      # Copilot only posts a review, so it counts as running while it is a
+      # requested reviewer. This is best effort: a reviewer that does not
+      # appear within the grace period is skipped, for example after it is
+      # removed. The 15-minute cap is shared by all three, and a Copilot request
+      # that never gets a review waits for the whole cap. Runs started by a
+      # comment do not wait.
       - name: Wait for other AI reviewers
         if: ${{ steps.key-check.outputs.present == 'true' && github.event_name == 'pull_request' }}
         env:
@@ -90,12 +94,34 @@ jobs:
           WAIT_GRACE: ${{ vars.NEARAI_REVIEW_WAIT_GRACE }}
         run: |
           grace=${WAIT_GRACE:-180}
-          for check in "Greptile Review" "claude-review"; do
+          reviewer_state() {
+            local out last
+            if [ "$1" = Copilot ]; then
+              # The timeline shows when Copilot is requested and when it reviews.
+              # The REST requested_reviewers list leaves a Copilot request out,
+              # and GraphQL denies this token the requested reviewers when a team
+              # is requested. Copilot is running while its last event is a
+              # request: it may be requested again after an earlier review, and
+              # GitHub drops the request once Copilot posts.
+              out=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/timeline?per_page=100" \
+                --jq '.[] | select(((.event == "review_requested" or .event == "review_request_removed")
+                    and (.requested_reviewer.login // "" | test("^copilot(-pull-request-reviewer(\\[bot\\])?)?$"; "i")))
+                  or (.event == "reviewed" and (.user.login // "" | test("^copilot(-pull-request-reviewer(\\[bot\\])?)?$"; "i"))))
+                  | .event') || return 1
+              last=${out##*$'\n'}
+              if [ "$last" = review_requested ]; then echo running
+              elif grep -qx reviewed <<< "$out"; then echo done
+              else echo absent; fi
+            else
+              gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+                -f check_name="$1" --jq 'if (.check_runs | length) == 0 then "absent"
+                  elif all(.check_runs[]; .status == "completed") then "done" else "running" end'
+            fi
+          }
+          for reviewer in "Greptile Review" "claude-review" Copilot; do
             while :; do
-              state=$(gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
-                -f check_name="$check" --jq 'if (.check_runs | length) == 0 then "absent"
-                  elif all(.check_runs[]; .status == "completed") then "done" else "running" end') || state=error
-              echo "$check: $state after ${SECONDS}s"
+              state=$(reviewer_state "$reviewer") || state=error
+              echo "$reviewer: $state after ${SECONDS}s"
               if [ "$state" = done ] || [ "$state" = error ]; then break; fi
               if [ "$state" = absent ] && [ "$SECONDS" -ge "$grace" ]; then break; fi
               if [ "$SECONDS" -ge 900 ]; then break 2; fi
