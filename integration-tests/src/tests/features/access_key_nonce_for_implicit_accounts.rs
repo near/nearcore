@@ -2,7 +2,7 @@ use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, IntoSender, noop};
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
@@ -496,7 +496,7 @@ fn test_processing_chunks_sanity() {
             let _ = env.clients[1].start_process_block(
                 blocks[ind].clone().into(),
                 Provenance::NONE,
-                None,
+                noop().into_sender(),
             );
             if rng.gen_bool(0.5) {
                 env.process_shards_manager_responses_and_finish_processing_blocks(1);
@@ -719,7 +719,7 @@ fn test_chunk_forwarding_optimization() {
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                None,
+                noop().into_sender(),
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -791,8 +791,11 @@ fn test_processing_blocks_async() {
     let mut rng = thread_rng();
     blocks.shuffle(&mut rng);
     for ind in 0..blocks.len() {
-        let _ =
-            env.clients[1].start_process_block(blocks[ind].clone().into(), Provenance::NONE, None);
+        let _ = env.clients[1].start_process_block(
+            blocks[ind].clone().into(),
+            Provenance::NONE,
+            noop().into_sender(),
+        );
     }
 
     env.process_shards_manager_responses_and_finish_processing_blocks(1);

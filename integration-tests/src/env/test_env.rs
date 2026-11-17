@@ -2,7 +2,7 @@ use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use near_async::ActorSystem;
-use near_async::messaging::{CanSend, IntoMultiSender};
+use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
 use near_chain::chain::ChunkStateWitnessMessage;
@@ -325,7 +325,7 @@ impl TestEnv {
             match msg.span_unwrap() {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk } => {
                     self.clients[id]
-                        .on_chunk_completed(partial_chunk, decoded_chunk, None)
+                        .on_chunk_completed(partial_chunk, decoded_chunk, noop().into_sender())
                         .unwrap();
                 }
                 ShardsManagerResponse::ChunkHeaderReadyForInclusion {

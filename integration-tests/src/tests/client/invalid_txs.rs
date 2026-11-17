@@ -1,5 +1,6 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
 use crate::env::test_env::TestEnv;
+use near_async::messaging::{IntoSender, noop};
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::create_chunk;
@@ -243,9 +244,12 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(1).unwrap().unwrap();
     for client in &mut env.clients {
-        client.start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
+        client
+            .start_process_block(block.clone().into(), Provenance::NONE, noop().into_sender())
+            .unwrap();
         near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
-        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true);
+        let (accepted_blocks, _errors) =
+            client.postprocess_ready_blocks(noop().into_sender(), true);
         assert_eq!(accepted_blocks.len(), 1);
     }
 
@@ -256,9 +260,12 @@ fn test_invalid_transactions_dont_invalidate_chunk() {
     env.propagate_chunk_state_witnesses_and_endorsements(true);
     let block = env.client(&block_producer).produce_block(2).unwrap().unwrap();
     for client in &mut env.clients {
-        client.start_process_block(block.clone().into(), Provenance::NONE, None).unwrap();
+        client
+            .start_process_block(block.clone().into(), Provenance::NONE, noop().into_sender())
+            .unwrap();
         near_chain::test_utils::wait_for_all_blocks_in_processing(&mut client.chain);
-        let (accepted_blocks, _errors) = client.postprocess_ready_blocks(None, true);
+        let (accepted_blocks, _errors) =
+            client.postprocess_ready_blocks(noop().into_sender(), true);
         assert_eq!(accepted_blocks.len(), 1);
     }
     env.propagate_chunk_state_witnesses_and_endorsements(true);

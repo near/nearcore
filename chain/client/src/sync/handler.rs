@@ -87,7 +87,7 @@ impl SyncHandler {
         chain: &mut Chain,
         shard_tracker: &ShardTracker,
         peers: &SyncPeers,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<Option<SyncHandlerRequest>, near_chain::Error> {
         let &SyncPeers { highest_height, ref peers_ahead, .. } = peers;
         if matches!(self.sync_status, SyncStatus::NoSync | SyncStatus::AwaitingPeers) {

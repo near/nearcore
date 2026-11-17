@@ -1284,7 +1284,7 @@ impl Chain {
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
         let block_received_time = self.clock.now();
@@ -1317,7 +1317,7 @@ impl Chain {
     pub fn preprocess_optimistic_block(
         &mut self,
         block: OptimisticBlock,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         // Validate the optimistic block.
         // Discard the block if it is old or not created by the right producer.
@@ -1333,7 +1333,7 @@ impl Chain {
 
     pub fn maybe_process_optimistic_block(
         &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
             return;
@@ -1388,7 +1388,7 @@ impl Chain {
         &mut self,
         block: OptimisticBlock,
         chunk_headers: Vec<ShardChunkHeader>,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), Error> {
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
@@ -1498,7 +1498,7 @@ impl Chain {
     pub fn postprocess_ready_blocks(
         &mut self,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
@@ -1650,7 +1650,7 @@ impl Chain {
         &mut self,
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), Error> {
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
@@ -1748,7 +1748,7 @@ impl Chain {
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
@@ -1893,7 +1893,7 @@ impl Chain {
         block_height: BlockHeight,
         work: Vec<UpdateShardJob>,
         apply_chunks_still_applying: ApplyChunksStillApplying,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         // Track all children using `parent_span`, as they may be processed in parallel.
         let parent_span = Span::current();
@@ -1920,9 +1920,7 @@ impl Chain {
                 .observe((clock.now().signed_duration_since(start_time)).as_seconds_f64());
             sc.send((block, results)).unwrap();
             drop(apply_chunks_still_applying);
-            if let Some(sender) = apply_chunks_done_sender {
-                sender.send(ApplyChunksDoneMessage {}.span_wrap());
-            }
+            apply_chunks_done_sender.send(ApplyChunksDoneMessage {}.span_wrap());
         };
         let jobs = work
             .into_iter()
@@ -1985,7 +1983,7 @@ impl Chain {
         block_hash: CryptoHash,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
@@ -2168,7 +2166,7 @@ impl Chain {
         block_height: BlockHeight,
         apply_result: Vec<((ShardId, CachedShardUpdateKey), Result<ShardUpdateResult, Error>)>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         let (optimistic_block, optimistic_block_info) = self.blocks_in_processing.remove_optimistic(&block_height).unwrap_or_else(|| {
             panic!(
@@ -2756,7 +2754,7 @@ impl Chain {
     pub fn check_blocks_with_missing_chunks(
         &mut self,
         block_processing_artifact: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         if !blocks.is_empty() {
@@ -3210,7 +3208,7 @@ impl Chain {
         // descendant blocks to the search when they're not equal to this hash, and then removing everything we see in that search
         _catchup_start_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         tracing::debug!(?epoch_first_block, "finishing catching up blocks after syncing pre");

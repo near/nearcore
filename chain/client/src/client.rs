@@ -1272,7 +1272,7 @@ impl Client {
         block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         let hash = *block.hash();
         let res = self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_sender);
@@ -1315,7 +1315,7 @@ impl Client {
         block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), near_chain::Error> {
         self.chain.blocks_delay_tracker.mark_block_received(&block);
         // To protect ourselves from spamming, we do a pre-check before doing
@@ -1383,8 +1383,7 @@ impl Client {
             return;
         }
 
-        self.chain
-            .preprocess_optimistic_block(block, Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.preprocess_optimistic_block(block, self.myself_sender.apply_chunks_done.clone());
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block
@@ -1494,7 +1493,7 @@ impl Client {
         &mut self,
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), near_chain::Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
@@ -1517,7 +1516,7 @@ impl Client {
     #[instrument(level = "debug", target = "client", skip_all, fields(%should_produce_chunk))]
     pub fn postprocess_ready_blocks(
         &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
@@ -1631,7 +1630,7 @@ impl Client {
         &mut self,
         partial_chunk: PartialEncodedChunk,
         decoded_chunk: DecodedChunk,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), Error> {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
@@ -1702,8 +1701,7 @@ impl Client {
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
 
-        self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.maybe_process_optimistic_block(self.myself_sender.apply_chunks_done.clone());
         Ok(())
     }
 
@@ -2322,7 +2320,7 @@ impl Client {
     #[instrument(level = "debug", target = "client", skip_all)]
     pub fn process_blocks_with_missing_chunks(
         &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
         self.chain.check_blocks_with_missing_chunks(
@@ -2578,7 +2576,7 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?

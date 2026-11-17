@@ -647,7 +647,7 @@ impl Handler<SpanWrapped<BlockResponse>> for ClientActor {
                 block,
                 peer_id,
                 was_requested,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                self.client.myself_sender.apply_chunks_done.clone(),
             );
         } else {
             match self.client.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())
@@ -1468,10 +1468,9 @@ impl ClientActor {
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
-        let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
-            true,
-        );
+        let (accepted_blocks, errors) = self
+            .client
+            .postprocess_ready_blocks(self.client.myself_sender.apply_chunks_done.clone(), true);
         if !errors.is_empty() {
             tracing::error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
         }
@@ -1537,7 +1536,7 @@ impl ClientActor {
         let res = self.client.start_process_block(
             block,
             Provenance::PRODUCED,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            self.client.myself_sender.apply_chunks_done.clone(),
         );
         let Err(error) = res else {
             return Ok(());
@@ -1590,9 +1589,9 @@ impl ClientActor {
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
 
-        self.client.chain.maybe_process_optimistic_block(Some(
-            self.client.myself_sender.apply_chunks_done.clone(),
-        ));
+        self.client
+            .chain
+            .maybe_process_optimistic_block(self.client.myself_sender.apply_chunks_done.clone());
 
         Ok(())
     }
@@ -1880,7 +1879,7 @@ impl ClientActor {
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
             if let Err(err) = self.client.run_catchup(
                 &self.sync_jobs_sender.block_catch_up,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                self.client.myself_sender.apply_chunks_done.clone(),
             ) {
                 tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
             }
@@ -2034,7 +2033,7 @@ impl ClientActor {
             &mut self.client.chain,
             &self.client.shard_tracker,
             &peers,
-            Some(self.client.myself_sender.apply_chunks_done.clone()),
+            self.client.myself_sender.apply_chunks_done.clone(),
         ) {
             Ok(Some(request)) => request,
             Ok(None) => return,
@@ -2247,7 +2246,7 @@ impl ClientActor {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.client.myself_sender.apply_chunks_done.clone()),
+                self.client.myself_sender.apply_chunks_done.clone(),
             );
             blocks_produced += 1;
             if blocks_produced == num_blocks {
@@ -2292,7 +2291,7 @@ impl Handler<SpanWrapped<ShardsManagerResponse>> for ClientActor {
                 if let Err(err) = self.client.on_chunk_completed(
                     partial_chunk,
                     decoded_chunk,
-                    Some(self.client.myself_sender.apply_chunks_done.clone()),
+                    self.client.myself_sender.apply_chunks_done.clone(),
                 ) {
                     tracing::error!(target: "client", ?err, "error processing completed chunk");
                 }
