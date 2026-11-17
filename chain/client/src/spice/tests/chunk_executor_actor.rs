@@ -1221,6 +1221,71 @@ fn test_reporting_a_shard_whose_executor_a_fork_block_evicted() {
     assert_eq!(reports, vec![(first_height + 2 * FINALITY_LAG, first_height + FINALITY_LAG)]);
 }
 
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() {
+    init_test_logger();
+    let shard_layout = ShardLayout::multi_shard(2, 0);
+    let shard_id = ShardId::new(1);
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(shard_layout)
+        .epoch_length(5)
+        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
+        // for.
+        .max_inflation_rate(Rational32::from_integer(0))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test-producer-0", "test-producer-1"],
+            &[],
+        ))
+        .build();
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    // Tracked one epoch in three, so the node stops applying it at the first block of the epoch
+    // after.
+    let mut actor = TestActor::with_tracked_shards_config(
+        genesis.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+        TrackedShardsConfig::Schedule(vec![vec![shard_id], vec![], vec![]]),
+        outgoing_sc,
+    );
+    let shard_tracker = actor.actor.shard_tracker.clone();
+    let applies_shard = |block: &Block| {
+        shard_tracker
+            .tracked_shard_uids_this_or_next_epoch(block.header().prev_hash())
+            .unwrap()
+            .contains(&shard_uid)
+    };
+    let genesis_block = actor.chain.genesis_block();
+    let mut block = produce_spice_block_certifying_parent(&mut actor.chain, &genesis_block);
+    while !applies_shard(&block) {
+        assert!(block.header().height() < 4 * genesis.config.epoch_length, "never applies");
+        block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    }
+    while applies_shard(&block) {
+        block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    }
+    let stopping_block = block.clone();
+    // Two blocks above the stopping block make it final.
+    for _ in 0..2 {
+        block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    }
+    let stopping_height = stopping_block.header().height();
+    assert!(actor.chain.chain_store.final_head().unwrap().height >= stopping_height);
+
+    // The node restarts with no record of the eviction, and its final execution head at genesis.
+    actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    actor.run_internal_events();
+
+    let mut reports = Vec::new();
+    while let Ok(Some(message)) = outgoing_rc.try_next() {
+        if let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message {
+            reports.push((head.shard_id, head.height));
+        }
+    }
+    assert_eq!(reports, vec![(shard_id, stopping_height)]);
+}
+
 /// The `ShardUId` of [`untracked_shard`].
 fn untracked_shard_uid(actor: &TestActor, block: &Block) -> ShardUId {
     let shard_layout =
