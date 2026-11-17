@@ -31,7 +31,14 @@ pub(super) fn migrate_54_to_55(
     hot_store: &Store,
     genesis_config: &GenesisConfig,
     home_dir: &Path,
+    is_snapshot: bool,
 ) -> anyhow::Result<()> {
+    // State snapshot DBs keep only `BlockMisc` and flat storage columns, so they have no
+    // `BlockInfo` to build rows from.
+    if is_snapshot {
+        tracing::info!(target: "migrations", "state snapshot DB, skipping migration from DB version 54 to 55");
+        return Ok(());
+    }
     let epoch_manager =
         EpochManager::new_arc_handle(hot_store.clone(), genesis_config, Some(home_dir));
     migrate_54_to_55_with_epoch_manager(hot_store, &epoch_manager.read())
@@ -138,5 +145,36 @@ fn set_aggregator_row(
     *written += 1;
     if written.is_multiple_of(ROWS_PER_PROGRESS_LOG) {
         tracing::info!(target: "migrations", written = *written, "wrote epoch info aggregator rows");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::migrate_54_to_55;
+    use near_chain_configs::GenesisConfig;
+    use near_primitives::block::Tip;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::EpochId;
+    use near_store::adapter::StoreAdapter;
+    use near_store::test_utils::create_test_store;
+    use std::path::Path;
+
+    #[test]
+    fn skips_state_snapshot_with_final_head_and_no_block_info() {
+        let store = create_test_store();
+        let final_head = Tip {
+            height: 10,
+            last_block_hash: CryptoHash::hash_bytes(b"final head"),
+            prev_block_hash: CryptoHash::hash_bytes(b"final head parent"),
+            epoch_id: EpochId::default(),
+            next_epoch_id: EpochId::default(),
+        };
+        let mut chain_store_update = store.chain_store().store_update();
+        chain_store_update.set_final_head(&final_head);
+        chain_store_update.commit();
+
+        let is_snapshot = true;
+        migrate_54_to_55(&store, &GenesisConfig::default(), Path::new("unused"), is_snapshot)
+            .unwrap();
     }
 }

@@ -54,9 +54,11 @@ pub(crate) fn replay_headers(
                 .store_update
                 .commit();
 
-            if epoch_manager
-                .is_last_block_in_finished_epoch(&block_hash)
-                .expect("Could not determine if block is last block in epoch")
+            // Genesis has an `EpochInfo` for its hash but no epoch summary.
+            if !header.is_genesis()
+                && epoch_manager
+                    .is_last_block_in_finished_epoch(&block_hash)
+                    .expect("Could not determine if block is last block in epoch")
             {
                 // `EpochId` reads the epoch summary (`DBCol::EpochValidatorInfo`), which is not
                 // GC'd, so it works for every finished epoch.
