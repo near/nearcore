@@ -293,21 +293,22 @@ mod tests {
             RpcSendTransactionEnvelopeRequest::from(signed_request.clone()),
             RpcSendTransactionEnvelopeRequest::from(ecc_request.clone()),
         ];
-        let jsons = [
+        let json_values = [
             serde_json::to_value(&signed_request).unwrap(),
             serde_json::to_value(&ecc_request).unwrap(),
         ];
 
-        for (envelope, json) in envelopes.iter().zip(&jsons) {
+        for (envelope, json) in envelopes.iter().zip(&json_values) {
             assert_eq!(&serde_json::to_value(envelope).unwrap(), json);
             let parsed =
                 serde_json::from_value::<RpcSendTransactionEnvelopeRequest>(json.clone()).unwrap();
             assert_eq!(parsed.transaction, envelope.transaction);
         }
-        let parsed = serde_json::from_value::<RpcSendTransactionRequest>(jsons[0].clone()).unwrap();
+        let parsed =
+            serde_json::from_value::<RpcSendTransactionRequest>(json_values[0].clone()).unwrap();
         assert_eq!(parsed.signed_transaction, signed_tx);
         let parsed =
-            serde_json::from_value::<RpcSendExternalCallRequest>(jsons[1].clone()).unwrap();
+            serde_json::from_value::<RpcSendExternalCallRequest>(json_values[1].clone()).unwrap();
         assert_eq!(parsed.external_call, ecc_request.external_call);
     }
 
