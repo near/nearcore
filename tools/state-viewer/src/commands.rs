@@ -6,7 +6,7 @@ use crate::contract_accounts::Summary;
 use crate::epoch_info::iterate_and_filter;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
-use crate::tx_dump::dump_tx_from_block;
+use crate::tx_dump::{dump_tx_from_block, encode_transaction};
 use crate::util::{LoadTrieMode, check_apply_block_result, load_trie, load_trie_stop_at_height};
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
@@ -53,7 +53,6 @@ use near_store::trie::AccessOptions;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
-use serde_json::json;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::fs::{self, File};
@@ -561,7 +560,8 @@ pub(crate) fn dump_tx(
         let hash_result = chain_store.get_block_hash_by_height(height);
         if let Ok(hash) = hash_result {
             let block = chain_store.get_block(&hash)?;
-            txs.extend(dump_tx_from_block(&chain_store, &block, select_account_ids));
+            let block_txs = dump_tx_from_block(&chain_store, &block, select_account_ids);
+            txs.extend(block_txs.iter().map(encode_transaction));
         }
     }
     let json_path = match output_path {
@@ -569,7 +569,7 @@ pub(crate) fn dump_tx(
         None => PathBuf::from(&home_dir).join("tx.json"),
     };
     println!("Saving tx (height {} to {}) into {}", start_height, end_height, json_path.display(),);
-    fs::write(json_path, json!(txs).to_string())
+    fs::write(json_path, serde_json::to_string(&txs).unwrap())
         .expect("Error writing the results to a json file.");
     Ok(())
 }

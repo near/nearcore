@@ -75,7 +75,7 @@ pub enum StateViewerSubCommand {
     /// Writes state to a remote redis server.
     #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
-    /// Generate a file that contains all transactions from a block.
+    /// Generate a file that contains all transactions and ECCs from a block range.
     #[clap(alias = "dump_tx")]
     DumpTx(DumpTxCmd),
     /// Print `EpochInfo` of an epoch given by `--epoch_id` or by `--epoch_height`.
@@ -325,6 +325,7 @@ pub struct ApplyRangeCmd {
     verbose_output: bool,
     #[clap(long, value_parser)]
     csv_file: Option<PathBuf>,
+    /// Skip chunks with no transaction that calls or deploys a contract. An ECC counts as one.
     #[clap(long)]
     only_contracts: bool,
     #[clap(long, default_value = "trie")]
@@ -381,6 +382,8 @@ impl ApplyReceiptCmd {
 
 #[derive(clap::Parser)]
 pub struct ApplyTxCmd {
+    /// Hash of the transaction. For an ECC included in a block, the id of its outcome instead,
+    /// which depends on the block.
     #[clap(long)]
     hash: String,
     #[clap(long, default_value = "trie")]
@@ -606,8 +609,8 @@ pub struct DumpTxCmd {
     /// Specify the end block by height to stop dumping transactions at, inclusive.
     #[clap(long)]
     end_height: BlockHeight,
-    /// List of account IDs to dump.
-    /// If not set, all account IDs will be dumped.
+    /// List of receiver account IDs to dump. The receiver of an ECC is its contract.
+    /// If not set, all transactions will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
     /// Optionally, can specify the path of the output.

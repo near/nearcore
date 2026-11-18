@@ -7,6 +7,7 @@
 ### Non-protocol Changes
 
 * Raised the minimum supported Rust version to 1.100.0. Building `nearcore` from source now requires a Rust 1.100.0 toolchain.
+* `view_state dump_tx` now also dumps external contract calls (ECCs), as base64 of their borsh encoding like signed transactions. `view_state apply_tx` accepts the outcome id of an included ECC, and `view_state apply_range --only-contracts` counts an ECC as a contract transaction.
 
 ## [2.15.0]
 
