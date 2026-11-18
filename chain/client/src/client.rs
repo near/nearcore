@@ -29,8 +29,7 @@ use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
-    ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    VerifyBlockHashAndSignatureResult,
+    BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::types::ReshardingSender;
@@ -151,7 +150,7 @@ pub struct Client {
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     /// Sender for catchup state sync requests.
     chain_sender_for_state_sync: ChainSenderForStateSync,
-    // Sender to be able to send a message to myself.
+    /// Sender to be able to send a message to myself.
     pub myself_sender: ClientSenderForClient,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
@@ -177,7 +176,7 @@ pub struct Client {
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
-    // Optional value used for the Chunk Distribution Network Feature.
+    /// Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
     /// Upgrade schedule which determines when the client starts voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
@@ -1267,15 +1266,9 @@ impl Client {
             %was_requested
         )
     )]
-    pub fn receive_block(
-        &mut self,
-        block: Arc<Block>,
-        peer_id: PeerId,
-        was_requested: bool,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
+    pub fn receive_block(&mut self, block: Arc<Block>, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        let res = self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_sender);
+        let res = self.receive_block_impl(block, peer_id, was_requested);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1315,7 +1308,6 @@ impl Client {
         block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), near_chain::Error> {
         self.chain.blocks_delay_tracker.mark_block_received(&block);
         // To protect ourselves from spamming, we do a pre-check before doing
@@ -1342,7 +1334,7 @@ impl Client {
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
+        let res = self.start_process_block(block, provenance);
         match &res {
             Ok(()) => {}
             Err(near_chain::Error::Orphan) => {
@@ -1383,8 +1375,7 @@ impl Client {
             return;
         }
 
-        self.chain
-            .preprocess_optimistic_block(block, Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.preprocess_optimistic_block(block, self.myself_sender.apply_chunks_done.clone());
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block
@@ -1480,7 +1471,6 @@ impl Client {
     /// Start the processing of a block. Note that this function will return before
     /// the full processing is finished because applying chunks is done asynchronously
     /// in the rayon thread pool.
-    /// `apply_chunks_done_sender`: a callback that will be called when applying chunks is finished.
     #[instrument(
         level = "debug",
         target = "client",
@@ -1494,7 +1484,6 @@ impl Client {
         &mut self,
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), near_chain::Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
@@ -1503,7 +1492,7 @@ impl Client {
                 block,
                 provenance,
                 &mut block_processing_artifacts,
-                apply_chunks_done_sender,
+                self.myself_sender.apply_chunks_done.clone(),
             )
         };
 
@@ -1517,13 +1506,13 @@ impl Client {
     #[instrument(level = "debug", target = "client", skip_all, fields(%should_produce_chunk))]
     pub fn postprocess_ready_blocks(
         &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        let (accepted_blocks, errors) = self
-            .chain
-            .postprocess_ready_blocks(&mut block_processing_artifacts, apply_chunks_done_sender);
+        let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
+            &mut block_processing_artifacts,
+            self.myself_sender.apply_chunks_done.clone(),
+        );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             let head = self.chain.head().unwrap();
             let header_head = self.chain.header_head().unwrap();
@@ -1631,7 +1620,6 @@ impl Client {
         &mut self,
         partial_chunk: PartialEncodedChunk,
         decoded_chunk: DecodedChunk,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
@@ -1700,10 +1688,9 @@ impl Client {
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
         // If this was the last chunk that was missing for a block, it will be processed now.
-        self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
+        self.process_blocks_with_missing_chunks();
 
-        self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.maybe_process_optimistic_block(self.myself_sender.apply_chunks_done.clone());
         Ok(())
     }
 
@@ -2317,14 +2304,11 @@ impl Client {
 
     /// Check if any block with missing chunks is ready to be processed
     #[instrument(level = "debug", target = "client", skip_all)]
-    pub fn process_blocks_with_missing_chunks(
-        &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
+    pub fn process_blocks_with_missing_chunks(&mut self) {
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
         self.chain.check_blocks_with_missing_chunks(
             &mut blocks_processing_artifacts,
-            apply_chunks_done_sender,
+            self.myself_sender.apply_chunks_done.clone(),
         );
         self.process_block_processing_artifact(blocks_processing_artifacts);
     }
@@ -2575,7 +2559,6 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
@@ -2637,7 +2620,7 @@ impl Client {
                             &epoch_first_block,
                             &sync_hash,
                             &mut block_processing_artifacts,
-                            apply_chunks_done_sender.clone(),
+                            self.myself_sender.apply_chunks_done.clone(),
                             &catchup.done_blocks,
                         )?;
 

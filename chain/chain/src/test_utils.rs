@@ -6,7 +6,7 @@ use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::futures::RayonAsyncComputationSpawner;
-use near_async::messaging::{IntoMultiSender, noop};
+use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
@@ -153,10 +153,15 @@ pub fn process_block_sync(
     block_processing_artifacts: &mut BlockProcessingArtifact,
 ) -> Result<Vec<AcceptedBlock>, Error> {
     let block_hash = *block.hash();
-    chain.start_process_block_async(block, provenance, block_processing_artifacts, None)?;
+    chain.start_process_block_async(
+        block,
+        provenance,
+        block_processing_artifacts,
+        noop().into_sender(),
+    )?;
     wait_for_block_in_processing(chain, &block_hash).unwrap();
     let (accepted_blocks, errors) =
-        chain.postprocess_ready_blocks(block_processing_artifacts, None);
+        chain.postprocess_ready_blocks(block_processing_artifacts, noop().into_sender());
     // This is in test, we should never get errors when postprocessing blocks
     debug_assert!(errors.is_empty());
     Ok(accepted_blocks)

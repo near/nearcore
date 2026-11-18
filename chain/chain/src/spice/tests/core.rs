@@ -966,7 +966,7 @@ fn test_state_sync_to_the_first_spice_block_seeds_the_last_pre_spice_block() {
         .reset_heads_post_state_sync(
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
-            None,
+            noop().into_sender(),
         )
         .unwrap();
 
@@ -1082,7 +1082,7 @@ fn assert_state_sync_rebuilds_uncertified_chunks(
         .reset_heads_post_state_sync(
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
-            None,
+            noop().into_sender(),
         )
         .unwrap();
 

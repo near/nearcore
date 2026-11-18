@@ -312,7 +312,7 @@ impl StateSync {
         chain: &mut Chain,
         peers: &SyncPeers,
         peer_selector: &mut PeerSelector,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let sync_hash = sync_status.sync_hash;
         let block_header = chain.get_block_header(&sync_hash)?;

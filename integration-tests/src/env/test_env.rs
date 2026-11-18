@@ -324,9 +324,7 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg.span_unwrap() {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, decoded_chunk } => {
-                    self.clients[id]
-                        .on_chunk_completed(partial_chunk, decoded_chunk, None)
-                        .unwrap();
+                    self.clients[id].on_chunk_completed(partial_chunk, decoded_chunk).unwrap();
                 }
                 ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header,
