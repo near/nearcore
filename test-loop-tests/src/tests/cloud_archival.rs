@@ -586,8 +586,8 @@ impl CloudArchiveHarness {
         epoch_manager.get_epoch_start_height(&self.writer_block_hash(height)).unwrap()
     }
 
-    /// The `validators` endpoint answers for `block_hash` on the reader as it does on the
-    /// writer.
+    /// `get_validator_info` at `block_hash`, which backs the `validators` endpoint, returns the
+    /// same on the reader as on the writer.
     fn assert_validator_info_matches_writer(
         &self,
         reader_epoch_manager: &dyn EpochManagerAdapter,
@@ -2901,7 +2901,10 @@ fn test_cloud_archival_recent_reader_validators_match_writer() {
     h.run_until_epoch(2);
     let takeover_height = h.rpc_store().chain_store().final_head().unwrap().height;
     let reader = h.start_recent_reader();
-    h.run_until(4 * h.epoch_length + h.epoch_length / 2);
+    // Stop two epochs past the takeover, in the middle of an epoch, so the reader's rows run
+    // across an epoch start and its head is not one.
+    let middle_of_epoch_4 = 4 * h.epoch_length + h.epoch_length / 2;
+    h.run_until(middle_of_epoch_4);
 
     let reader_head = h.recent_reader_height();
     let epoch_start = h.writer_epoch_start_height(reader_head);
@@ -2938,17 +2941,39 @@ fn test_cloud_archival_recent_reader_validators_match_writer() {
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_cloud_archival_bootstrap_from_epoch_start_validators_match_writer() {
-    let mut h = CloudArchiveHarness::builder().disable_gc().build();
-    h.run_until_epoch(5);
+fn test_cloud_archival_recent_reader_resumes_validators_after_missing_rows() {
+    let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
+    h.run_until_epoch(2);
+    let takeover_height = h.rpc_store().chain_store().final_head().unwrap().height;
+    // Setup: hand over a store without aggregator rows, as a store bootstrapped mid-epoch. The
+    // rows above the final head go too, so none of them can answer for a reader block.
+    let mut update = h.rpc_store().store_update();
+    update.delete_all(DBCol::AggregatedEpochStats);
+    update.commit();
+    let reader = h.start_recent_reader();
+    // Stop two epochs past the takeover, in the middle of an epoch, as in the test above.
+    let middle_of_epoch_4 = 4 * h.epoch_length + h.epoch_length / 2;
+    h.run_until(middle_of_epoch_4);
 
-    let start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
-    let target = start + h.epoch_length / 2;
-    h.bootstrap_historical_reader(start, target);
-    let epoch_manager = h.historical_reader_epoch_manager();
-    h.assert_validator_info_matches_writer(epoch_manager.as_ref(), &h.writer_block_hash(target));
+    // Check: the rest of the takeover epoch has no rows, and the reader kept pulling.
+    let takeover_epoch_last = h.writer_epoch_start_height(takeover_height + h.epoch_length) - 1;
+    assert!(takeover_height < takeover_epoch_last, "the takeover is at its epoch's last block");
+    let epoch_manager = h.recent_reader_epoch_manager();
+    let result = epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(
+        h.writer_block_hash(takeover_epoch_last),
+    ));
+    assert_matches!(result, Err(EpochError::MissingBlock(_)));
+    // Check: rows start again at the next epoch start and match the writer up to the head.
+    h.assert_validator_info_matches_writer(
+        epoch_manager.as_ref(),
+        &h.writer_block_hash(takeover_epoch_last + 1),
+    );
+    h.assert_validator_info_matches_writer(
+        epoch_manager.as_ref(),
+        &h.writer_block_hash(h.recent_reader_height()),
+    );
 
-    h.kill_historical_reader();
+    reader.stop();
     h.shutdown();
 }
 
@@ -2959,8 +2984,11 @@ fn test_cloud_archival_bootstrap_mid_epoch_validators_match_writer() {
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
     h.run_until_epoch(6);
 
-    let first_epoch_start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
-    let start = first_epoch_start + h.epoch_length / 2;
+    // Epoch starts depend on the genesis height, so read epoch 3's start from the writer. Epoch
+    // 3 has a snapshot to bootstrap from, and the writer archives well past the range.
+    let epoch_3_start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
+    // Start half an epoch in and end one epoch later, past the next epoch start.
+    let start = epoch_3_start + h.epoch_length / 2;
     let target = start + h.epoch_length;
     let next_epoch_start = h.writer_epoch_start_height(target);
     assert!(start < next_epoch_start, "the range does not cross an epoch start");
@@ -2978,35 +3006,20 @@ fn test_cloud_archival_bootstrap_mid_epoch_validators_match_writer() {
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
-fn test_cloud_archival_bootstrap_mid_epoch_validators_unavailable() {
-    let mut h = CloudArchiveHarness::builder().disable_gc().build();
-    h.run_until_epoch(5);
-
-    let epoch_start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
-    let start = epoch_start + h.epoch_length / 4;
-    let target = start + h.epoch_length / 4;
-    assert_eq!(h.writer_epoch_start_height(target), epoch_start, "the range leaves its epoch");
-    h.bootstrap_historical_reader(start, target);
-    let epoch_manager = h.historical_reader_epoch_manager();
-    let result = epoch_manager
-        .get_validator_info(ValidatorInfoIdentifier::BlockHash(h.writer_block_hash(target)));
-    assert_matches!(result, Err(EpochError::MissingBlock(_)));
-
-    h.kill_historical_reader();
-    h.shutdown();
-}
-
-#[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_extended_mid_epoch_validators_match_writer() {
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
     h.run_until_epoch(6);
 
-    // Setup: a first range from an epoch start, ending mid-epoch.
+    // Setup: a first range from epoch 3's start to a quarter epoch in. Epoch starts depend on
+    // the genesis height, so read it from the writer.
     let start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
     let first_target = start + h.epoch_length / 4;
     h.bootstrap_historical_reader(start, first_target);
+    let epoch_manager = h.historical_reader_epoch_manager();
+    h.assert_validator_info_matches_writer(
+        epoch_manager.as_ref(),
+        &h.writer_block_hash(first_target),
+    );
     let covered_to = h
         .historical_reader_store()
         .cloud_archival_store()
@@ -3014,7 +3027,7 @@ fn test_cloud_archival_bootstrap_extended_mid_epoch_validators_match_writer() {
         .expect("the bootstrap holds a reader head")
         .height;
 
-    // Apply: a second range on the same store, from mid-epoch on.
+    // Apply: a second range on the same store, from mid-epoch to another quarter epoch on.
     let second_start = covered_to + 1;
     let second_target = second_start + h.epoch_length / 4;
     assert_eq!(
@@ -3034,10 +3047,9 @@ fn test_cloud_archival_bootstrap_extended_mid_epoch_validators_match_writer() {
         second_target,
         false,
     ))
-    .expect("the second bootstrap fails");
+    .expect("the second bootstrap succeeds");
 
     // Check: the rows of the second range build on the first range's rows.
-    let epoch_manager = h.historical_reader_epoch_manager();
     h.assert_validator_info_matches_writer(
         epoch_manager.as_ref(),
         &h.writer_block_hash(second_target),

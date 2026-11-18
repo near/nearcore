@@ -386,8 +386,7 @@ fn save_new_chunk_data(
     let external_calls = external_calls_with_outcome(new_chunk, height);
     chain_store_update.set_external_call_hashes(block_hash, &external_calls);
     // TODO(cloud_archival): address the rc columns a re-pull counts twice, in case we
-    // need gc at the reader. Such a gc can also delete the `AggregatedEpochStats` rows
-    // below the reader head, since the `validators` endpoint reads only the head's row.
+    // need gc at the reader.
     for transaction in chunk.to_transactions() {
         let bytes = borsh::to_vec(transaction).expect("borsh cannot fail");
         update.increment_refcount(DBCol::Transactions, transaction.get_hash().as_ref(), &bytes);
