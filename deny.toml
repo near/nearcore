@@ -106,6 +106,11 @@ skip = [
     { name = "mio", version = "^0.8" },
     { name = "base64", version = "^0.21" },
 
+    # utoipa-swagger-ui 10 uses base64 0.23, and its build-dependency zip 9
+    # uses nix 0.31; the rest of the tree is on older versions.
+    { name = "base64", version = "^0.23" },
+    { name = "nix", version = "^0.31" },
+
     # object_store and rust-s3 still use reqwest 0.12 internally
     { name = "reqwest", version = "^0.12" },
     { name = "core-foundation", version = "^0.9" },
@@ -130,7 +135,6 @@ skip = [
     { name = "bytesize", version = "=1.1.0" },
     { name = "num-bigint", version = "=0.3.3" },
     { name = "num-rational", version = "=0.3.2" },
-    { name = "regex-syntax", version = "=0.6.28" },
 
     # p256 0.14 (RustCrypto elliptic-curve 0.14) moved to digest 0.11,
     # signature 3 and rand_core 0.10; the rest of the ecosystem hasn't caught up yet.
