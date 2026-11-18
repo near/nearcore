@@ -90,7 +90,8 @@ fn decode_borsh_base64<T: BorshDeserialize>(value: String) -> Result<T, RpcParse
 mod tests {
     use crate::api::RpcRequest;
     use near_jsonrpc_primitives::types::transactions::{
-        RpcSendTransactionEnvelopeRequest, RpcTransactionStatusRequest,
+        RpcSendExternalCallRequest, RpcSendTransactionEnvelopeRequest, RpcSendTransactionRequest,
+        RpcTransactionStatusRequest,
     };
     use near_primitives::borsh;
     use near_primitives::hash::CryptoHash;
@@ -275,33 +276,39 @@ mod tests {
             });
     }
 
-    /// The request as it was before ECCs.
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct LegacyRpcSendTransactionRequest {
-        #[serde(rename = "signed_tx_base64")]
-        signed_transaction: SignedTransaction,
-        #[serde(default)]
-        wait_until: TxExecutionStatus,
-    }
-
-    // A signed transaction keeps its wire format, in both directions
+    // Each single-kind request has the JSON of the envelope request with that kind, in both directions
     #[test]
-    fn test_send_tx_request_legacy_format() {
+    fn test_send_tx_request_single_kind_format() {
         let signed_tx = SignedTransaction::empty(CryptoHash::default());
-        let legacy = LegacyRpcSendTransactionRequest {
+        let signed_request = RpcSendTransactionRequest {
             signed_transaction: signed_tx.clone(),
             wait_until: TxExecutionStatus::Included,
         };
+        let (ecc, _) = external_call_base64();
+        let ecc_request = RpcSendExternalCallRequest {
+            external_call: ecc,
+            wait_until: TxExecutionStatus::Included,
+        };
+        let envelopes = [
+            RpcSendTransactionEnvelopeRequest::from(signed_request.clone()),
+            RpcSendTransactionEnvelopeRequest::from(ecc_request.clone()),
+        ];
+        let jsons = [
+            serde_json::to_value(&signed_request).unwrap(),
+            serde_json::to_value(&ecc_request).unwrap(),
+        ];
 
-        let json = serde_json::to_value(&legacy).unwrap();
-        let request = serde_json::from_value::<RpcSendTransactionEnvelopeRequest>(json).unwrap();
-        assert_eq!(request.transaction, TransactionEnvelope::Signed(signed_tx.clone()));
-        assert_eq!(request.wait_until, TxExecutionStatus::Included);
-
-        let json = serde_json::to_value(&request).unwrap();
-        let legacy = serde_json::from_value::<LegacyRpcSendTransactionRequest>(json).unwrap();
-        assert_eq!(legacy.signed_transaction, signed_tx);
-        assert_eq!(legacy.wait_until, TxExecutionStatus::Included);
+        for (envelope, json) in envelopes.iter().zip(&jsons) {
+            assert_eq!(&serde_json::to_value(envelope).unwrap(), json);
+            let parsed =
+                serde_json::from_value::<RpcSendTransactionEnvelopeRequest>(json.clone()).unwrap();
+            assert_eq!(parsed.transaction, envelope.transaction);
+        }
+        let parsed = serde_json::from_value::<RpcSendTransactionRequest>(jsons[0].clone()).unwrap();
+        assert_eq!(parsed.signed_transaction, signed_tx);
+        let parsed =
+            serde_json::from_value::<RpcSendExternalCallRequest>(jsons[1].clone()).unwrap();
+        assert_eq!(parsed.external_call, ecc_request.external_call);
     }
 
     // The one-param form decodes only a signed transaction. `tx` finds an ECC by its unique id,
