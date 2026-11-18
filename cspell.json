@@ -331,7 +331,6 @@
         "pids",
         "pinnable",
         "pipenv",
-        "pipx",
         "pgrep",
         "pkill",
         "pmap",
