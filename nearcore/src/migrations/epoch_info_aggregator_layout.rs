@@ -22,7 +22,8 @@ struct EpochInfoAggregatorV53 {
 }
 
 /// Rewrites the stored [`EpochInfoAggregator`] to the layout that splits `shard_tracker`
-/// into per-shard chunk production stats and chunk endorsement stats summed over shards.
+/// into per-shard chunk production stats, chunk endorsement stats summed over shards, and
+/// chunk endorsement stats summed over the validators of each shard.
 ///
 /// Hot store only: the column is not copied to cold storage.
 ///
@@ -40,6 +41,7 @@ pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
     let mut chunk_production: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>> =
         HashMap::new();
     let mut chunk_endorsement: HashMap<ValidatorId, ValidatorStats> = HashMap::new();
+    let mut chunk_endorsement_by_shard: HashMap<ShardId, ValidatorStats> = HashMap::new();
     let mut old_entries = 0;
     for (shard_id, validators) in old.shard_tracker {
         for (validator_id, stats) in validators {
@@ -57,6 +59,9 @@ pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
                 let endorsement = chunk_endorsement.entry(validator_id).or_default();
                 endorsement.produced += stats.endorsement.produced;
                 endorsement.expected += stats.endorsement.expected;
+                let shard_endorsement = chunk_endorsement_by_shard.entry(shard_id).or_default();
+                shard_endorsement.produced += stats.endorsement.produced;
+                shard_endorsement.expected += stats.endorsement.expected;
             }
         }
     }
@@ -64,6 +69,7 @@ pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
         block_tracker: old.block_tracker,
         chunk_production,
         chunk_endorsement,
+        chunk_endorsement_by_shard,
         version_tracker: old.version_tracker,
         all_proposals: old.all_proposals,
         epoch_id: old.epoch_id,
@@ -79,6 +85,7 @@ pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
         old_entries,
         chunk_production_entries = new.chunk_production.values().map(HashMap::len).sum::<usize>(),
         chunk_endorsement_entries = new.chunk_endorsement.len(),
+        chunk_endorsement_by_shard_entries = new.chunk_endorsement_by_shard.len(),
         "completed migration from DB version 53 to 54"
     );
     Ok(())
@@ -152,6 +159,13 @@ mod tests {
             HashMap::from([
                 (0, ValidatorStats { produced: 4, expected: 6 }),
                 (1, ValidatorStats { produced: 7, expected: 9 }),
+            ])
+        );
+        assert_eq!(
+            new.chunk_endorsement_by_shard,
+            HashMap::from([
+                (shard0, ValidatorStats { produced: 8, expected: 10 }),
+                (shard1, ValidatorStats { produced: 3, expected: 5 }),
             ])
         );
         assert_eq!(new.version_tracker, old.version_tracker);

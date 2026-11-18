@@ -59,7 +59,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
-    ValidatorKickoutView,
+    ShardChunkEndorsementsView, ValidatorKickoutView,
 };
 use near_runtime::ExternalCallInclusion;
 use near_runtime::PostStateNodes;
@@ -1148,6 +1148,11 @@ fn test_get_validator_info() {
                 "near".parse().unwrap(),
                 Balance::ZERO,
             )]),
+            chunk_endorsements_per_shard: vec![ShardChunkEndorsementsView {
+                shard_id,
+                num_produced_endorsements: expected_endorsements[0] + expected_endorsements[1],
+                num_expected_endorsements: expected_endorsements[0] + expected_endorsements[1],
+            }],
         }
     );
     expected_blocks = [0, 0];
@@ -1183,6 +1188,14 @@ fn test_get_validator_info() {
     current_epoch_validator_info[1].num_expected_endorsements = expected_endorsements[1];
     current_epoch_validator_info[1].shards_produced = vec![];
     assert_eq!(response.current_validators, current_epoch_validator_info);
+    assert_eq!(
+        response.chunk_endorsements_per_shard,
+        vec![ShardChunkEndorsementsView {
+            shard_id,
+            num_produced_endorsements: expected_endorsements[0] + expected_endorsements[1],
+            num_expected_endorsements: expected_endorsements[0] + expected_endorsements[1],
+        }]
+    );
     assert_eq!(
         response.next_validators,
         vec![NextEpochValidatorInfo {

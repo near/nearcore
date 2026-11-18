@@ -33,7 +33,8 @@ use near_primitives::types::{
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
-    CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+    CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
+    ShardChunkEndorsementsView, ValidatorKickoutView,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
@@ -1719,6 +1720,10 @@ impl EpochManager {
         let epoch_height = cur_epoch_info.epoch_height();
         let epoch_start_height = self.store.get_epoch_start(&epoch_id)?;
 
+        // Filled for the current epoch only, from the aggregator. The per-shard endorsement
+        // metrics and the `validators` RPC use per-shard totals of the current epoch only. A
+        // finished epoch is read from its `EpochSummary`, which keeps stats per validator only.
+        let mut chunk_endorsements_per_shard = vec![];
         // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
         // in std.
@@ -1844,6 +1849,14 @@ impl EpochManager {
                 let all_proposals =
                     aggregator.all_proposals.iter().map(|(_, p)| p.clone().into()).collect();
                 let next_epoch_id = self.get_next_epoch_id(h)?;
+                for (shard_id, stats) in &aggregator.chunk_endorsement_by_shard {
+                    chunk_endorsements_per_shard.push(ShardChunkEndorsementsView {
+                        shard_id: *shard_id,
+                        num_produced_endorsements: stats.produced,
+                        num_expected_endorsements: stats.expected,
+                    });
+                }
+                chunk_endorsements_per_shard.sort_by_key(|view| view.shard_id);
                 (cur_validators, next_epoch_id, all_proposals)
             }
         };
@@ -1893,6 +1906,7 @@ impl EpochManager {
             epoch_start_height,
             epoch_height,
             validator_reward_paid_prev_epoch: cur_epoch_info.validator_reward().clone(),
+            chunk_endorsements_per_shard,
         })
     }
 
