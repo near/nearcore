@@ -321,7 +321,7 @@ impl InfoHelper {
         };
 
         let header_head = unwrap_or_return!(client.chain.header_head());
-        let validator_production_status = if is_syncing {
+        let validator_epoch_info = if is_syncing {
             // EpochManager::get_validator_info method (which is what runtime
             // adapter calls) is expensive when node is syncing so we’re simply
             // not collecting the statistics.  The statistics are used to update
@@ -330,14 +330,10 @@ impl InfoHelper {
             // manage to get get_validator_info fasts again (or return an error
             // if computation would be too slow), remove the ‘if is_syncing’
             // check.
-            Default::default()
+            None
         } else {
             let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
-            client
-                .epoch_manager
-                .get_validator_info(epoch_identifier)
-                .map(get_validator_production_status)
-                .unwrap_or_default()
+            client.epoch_manager.get_validator_info(epoch_identifier).ok()
         };
 
         let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).ok();
@@ -347,6 +343,11 @@ impl InfoHelper {
             InfoHelper::record_chunk_producers(&head, &client, shard_layout);
         }
         InfoHelper::record_block_producers(&head, &client);
+        if let Some(validator_epoch_info) = &validator_epoch_info {
+            InfoHelper::record_chunk_endorsements_per_shard(validator_epoch_info);
+        }
+        let validator_production_status =
+            validator_epoch_info.map(get_validator_production_status).unwrap_or_default();
 
         let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
@@ -546,6 +547,22 @@ impl InfoHelper {
                     }
                 }
             }
+        }
+    }
+
+    /// Sets the per-shard chunk endorsement metrics for the current epoch.
+    fn record_chunk_endorsements_per_shard(validator_epoch_info: &EpochValidatorInfo) {
+        // Reset metrics in case resharding retired a shard
+        metrics::CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD.reset();
+        metrics::CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD.reset();
+        for shard_stats in &validator_epoch_info.chunk_endorsements_per_shard {
+            let shard_id = shard_stats.shard_id.to_string();
+            metrics::CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD
+                .with_label_values(&[&shard_id])
+                .set(shard_stats.num_produced_endorsements as i64);
+            metrics::CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
+                .with_label_values(&[&shard_id])
+                .set(shard_stats.num_expected_endorsements as i64);
         }
     }
 
