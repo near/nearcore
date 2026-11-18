@@ -901,13 +901,11 @@ impl Chain {
         let runtime_adapter = self.runtime_adapter.clone();
         let store = self.chain_store.store();
         Arc::new(RayonAsyncComputationSpawner).spawn("shadow_validate", move || {
-            // processing_done_tracker must survive until the processing is finished.
-            let _processing_done_tracker_capture: Option<ProcessingDoneTracker> =
-                processing_done_tracker;
-
+            // processing_done_tracker is moved into this task and reports the result at the end.
+            // If the task ends without reporting a result, dropping the tracker reports a failure.
             let validation_start = Instant::now();
 
-            match validate_chunk_state_witness(
+            let validation_result = validate_chunk_state_witness(
                 witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
@@ -916,7 +914,9 @@ impl Chain {
                 store,
                 false,
                 rs,
-            ) {
+            );
+            let success = validation_result.is_ok();
+            match validation_result {
                 Ok(_) => {
                     tracing::debug!(
                         parent: &parent_span,
@@ -941,6 +941,9 @@ impl Chain {
                         "shadow chunk validation failed"
                     );
                 }
+            }
+            if let Some(processing_done_tracker) = processing_done_tracker {
+                processing_done_tracker.finish(success);
             }
         });
         Ok(())
