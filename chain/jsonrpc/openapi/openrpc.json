@@ -11053,6 +11053,14 @@
       "RpcValidatorResponse": {
         "description": "Information about this epoch validators and next epoch validators",
         "properties": {
+          "chunk_endorsements_per_shard": {
+            "default": [],
+            "description": "Chunk endorsements of each shard so far in the current epoch, summed over the shard's\nchunk validators, in shard id order. Empty for a finished epoch.",
+            "items": {
+              "$ref": "#/components/schemas/ShardChunkEndorsementsView"
+            },
+            "type": "array"
+          },
           "current_fishermen": {
             "description": "Fishermen for the current epoch",
             "items": {
@@ -11981,6 +11989,33 @@
           }
         },
         "title": "RuntimeFeesConfigView",
+        "type": "object"
+      },
+      "ShardChunkEndorsementsView": {
+        "description": "Chunk endorsements of one shard, summed over its chunk validators.",
+        "properties": {
+          "num_expected_endorsements": {
+            "description": "Number of chunk endorsements expected for this shard: one per chunk validator per block,\nincluding blocks that miss the shard's chunk.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "num_produced_endorsements": {
+            "description": "Number of chunk endorsements the blocks recorded for this shard.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shard_id": {
+            "$ref": "#/components/schemas/ShardId"
+          }
+        },
+        "required": [
+          "shard_id",
+          "num_produced_endorsements",
+          "num_expected_endorsements"
+        ],
+        "title": "ShardChunkEndorsementsView",
         "type": "object"
       },
       "ShardId": {
