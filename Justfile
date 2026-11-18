@@ -217,9 +217,6 @@ check-cspell:
 
 # zizmor-based security checks of the GitHub Actions workflows
 check-zizmor:
-    # You will need zizmor, e.g. `pipx install zizmor`.
-    # Only high-severity findings fail for now. With GH_TOKEN set, zizmor also
-    # runs its online audits (e.g. that a pinned commit belongs to the action).
     zizmor --min-severity high .github/
 
 # Derives COMPOSE_PROFILES from NUM_VALIDATORS; plain `docker compose up`

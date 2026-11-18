@@ -332,8 +332,6 @@ jobs:
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
-      # The pinned install-action predates current zizmor releases, so
-      # install an exact version with pipx instead.
       - run: pipx install zizmor==1.32.0
       - run: just check-zizmor
         env:
