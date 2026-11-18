@@ -13,11 +13,7 @@ use std::fmt::{Debug, Formatter};
 
 /// Represents max allowed size of the compressed state witness,
 /// corresponds to EncodedChunkStateWitness struct size.
-/// The value is set to max network message size when `test_features`
-/// is enabled to make it possible to test blockchain behavior with
-/// arbitrary large witness (see #11703).
-pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize =
-    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 48 });
+pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize = ByteSize::mib(48);
 
 /// Represents the Reed Solomon erasure encoded parts of the `EncodedChunkStateWitness`.
 /// These are created and signed by the chunk producer and sent to the chunk validators.
