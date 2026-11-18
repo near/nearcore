@@ -490,11 +490,11 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
 
       # Each finding with a `path:line` reference also goes on that line, as an
-      # inline comment in one review. The review comment above already lists
-      # every finding, so if GitHub rejects the review, for example because a
-      # line is not in the diff, nothing is lost and the step only warns. The
-      # text comes from review.md, which Post review has cleaned and checked for
-      # the API key.
+      # inline comment. All inline comments are posted in one request, and GitHub
+      # rejects all of them if one points at a line outside the diff. The review
+      # comment above is already posted and lists every finding, so in that case
+      # the step only warns. The text comes from review.md, which Post review has
+      # already cleaned and checked for the API key.
       - name: Post inline comments
         if: ${{ steps.post.outcome == 'success' }}
         continue-on-error: true
