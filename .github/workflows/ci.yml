@@ -506,7 +506,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2404-x64-2x
+            os: warp-ubuntu-2404-x64-8x
           - name: Windows
             id: win
             os: windows-latest
@@ -536,11 +536,21 @@ jobs:
       - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
+        # The default shell on Windows is PowerShell, where `$GITHUB_ENV` is an
+        # unset variable and the writes below are silently discarded.
+        shell: bash
         run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          # sccache spawns rustc with all arguments on the command line, which
+          # for near-runtime exceeds the Windows limit of 32767 characters
+          # (os error 206). Most of the length is repeated target directory
+          # paths, so use a short one at the root of the workspace drive.
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE:0:2}\\t" >> $GITHUB_ENV
+          fi
       # near-store (with its default `rocksdb` feature) builds librocksdb-sys.
       - uses: ./.github/actions/install-clang
         if: steps.run-job.outcome == 'success'
