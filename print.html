@@ -12007,13 +12007,16 @@ the <code>wasm-tools</code> suite of CLI utilities.</p>
 <h2 id="rust-contract"><a class="header" href="#rust-contract">Rust Contract</a></h2>
 <p>Finally, let's implement an actual contract. We'll need an <code>extern &quot;C&quot;</code> block to
 declare the <code>value_return</code> import, and a <code>#[unsafe(no_mangle)] extern &quot;C&quot;</code> function to
-declare the <code>hello</code> export:</p>
+declare the <code>hello</code> export. The <code>#[link(wasm_import_module = &quot;env&quot;)]</code> attribute
+tells the linker that <code>value_return</code> is imported from the <code>env</code> module. Without
+it, linking fails with an <code>undefined symbol: value_return</code> error.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// hello-near/src/lib.rs
 
 #![no_std]
 
+#[link(wasm_import_module = &quot;env&quot;)]
 unsafe extern &quot;C&quot; {
     fn value_return(len: u64, ptr: u64);
 }
