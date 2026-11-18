@@ -282,6 +282,23 @@ class TestSetup:
             f".num_chunk_validator_seats = {self.node_hardware_config.num_chunk_validator_seats}"
         )
 
+    def amend_genesis(self):
+        """
+        Cap transaction_validity_period at 2 * epoch_len in genesis.json so it
+        stays below gc intervals. Gc'ing before the validity period is over is forbidden by
+        network config validation.
+        """
+        jq = (f".transaction_validity_period = "
+              f"([.transaction_validity_period, {2 * self.epoch_len}] | min)")
+        sh = f"""sh -c 'jq "{jq}" $1 > $1.tmp && mv $1.tmp $1' _"""
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'nodes'
+        run_cmd_args.cmd = f"{sh} ~/.near/genesis.json"
+        run_remote_cmd(CommandContext(run_cmd_args))
+        run_cmd_args.host_type = 'traffic'
+        run_cmd_args.cmd = f"{sh} ~/.near/target/genesis.json"
+        run_remote_cmd(CommandContext(run_cmd_args))
+
     def amend_configs_before_test_start(self):
         """
         Amend the configs for the test.

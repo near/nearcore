@@ -140,7 +140,6 @@ aurora-engine-transactions = "1.1"
 aurora-engine-types = "1.1"
 aws-lc-rs = "1.18.2"
 axum = { version = "0.8", features = ["http2", "macros"] }
-axum-test = "18.0"
 base64 = "0.21"
 bencher = "0.1.5"
 bitvec = "1.0.1"
