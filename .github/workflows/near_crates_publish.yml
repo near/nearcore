@@ -59,6 +59,10 @@ jobs:
         run: |
           set -x
           cargo +stable install --git https://github.com/miraclx/cargo-workspaces --tag v0.3.0 cargo-workspaces
+          # Each crate is packaged against the workspace crates published
+          # moments earlier in the same run, which the minimum publish age set
+          # in .cargo/config.toml would reject as too new.
+          CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow \
           cargo ws publish --yes --allow-dirty --force '*' \
               --no-git-commit --no-git-push --no-individual-tags --tag-prefix 'crates-' \
               --tag-msg $$'crates.io snapshot\n---%{\n- %n - https://crates.io/crates/%n/%v}'

@@ -14,7 +14,9 @@ global-min-publish-age = "7 days"
 With this setting, cargo ignores crates.io versions published less than 7 days
 ago whenever it resolves dependencies, e.g. in `cargo update` or `cargo add`.
 The setting also applies to the standalone packages in this repository that
-have their own `Cargo.lock`, such as `tracing` or the test contracts.
+have their own `Cargo.lock`, such as `tracing` or the test contracts. Cargo
+looks for the config starting from the current directory rather than from the
+manifest, so this only holds when cargo is run from inside the repository.
 
 Versions that are already in `Cargo.lock` are not affected, so ordinary builds
 and anything run with `--locked` behave as before.
@@ -39,6 +41,10 @@ $ CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p <crate> --precis
 
 Please mention in the PR description that the check was bypassed and why, so
 that the reviewer can take a closer look at the new version.
+
+The crates publishing workflow (`near_crates_publish.yml`) sets the same
+variable, because `cargo package` and `cargo publish` resolve each crate against
+the workspace crates that were published moments earlier in the same run.
 
 Note that this is a guard against accidentally picking up fresh releases, not
 an enforced policy: CI builds with `--locked` and accepts whatever is in
