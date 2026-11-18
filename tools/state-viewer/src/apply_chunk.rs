@@ -16,7 +16,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_sync::ReceiptProofResponse;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::utils::create_ecc_outcome_id;
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_runtime::SignedValidPeriodTransactions;
@@ -209,6 +211,17 @@ enum HashType {
     Receipt,
 }
 
+/// The id of the outcome of `transaction` in the block at `height`: the hash of a signed
+/// transaction, or the unique id of an ECC, which depends on the block.
+fn outcome_id(transaction: &TransactionEnvelope, height: BlockHeight) -> CryptoHash {
+    match transaction {
+        TransactionEnvelope::Signed(tx) => tx.get_hash(),
+        TransactionEnvelope::Unsigned(ecc) => {
+            create_ecc_outcome_id(ecc.hash_without_state_init(), height)
+        }
+    }
+}
+
 fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
@@ -219,6 +232,7 @@ fn find_tx_or_receipt(
     let chunks = block.chunks();
 
     let epoch_id = block.header().epoch_id();
+    let height = block.header().height();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
 
     let chunk_hashes = chunks.iter_raw().map(|c| c.chunk_hash());
@@ -226,10 +240,8 @@ fn find_tx_or_receipt(
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
-        for tx in chunk.to_transactions() {
-            if &tx.get_hash() == hash {
-                return Ok(Some((HashType::Tx, shard_id)));
-            }
+        if chunk.to_transactions().iter().any(|tx| &outcome_id(tx, height) == hash) {
+            return Ok(Some((HashType::Tx, shard_id)));
         }
         for receipt in chunk.prev_outgoing_receipts() {
             if &receipt.get_hash() == hash {
@@ -531,5 +543,41 @@ pub fn apply_receipt(
         )?])
     } else {
         apply_receipt_in_chunk(epoch_manager, runtime, store, &mut chain_store, &id, storage)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::outcome_id;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
+    use near_primitives::types::Balance;
+    use near_primitives::utils::create_ecc_outcome_id;
+
+    #[test]
+    fn test_outcome_id() {
+        let alice = "alice.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(alice, KeyType::ED25519, "alice");
+        let transfer = SignedTransaction::send_money(
+            1,
+            "alice.near".parse().unwrap(),
+            "bob.near".parse().unwrap(),
+            &signer,
+            Balance::from_yoctonear(1),
+            CryptoHash::default(),
+        );
+        let ecc = EccTransaction::new("bob.near".parse().unwrap(), vec![1, 2, 3]);
+
+        // The outcome of a signed transaction is its hash, whatever the block.
+        let signed = TransactionEnvelope::Signed(transfer.clone());
+        assert_eq!(outcome_id(&signed, 10), transfer.get_hash());
+        assert_eq!(outcome_id(&signed, 11), transfer.get_hash());
+
+        // The outcome of an ECC is its unique id, which depends on the block.
+        let unsigned = TransactionEnvelope::Unsigned(ecc.clone());
+        assert_eq!(outcome_id(&unsigned, 10), create_ecc_outcome_id(ecc.hash(), 10));
+        assert_ne!(outcome_id(&unsigned, 10), outcome_id(&unsigned, 11));
+        assert_ne!(outcome_id(&unsigned, 10), ecc.get_hash());
     }
 }

@@ -42,6 +42,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tracing::span::EnteredSpan;
 
+/// Whether the transaction runs or deploys contract code. An ECC is meant to run one.
+fn is_contract_transaction(transaction: &TransactionEnvelope) -> bool {
+    match transaction {
+        TransactionEnvelope::Signed(tx) => tx
+            .transaction
+            .actions()
+            .iter()
+            .any(|action| matches!(action, Action::FunctionCall(_) | Action::DeployContract(_))),
+        TransactionEnvelope::Unsigned(_) => true,
+    }
+}
+
 fn old_outcomes(
     store: Store,
     new_outcomes: &[ExecutionOutcomeWithId],
@@ -235,18 +247,8 @@ fn get_chunk_application_input(
 
         let chunk_inner = chunk.cloned_header().take_inner();
 
-        if only_contracts {
-            let mut has_contracts = false;
-            // TODO(ecc): count ECCs as contract transactions
-            for tx in chunk.to_transactions().iter().filter_map(TransactionEnvelope::as_signed) {
-                for action in tx.transaction.actions() {
-                    has_contracts = has_contracts
-                        || matches!(action, Action::FunctionCall(_) | Action::DeployContract(_));
-                }
-            }
-            if !has_contracts {
-                return ApplicationInputOrSkip::Skip(SkipReason::NoContractTransactions);
-            }
+        if only_contracts && !chunk.to_transactions().iter().any(is_contract_transaction) {
+            return ApplicationInputOrSkip::Skip(SkipReason::NoContractTransactions);
         }
 
         let runtime_storage = match storage {
@@ -878,4 +880,49 @@ fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_contract_transaction;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
+    use near_primitives::types::{AccountId, Balance, Gas};
+
+    #[test]
+    fn test_is_contract_transaction() {
+        let alice: AccountId = "alice.near".parse().unwrap();
+        let bob: AccountId = "bob.near".parse().unwrap();
+        let signer = InMemorySigner::from_seed(alice.clone(), KeyType::ED25519, "alice");
+        let block_hash = CryptoHash::default();
+
+        let transfer = SignedTransaction::send_money(
+            1,
+            alice.clone(),
+            bob.clone(),
+            &signer,
+            Balance::from_yoctonear(1),
+            block_hash,
+        );
+        let call = SignedTransaction::call(
+            2,
+            alice.clone(),
+            bob.clone(),
+            &signer,
+            Balance::ZERO,
+            "method".to_string(),
+            vec![],
+            Gas::from_teragas(1),
+            block_hash,
+        );
+        let deploy =
+            SignedTransaction::deploy_contract(3, &alice, vec![0, 1, 2], &signer, block_hash);
+        let ecc = EccTransaction::new(bob, vec![1, 2, 3]);
+
+        assert!(!is_contract_transaction(&TransactionEnvelope::Signed(transfer)));
+        assert!(is_contract_transaction(&TransactionEnvelope::Signed(call)));
+        assert!(is_contract_transaction(&TransactionEnvelope::Signed(deploy)));
+        assert!(is_contract_transaction(&TransactionEnvelope::Unsigned(ecc)));
+    }
 }
