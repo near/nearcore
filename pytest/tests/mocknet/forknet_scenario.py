@@ -136,6 +136,8 @@ def handle_start_test(test_setup):
     test_setup.wait_for_network_to_be_ready()
     logger.info("🔄 Amending epoch config...")
     test_setup.amend_epoch_config()
+    logger.info("🔄 Amending genesis...")
+    test_setup.amend_genesis()
     logger.info("🔄 Amending configs before test start...")
     test_setup.amend_configs_before_test_start()
     logger.info("🔄 Starting network...")
