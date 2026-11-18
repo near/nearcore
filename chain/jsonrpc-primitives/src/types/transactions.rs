@@ -60,6 +60,7 @@ impl From<RpcSendTransactionEnvelopeRequest> for RpcSendTransactionRequestWire {
 /// A send request with a signed transaction.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(rename = "RpcSendSignedTransactionRequest"))]
 pub struct RpcSendTransactionRequest {
     #[serde(rename = "signed_tx_base64")]
     pub signed_transaction: SignedTransaction,

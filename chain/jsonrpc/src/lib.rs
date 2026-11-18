@@ -1306,7 +1306,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionEnvelopeRequest,
+        request_data: RpcSendTransactionEnvelopeRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
