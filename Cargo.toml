@@ -88,7 +88,7 @@ members = [
     "utils/near-stable-hasher",
     "utils/stdx",
 ]
-exclude = ["tracing", "benchmarks", "test-loop-tests/ecc-wallet"]
+exclude = ["tracing", "benchmarks"]
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }

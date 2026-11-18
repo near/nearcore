@@ -5,6 +5,9 @@
 const REGISTER: u64 = 0;
 
 mod sys {
+    // The host functions come from the `env` module. Without this, the linker reports them as
+    // undefined symbols.
+    #[link(wasm_import_module = "env")]
     unsafe extern "C" {
         // Registers.
         pub fn read_register(register_id: u64, ptr: u64);

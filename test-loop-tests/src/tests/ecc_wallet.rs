@@ -1,6 +1,6 @@
 //! End-to-end tests of external contract calls with the example wallet in
-//! `test-loop-tests/ecc-wallet`, a contract that runs requests signed by a WebAuthn passkey on
-//! P-256. The calls go through RPC, the producer's dry run and chunk apply.
+//! `runtime/near-test-contracts/ecc-wallet`, a contract that runs requests signed by a WebAuthn
+//! passkey on P-256. The calls go through RPC, the producer's dry run and chunk apply.
 //!
 //! The tests encode payloads with their own types rather than the contract's, so that they also
 //! check the layout the contract's README documents.
@@ -33,12 +33,10 @@ use near_primitives::views::{
     ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
     QueryResponseKind, StateInitView, TxExecutionStatus,
 };
+use near_test_contracts::ecc_wallet_contract;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-
-/// The wallet contract, built by `test-loop-tests/ecc-wallet/build.sh`.
-const WALLET_WASM: &[u8] = include_bytes!("../../ecc-wallet/res/ecc_wallet.wasm");
 
 /// The wallet's nonces are block heights times this.
 const NONCE_MULTIPLIER: u64 = 1_000_000;
@@ -211,7 +209,9 @@ fn wallet_state_init(passkey: &Passkey) -> RawStateInit {
         (b"rp".to_vec(), hash(RP_ID.as_bytes()).as_ref().to_vec()),
     ]);
     UniversalStateInit::V1(UniversalStateInitV1 {
-        code: Some(GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(WALLET_WASM))),
+        code: Some(GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(
+            ecc_wallet_contract(),
+        ))),
         data,
         access_keys: BTreeSet::new(),
     })
@@ -244,7 +244,7 @@ fn setup(sponsor: &AccountId, accounts: &[&AccountId]) -> (TestLoopEnv, Wallet) 
 
     let deploy = env.rpc_node().tx_deploy_global_contract(
         sponsor,
-        WALLET_WASM.to_vec(),
+        ecc_wallet_contract().to_vec(),
         GlobalContractDeployMode::CodeHash,
     );
     env.rpc_runner().run_tx(deploy, RPC_TIMEOUT);

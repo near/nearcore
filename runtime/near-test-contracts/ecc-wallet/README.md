@@ -28,8 +28,8 @@ before, and then sends the request's actions.
 
 The wallet is a universal account, so it needs no transaction to create it:
 
-1. Deploy `res/ecc_wallet.wasm` once per chain as a global contract, by code hash. Every wallet
-   shares it.
+1. Build the wasm with `build.sh` and deploy it once per chain as a global contract, by code
+   hash. Every wallet shares it.
 2. Build the wallet's state init, a `UniversalStateInit::V1` with:
    - `code`: the global contract's code hash;
    - `data`: the two keys below, `pk` and `rp`;
@@ -201,18 +201,18 @@ This example leaves out, among other things:
 
 ## Building and testing
 
-The crate is not part of the nearcore workspace. From this folder:
+The crate is not part of the nearcore workspace. `runtime/near-test-contracts/build.rs` builds it
+whenever nearcore's tests are built, with the toolchain that nearcore's `rust-toolchain.toml`
+pins and flags that keep out wasm features the NEAR VM doesn't accept. The test-loop tests
+(`test-loop-tests/src/tests/ecc_wallet.rs`) get the wasm from
+`near_test_contracts::ecc_wallet_contract()`.
+
+From this folder:
 
 ```sh
 cargo test     # unit tests for the payload layout and the checks, on the host
-./build.sh     # builds res/ecc_wallet.wasm
+./build.sh     # builds the wasm on its own, with the same flags, to deploy it yourself
 ```
-
-`build.sh` uses the toolchain that nearcore's `rust-toolchain.toml` pins, with the flags that
-`runtime/near-test-contracts/build.rs` uses, so that the wasm has no features the NEAR VM
-doesn't accept. `res/ecc_wallet.wasm` is checked in for the test-loop tests
-(`test-loop-tests/src/tests/ecc_wallet.rs`) to deploy. Nothing in CI rebuilds it, so rebuild and
-commit it whenever the source changes.
 
 `cargo fmt` and `cargo clippy` at the nearcore root skip this crate. Run them here, and run clippy
 for the wasm target too, since the host functions are only compiled for it:
