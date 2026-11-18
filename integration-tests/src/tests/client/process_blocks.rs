@@ -863,7 +863,7 @@ fn test_bad_chunk_mask() {
             }
             mut_block
                 .mut_header()
-                .resign(&*env.client(&block_producer).validator_signer.get().unwrap().clone());
+                .resign(&*env.client(&block_producer).validator_signer.get().unwrap());
 
             for client in &mut env.clients {
                 let res = client
@@ -1874,7 +1874,7 @@ fn test_validate_chunk_extra() {
         *chunk_header.height_included_mut() = i as BlockHeight + next_height;
         let chunk_headers = vec![chunk_header.clone()];
         let mut_block = Arc::make_mut(block);
-        mut_block.set_chunks(chunk_headers.clone());
+        mut_block.set_chunks(chunk_headers);
         mut_block.recompute_fields_derived_from_chunks();
 
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
@@ -2325,8 +2325,7 @@ fn test_refund_receipts_processing() {
             let chunk_extra = env.clients[0]
                 .chain
                 .get_chunk_extra(&receipt_outcome.block_hash, &test_shard_uid)
-                .unwrap()
-                .clone();
+                .unwrap();
             assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
         } else {
             unreachable!("Transaction must succeed");
@@ -2470,7 +2469,7 @@ fn test_epoch_protocol_version_change() {
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
-            set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION);
+            set_block_protocol_version(&mut block, block_producer, PROTOCOL_VERSION);
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
@@ -2779,7 +2778,7 @@ fn test_query_final_state() {
     for i in 1..5 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(0, block, Provenance::PRODUCED);
     }
 
     let query_final_state =
@@ -2858,7 +2857,7 @@ fn test_fork_receipt_ids() {
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
-        mut_block.set_chunks(chunk_headers.clone());
+        mut_block.set_chunks(chunk_headers);
         mut_block.recompute_fields_derived_from_chunks();
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block.mut_header().resign(&validator_signer);
@@ -2911,7 +2910,7 @@ fn test_fork_execution_outcome() {
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
-        mut_block.set_chunks(chunk_headers.clone());
+        mut_block.set_chunks(chunk_headers);
         mut_block.recompute_fields_derived_from_chunks();
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block.mut_header().resign(&validator_signer);

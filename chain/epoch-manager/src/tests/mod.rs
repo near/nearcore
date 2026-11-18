@@ -218,7 +218,7 @@ fn test_fork_finalization() {
         for (i, curr_block) in hashes.iter().enumerate().skip(2) {
             let height = i as u64;
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
-            let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+            let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
             let block_producer_id = epoch_info.sample_block_producer(height);
             let block_producer = epoch_info.get_validator(block_producer_id);
             let account_id = block_producer.account_id();
@@ -918,7 +918,7 @@ fn test_expected_chunks() {
     for (i, curr_block) in hashes.iter().enumerate().skip(1) {
         let height = i as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let block_producer = epoch_info.sample_block_producer(height);
         // test1 does not produce blocks during first epoch
         if block_producer == 0 && epoch_id == initial_epoch_id {
@@ -997,7 +997,7 @@ fn test_expected_chunks_prev_block_not_produced() {
     for (i, curr_block) in hashes.iter().enumerate().skip(1) {
         let height = i as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let block_producer = epoch_info.sample_block_producer(height);
         let prev_block_info = epoch_manager.get_block_info(&prev_block).unwrap();
@@ -1121,7 +1121,7 @@ fn test_rewards_with_kickouts() {
         let block_hash = hash(height.to_le_bytes().as_ref());
 
         let epoch_id = em.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-        let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+        let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
         let validator_id = epoch_info.sample_block_producer(height);
         let block_producer = epoch_info.validator_account_id(validator_id);
 
@@ -1592,7 +1592,7 @@ fn test_chunk_producer_kickout() {
     for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
         let height = height as u64;
         let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
-        let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+        let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
         let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
         let chunk_mask = (0..4)
             .map(|shard_index| {
@@ -2148,7 +2148,7 @@ fn test_all_kickout_edge_case() {
     for (height, curr_block) in hashes.iter().enumerate().skip(1) {
         let height = height as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let block_producer = epoch_info.sample_block_producer(height);
         let block_producer = epoch_info.validator_account_id(block_producer);
         if height < EPOCH_LENGTH {

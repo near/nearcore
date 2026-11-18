@@ -41,11 +41,15 @@ def build_contract():
     """Builds the addkey contract wasm the test deploys.
 
     The contract is a standalone crate that the neard build does not produce.
-    Clear the inherited rustflags: CI sets `-fuse-ld=lld` for the native
+    Replace the inherited rustflags: CI sets `-fuse-ld=lld` for the native
     build, which rust-lld rejects when linking the wasm target.
+
+    `--allow-undefined` is needed because near-sdk 4 declares the host
+    functions without a wasm import module, and the wasm linker no longer
+    accepts such undefined symbols by default.
     """
     env = dict(os.environ)
-    env['RUSTFLAGS'] = ''
+    env['RUSTFLAGS'] = '-Clink-arg=--allow-undefined'
     env.pop('CARGO_ENCODED_RUSTFLAGS', None)
     subprocess.run(
         ['cargo', 'build', '--target', 'wasm32-unknown-unknown', '--release'],

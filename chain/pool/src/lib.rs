@@ -713,7 +713,7 @@ mod tests {
         let mut pool_iter = pool.pool_iterator();
         while let Some(group) = next_group(&mut pool_iter) {
             while let Some(tx) = group.next() {
-                remaining_txs.push(tx.clone());
+                remaining_txs.push(tx);
             }
         }
         drop(pool_iter);

@@ -6,6 +6,8 @@
 
 ### Non-protocol Changes
 
+* Raised the minimum supported Rust version to 1.100.0. Building `nearcore` from source now requires a Rust 1.100.0 toolchain.
+
 ## [2.15.0]
 
 ### Protocol Changes

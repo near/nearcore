@@ -54,7 +54,7 @@ impl ConfigUpdater {
                     self.updatable_configs_error = None;
                 }
                 Err(err) => {
-                    self.updatable_configs_error = Some(err.clone());
+                    self.updatable_configs_error = Some(err);
                 }
             }
         }

@@ -667,7 +667,7 @@ impl FlatStorageResharder {
         else {
             return Err(Error::Other(format!(
                 "unexpected resharding catchup flat storage status for {}: {:?}",
-                shard_uid, &status
+                shard_uid, status
             )));
         };
 
@@ -696,7 +696,7 @@ impl FlatStorageResharder {
             debug_assert!(
                 flat_head.height <= chain_final_head.height,
                 "flat head: {:?}",
-                &flat_head,
+                flat_head,
             );
 
             if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {

@@ -76,7 +76,7 @@ jobs:
 
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
@@ -149,13 +149,13 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
       # separate job like done with the regular neard.
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env --no-rustc-wrapper | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
       - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - uses: ./.github/actions/install-clang

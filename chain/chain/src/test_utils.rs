@@ -250,10 +250,8 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     );
     let mut headers = vec![];
     for (key, _) in chain_store.store().iter(DBCol::BlockHeader) {
-        let header = chain_store
-            .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
-            .unwrap()
-            .clone();
+        let header =
+            chain_store.get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap()).unwrap();
         if !tail || header.height() + 10 > head.height {
             headers.push(header);
         }
@@ -266,7 +264,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             // Genesis block.
             tracing::debug!(height = %header.height(), hash = %format_hash(*header.hash()));
         } else {
-            let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
+            let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
             let maybe_block = chain_store.get_block(header.hash()).ok();
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =

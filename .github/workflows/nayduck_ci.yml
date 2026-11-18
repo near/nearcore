@@ -98,11 +98,11 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env --no-rustc-wrapper | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
       - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - uses: ./.github/actions/install-clang

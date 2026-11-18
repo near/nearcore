@@ -11,7 +11,7 @@ fn test_capped_gas_price() {
 
     for i in 3..20 {
         env.produce_block(0, i);
-        let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+        let block = env.clients[0].chain.get_block_by_height(i).unwrap();
         let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price();
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();

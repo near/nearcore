@@ -44,7 +44,7 @@ where
             }
             GenericUpdatedTrieNode::Branch { mut children, value } => {
                 // Remove any children that are now empty (removed).
-                for child in children.iter_mut() {
+                for child in &mut children {
                     if let Some(GenericNodeOrIndex::Updated(child_node_id)) = child {
                         if let GenericUpdatedTrieNode::Empty =
                             self.get_node_ref(*child_node_id).node

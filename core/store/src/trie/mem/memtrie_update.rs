@@ -301,7 +301,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 return;
             }
             UpdatedMemTrieNode::Branch { children, .. } => {
-                for child in children.iter() {
+                for child in children {
                     if let Some(OldOrUpdatedNodeId::Updated(child_node_id)) = child {
                         Self::post_order_traverse_updated_nodes(
                             *child_node_id,
@@ -359,7 +359,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 UpdatedMemTrieNode::Empty => unreachable!(),
                 UpdatedMemTrieNode::Branch { children, value } => {
                     let mut child_hashes = vec![];
-                    for child in children.iter() {
+                    for child in children {
                         match child {
                             Some(child) => {
                                 let child_hash = get_hash(*child, &result);
@@ -945,7 +945,7 @@ mod tests {
                     .cloned()
                     .unwrap_or_default();
                 println!("  {} = delete", hex::encode(&key));
-                changes.push((key.clone(), None));
+                changes.push((key, None));
             }
             tries.check_consistency_across_all_changes_and_apply(changes);
         }

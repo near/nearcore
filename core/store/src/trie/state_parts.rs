@@ -882,7 +882,7 @@ mod tests {
                 &tries,
                 &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
-                trie_changes.clone(),
+                trie_changes,
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
             let root_memory_usage = trie.retrieve_root_node().unwrap().memory_usage;
@@ -1081,7 +1081,7 @@ mod tests {
                 &tries,
                 &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
-                trie_changes.clone(),
+                trie_changes,
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 

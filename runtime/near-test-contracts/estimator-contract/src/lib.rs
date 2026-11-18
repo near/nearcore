@@ -12,6 +12,7 @@ pub fn panic(_info: &::core::panic::PanicInfo) -> ! {
 
 mod sys {
     #[allow(unused)]
+    #[link(wasm_import_module = "env")]
     extern "C" {
         pub fn read_register(register_id: u64, ptr: u64);
         pub fn account_balance(balance_ptr: u64);
@@ -32,6 +33,7 @@ unsafe fn attached_deposit(balance_ptr: *mut u8) {
 }
 
 #[allow(unused)]
+#[link(wasm_import_module = "env")]
 extern "C" {
     // #############
     // # Registers #
@@ -336,7 +338,7 @@ pub unsafe fn read_register_10b_10k() {
     let buffer = [0u8; 10];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     for _ in 0..10_000 {
-        value_return(core::u64::MAX, 0);
+        value_return(u64::MAX, 0);
     }
 }
 
@@ -347,7 +349,7 @@ pub unsafe fn read_register_1Mib_10k() {
     let buffer = [0u8; 1024 * 1024];
     write_register(0, buffer.len() as u64, buffer.as_ptr() as *const u64 as u64);
     for _ in 0..10_000 {
-        value_return(core::u64::MAX, 0);
+        value_return(u64::MAX, 0);
     }
 }
 
@@ -402,7 +404,7 @@ pub unsafe fn nul_utf8_log_10b_10k() {
     let mut buffer = [65u8; 10];
     buffer[buffer.len() - 1] = 0;
     for _ in 0..10_000 {
-        log_utf8(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
+        log_utf8(u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
 }
 
@@ -415,7 +417,7 @@ pub unsafe fn nul_utf8_log_10kib_1k() {
     let mut buffer = [65u8; 10240];
     buffer[buffer.len() - 1] = 0;
     for _ in 0..1_000 {
-        log_utf8(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
+        log_utf8(u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
 }
 
@@ -451,7 +453,7 @@ pub unsafe fn nul_utf16_log_10b_10k() {
     buffer[buffer.len() - 2] = 0;
     buffer[buffer.len() - 1] = 0;
     for _ in 0..10_000 {
-        log_utf16(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
+        log_utf16(u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
 }
 
@@ -465,7 +467,7 @@ pub unsafe fn nul_utf16_log_10kib_1k() {
     buffer[buffer.len() - 2] = 0;
     buffer[buffer.len() - 1] = 0;
     for _ in 0..1_000 {
-        log_utf16(core::u64::MAX, buffer.as_ptr() as *const u64 as u64);
+        log_utf16(u64::MAX, buffer.as_ptr() as *const u64 as u64);
     }
 }
 

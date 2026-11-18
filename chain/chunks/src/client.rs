@@ -275,8 +275,8 @@ mod tests {
 
             let signed_tx = SignedTransaction::send_money(
                 nonce,
-                signer_id.clone(),
-                receiver_id.clone(),
+                signer_id,
+                receiver_id,
                 &signer,
                 deposit,
                 CryptoHash::default(),

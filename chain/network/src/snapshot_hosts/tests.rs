@@ -890,7 +890,7 @@ async fn run_select_peer_test(
                     Some(idx) => Some(PeerId::new(keys[*idx].public_key())),
                     None => None,
                 };
-                assert!(peer == wanted, "{test_name} got: {:?} want: {:?}", &peer, &wanted);
+                assert!(peer == wanted, "{test_name} got: {:?} want: {:?}", peer, wanted);
             }
             SelectPeerAction::PartReceived => {
                 let shard_id = ShardId::new(0);
@@ -943,7 +943,7 @@ async fn test_select_peer() {
         let key = data::make_secret_key(&mut rng);
         let peer_id = PeerId::new(key.public_key());
         let score = priority_score(&peer_id, ShardId::new(0), part_id);
-        keys.push((key.clone(), score));
+        keys.push((key, score));
     }
     // cspell:ignore lkey lscore rkey rscore
     keys.sort_by(|(_lkey, lscore), (_rkey, rscore)| lscore.partial_cmp(rscore).unwrap().reverse());

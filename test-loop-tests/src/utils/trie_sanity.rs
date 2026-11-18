@@ -163,14 +163,14 @@ impl TrieSanityCheck {
         // The first epoch has no checks: assert_state_sanity() skips EpochId::default().
         for epoch_id in past_epoch_ids.iter().skip(1) {
             let check = self.checks.get(epoch_id).unwrap_or_else(|| {
-                panic!("No trie comparison checks made for epoch {}", &epoch_id.0)
+                panic!("No trie comparison checks made for epoch {}", epoch_id.0)
             });
             for (account_id, checked_shards) in check {
                 for (shard_uid, checked) in checked_shards {
                     assert!(
                         checked,
                         "No trie comparison checks made for account {} epoch {} shard {}",
-                        account_id, &epoch_id.0, shard_uid
+                        account_id, epoch_id.0, shard_uid
                     );
                 }
             }

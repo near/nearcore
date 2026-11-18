@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(12345);
 fn pseudo_rand() -> u64 {
-    let _ = NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+    let _ = NEXT.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
         Some(n.wrapping_mul(6364136223846793005).wrapping_add(1))
     });
     NEXT.load(Ordering::Relaxed)

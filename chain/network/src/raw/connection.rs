@@ -63,7 +63,7 @@ impl fmt::Debug for RoutedMessage {
             Self::PartialEncodedChunkResponse(r) => write!(
                 f,
                 "PartialEncodedChunkResponse(chunk_hash: {} parts_ords: {:?} num_receipts: {})",
-                &r.chunk_hash.0,
+                r.chunk_hash.0,
                 r.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
                 r.receipts.len()
             ),
@@ -136,10 +136,10 @@ impl std::fmt::Debug for Connection {
         write!(
             f,
             "raw::Connection({:?}@{} -> {:?}@{})",
-            &self.my_peer_id,
-            &self.stream.stream.local_addr,
-            &self.peer_id,
-            &self.stream.stream.peer_addr
+            self.my_peer_id,
+            self.stream.stream.local_addr,
+            self.peer_id,
+            self.stream.stream.peer_addr
         )
     }
 }
@@ -505,7 +505,7 @@ struct PeerStream {
 
 impl std::fmt::Debug for PeerStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "raw::PeerStream({} -> {})", &self.stream.local_addr, &self.stream.peer_addr)
+        write!(f, "raw::PeerStream({} -> {})", self.stream.local_addr, self.stream.peer_addr)
     }
 }
 
