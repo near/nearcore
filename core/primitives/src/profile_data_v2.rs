@@ -344,6 +344,6 @@ mod test {
     fn test_profile_data_debug_no_data() {
         let profile_data = ProfileDataV2::default();
         // we don't care about exact formatting, but at least it should not panic
-        println!("{:#?}", &profile_data);
+        println!("{:#?}", profile_data);
     }
 }

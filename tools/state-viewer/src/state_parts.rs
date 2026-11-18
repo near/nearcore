@@ -420,8 +420,7 @@ async fn load_state_parts(
 }
 
 fn print_state_part(state_root: &StateRoot, _part_id: StatePartId, trie_nodes: PartialState) {
-    let trie =
-        Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
     trie.print_recursive(
         &mut std::io::stdout().lock(),
         &state_root,
@@ -533,8 +532,7 @@ async fn dump_state_parts(
 
 /// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
 fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
-    let trie =
-        Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
     for (key, value) in trie.disk_iter().unwrap().flatten() {
         if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {

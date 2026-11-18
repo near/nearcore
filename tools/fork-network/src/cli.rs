@@ -916,7 +916,7 @@ impl ForkNetworkCommand {
         };
         let shard_layout = epoch_manager
             .get_shard_layout(&epoch_id)
-            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
+            .with_context(|| format!("Failed getting shard layout for epoch {}", epoch_id.0))?;
 
         let mut state_roots = HashMap::new();
         for (key, value) in
@@ -1111,7 +1111,7 @@ impl ForkNetworkCommand {
                 }
                 FlatStateValue::Inlined(value) => (key, value),
             };
-            if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
+            if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
                 match sr {
                     StateRecord::AccessKey { account_id, public_key, access_key } => {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
@@ -1132,7 +1132,7 @@ impl ForkNetworkCommand {
                             new_shard_idx,
                             new_account_id,
                             replacement.public_key(),
-                            access_key.clone(),
+                            access_key,
                         )?;
                     }
                     StateRecord::GasKeyNonce { account_id, public_key, index, nonce } => {
@@ -1547,11 +1547,8 @@ impl ForkNetworkCommand {
                 &shard_layout,
                 &state_roots_map,
             )?;
-            let mut storage_mutator = StorageMutator::new(
-                runtime.get_tries(),
-                update_state.clone(),
-                shard_layout.clone(),
-            )?;
+            let mut storage_mutator =
+                StorageMutator::new(runtime.get_tries(), update_state, shard_layout.clone())?;
 
             let shard_id = shard_layout.get_shard_id(account_prefix_idx).unwrap();
             let num_shards = shard_layout.num_shards();
@@ -1777,7 +1774,7 @@ impl ForkNetworkCommand {
 }
 
 fn backup_genesis_file_path(home_dir: &Path, genesis_file: &str) -> PathBuf {
-    home_dir.join(format!("{}.backup", &genesis_file))
+    home_dir.join(format!("{}.backup", genesis_file))
 }
 
 /// Returns hash of flat head.

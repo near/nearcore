@@ -68,7 +68,7 @@ impl Genesis {
         for (i, account) in accounts.into_iter().enumerate() {
             let signer = InMemorySigner::test_signer(&account);
             account_infos.push(AccountInfo {
-                account_id: account.clone(),
+                account_id: account,
                 public_key: signer.public_key(),
                 amount: if i < num_validator_seats as usize {
                     TESTING_INIT_STAKE

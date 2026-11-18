@@ -182,11 +182,7 @@ impl User for RpcUser {
         }
     }
 
-    fn add_receipts(
-        &self,
-        _receipts: Vec<Receipt>,
-        _use_flat_storage: bool,
-    ) -> Result<(), ServerError> {
+    fn add_receipts(&self, _receipts: Vec<Receipt>) -> Result<(), ServerError> {
         // TODO: figure out if rpc will support this
         unimplemented!()
     }

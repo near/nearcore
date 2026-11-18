@@ -1304,7 +1304,7 @@ mod tests {
 
             // Verify if running the algorithm on recorded storage gives the same result
             let recorded_storage = trie.recorded_storage().unwrap();
-            let recorded_trie = Trie::from_recorded_storage(recorded_storage, root, true);
+            let recorded_trie = Trie::from_recorded_storage(recorded_storage, root);
             let recorded_trie_split = find_trie_split(&recorded_trie)?;
             assert_eq!(trie_split, recorded_trie_split);
 

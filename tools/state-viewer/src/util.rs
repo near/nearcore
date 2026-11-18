@@ -162,7 +162,7 @@ pub fn check_apply_block_result(
     let new_chunk_extra = apply_result.to_chunk_extra(gas_limit);
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id, height, &new_chunk_extra,
+        shard_id, height, new_chunk_extra,
     );
     let shard_uid = shard_id_to_uid(epoch_manager, shard_id, block.header().epoch_id())?;
     if block.chunks()[shard_index].height_included() == height {
@@ -173,8 +173,8 @@ pub fn check_apply_block_result(
             } else {
                 Err(anyhow::anyhow!(
                     "mismatch in resulting chunk extra.\nold: {:?}\nnew: {:?}",
-                    &old_chunk_extra,
-                    &new_chunk_extra
+                    old_chunk_extra,
+                    new_chunk_extra
                 ))
             }
         } else {

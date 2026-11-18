@@ -256,7 +256,7 @@ fn apply_tx_in_block(
             HashType::Tx => {
                 println!(
                     "Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
-                    &block_hash,
+                    block_hash,
                     shard_id,
                     chain_store.get_block_header(&block_hash)?.height(),
                     shard_id
@@ -344,7 +344,7 @@ fn apply_tx_in_chunk(
     for chunk_hash in chunk_hashes {
         println!(
             "found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n",
-            &chunk_hash.0, &chunk_hash.0
+            chunk_hash.0, chunk_hash.0
         );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, &chunk_hash, None, None, storage)?;
@@ -398,7 +398,7 @@ fn apply_receipt_in_block(
             HashType::Receipt => {
                 println!(
                     "Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
-                    &block_hash,
+                    block_hash,
                     shard_id,
                     chain_store.get_block_header(&block_hash)?.height(),
                     shard_id
@@ -468,7 +468,7 @@ fn apply_receipt_in_chunk(
                         to_apply.insert((height, to_shard));
                         println!(
                             "found receipt in chunk {}. Receiver is in shard {}",
-                            &chunk_hash.0, to_shard
+                            chunk_hash.0, to_shard
                         );
                         break;
                     }

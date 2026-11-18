@@ -115,6 +115,7 @@
 - [Tracking Issues](./practices/tracking_issues.md)
 - [Security Vulnerabilities](./practices/security_vulnerabilities.md)
 - [Fast Builds](./practices/fast_builds.md)
+- [Dependencies](./practices/dependencies.md)
 - [Testing](./practices/testing/README.md)
   - [Python Tests](./practices/testing/python_tests.md)
   - [Testing Utils](./practices/testing/test_utils.md)

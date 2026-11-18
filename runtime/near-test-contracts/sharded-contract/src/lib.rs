@@ -27,6 +27,7 @@ use std::collections::BTreeMap;
 
 mod sys {
     #[allow(unused)]
+    #[link(wasm_import_module = "env")]
     extern "C" {
         pub fn read_register(register_id: u64, ptr: u64);
         pub fn account_balance(balance_ptr: u64);
@@ -45,6 +46,7 @@ unsafe fn attached_deposit(balance_ptr: *mut u8) {
 }
 
 #[allow(unused)]
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn register_len(register_id: u64) -> u64;
     fn predecessor_account_id(register_id: u64);

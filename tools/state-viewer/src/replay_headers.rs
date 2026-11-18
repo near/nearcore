@@ -44,7 +44,7 @@ pub(crate) fn replay_headers(
 
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            let header = chain_store.get_block_header(&block_hash).unwrap();
             tracing::trace!(%height, ?header, "height and header");
 
             let block_info = get_block_info(&header, &chain_store, epoch_manager.as_ref());

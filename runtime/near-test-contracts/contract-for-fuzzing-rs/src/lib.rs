@@ -4,6 +4,7 @@ use std::mem::size_of;
 
 mod sys {
     #[allow(unused)]
+    #[link(wasm_import_module = "env")]
     extern "C" {
         pub fn read_register(register_id: u64, ptr: u64);
         pub fn account_balance(balance_ptr: u64);
@@ -34,6 +35,7 @@ unsafe fn validator_total_stake(stake_ptr: *mut u8) {
 }
 
 #[allow(unused)]
+#[link(wasm_import_module = "env")]
 extern "C" {
     // #############
     // # Registers #

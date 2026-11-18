@@ -193,7 +193,7 @@ fn verify_signed_structs() {
         got.verify(&ACCEPT_BOTH).unwrap();
         // The signature covers the struct. In case of a protobuf signature, the signed bytes
         // no longer match the changed struct.
-        let mut changed = signed.clone();
+        let mut changed = signed;
         changed.account_data.version += 1;
         assert!(changed.verify(&ACCEPT_BOTH).is_err(), "{encoding:?}");
 
@@ -203,7 +203,7 @@ fn verify_signed_structs() {
         let got = SignedOwnedAccount::try_from_slice(&borsh::to_vec(&signed).unwrap()).unwrap();
         assert_eq!(got, signed);
         got.verify(&ACCEPT_BOTH).unwrap();
-        let mut changed = signed.clone();
+        let mut changed = signed;
         changed.owned_account.timestamp += 1;
         assert!(changed.verify(&ACCEPT_BOTH).is_err(), "{encoding:?}");
     }

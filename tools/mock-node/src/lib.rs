@@ -148,7 +148,7 @@ fn get_head_block(
                     .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
-        return chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash));
+        return chain.get_block(&hash).with_context(|| format!("get_block {} failed", hash));
     }
     anyhow::bail!("No blocks between tail #{} and head #{}", tail, max_height);
 }
@@ -327,8 +327,7 @@ impl MockPeer {
                     tracing::info!(?conn, "disconnected");
                     return Ok(false);
                 }
-                return Err(e)
-                    .with_context(|| format!("failed receiving message from {:?}", &conn));
+                return Err(e).with_context(|| format!("failed receiving message from {:?}", conn));
             }
         };
         tracing::debug!(%message, "mock peer received message");
@@ -350,7 +349,7 @@ impl MockPeer {
                         let block = self
                             .chain
                             .get_block(&hash)
-                            .with_context(|| format!("failed getting block {}", &hash))?;
+                            .with_context(|| format!("failed getting block {}", hash))?;
                         outbound.queue_message(Message::Direct(DirectMessage::Block(block)));
                     }
                     _ => {}
@@ -367,7 +366,7 @@ impl MockPeer {
                         .with_context(|| {
                             format!(
                                 "failed getting partial encoded chunk response for {:?}",
-                                &request
+                                request
                             )
                         })?;
                         outbound.queue_message(Message::Routed(
@@ -396,7 +395,7 @@ impl MockPeer {
                     .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
-        self.chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash)).map(Some)
+        self.chain.get_block(&hash).with_context(|| format!("get_block {} failed", hash)).map(Some)
     }
 
     // returns a message produced by this mock peer. Right now this includes a new block

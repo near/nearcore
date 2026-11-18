@@ -372,7 +372,7 @@ async fn ping_via_node(
             _ = &mut next_ping, if target.is_some() => {
                 let target = target.unwrap();
                 result = peer.send_routed_message(RoutedMessage::Ping{nonce}, target.clone(), ttl)
-                            .await.with_context(|| format!("Failed sending ping to {:?}", &target));
+                            .await.with_context(|| format!("Failed sending ping to {:?}", target));
                 if result.is_err() {
                     break;
                 }

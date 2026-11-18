@@ -727,7 +727,7 @@ pub fn validate_chunk_state_witness_impl(
             ) => {
                 let old_root = *chunk_extra.state_root();
                 let partial_storage = PartialStorage { nodes: transition.base_state.clone() };
-                let parent_trie = Trie::from_recorded_storage(partial_storage, old_root, true);
+                let parent_trie = Trie::from_recorded_storage(partial_storage, old_root);
 
                 // Update the congestion info based on the parent shard. It's
                 // important to do this step before the `retain_split_shard`

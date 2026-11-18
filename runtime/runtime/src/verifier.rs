@@ -1191,7 +1191,7 @@ mod tests {
                         .unwrap(),
                 );
             }
-            set_account(&mut initial_state, account_id.clone(), &initial_account);
+            set_account(&mut initial_state, account_id, &initial_account);
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().trie_changes;

@@ -169,13 +169,16 @@ $ cargo install wasm-tools
 
 Finally, let's implement an actual contract. We'll need an `extern "C"` block to
 declare the `value_return` import, and a `#[unsafe(no_mangle)] extern "C"` function to
-declare the `hello` export:
+declare the `hello` export. The `#[link(wasm_import_module = "env")]` attribute
+tells the linker that `value_return` is imported from the `env` module. Without
+it, linking fails with an `undefined symbol: value_return` error.
 
 ```rust
 // hello-near/src/lib.rs
 
 #![no_std]
 
+#[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn value_return(len: u64, ptr: u64);
 }

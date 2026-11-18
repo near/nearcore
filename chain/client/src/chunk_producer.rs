@@ -580,7 +580,6 @@ impl ChunkProducer {
                 } else {
                     let storage_config = RuntimeStorageConfig {
                         state_root: *chunk_extra.state_root(),
-                        use_flat_storage: true,
                         source: near_chain::types::StorageDataSource::Db,
                         state_patch: Default::default(),
                     };

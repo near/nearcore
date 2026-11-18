@@ -1659,7 +1659,7 @@ impl ClientActor {
             num_blocks = accepted_blocks.len())
         .entered();
         for accepted_block in accepted_blocks {
-            let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
+            let block = self.client.chain.get_block(&accepted_block).unwrap();
             tracing::debug!(target: "client", height=block.header().height(), "process_accepted_block");
             self.send_chunks_metrics(&block);
             self.send_block_metrics(&block);

@@ -1340,15 +1340,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // If there is no flat storage on disk, use trie but simulate costs with enabled
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
-                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.set_use_trie_accounting_cache(false);
-                trie
+                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
             }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
+            StorageDataSource::Recorded(storage) => {
+                Trie::from_recorded_storage(storage, storage_config.state_root)
+            }
         };
 
         // Start recording trie reads to enforce storage proof size limits and potentially provide a
@@ -1765,26 +1761,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                 shard_id,
                 &block.prev_block_hash,
                 storage_config.state_root,
-                storage_config.use_flat_storage,
+                true,
             )?,
             StorageDataSource::DbTrieOnly => {
                 // If there is no flat storage on disk, use trie but simulate costs with enabled
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
-                let mut trie = self.get_trie_for_shard(
+                self.get_trie_for_shard(
                     shard_id,
                     &block.prev_block_hash,
                     storage_config.state_root,
                     false,
-                )?;
-                trie.set_use_trie_accounting_cache(false);
-                trie
+                )?
             }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
+            StorageDataSource::Recorded(storage) => {
+                Trie::from_recorded_storage(storage, storage_config.state_root)
+            }
         };
 
         // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is

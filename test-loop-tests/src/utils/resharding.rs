@@ -144,7 +144,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
                 let tx = SignedTransaction::send_money(
                     nonce,
                     sender.clone(),
-                    receiver.clone(),
+                    receiver,
                     &create_user_test_signer(&sender).into(),
                     amount,
                     anchor_hash,

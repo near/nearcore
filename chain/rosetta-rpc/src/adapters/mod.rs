@@ -93,7 +93,7 @@ async fn convert_genesis_records_to_transaction(
                 operation_identifier: crate::models::OperationIdentifier::new(&operations),
                 related_operations: None,
                 account: crate::models::AccountIdentifier {
-                    address: account_id.clone(),
+                    address: account_id,
                     sub_account: Some(crate::models::SubAccount::Locked.into()),
                     metadata: None,
                 },
@@ -486,7 +486,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         operations.push(
                             validated_operations::TransferOperation {
                                 account: sender_account_identifier.clone(),
-                                amount: -attached_amount.clone(),
+                                amount: -attached_amount,
                                 predecessor_id: Some(sender_account_identifier.clone()),
                             }
                             .into_operation(fund_transfer_operation_id.clone()),

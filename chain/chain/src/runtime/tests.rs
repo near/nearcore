@@ -285,7 +285,7 @@ impl TestEnv {
         let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         self.runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(state_root, true),
+                RuntimeStorageConfig::new(state_root),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_uid,
@@ -3241,7 +3241,6 @@ fn test_prepare_transactions_returns_the_late_ecc_that_started_late() {
     let mut pool = pool_with_eccs([held]);
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
     };
@@ -3380,7 +3379,6 @@ fn test_prepare_transactions_duplicate_nonces() {
 
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
     };
@@ -3468,7 +3466,6 @@ fn test_prepare_transactions_shared_balance_across_keys() {
 
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
     };
@@ -3532,7 +3529,6 @@ fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
     let prepare = |tx: SignedTransaction| {
         let storage_config = RuntimeStorageConfig {
             state_root: env.state_roots[0],
-            use_flat_storage: true,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
         };
@@ -3631,7 +3627,6 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     let prepare = |tx: SignedTransaction| {
         let storage_config = RuntimeStorageConfig {
             state_root: env.state_roots[0],
-            use_flat_storage: true,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
         };
@@ -4003,7 +3998,6 @@ fn test_prepare_transactions_helper(
 
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: storage_source,
         state_patch: Default::default(),
     };

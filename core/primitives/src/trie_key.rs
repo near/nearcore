@@ -1325,7 +1325,7 @@ mod tests {
             );
 
             // GasKeyNonce should return the account id.
-            assert_eq!(gas_key_nonce.get_account_id(), Some(account_id.clone()));
+            assert_eq!(gas_key_nonce.get_account_id(), Some(account_id));
         }
     }
 

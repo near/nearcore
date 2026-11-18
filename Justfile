@@ -114,7 +114,9 @@ codecov RULE:
     # Note: macos seems to not support `source <()` as a way to set environment variables, but
     # this variant seems to work on both linux and macos.
     # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
-    cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS= > env
+    # `--no-rustc-wrapper`: the instrumentation flags come from our own wrapper below, which
+    # applies them to the workspace crates only.
+    cargo llvm-cov show-env --no-rustc-wrapper --sh | grep -v RUSTFLAGS= > env
     source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/coverage-wrapper-rustc") }}"
     {{ just_executable() }} {{ RULE }}

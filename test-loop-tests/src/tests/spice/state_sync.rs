@@ -182,7 +182,7 @@ fn test_spice_state_sync_header_proves_the_post_state_root() {
                 ShardStateSyncResponseHeader::V3(
                     ShardStateSyncResponseHeaderV3 {
                         state_root_node: StateRootNode { data: vec![0].into(), memory_usage: 0 },
-                        ..header.clone()
+                        ..header
                     }
                 ),
             ),

@@ -78,7 +78,7 @@ After the recovery is finished the configuration changes can be undone and a har
 We published a [reference recovery script](https://github.com/near/nearcore/blob/master/scripts/recover_missing_archival_data.sh) in the `nearcore` repository. Your `neard` setup might be different, so the advice is to thoroughly check the script before running it. For completeness, here we include the set of commands to run:
 
 ```bash
-neard view-state -t cold --readwrite apply-range --start-index 109913254 --end-index 110050000 --shard-id 2 --storage trie-free --save-state cold sequential
+neard view-state -t cold --readwrite apply-range --start-index 109913254 --end-index 110050000 --shard-id 2 --storage trie --save-state cold sequential
 ```
 
 ```bash

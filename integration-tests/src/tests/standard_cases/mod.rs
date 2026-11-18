@@ -1886,7 +1886,6 @@ fn check_trie_nodes_count(
     runtime_config: &RuntimeConfig,
     receipts: Vec<Receipt>,
     results: Vec<TrieNodesCount>,
-    use_flat_storage: bool,
 ) {
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
@@ -1894,7 +1893,7 @@ fn check_trie_nodes_count(
         receipts.iter().map(|receipt| *receipt.receipt_id()).collect();
 
     for i in 0..2 {
-        node_user.add_receipts(receipts.clone(), use_flat_storage).unwrap();
+        node_user.add_receipts(receipts.clone()).unwrap();
 
         if i == 1 {
             node_touches = receipt_hashes
@@ -1933,12 +1932,20 @@ pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: Runt
         })
         .collect();
 
-    let results = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }
 
 /// This test is similar to `test_accounting_cache_common_parent` but checks another trie structure:
@@ -1959,11 +1966,18 @@ pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: Runti
         })
         .collect();
 
-    let results = vec![
-        TrieNodesCount { db_reads: 5, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 5, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 5, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }
 
 /// This test is similar to `test_accounting_cache_common_parent` but checks another trie structure:
@@ -1993,21 +2007,27 @@ pub fn test_accounting_cache_mode(node: impl Node, runtime_config: RuntimeConfig
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),
     ];
 
-    let results = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }
 
 /// Checks costs for subsequent `storage_read` and `storage_write` for the same key.
 /// Depth for the storage key is 4.
-/// Without flat storage, cost for reading Value is skipped due to a bug, so we count
-/// 3 DB reads during read. During write, all nodes get cached, so we count 4 mem reads.
-/// With flat storage, neither DB nor memory reads should be counted, as we skip Trie
-/// node reads and don't charge for Value read due to the same bug. For write we go
-/// to Trie and count 3 DB node reads and 1 mem read for Value.
+/// Neither DB nor memory reads should be counted during read, as flat storage skips Trie
+/// node reads and we don't charge for Value read due to a bug. For write we go to Trie and
+/// count 3 DB node reads and 1 mem read for Value.
 pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(
@@ -2022,15 +2042,16 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![20])], bob_account()),
     ];
 
-    let results = vec![
-        TrieNodesCount { db_reads: 3, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts.clone(), results, false);
-
-    let results = vec![
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 3, mem_reads: 1 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 4, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 3, mem_reads: 1 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }

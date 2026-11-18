@@ -94,21 +94,18 @@ ignore = [
     # untrusted input. Remove once near-parameters moves off serde_yaml (#16566).
     "RUSTSEC-2024-0449",
 
-    # RUSTSEC-2026-0367 / RUSTSEC-2026-0368 / RUSTSEC-2026-0369 /
-    # RUSTSEC-2026-0429: `zip` crate ZipArchive::extract vulnerabilities
-    # (SUID/SGID preservation, symlink target escape, Unix permissions applied
-    # through symlinks, process abort on symlink entry with large declared
-    # size). Fixed in zip >= 9.0.0. Reached only via utoipa-swagger-ui 9.0.2
-    # (used by near-rosetta-rpc to serve the Swagger UI at /swagger-ui). The
-    # `vendored` feature uses `zip` only at build time to unpack a trusted
-    # Swagger-UI release archive shipped with the crate into OUT_DIR -- no
-    # runtime extraction of attacker-controlled zips. Latest published
-    # utoipa-swagger-ui 10.0.1 still pins zip = "8.6"; remove these once
-    # upstream releases a version with zip >= 9.0.
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
-    "RUSTSEC-2026-0429",
+    # RUSTSEC-2026-0543: chrono is unmaintained (soft-deprecated upstream in
+    # favor of jiff, see chronotope/chrono#1768). No patched version exists.
+    # It is used directly by many workspace crates and transitively by
+    # object_store and axum-test, so it can't be dropped quickly.
+    # TODO: remove once the workspace has migrated off chrono and the
+    # transitive users have done the same.
+    "RUSTSEC-2026-0543",
+    # RUSTSEC-2026-0542: humantime is unmaintained, no patched version exists.
+    # Pulled in only by object_store (near-external-storage); the latest
+    # object_store (0.14.2) still depends on it. Remove once object_store
+    # drops it.
+    "RUSTSEC-2026-0542",
 
     # RUSTSEC-2026-0441: pin-utils is unmaintained. Two dependencies pull it in:
     # futures-util 0.3.31, and nix 0.26 <- webrtc-util <- stun/turn

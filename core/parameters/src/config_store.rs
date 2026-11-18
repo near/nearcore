@@ -101,7 +101,7 @@ impl RuntimeConfigStore {
                 // TODO - make this configurable in the cases json.
                 config.witness_config.combined_transactions_size_limit = 4_000_000;
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
-                wasm_config.limit_config.per_receipt_storage_proof_size_limit = usize::max_value();
+                wasm_config.limit_config.per_receipt_storage_proof_size_limit = usize::MAX;
                 config.wasm_config = Arc::new(wasm_config);
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store

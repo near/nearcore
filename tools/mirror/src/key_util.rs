@@ -82,7 +82,7 @@ pub(crate) fn keys_from_source_db(
         .get_block_header_by_height(block_height)
         .with_context(|| format!("failed getting block header #{}", block_height))?;
     let shard_id = account_id_to_shard_id(epoch_manager.as_ref(), &account_id, header.epoch_id())
-        .with_context(|| format!("failed finding shard for {}", &account_id))?;
+        .with_context(|| format!("failed finding shard for {}", account_id))?;
     let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, header.epoch_id())
         .context("failed mapping ShardID to ShardUID")?;
     let chunk_extra =
@@ -105,7 +105,7 @@ pub(crate) fn keys_from_source_db(
                     limit: ACCESS_KEY_PAGE_SIZE,
                 },
             )
-            .with_context(|| format!("failed fetching access keys for {}", &account_id))?;
+            .with_context(|| format!("failed fetching access keys for {}", account_id))?;
         let QueryResponseKind::AccessKeyList(l) = response.kind else {
             unreachable!();
         };

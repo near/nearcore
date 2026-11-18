@@ -647,7 +647,7 @@ pub(crate) fn print_chain(
     // TODO: Split into smaller functions.
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            let header = chain_store.get_block_header(&block_hash).unwrap();
             if height == 0 {
                 println!(
                     "{: >3} {}",
@@ -655,8 +655,7 @@ pub(crate) fn print_chain(
                     format_hash(*header.hash(), show_full_hashes)
                 );
             } else {
-                let parent_header =
-                    chain_store.get_block_header(header.prev_hash()).unwrap().clone();
+                let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
                     cur_epoch_id = Some(epoch_id);
@@ -686,7 +685,7 @@ pub(crate) fn print_chain(
                         .or_insert(1);
 
                     let block = if let Ok(block) = chain_store.get_block(&block_hash) {
-                        block.clone()
+                        block
                     } else {
                         continue;
                     };
@@ -815,8 +814,8 @@ pub(crate) fn view_chain(
         // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
         let shard_id = chunk_header.shard_id();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
-        let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
+        let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok();
+        let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok();
         chunk_extras.push((shard_id, chunk_extra));
         chunks.push((shard_id, chunk));
     }
@@ -959,7 +958,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
             }
         }
         cur_block = match chain_store.get_block(cur_block.header().prev_hash()) {
-            Ok(b) => b.clone(),
+            Ok(b) => b,
             Err(_) => {
                 panic!("last block is {:?}", cur_block);
             }
@@ -1146,7 +1145,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
-            next_next_shard_layout.clone(),
+            next_next_shard_layout,
             &strategy,
             last_resharding,
         )

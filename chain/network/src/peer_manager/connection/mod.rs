@@ -395,6 +395,9 @@ impl Pool {
                     _ => {}
                 }
             }
+            if pool.loop_inbound.as_ref().is_some_and(|c| Arc::ptr_eq(c, conn)) {
+                pool.loop_inbound = None;
+            }
             ((), pool)
         });
     }

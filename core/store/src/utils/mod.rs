@@ -534,13 +534,9 @@ pub fn remove_account(
         if let Some(index) = nonce_index {
             gas_key_nonce_count += 1;
             gas_key_nonce_total_key_bytes += raw_key.len();
-            keys_to_remove.push(TrieKey::gas_key_nonce(
-                account_id.clone(),
-                key_handle.clone(),
-                index,
-            ));
+            keys_to_remove.push(TrieKey::gas_key_nonce(account_id.clone(), key_handle, index));
         } else {
-            keys_to_remove.push(TrieKey::access_key(account_id.clone(), key_handle.clone()));
+            keys_to_remove.push(TrieKey::access_key(account_id.clone(), key_handle));
         }
     }
     drop(lock);
