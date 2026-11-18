@@ -1,8 +1,13 @@
+#[cfg(not(windows))]
+mod file;
 mod sync;
 mod weighted;
 
+#[cfg(not(windows))]
+pub use crate::file::{LruFileCache, LruFileWriter};
 pub use crate::sync::SyncLruCache;
 pub use crate::weighted::LruWeightedCache;
+use std::sync::Arc;
 
 /// Sink for fire-and-forget background maintenance jobs.
 pub type BackgroundJobSpawner = Arc<dyn Fn(Box<dyn FnOnce() + Send>) + Send + Sync>;

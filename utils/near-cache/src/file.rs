@@ -26,11 +26,11 @@ use std::time::{Duration, Instant};
 /// The key is the name of the file: it has to round-trip through [`Display`] and [`FromStr`].
 pub struct LruFileCache<K> {
     /// file descriptor to the cache directory
-    dir: OwnedFd,
-    /// Tracks files present in `dir`, keyed by the same `CryptoHash` as the
+    dir: Arc<OwnedFd>,
+    /// Tracks files present in `dir`, keyed by the same key as the
     /// on-disk filename, weighted by on-disk byte size. The value is the
     /// instant the entry's on-disk atime was last refreshed/created.
-    disk_index: Mutex<LruWeightedCache<CryptoHash, Instant>>,
+    disk_index: Mutex<LruWeightedCache<K, Instant>>,
     /// Minimum age of an entry's last atime on-disk refresh before `touch` enqueues another.
     /// Mirrors `relatime` behavior.
     access_time_refresh_throttle: Duration,
@@ -66,7 +66,7 @@ impl<K> Write for LruFileWriter<K> {
 
 /// Default minimum age of a tracked entry's last atime refresh before [`touch`] will enqueue another one.
 ///
-/// [`touch`]: FilesystemContractRuntimeCache::touch
+/// [`touch`]: LruFileCache::touch
 const ACCESS_TIME_REFRESH_THROTTLE: Duration = Duration::from_mins(10);
 
 impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
@@ -82,11 +82,11 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         max_bytes: u64,
         bg_spawner: BackgroundJobSpawner,
     ) -> std::io::Result<Self> {
-        std::fs::create_dir_all(&path)?;
-        let dir = open(&path, OFlags::DIRECTORY, Mode::empty())?;
-        let disk_index = Mutex::new(build_disk_index(&dir, max_disk_cache_bytes)?);
+        std::fs::create_dir_all(path)?;
+        let dir = open(path, OFlags::DIRECTORY, Mode::empty())?;
+        let disk_index = Mutex::new(build_disk_index(&dir, max_bytes)?);
         Ok(Self {
-            dir,
+            dir: Arc::new(dir),
             disk_index,
             access_time_refresh_throttle: ACCESS_TIME_REFRESH_THROTTLE,
             bg_spawner,
@@ -96,23 +96,21 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
     /// TEST ONLY: override the atime-refresh throttle window. Setting it to
     /// [`Duration::ZERO`] makes every tracked key eligible on the next
     /// [`Self::touch`] — deterministic, with no `Instant` arithmetic that could
-    /// underflow. Must be called before the cache is shared.
+    /// underflow.
     #[cfg(test)]
     fn test_set_access_time_refresh_throttle(&mut self, throttle: Duration) {
-        Arc::get_mut(&mut self.state)
-            .expect("throttle must be set before the cache is shared")
-            .access_time_refresh_throttle = throttle;
+        self.access_time_refresh_throttle = throttle;
     }
 
     /// Stamp `key`'s on-disk file with the current access time, leaving its
     /// modification time untouched. Best-effort: failures are logged and dropped.
-    fn refresh_disk_atime(&self, key: &CryptoHash) {
+    fn refresh_disk_atime(dir: &OwnedFd, key: &K) {
         let filename = key.to_string();
         let times = Timestamps {
             last_access: Timespec { tv_sec: 0, tv_nsec: UTIME_NOW },
             last_modification: Timespec { tv_sec: 0, tv_nsec: UTIME_OMIT },
         };
-        match utimensat(&self.state.dir, &filename, &times, AtFlags::empty()) {
+        match utimensat(dir, &filename, &times, AtFlags::empty()) {
             // Success, or the file was evicted/removed out from under us.
             Ok(()) | Err(Errno::NOENT) => {}
             Err(err) => tracing::debug!(
@@ -136,7 +134,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
         let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
         let mut attempt = 0;
-        let (temp_filename, mut file) = loop {
+        let (temp_filename, file) = loop {
             attempt += 1;
             let mut temporary_filename = final_filename.clone();
             temporary_filename.push('.');
@@ -144,7 +142,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                 temporary_filename.push(b as char);
             }
             temporary_filename.push_str(".temp");
-            match openat(&self.state.dir, &temporary_filename, flags, mode) {
+            match openat(&self.dir, &temporary_filename, flags, mode) {
                 Ok(f) => break (temporary_filename, std::fs::File::from(f)),
                 Err(e) if attempt > MAX_ATTEMPTS => return Err(e.into()),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -170,12 +168,12 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         file.sync_data()?;
         drop(file);
         // Rename, index update, and victim unlinks share one lock, so a
-        // concurrent `put` of a victim key can't rename a fresh file into place
-        // before our unlink and have us delete it. The write above is outside
+        // concurrent `commit_file` of a victim key can't rename a fresh file into place
+        // before our unlink and have us delete it. The write to the file is outside
         // the lock.
         {
-            let mut index = self.state.disk_index.lock();
-            renameat(&self.state.dir, temp_filename, &self.state.dir, final_filename)?;
+            let mut index = self.disk_index.lock();
+            renameat(&self.dir, temp_filename, &self.dir, final_filename)?;
             // We just wrote the file, so its atime is current as of now.
             let evicted = index.insert(*key, weight, Instant::now());
             // `insert` returns `key` for a same-key replacement (keep our file)
@@ -185,7 +183,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                 if &victim == key && key_stored {
                     continue;
                 }
-                match unlinkat(&self.state.dir, victim.to_string(), AtFlags::empty()) {
+                match unlinkat(&self.dir, victim.to_string(), AtFlags::empty()) {
                     Ok(()) | Err(Errno::NOENT) => {}
                     Err(err) => tracing::debug!(
                         target: "vm",
@@ -211,7 +209,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         let filename = key.to_string();
         let mode = Mode::empty();
         let flags = OFlags::RDONLY;
-        let file = openat(&self.state.dir, &filename, flags, mode);
+        let file = openat(&self.dir, &filename, flags, mode);
         let file = match file {
             Err(Errno::NOENT) => return Ok(None),
             Err(e) => return Err(e.into()),
@@ -224,12 +222,13 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         let mut buffer = Vec::with_capacity(stat.st_size.try_into().unwrap());
         let mut file = std::fs::File::from(file);
         file.read_to_end(&mut buffer)?;
+        Ok(Some(buffer))
     }
 
     /// Whether the file for `key` exists.
     pub fn has(&self, key: &K) -> std::io::Result<bool> {
         let filename = key.to_string();
-        match accessat(&self.state.dir, &filename, Access::EXISTS, AtFlags::empty()) {
+        match accessat(&self.dir, &filename, Access::EXISTS, AtFlags::empty()) {
             Ok(()) => Ok(true),
             Err(Errno::NOENT) => Ok(false),
             Err(e) => Err(e.into()),
@@ -240,11 +239,11 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
     pub fn touch(&self, key: &K) {
         // Promote in the in-memory LRU and check if on-disk atime refresh is needed.
         let needs_refresh = {
-            let mut index = self.state.disk_index.lock();
+            let mut index = self.disk_index.lock();
             match index.get_mut(key) {
                 Some((_weight, last_refresh)) => {
                     let now = Instant::now();
-                    if now >= *last_refresh + self.state.access_time_refresh_throttle {
+                    if now >= *last_refresh + self.access_time_refresh_throttle {
                         *last_refresh = now;
                         true
                     } else {
@@ -255,17 +254,17 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
             }
         };
         if needs_refresh {
-            let cache = self.clone();
+            let dir = Arc::clone(&self.dir);
             let key = *key;
-            (self.state.bg_spawner)(Box::new(move || cache.refresh_disk_atime(&key)));
+            (self.bg_spawner)(Box::new(move || Self::refresh_disk_atime(&dir, &key)));
         }
     }
 
     /// Clears the on-disk LRU index and the files in the directory.
     pub fn clear(&self) {
         // Drop the index along with the files it mirrors.
-        self.state.disk_index.lock().clear();
-        for entry in Dir::read_from(&self.state.dir).unwrap() {
+        self.disk_index.lock().clear();
+        for entry in Dir::read_from(&self.dir).unwrap() {
             if let Ok(entry) = entry {
                 let filename_bytes = entry.file_name().to_bytes();
                 if filename_bytes == b"." || filename_bytes == b".." {
@@ -277,8 +276,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                         entry.file_name()
                     );
                 } else {
-                    if let Err(err) = unlinkat(&self.state.dir, entry.file_name(), AtFlags::empty())
-                    {
+                    if let Err(err) = unlinkat(&self.dir, entry.file_name(), AtFlags::empty()) {
                         tracing::error!(
                             file_name = ?entry.file_name(),
                             err = &err as &dyn std::error::Error,
@@ -295,15 +293,15 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 /// cache file by its byte size, ordered from least- to most-recently-
 /// accessed by `st_atime`.
 ///
-/// Files whose names don't parse as a [`CryptoHash`] are skipped.
+/// Files whose names don't parse as a key are skipped.
 /// If the scanned valid total already exceeds `max_bytes`, the oldest
 /// tracked entries are unlinked until the index fits.
-fn build_disk_index(
+fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
     dir: &rustix::fd::OwnedFd,
     max_bytes: u64,
-) -> std::io::Result<LruWeightedCache<CryptoHash, Instant>> {
-    let mut index = LruWeightedCache::<CryptoHash, Instant>::without_item_cap(max_bytes);
-    let mut entries: Vec<(CryptoHash, u64, i64, i64)> = Vec::new();
+) -> std::io::Result<LruWeightedCache<K, Instant>> {
+    let mut index = LruWeightedCache::<K, Instant>::without_item_cap(max_bytes);
+    let mut entries: Vec<(K, u64, i64, i64)> = Vec::new();
 
     let read_dir = Dir::read_from(dir)?;
     for entry in read_dir {
@@ -315,13 +313,13 @@ fn build_disk_index(
         if !entry.file_type().is_file() {
             continue;
         }
-        let Some(key) = filename.to_str().ok().and_then(|s| CryptoHash::from_str(s).ok()) else {
+        let Some(key) = filename.to_str().ok().and_then(|s| K::from_str(s).ok()) else {
             continue;
         };
         let stat = match statat(dir, filename, AtFlags::empty()) {
             Ok(s) => s,
-            // Missing/unreadable: leave it alone for now; `get` will treat
-            // it as a miss and the next compile will overwrite it.
+            // Missing/unreadable: leave it alone for now; `read` will treat
+            // it as a miss and the next `commit_file` will overwrite it.
             Err(_) => continue,
         };
         let size = u64::try_from(stat.st_size).unwrap_or(0);
@@ -333,8 +331,7 @@ fn build_disk_index(
 
     // Sizes by key, so we can total the bytes of any entries we trim below
     // (`insert` only hands back the evicted key, not its weight).
-    let sizes: HashMap<CryptoHash, u64> =
-        entries.iter().map(|&(key, size, _, _)| (key, size)).collect();
+    let sizes: HashMap<K, u64> = entries.iter().map(|&(key, size, _, _)| (key, size)).collect();
 
     let refreshed_at = Instant::now();
     let mut over_limit_trimmed: usize = 0;
@@ -372,35 +369,47 @@ fn build_disk_index(
 mod tests {
     use super::*;
 
+    const TEST_PAYLOAD_LEN: usize = 100;
+
+    fn test_cache(
+        temp_dir: &tempfile::TempDir,
+        bg_spawner: BackgroundJobSpawner,
+    ) -> LruFileCache<u64> {
+        LruFileCache::open(temp_dir.path(), 1 << 20, bg_spawner).unwrap()
+    }
+
+    fn put(cache: &LruFileCache<u64>, key: u64, filler: u8) {
+        let payload = [filler; TEST_PAYLOAD_LEN];
+        let mut file = cache.create_file(&key).unwrap();
+        file.write_all(&payload).unwrap();
+        cache.commit_file(file, TEST_PAYLOAD_LEN as u64).unwrap();
+    }
+
     #[test]
     fn refresh_disk_atime_advances_atime_and_preserves_mtime() {
         use std::time::{Duration, UNIX_EPOCH};
         // An explicit `utimensat` must bump atime regardless of the mount's
         // atime policy, while leaving mtime (which records compile time for the
         // protocol-version sweep) untouched.
-        let cache =
-            FilesystemContractRuntimeCache::test_with_disk_cache_bytes(1 << 20).unwrap();
-        let path = cache_dir_path(&cache).join(CryptoHash::hash_bytes(b"refresh").to_string());
-        let k = CryptoHash::hash_bytes(b"refresh");
-        cache.put(&k, make_test_entry(0x11)).unwrap();
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let cache = test_cache(&temp_dir, crate::noop_background_spawner());
+        let k = 1u64;
+        let path = temp_dir.path().join(k.to_string());
+        put(&cache, k, 0x11);
 
         // Backdate both timestamps to a fixed, clearly-old instant.
         let old = UNIX_EPOCH + Duration::from_secs(1_000);
         let times = std::fs::FileTimes::new().set_accessed(old).set_modified(old);
         std::fs::File::open(&path).unwrap().set_times(times).unwrap();
 
-        cache.refresh_disk_atime(&k);
+        LruFileCache::refresh_disk_atime(&cache.dir, &k);
 
         let meta = std::fs::metadata(&path).unwrap();
         assert!(
             meta.accessed().unwrap() > old + Duration::from_secs(60),
             "atime should have been refreshed to ~now"
         );
-        assert_eq!(
-            meta.modified().unwrap(),
-            old,
-            "mtime must be preserved by the atime refresh"
-        );
+        assert_eq!(meta.modified().unwrap(), old, "mtime must be preserved by the atime refresh");
     }
 
     #[test]
@@ -409,33 +418,27 @@ mod tests {
         // A spawner that runs the job inline and counts how many it received.
         let count = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&count);
-        let mut cache =
-            FilesystemContractRuntimeCache::test_with_disk_cache_bytes(1 << 20).unwrap();
-        cache.test_set_background_job_spawner(Arc::new(move |task| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            task();
-        }));
-
-        let k = CryptoHash::hash_bytes(b"hot");
-        cache.put(&k, make_test_entry(0x22)).unwrap();
-
-        // Right after `put` the entry is inside its (default) throttle window.
-        cache.touch(&k);
-        assert_eq!(
-            count.load(Ordering::SeqCst),
-            0,
-            "touch within the throttle must not refresh"
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let mut cache = test_cache(
+            &temp_dir,
+            Arc::new(move |task| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                task();
+            }),
         );
+
+        let k = 1u64;
+        put(&cache, k, 0x22);
+
+        // Right after `commit_file` the entry is inside its (default) throttle window.
+        cache.touch(&k);
+        assert_eq!(count.load(Ordering::SeqCst), 0, "touch within the throttle must not refresh");
 
         // With a zero window the entry is eligible: one touch enqueues exactly
         // one refresh and records "refreshed now".
         cache.test_set_access_time_refresh_throttle(Duration::ZERO);
         cache.touch(&k);
-        assert_eq!(
-            count.load(Ordering::SeqCst),
-            1,
-            "an eligible touch must enqueue one refresh"
-        );
+        assert_eq!(count.load(Ordering::SeqCst), 1, "an eligible touch must enqueue one refresh");
 
         // Restore the window; the just-recorded refresh time now suppresses.
         cache.test_set_access_time_refresh_throttle(ACCESS_TIME_REFRESH_THROTTLE);
@@ -443,7 +446,7 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 1, "the next touch must be throttled again");
 
         // An untracked key never enqueues anything.
-        cache.touch(&CryptoHash::hash_bytes(b"never-put"));
+        cache.touch(&2u64);
         assert_eq!(count.load(Ordering::SeqCst), 1, "untracked key must not refresh");
     }
 }

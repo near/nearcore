@@ -1,4 +1,4 @@
-// cspell:ignore mikan, fstat, openat, renameat, unlinkat
+// cspell:ignore mikan
 
 use crate::ContractCode;
 use crate::compile_priority::CompilePriority;
@@ -7,7 +7,10 @@ use crate::logic::Config;
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(not(windows))]
+use near_cache::LruFileCache;
 use near_cache::LruWeightedCache;
+pub use near_cache::{BackgroundJobSpawner, noop_background_spawner};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
 use parking_lot::Mutex;
@@ -15,7 +18,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 #[cfg(not(windows))]
-use std::io::{Read, Write};
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -281,6 +284,8 @@ pub struct FilesystemContractRuntimeCache {
 
 #[cfg(not(windows))]
 struct FilesystemContractRuntimeCacheState {
+    /// The compiled contract files in the cache directory.
+    files: LruFileCache<CryptoHash>,
     any_cache: AnyCache,
     test_temp_dir: Option<tempfile::TempDir>,
 }
@@ -288,7 +293,7 @@ struct FilesystemContractRuntimeCacheState {
 #[cfg(not(windows))]
 impl FilesystemContractRuntimeCache {
     /// Largest accepted value for the on-disk cache size limit
-    pub const MAX_DISK_CACHE_BYTES: u64 = LruWeightedCache::<CryptoHash, ()>::MAX_WEIGHT;
+    pub const MAX_DISK_CACHE_BYTES: u64 = LruFileCache::<CryptoHash>::MAX_BYTES;
 
     /// `max_disk_cache_bytes` is the maximum total size of compiled-contract files kept on disk
     pub fn new<StorePath, ContractCachePath>(
@@ -361,6 +366,7 @@ impl FilesystemContractRuntimeCache {
                 message = "the legacy compiled contract cache path still exists after migration; consider removing it"
             );
         }
+        let files = LruFileCache::open(&path, max_disk_cache_bytes, bg_spawner)?;
         tracing::debug!(
             target: "vm",
             path = %path.display(),
@@ -394,17 +400,11 @@ impl FilesystemContractRuntimeCache {
 
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
+                files,
                 any_cache,
                 test_temp_dir: None,
             }),
         })
-    }
-
-    #[cfg(test)]
-    fn test_set_background_job_spawner(&mut self, spawner: BackgroundJobSpawner) {
-        Arc::get_mut(&mut self.state)
-            .expect("background job spawner must be set before the cache is shared")
-            .bg_spawner = spawner;
     }
 
     pub fn test() -> std::io::Result<Self> {
@@ -473,6 +473,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     )]
     fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
         let weight = entry_disk_size(&value);
+        let mut file = self.state.files.create_file(key)?;
 
         // This section manually "serializes" the data. The cache is quite sensitive to
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
@@ -490,6 +491,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             }
         }
         file.write_all(&value.wasm_bytes.to_le_bytes())?;
+        self.state.files.commit_file(file, weight)
     }
 
     #[tracing::instrument(
@@ -500,6 +502,9 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         fields(key = key.to_string()),
     )]
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>> {
+        let Some(mut buffer) = self.state.files.read(key)? else {
+            return Ok(None);
+        };
         if buffer.len() < 9 {
             // The file turns out to be empty/truncated? Treat as if there's no cached file.
             return Ok(None);
@@ -534,9 +539,11 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     }
 
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        self.state.files.has(key)
     }
 
     fn touch(&self, key: &CryptoHash) {
+        self.state.files.touch(key);
     }
 
     /// Clears the in-memory cache, the on-disk LRU index, and the files in the
@@ -549,6 +556,7 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             panic!("must be called for testing only");
         };
         self.memory_cache().clear();
+        self.state.files.clear();
         Ok(())
     }
 }
