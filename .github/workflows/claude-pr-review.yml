@@ -1,4 +1,4 @@
-# cspell:ignore uuidgen anthropics xhigh netrc
+# cspell:ignore uuidgen anthropics xhigh netrc sysctl apparmor userns socat bubblewrap
 name: Claude Code Review
 
 on:
@@ -142,6 +142,16 @@ jobs:
             echo '</output>'
             echo "$DELIM"
           } >> "$GITHUB_ENV"
+
+      - name: Allow unprivileged user namespaces (needed by the bubblewrap sandbox)
+        if: ${{ steps.key-check.outputs.present == 'true' }}
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Install sandbox dependencies
+        if: ${{ steps.key-check.outputs.present == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap socat
 
       - name: Run Claude Code Review
         id: claude-review
