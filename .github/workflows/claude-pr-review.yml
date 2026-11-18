@@ -33,6 +33,7 @@ jobs:
     outputs:
       outcome: ${{ steps.claude-review.outcome }}
       review: ${{ steps.extract.outputs.review }}
+      head_sha: ${{ steps.head.outputs.sha }}
     env:
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
 
@@ -61,11 +62,24 @@ jobs:
             CONTRIBUTING.md
             docs/practices/style.md
 
+      - name: Find the PR head
+        id: head
+        if: ${{ steps.key-check.outputs.present == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+          if ! [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::unexpected PR head commit"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Checkout the PR head
         if: ${{ steps.key-check.outputs.present == 'true' }}
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
-          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          ref: ${{ steps.head.outputs.sha }}
           path: pr
           persist-credentials: false
 
@@ -76,20 +90,30 @@ jobs:
           find pr -path pr/.git -prune -o \( -name .claude -o -name .mcp.json \
             -o -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md \) -prune -exec rm -rf {} +
 
-      - name: Fetch PR Comments Context
+      - name: Collect review inputs
         id: fetch-comments
         if: ${{ steps.key-check.outputs.present == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
         run: |
           bash .github/scripts/fetch-pr-comments.sh
           mv /tmp/pr_comments_context.txt pr_comments_context.txt
+          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > pr.diff ||
+            echo "The diff is too large to download. List the changed files with gh pr view and read them in the pr directory." \
+              > pr.diff
+          if [ "$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" != "$HEAD_SHA" ]; then
+            echo "::error::the PR head moved while the review inputs were collected"
+            exit 1
+          fi
 
       - name: Build review prompt
         id: build-prompt
         if: ${{ steps.key-check.outputs.present == 'true' }}
+        env:
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
         run: |
           DELIM="PROMPT_EOF_$(uuidgen)"
           {
@@ -97,6 +121,7 @@ jobs:
             echo '<pr_context>'
             echo "REPO: $GITHUB_REPOSITORY"
             echo "PR NUMBER: $PR_NUMBER"
+            echo "HEAD COMMIT: $HEAD_SHA"
             echo 'LANGUAGE: Rust'
             echo '</pr_context>'
             echo ''
@@ -105,7 +130,9 @@ jobs:
             echo 'and Glob the code under review there. The files outside pr are the'
             echo 'default branch copies of AGENTS.md, CONTRIBUTING.md and'
             echo 'docs/practices/style.md. Anchor findings with paths relative to the'
-            echo 'repository root, without the pr/ prefix.'
+            echo 'repository root, without the pr/ prefix. The diff of the pull request'
+            echo 'at the head commit above is in pr.diff. Read that file instead of'
+            echo 'running gh pr diff, which is not available.'
             echo '</workspace>'
             echo ''
             echo '<untrusted_data>'
@@ -187,7 +214,7 @@ jobs:
             }
           claude_args: >-
             --model opus
-            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
+            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr view:*),Bash(gh pr list:*)"
             --json-schema '{"type":"object","properties":{"review":{"type":"string","description":"The review body in the required output structure, as GitHub-flavored Markdown"}},"required":["review"],"additionalProperties":false}'
 
       - name: Extract the review
@@ -216,10 +243,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REVIEW: ${{ needs.claude-review.outputs.review }}
+          HEAD_SHA: ${{ needs.claude-review.outputs.head_sha }}
         run: |
           if [ -z "$REVIEW" ]; then
             echo "::error::The review is empty: either the agent returned no text, or the runner withheld it for containing a secret (look for a 'Skip output' warning in the claude-review job)."
             exit 1
           fi
-          printf '%s\n' "$REVIEW" > "$RUNNER_TEMP/review.md"
+          {
+            echo "> Review of commit \`${HEAD_SHA:0:9}\`."
+            echo
+            printf '%s\n' "$REVIEW"
+          } > "$RUNNER_TEMP/review.md"
           gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/review.md"
