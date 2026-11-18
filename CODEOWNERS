@@ -3,3 +3,5 @@
 * @near/nearcore-codeowners
 
 chain/jsonrpc/openapi/openapi.json @near/nearcore-codeowners @frol
+chain/jsonrpc-primitives/ @near/nearcore-codeowners @r-near @vsavchyn-dev
+core/primitives/src/views.rs @near/nearcore-codeowners @r-near @vsavchyn-dev
