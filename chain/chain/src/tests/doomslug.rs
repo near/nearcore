@@ -31,15 +31,21 @@ fn next_event_time(
     let approval_times = approval_queue.iter().map(|approval| approval.1);
     let block_times = block_queue.iter().map(|block| block.3);
     let timer_deadlines = doomslugs.iter().map(|ds| ds.next_timer_deadline());
-    approval_times.chain(block_times).chain(timer_deadlines).min().unwrap()
+    let message_times = approval_times.chain(block_times);
+    let event_times = message_times.chain(timer_deadlines);
+    event_times.min().unwrap()
 }
 
 /// Number of ticks (at least one) to advance the clock by to reach `deadline`.
 fn num_ticks_until(now: Instant, deadline: Instant, tick: Duration) -> u32 {
-    let remaining = deadline.signed_duration_since(now).whole_nanoseconds();
-    let tick = tick.whole_nanoseconds();
-    let ticks = (remaining + tick - 1).div_euclid(tick);
-    ticks.clamp(1, u32::MAX as i128) as u32
+    let remaining = deadline.signed_duration_since(now);
+    let remaining_nanos = remaining.whole_nanoseconds();
+    let tick_nanos = tick.whole_nanoseconds();
+    // Round up, the deadline is reached at the first tick that is not before it.
+    let rounded_up_nanos = remaining_nanos + tick_nanos - 1;
+    let ticks = rounded_up_nanos.div_euclid(tick_nanos);
+    let ticks = ticks.clamp(1, u32::MAX as i128);
+    ticks as u32
 }
 
 /// In the liveness proof we rely on timers always being within delta from each other.
@@ -52,12 +58,14 @@ fn assert_timers_in_sync(doomslugs: &[Doomslug], now: Instant, delta: Duration) 
         .map(|ds| ds.get_timer_start())
         .filter(|timer_start| now - *timer_start >= delta)
         .collect::<Vec<_>>();
-    let (Some(min_timer_start), Some(max_timer_start)) =
-        (timer_starts.iter().min(), timer_starts.iter().max())
-    else {
+    let Some(min_timer_start) = timer_starts.iter().min() else {
         return;
     };
-    assert!(*max_timer_start - *min_timer_start <= delta);
+    let Some(max_timer_start) = timer_starts.iter().max() else {
+        return;
+    };
+    let timers_spread = *max_timer_start - *min_timer_start;
+    assert!(timers_spread <= delta);
 }
 
 /// Runs a single iteration of a fuzz test given specific time until global stabilization and
@@ -132,7 +140,8 @@ fn one_iter(
         // has something to do. The timers do not change during the idle ticks, so validating the
         // timers once at the last of them covers all of them.
         let next_event = next_event_time(&approval_queue, &block_queue, &doomslugs);
-        let idle_ticks = num_ticks_until(clock.now(), next_event, tick) - 1;
+        let ticks_until_next_event = num_ticks_until(clock.now(), next_event, tick);
+        let idle_ticks = ticks_until_next_event - 1;
         if idle_ticks > 0 {
             clock.advance(tick * idle_ticks);
             assert_timers_in_sync(&doomslugs, clock.now(), delta);

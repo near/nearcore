@@ -567,14 +567,15 @@ impl Doomslug {
     /// conditions in `process_timer`.
     #[cfg(test)]
     pub(crate) fn next_timer_deadline(&self) -> Instant {
-        let skip_delay =
-            self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()));
+        let largest_final_height = self.largest_final_height.get();
+        let heights_since_final = self.timer.height.saturating_sub(largest_final_height);
+        let skip_delay = self.timer.get_delay(heights_since_final);
         let skip_deadline = self.timer.started + skip_delay;
         if !self.endorsement_pending {
             return skip_deadline;
         }
-        let endorsement_deadline =
-            self.timer.last_endorsement_sent + self.timer.endorsement_delay.get();
+        let endorsement_delay = self.timer.endorsement_delay.get();
+        let endorsement_deadline = self.timer.last_endorsement_sent + endorsement_delay;
         endorsement_deadline.min(skip_deadline)
     }
 
