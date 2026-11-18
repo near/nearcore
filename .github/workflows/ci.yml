@@ -518,8 +518,7 @@ jobs:
       # We use this step to indicate when the whole job needs to be skipped.
       # We don't use job-level condition so that matrix.name in the name is pretty-expended even when the job is skipped.
       - id: run-job
-        # TEMPORARY, REVERT BEFORE MERGE: also run on pull_request to measure the speedup.
-        if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+        if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
         name: Check if job should be skipped
         run: true
       - uses: actions/checkout@v4
