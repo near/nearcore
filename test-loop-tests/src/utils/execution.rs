@@ -27,8 +27,8 @@ pub(crate) fn assert_execution_kept_up(env: &TestLoopEnv) {
 
 /// Asserts that every live node applied each shard it caught up for an epoch in every canonical
 /// block of that epoch after the epoch's first block, where spice syncs the shard, for the epochs
-/// its execution has moved past and garbage collection has not reached yet, and that there was at
-/// least one such shard to check.
+/// its execution has moved past and whose first block has not yet been garbage collected, and
+/// that there was at least one such shard to check.
 pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
     if !cfg!(feature = "protocol_feature_spice") {
         return;
@@ -56,6 +56,10 @@ pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
             if is_epoch_start || header.epoch_id() == &executed.epoch_id {
                 continue;
             }
+            let Ok(block_info) = client.epoch_manager.get_block_info(&block_hash) else {
+                continue;
+            };
+            let epoch_first_block = block_info.epoch_first_block();
             let shard_layout = client.epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
             for shard_uid in shard_layout.shard_uids() {
                 if !client.shard_tracker.should_apply_chunk(
@@ -63,6 +67,13 @@ pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
                     header.prev_hash(),
                     shard_uid.shard_id(),
                 ) {
+                    continue;
+                }
+                // A node that state synced into a later epoch also holds a few blocks of this one,
+                // downloaded for the sync, which it never applied. Only a shard caught up at this
+                // epoch's first block, where state sync writes its chunk extra, has to be applied
+                // in the rest of the epoch.
+                if chain_store.get_chunk_extra(epoch_first_block, &shard_uid).is_err() {
                     continue;
                 }
                 num_checked += 1;
