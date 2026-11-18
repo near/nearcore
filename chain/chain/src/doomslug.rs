@@ -562,9 +562,9 @@ impl Doomslug {
         ret
     }
 
-    /// Returns the earliest time at which `process_timer` sends an endorsement or a skip message.
-    /// Calling `process_timer` before that time has no effect. Must be kept in sync with the
-    /// conditions in `process_timer`.
+    /// Returns the earliest time at which `process_timer` sends an endorsement
+    /// or a skip message. Calling `process_timer` before that time has no
+    /// effect. Must be kept in sync with the conditions in `process_timer`.
     #[cfg(test)]
     pub(crate) fn next_timer_deadline(&self) -> Instant {
         let largest_final_height = self.largest_final_height.get();
