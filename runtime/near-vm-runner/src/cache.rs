@@ -8,6 +8,7 @@ use crate::logic::Config;
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_cache::LruWeightedCache;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
 use parking_lot::Mutex;

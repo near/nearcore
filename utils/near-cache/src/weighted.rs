@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 /// LRU cache with weight-based eviction policy.
-struct LruWeightedCache<K, V> {
+pub struct LruWeightedCache<K, V> {
     current_weight: u64,
     max_weight: u64,
     cache: lru::LruCache<K, LruWeightedCacheEntry<V>>,
@@ -12,16 +12,15 @@ type LruWeightedCacheEntry<V> = (u64, V);
 impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
     /// Largest accepted `max_weight`. Capped one below `u64::MAX / 2` so the
     /// transient `current_weight + weight` sum in `insert` can never overflow.
-    const MAX_WEIGHT: u64 = u64::MAX / 2 - 1;
+    pub const MAX_WEIGHT: u64 = u64::MAX / 2 - 1;
 
-    fn new(item_capacity: NonZeroUsize, max_weight: u64) -> Self {
+    pub fn new(item_capacity: NonZeroUsize, max_weight: u64) -> Self {
         Self::with_lru(max_weight, lru::LruCache::new(item_capacity))
     }
 
     /// Like [`Self::new`], but with no item-count cap — eviction is driven
     /// purely by `max_weight`.
-    #[cfg_attr(windows, allow(dead_code))]
-    fn without_item_cap(max_weight: u64) -> Self {
+    pub fn without_item_cap(max_weight: u64) -> Self {
         Self::with_lru(max_weight, lru::LruCache::unbounded())
     }
 
@@ -36,18 +35,17 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
 
     /// Like [`Self::get`], but yields a mutable reference to the stored value.
     /// Also promotes `key` to most-recently-used.
-    #[cfg_attr(windows, allow(dead_code))]
-    fn get_mut(&mut self, key: &K) -> Option<&mut (u64, V)> {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut (u64, V)> {
         self.cache.get_mut(key)
     }
 
-    fn get(&mut self, key: &K) -> Option<&(u64, V)> {
+    pub fn get(&mut self, key: &K) -> Option<&(u64, V)> {
         self.cache.get(key)
     }
 
     /// Insert `key` with `weight` and `value` as MRU. Returns the entries
     /// that were evicted as a result, in eviction order.
-    fn insert(&mut self, key: K, weight: u64, value: V) -> Vec<(K, V)> {
+    pub fn insert(&mut self, key: K, weight: u64, value: V) -> Vec<(K, V)> {
         // Too big to ever fit: don't store it. Also evict any existing entry
         // for this key so an oversized replacement can't leave a stale one.
         if self.max_weight < weight {
@@ -80,26 +78,24 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
         evicted
     }
 
-    fn put(&mut self, key: K, weight: u64, value: V) {
+    pub fn put(&mut self, key: K, weight: u64, value: V) {
         let _ = self.insert(key, weight, value);
     }
 
-    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.cache.len()
     }
 
-    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
-    fn current_weight(&self) -> u64 {
+    pub fn current_weight(&self) -> u64 {
         self.current_weight
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.current_weight = 0;
         self.cache.clear();
     }
 
-    fn contains(&self, key: &K) -> bool {
+    pub fn contains(&self, key: &K) -> bool {
         self.cache.contains(key)
     }
 }

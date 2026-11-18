@@ -21,7 +21,6 @@ dashmap.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm-6 = { workspace = true, optional = true }
-lru.workspace = true
 num-rational.workspace = true
 object = { workspace = true, features = ["elf", "read_core", "unaligned"], optional = true }
 p256.workspace = true
@@ -49,6 +48,7 @@ wasmtime = { workspace = true, features = [
     "runtime",
 ], optional = true }
 
+near-cache.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
