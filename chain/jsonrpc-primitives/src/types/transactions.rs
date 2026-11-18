@@ -57,6 +57,38 @@ impl From<RpcSendTransactionEnvelopeRequest> for RpcSendTransactionRequestWire {
     }
 }
 
+/// A send request with a signed transaction.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcSendTransactionRequest {
+    #[serde(rename = "signed_tx_base64")]
+    pub signed_transaction: SignedTransaction,
+    #[serde(default)]
+    pub wait_until: TxExecutionStatus,
+}
+
+impl From<RpcSendTransactionRequest> for RpcSendTransactionEnvelopeRequest {
+    fn from(request: RpcSendTransactionRequest) -> Self {
+        Self { transaction: request.signed_transaction.into(), wait_until: request.wait_until }
+    }
+}
+
+/// A send request with an external contract call (ECC).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcSendExternalCallRequest {
+    #[serde(rename = "external_call_base64")]
+    pub external_call: EccTransaction,
+    #[serde(default)]
+    pub wait_until: TxExecutionStatus,
+}
+
+impl From<RpcSendExternalCallRequest> for RpcSendTransactionEnvelopeRequest {
+    fn from(request: RpcSendExternalCallRequest) -> Self {
+        Self { transaction: request.external_call.into(), wait_until: request.wait_until }
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcTransactionStatusRequest {
