@@ -9,7 +9,7 @@ name: NEAR AI PR Review
 on:
   pull_request:
     types: [opened, ready_for_review]  # When PR is ready for review (not draft)
-  issue_comment:
+  issue_comment: # zizmor: ignore[dangerous-triggers]
     types: [created]  # Listen for /nearai-review in PR comments
 
 jobs:
@@ -118,7 +118,7 @@ jobs:
                   elif all(.check_runs[]; .status == "completed") then "done" else "running" end'
             fi
           }
-          for reviewer in "Greptile Review" "claude-review" Copilot; do
+          for reviewer in "Greptile Review" "claude-review" "claude-review-post" Copilot; do
             while :; do
               state=$(reviewer_state "$reviewer") || state=error
               echo "$reviewer: $state after ${SECONDS}s"
