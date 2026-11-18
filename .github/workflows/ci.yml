@@ -545,6 +545,13 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          # sccache spawns rustc with all arguments on the command line, which
+          # for near-runtime exceeds the Windows limit of 32767 characters
+          # (os error 206). Most of the length is repeated target directory
+          # paths, so use a short one at the root of the workspace drive.
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE:0:2}\\t" >> $GITHUB_ENV
+          fi
       # near-store (with its default `rocksdb` feature) builds librocksdb-sys.
       - uses: ./.github/actions/install-clang
         if: steps.run-job.outcome == 'success'
