@@ -70,16 +70,18 @@ pub async fn bootstrap_range(
     let mut height = start_height;
     // A range that extends an earlier one finds the row of the block below it.
     let mut aggregator_rows_started =
-        store.get(DBCol::AggregatedEpochStats, prev_block_hash.as_ref()).is_some();
+        store.exists(DBCol::AggregatedEpochStats, prev_block_hash.as_ref());
     while height <= end_height {
         let batch_pull = pull_block_batch(store, cloud_storage, epoch_manager, height).await?;
         // The cloud data carries no epoch info aggregator, so write each block's row from its
         // parent's, as `record_block_info` does. Each row is committed before the next block
         // reads it. Rows start at the first block whose parent has a row, or else at the
-        // first epoch start in the range.
+        // first epoch start in the range. Unlike the recent reader, a missing row after that
+        // fails the bootstrap: it runs once, so it should not leave the operator a store with
+        // a silent gap.
         for block_hash in &batch_pull.block_hashes {
-            aggregator_rows_started |=
-                epoch_manager.get_block_info(block_hash)?.epoch_first_block() == block_hash;
+            aggregator_rows_started = aggregator_rows_started
+                || epoch_manager.get_block_info(block_hash)?.epoch_first_block() == block_hash;
             if !aggregator_rows_started {
                 continue;
             }
@@ -134,6 +136,16 @@ pub async fn bootstrap_range(
         covered_to,
         "bootstrap complete",
     );
+    // No epoch start in the range, and no earlier range to extend, so the range's epoch has
+    // no rows.
+    if !aggregator_rows_started {
+        tracing::warn!(
+            target: "cloud_archival",
+            start_height,
+            covered_to,
+            "validators endpoint data not available until the next epoch start"
+        );
+    }
     Ok(())
 }
 

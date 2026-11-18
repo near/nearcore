@@ -2061,8 +2061,8 @@ impl EpochManager {
     }
 
     /// The epoch statistics up to and including `block_info`: the parent's stored statistics
-    /// plus this block, or this block alone when it starts an epoch. Shared by block recording
-    /// and the database migration.
+    /// plus this block, or this block alone when it starts an epoch. Shared by block recording,
+    /// the database migration and the cloud archival readers.
     pub fn compute_aggregated_epoch_stats(
         &self,
         block_info: &BlockInfo,

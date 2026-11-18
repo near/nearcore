@@ -804,8 +804,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Write the `DBCol::AggregatedEpochStats` row of a block stored without
     /// `record_block_info`, as the cloud archival readers store blocks. The block's and its
-    /// parent's `BlockInfo` must be committed, and the parent's row too unless the block
-    /// starts an epoch.
+    /// parent's `BlockInfo` and the block's `EpochInfo` must be committed, and the parent's
+    /// row too unless the block starts an epoch.
     fn set_aggregated_epoch_stats_for_stored_block(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
