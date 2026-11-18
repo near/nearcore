@@ -22,6 +22,44 @@ fn get_msg_delivery_time(now: Instant, gst: Instant, delta: Duration) -> Instant
         + Duration::milliseconds(thread_rng().gen_range(0..delta.whole_milliseconds() as i64) as i64)
 }
 
+/// The earliest time at which a message gets delivered or a doomslug timer fires.
+fn next_event_time(
+    approval_queue: &[(Approval, Instant)],
+    block_queue: &[(BlockHeight, usize, BlockHeight, Instant, CryptoHash)],
+    doomslugs: &[Doomslug],
+) -> Instant {
+    let approval_times = approval_queue.iter().map(|approval| approval.1);
+    let block_times = block_queue.iter().map(|block| block.3);
+    let timer_deadlines = doomslugs.iter().map(|ds| ds.next_timer_deadline());
+    approval_times.chain(block_times).chain(timer_deadlines).min().unwrap()
+}
+
+/// Number of ticks (at least one) to advance the clock by to reach `deadline`.
+fn num_ticks_until(now: Instant, deadline: Instant, tick: Duration) -> u32 {
+    let remaining = deadline.signed_duration_since(now).whole_nanoseconds();
+    let tick = tick.whole_nanoseconds();
+    let ticks = (remaining + tick - 1).div_euclid(tick);
+    ticks.clamp(1, u32::MAX as i128) as u32
+}
+
+/// In the liveness proof we rely on timers always being within delta from each other.
+/// Validates that assumption.
+fn assert_timers_in_sync(doomslugs: &[Doomslug], now: Instant, delta: Duration) {
+    // Only makes sense for timers that are more than delta in the past, since for more
+    // recent timers the other participant's start time might be in the future
+    let timer_starts = doomslugs
+        .iter()
+        .map(|ds| ds.get_timer_start())
+        .filter(|timer_start| now - *timer_start >= delta)
+        .collect::<Vec<_>>();
+    let (Some(min_timer_start), Some(max_timer_start)) =
+        (timer_starts.iter().min(), timer_starts.iter().max())
+    else {
+        return;
+    };
+    assert!(*max_timer_start - *min_timer_start <= delta);
+}
+
 /// Runs a single iteration of a fuzz test given specific time until global stabilization and
 /// the max delay on messages.
 /// Returns amount of time it took to produce a doomslug final block at height 50, as well as the
@@ -86,9 +124,21 @@ fn one_iter(
         hash_to_block_info.insert(block_hash(1, 0), (1, 1, block_hash(1, 0)));
     }
 
+    let tick = Duration::milliseconds(25);
     let mut is_done = false;
     while !is_done {
-        clock.advance(Duration::milliseconds(25));
+        // Nothing happens until the next message delivery or the next doomslug timer, so instead
+        // of stepping through the idle ticks one by one, jump right before the first tick that
+        // has something to do. The timers do not change during the idle ticks, so validating the
+        // timers once at the last of them covers all of them.
+        let next_event = next_event_time(&approval_queue, &block_queue, &doomslugs);
+        let idle_ticks = num_ticks_until(clock.now(), next_event, tick) - 1;
+        if idle_ticks > 0 {
+            clock.advance(tick * idle_ticks);
+            assert_timers_in_sync(&doomslugs, clock.now(), delta);
+        }
+
+        clock.advance(tick);
         let mut new_approval_queue = vec![];
         let mut new_block_queue = vec![];
 
@@ -244,25 +294,8 @@ fn one_iter(
             }
         }
 
-        // 5. In the liveness proof we rely on timers always being within delta from each other
-        //    Validate that assumption
-        for i in 0..8 {
-            for j in (i + 1)..8 {
-                let ith_timer_start = doomslugs[i].get_timer_start();
-                let jth_timer_start = doomslugs[j].get_timer_start();
-
-                // Only makes sense for timers that are more than delta in the past, since for more
-                // recent timers the other participant's start time might be in the future
-                if clock.now() - ith_timer_start >= delta && clock.now() - jth_timer_start >= delta
-                {
-                    if ith_timer_start > jth_timer_start {
-                        assert!(ith_timer_start - jth_timer_start <= delta);
-                    } else {
-                        assert!(jth_timer_start - ith_timer_start <= delta);
-                    }
-                }
-            }
-        }
+        // 5. Validate the timers
+        assert_timers_in_sync(&doomslugs, clock.now(), delta);
     }
 
     // We successfully got to the `height_goal`. Check that all the blocks are building only on

@@ -562,6 +562,22 @@ impl Doomslug {
         ret
     }
 
+    /// Returns the earliest time at which `process_timer` sends an endorsement or a skip message.
+    /// Calling `process_timer` before that time has no effect. Must be kept in sync with the
+    /// conditions in `process_timer`.
+    #[cfg(test)]
+    pub(crate) fn next_timer_deadline(&self) -> Instant {
+        let skip_delay =
+            self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()));
+        let skip_deadline = self.timer.started + skip_delay;
+        if !self.endorsement_pending {
+            return skip_deadline;
+        }
+        let endorsement_deadline =
+            self.timer.last_endorsement_sent + self.timer.endorsement_delay.get();
+        endorsement_deadline.min(skip_deadline)
+    }
+
     fn create_approval(
         &self,
         target_height: BlockHeight,
