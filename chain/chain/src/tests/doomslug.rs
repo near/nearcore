@@ -31,8 +31,8 @@ fn next_event_time(
     let approval_times = approval_queue.iter().map(|approval| approval.1);
     let block_times = block_queue.iter().map(|block| block.3);
     let timer_deadlines = doomslugs.iter().map(|ds| ds.next_timer_deadline());
-    let message_times = approval_times.chain(block_times);
-    let event_times = message_times.chain(timer_deadlines);
+
+    let event_times = approval_times.chain(block_times).chain(timer_deadlines);
     event_times.min().unwrap()
 }
 
