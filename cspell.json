@@ -331,6 +331,7 @@
         "pids",
         "pinnable",
         "pipenv",
+        "pipx",
         "pgrep",
         "pkill",
         "pmap",
@@ -571,6 +572,7 @@
         "yoctonear",
         "zadd",
         "zipf",
+        "zizmor",
         "zstd",
         "Zulip",
         "zulipchat"
