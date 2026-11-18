@@ -485,6 +485,9 @@ impl Doomslug {
     /// # Returns
     /// A vector of approvals that need to be sent to other block producers as a result of processing
     /// the timers
+    ///
+    /// Note: when adding or changing the conditions under which this method does something,
+    /// make the same change in `next_timer_deadline`.
     #[must_use]
     pub fn process_timer(&mut self, signer: &Option<Arc<ValidatorSigner>>) -> Vec<Approval> {
         let now = self.clock.now();
