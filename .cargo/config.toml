@@ -1,5 +1,12 @@
 # Make sure to apply changes to `config.profiling.toml` too, if appropriate!
 
+[registry]
+# Supply-chain cooldown: when resolving dependencies, ignore crates.io versions
+# published less than 7 days ago. Versions already in `Cargo.lock` are not
+# affected, so this only matters when adding or updating dependencies.
+# See docs/practices/dependencies.md for details and for how to override it.
+global-min-publish-age = "7 days"
+
 [build]
 # We compile with `panic=abort`, so we need `-Cforce-unwind-tables=y`
 # to get a useful backtrace on panic.
