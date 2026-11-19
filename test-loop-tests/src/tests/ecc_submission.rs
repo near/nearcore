@@ -15,7 +15,7 @@ use near_chain_configs::{ClientConfig, MutableConfigValue, TrackedShardsConfig};
 use near_client::BlockResponse;
 use near_client::ProcessTxResponse;
 use near_client::QueryError;
-use near_client::test_utils::create_chunk_on_block;
+use near_client::test_utils::create_chunk_on_block_at_height;
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofRequest;
@@ -27,6 +27,7 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::block::Block;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
@@ -38,7 +39,7 @@ use near_primitives::transaction::{
     ValidatedEcc, ValidatedTransactionEnvelope,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockReference, Finality, TransactionOrReceiptId,
+    AccountId, Balance, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::universal_state_init::{
     RawStateInit, UniversalStateInit, UniversalStateInitV1,
@@ -56,6 +57,7 @@ use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 fn ecc(contract_id: &AccountId) -> EccTransaction {
     EccTransaction::new(contract_id.clone(), vec![1, 2, 3])
@@ -1058,6 +1060,65 @@ fn test_ecc_with_state_init_in_the_archives() {
     assert!(outcome_ids.iter().any(|(id, _)| *id == transaction_id));
 }
 
+/// Builds a block on `parent` at `height` whose chunk holds `txs`, and hands it and its chunk to
+/// every node, as a producer on another fork would. The validator signs both. The nodes put the
+/// block on a fork, or switch to it if it makes a longer chain than the head.
+fn add_fork_block(
+    env: &mut TestLoopEnv,
+    parent: &Block,
+    height: BlockHeight,
+    txs: Vec<ValidatedTransactionEnvelope>,
+) -> Arc<Block> {
+    let mut validator = env.validator_mut();
+    let client = &mut validator.client_actor().client;
+    let (chunk, block) = create_chunk_on_block_at_height(client, parent, height, txs);
+    let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
+    client
+        .distribute_and_persist_encoded_chunk(
+            chunk.chunk,
+            chunk.encoded_chunk_parts_paths,
+            chunk.receipts,
+            validator_id,
+        )
+        .unwrap();
+    for node_data in &env.node_datas {
+        let response = BlockResponse {
+            block: block.clone(),
+            peer_id: node_data.peer_id.clone(),
+            // A node drops an unrequested block at a height it already has a block for.
+            was_requested: true,
+        };
+        node_data.client_sender.send(response.span_wrap());
+    }
+    block
+}
+
+/// Replaces the head block at `height` with a block on its parent at the next height, which the
+/// nodes take as the head: a reorg. The chunk of the new block holds `txs`. Returns the block.
+///
+/// The validator must still be on the head block, with no later block produced, or the assert
+/// below fails. The parent must not be the last block of its epoch, which
+/// `create_chunk_on_block_at_height` does not handle.
+fn reorg_to_fork(
+    env: &mut TestLoopEnv,
+    height: BlockHeight,
+    txs: Vec<ValidatedTransactionEnvelope>,
+) -> Arc<Block> {
+    let validator = env.validator();
+    let head = validator.head();
+    assert_eq!(head.height, height, "the chain has moved past the block to replace");
+    let parent = validator.client().chain.get_block(&head.prev_block_hash).unwrap();
+    let epoch_manager = &validator.client().epoch_manager;
+    let ends_epoch = epoch_manager.is_next_block_epoch_start(parent.hash()).unwrap();
+    assert!(!ends_epoch, "the fork would cross an epoch boundary");
+
+    let fork_block = add_fork_block(env, &parent, height + 1, txs);
+    let timeout = Duration::seconds(10);
+    env.rpc_runner().run_until(|node| node.head().last_block_hash == *fork_block.hash(), timeout);
+    assert_eq!(env.validator().head().last_block_hash, *fork_block.hash());
+    fork_block
+}
+
 /// Two copies of one call land at one height on two forks: the canonical one stripped of
 /// the state init by the honest producer, and the other with it. Each block keeps its own copy
 /// under the same unique id, and `tx` returns the canonical copy as it ran.
@@ -1090,32 +1151,12 @@ fn test_ecc_copies_with_and_without_state_init_on_two_forks() {
     let height = env.rpc_runner().run_until_included(&[stripped.get_hash()]);
 
     // A block at the same height on the same parent, whose chunk carries the copy with the init.
-    let mut validator = env.validator_mut();
-    let client = &mut validator.client_actor().client;
-    let canonical = client.chain.get_block_by_height(height).unwrap();
-    let parent = client.chain.get_block(canonical.header().prev_hash()).unwrap();
+    let canonical = env.validator().client().chain.get_block_by_height(height).unwrap();
+    let parent = env.validator().client().chain.get_block(canonical.header().prev_hash()).unwrap();
     assert_eq!(parent.header().height() + 1, height, "the canonical block skips no height");
     let copy_with_init: ValidatedTransactionEnvelope =
         ValidatedEcc::new_for_test(call.clone()).into();
-    let (fork_chunk, fork_block) = create_chunk_on_block(client, &parent, vec![copy_with_init]);
-    let validator_id = client.validator_signer.get().unwrap().validator_id().clone();
-    client
-        .distribute_and_persist_encoded_chunk(
-            fork_chunk.chunk,
-            fork_chunk.encoded_chunk_parts_paths,
-            fork_chunk.receipts,
-            validator_id,
-        )
-        .unwrap();
-    for node_data in &env.node_datas {
-        let response = BlockResponse {
-            block: fork_block.clone(),
-            peer_id: node_data.peer_id.clone(),
-            // A node drops an unrequested block at a height it already has a block for.
-            was_requested: true,
-        };
-        node_data.client_sender.send(response.span_wrap());
-    }
+    let fork_block = add_fork_block(&mut env, &parent, height, vec![copy_with_init]);
     env.rpc_runner().run_for_number_of_blocks(BLOCKS_AFTER_FORK);
 
     let chain_store = env.rpc_node().store().chain_store();
@@ -1149,6 +1190,92 @@ fn test_ecc_copies_with_and_without_state_init_on_two_forks() {
         panic!("expected an external call, got {:?}", outcome.transaction);
     };
     assert_eq!(view.state_init, None);
+}
+
+/// A call has no nonce, so putting it back in the pool is what keeps a reorg from losing it.
+/// A call that lands in a block that a reorg drops goes back to the pool when the fork that takes
+/// over does not have it, and lands again.
+#[test]
+fn test_ecc_from_the_losing_branch_of_a_reorg_lands_again() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let contract_id = create_account_id("contract");
+    let mut env = setup(PROTOCOL_VERSION, &[&contract_id], &contract_id);
+
+    let call = ecc(&contract_id);
+    let hash = call.get_hash();
+    assert_eq!(env.rpc_node().process_tx(call.clone(), false), ProcessTxResponse::RequestRouted);
+    let height = env.rpc_runner().run_until_included(&[hash]);
+
+    let fork_block = reorg_to_fork(&mut env, height, vec![]);
+
+    // The block with the call is off the chain, and the chain has no call.
+    let node = env.rpc_node();
+    let chain = &node.client().chain;
+    assert_eq!(chain.get_block_by_height(height + 1).unwrap().hash(), fork_block.hash());
+    assert!(chain.get_block_by_height(height).is_err(), "the fork skips the height");
+    assert_eq!(chunks_with_ecc(&node, hash, height), HashSet::new());
+
+    // The call lands again, once, and runs.
+    let landed_at = env.rpc_runner().run_until_included(&[hash]);
+    let outcome_id = create_ecc_outcome_id(&hash, landed_at);
+    let outcome = env.rpc_runner().run_until_outcome_available(outcome_id, Duration::seconds(10));
+    let status = outcome.outcome_with_id.outcome.status;
+    assert_eq!(status, ExecutionStatus::SuccessValue(call.payload().to_vec()));
+    env.rpc_runner().run_for_number_of_blocks(5);
+    assert_eq!(chunks_with_ecc(&env.rpc_node(), hash, height).len(), 1);
+}
+
+/// A call that lands in a block that a reorg drops does not go back to the pool when the fork that
+/// takes over has it, even as another copy: one with the state init and one without are one call,
+/// and run once.
+#[test]
+fn test_ecc_on_both_branches_of_a_reorg_does_not_land_again() {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let sponsor = create_account_id("sponsor");
+    let mut env = setup(PROTOCOL_VERSION, &[&sponsor], &sponsor);
+    let (wallet, state_init) = fund_universal_wallet(&mut env, &sponsor);
+    let install =
+        EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(state_init.clone()));
+    env.rpc_runner()
+        .run_with_jsonrpc_client(
+            |client| client.send_tx(install, TxExecutionStatus::Final),
+            UNIVERSAL_RPC_TIMEOUT,
+        )
+        .unwrap();
+
+    // The wallet is initialized, so the producer strips the state init of this call. The fork
+    // has the copy with the init.
+    let call = EccTransaction::new_with_state_init(wallet, vec![2], Some(state_init));
+    let stripped = call.without_state_init();
+    assert_eq!(env.rpc_node().process_tx(call.clone(), false), ProcessTxResponse::RequestRouted);
+    let height = env.rpc_runner().run_until_included(&[stripped.get_hash()]);
+    let lost_block = env.rpc_node().client().chain.get_block_by_height(height).unwrap();
+
+    let copy_with_init: ValidatedTransactionEnvelope =
+        ValidatedEcc::new_for_test(call.clone()).into();
+    let fork_block = reorg_to_fork(&mut env, height, vec![copy_with_init]);
+
+    // Long enough for the call to land again, as it would if it went back to the pool.
+    env.rpc_runner().run_for_number_of_blocks(5);
+    let node = env.rpc_node();
+    let block_at_height = node.client().chain.get_block_by_height(height + 1).unwrap();
+    assert_eq!(block_at_height.hash(), fork_block.hash());
+    assert_ne!(block_at_height.hash(), lost_block.hash());
+    assert_eq!(chunks_with_ecc(&node, call.get_hash(), height).len(), 1);
+    assert_eq!(chunks_with_ecc(&node, stripped.get_hash(), height), HashSet::new());
+    let unique_id = create_ecc_outcome_id(stripped.hash(), height + 1);
+    let outcome = node.client().chain.get_execution_outcome(&unique_id).unwrap();
+    assert_eq!(outcome.block_hash, *fork_block.hash());
 }
 
 /// A wallet funded by a transfer gets its code from its first external call's state init. Later

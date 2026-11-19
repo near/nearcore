@@ -175,6 +175,18 @@ pub fn create_chunk_on_block(
     validated_txs: Vec<ValidatedTransactionEnvelope>,
 ) -> (ProduceChunkResult, Arc<Block>) {
     let next_height = last_block.header().height() + 1;
+    create_chunk_on_block_at_height(client, last_block, next_height, validated_txs)
+}
+
+/// Like `create_chunk_on_block`, with the block at `next_height`, which may skip heights after
+/// `last_block`. A fork block at a height past the head takes over from the head by itself.
+pub fn create_chunk_on_block_at_height(
+    client: &mut Client,
+    last_block: &Block,
+    next_height: BlockHeight,
+    validated_txs: Vec<ValidatedTransactionEnvelope>,
+) -> (ProduceChunkResult, Arc<Block>) {
+    assert!(next_height > last_block.header().height(), "the block must be above its parent");
     let signer = client.validator_signer.get().unwrap();
     let ProduceChunkResult { chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
         client
