@@ -50,9 +50,19 @@ jobs:
       - name: Run Nayduck tests and wait for results
         id: nayduck_run
         run: |
-          NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci.txt 2>&1) || true
-          echo "$NEW_TEST"
-          RUN_ID=$(grep -oE '#/run/[0-9]+' <<< "$NEW_TEST" | grep -oE '[0-9]+' | tail -n 1) || true
+          # Nayduck fails some of the requests when a few of them arrive at the
+          # same time, which is what a merge queue does, so retry. The random
+          # part of the delay keeps the jobs of other merge groups from
+          # retrying in the same second.
+          for ATTEMPT in 1 2 3 4; do
+            NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci.txt 2>&1) || true
+            echo "$NEW_TEST"
+            RUN_ID=$(grep -oE '#/run/[0-9]+' <<< "$NEW_TEST" | grep -oE '[0-9]+' | tail -n 1) || true
+            if [ -n "$RUN_ID" ] || [ "$ATTEMPT" = 4 ]; then break; fi
+            DELAY=$((ATTEMPT * 30 + RANDOM % 30))
+            echo "Nayduck did not return a run id. Retrying in $DELAY seconds."
+            sleep "$DELAY"
+          done
           echo "nayduck_run_id=$RUN_ID" >> $GITHUB_OUTPUT
           if [ -z "$RUN_ID" ]; then
             echo "::error::Failed to schedule the Nayduck run; see the output above."
