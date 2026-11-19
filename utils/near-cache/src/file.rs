@@ -241,7 +241,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         let needs_refresh = {
             let mut index = self.disk_index.lock();
             match index.get_mut(key) {
-                Some((_weight, last_refresh)) => {
+                Some(last_refresh) => {
                     let now = Instant::now();
                     if now >= *last_refresh + self.access_time_refresh_throttle {
                         *last_refresh = now;

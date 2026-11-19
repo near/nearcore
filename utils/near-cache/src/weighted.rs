@@ -35,8 +35,12 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
 
     /// Like [`Self::get`], but yields a mutable reference to the stored value.
     /// Also promotes `key` to most-recently-used.
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut (u64, V)> {
-        self.cache.get_mut(key)
+    ///
+    /// The weight is not exposed: changing it would leave the total weight
+    /// out of sync.
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let (_weight, value) = self.cache.get_mut(key)?;
+        Some(value)
     }
 
     pub fn get(&mut self, key: &K) -> Option<&(u64, V)> {
