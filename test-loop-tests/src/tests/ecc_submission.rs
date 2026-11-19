@@ -1173,10 +1173,11 @@ fn test_ecc_on_both_branches_of_a_reorg_does_not_land_again() {
     let outcome = node.client().chain.get_execution_outcome(&unique_id).unwrap();
     assert_eq!(outcome.block_hash, *fork_block.hash());
 
-    // The producer drops a repeat of a call that ran, so a copy put back wrongly would not land
-    // either. Do the reorg's two steps by hand, to see that the copy is not put back at all. The
-    // fork block's call is excluded by its hash without the state init, the lost one's stripped
-    // copy has that hash too.
+    // A copy put back wrongly would land again too, which the asserts above catch: the producer
+    // drops a repeat of a call only once the first copy is final. Also do the reorg's two steps
+    // by hand, to see that no copy is put back, whatever the timing. The fork block's call is
+    // excluded by its hash without the state init, and the lost block's stripped copy has that
+    // hash too.
     let mut validator = env.validator_mut();
     let client = &mut validator.client_actor().client;
     let on_new_branch: HashSet<_> =
