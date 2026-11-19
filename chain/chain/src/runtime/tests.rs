@@ -3785,23 +3785,18 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     );
 }
 
-/// One account's flood of rejected transactions must not use up the whole
-/// selection budget. Rejected transactions advance no gas/size budget, so the
-/// `time_limit` bounds them, and the per-visit group cap
-/// (`MAX_TXS_PER_GROUP_PER_VISIT`) lets the loop reach that check and give
-/// other accounts a turn.
+/// A pool with one account's flood of transactions that get rejected, next to
+/// a few valid transactions from other accounts.
 ///
-/// With one small time limit, checks that:
-///  - preparation stops on the time limit (within a small cap), not by draining the flood,
-///  - transactions from other accounts are still included (fairness),
-///  - the flood is drained more than one visit's worth, but not fully.
-#[test]
-fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
-    let (env, chain, _) = get_test_env_with_chain_and_pool();
-    let block_hash = env.head.prev_block_hash;
-
-    let flooder: AccountId = "test1".parse().unwrap();
-    let flooder_signer = InMemorySigner::test_signer(&flooder);
+/// Returns the pool and the number of valid transactions from the other
+/// accounts.
+fn build_flood_pool(
+    block_hash: CryptoHash,
+    flooder: &AccountId,
+    flood_size: u64,
+    honest_txs_per_account: u64,
+) -> (TransactionPool, u64) {
+    let flooder_signer = InMemorySigner::test_signer(flooder);
 
     // Each transfer exceeds half the available balance, so only the lowest-nonce
     // transaction is funded and every following one is rejected on balance.
@@ -3809,8 +3804,8 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
     let big_transfer =
         available.checked_div(2).unwrap().checked_add(Balance::from_near(1)).unwrap();
 
-    // Empty signatures, so the pile is cheap to build.
-    let flood_tx = |nonce: u64| -> ValidatedTransaction {
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for nonce in 1..=flood_size {
         let tx = Transaction::V0(TransactionV0 {
             signer_id: flooder.clone(),
             public_key: flooder_signer.public_key(),
@@ -3819,57 +3814,19 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
             block_hash,
             actions: vec![Action::Transfer(TransferAction { deposit: big_transfer })],
         });
-        ValidatedTransaction::new_for_test(SignedTransaction::new(
-            Signature::empty(KeyType::ED25519),
-            tx,
-        ))
-    };
-
-    let build_flood_pool = |size: u64| -> TransactionPool {
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        for nonce in 1..=size {
-            pool.insert_transaction(flood_tx(nonce));
-        }
-        pool
-    };
-
-    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
-
-    // Measure the ~cost of rejecting one transaction. Sizing the load/timeouts
-    // relative to this keeps the test machine-independent.
-    let warmup_size = 4 * cap;
-    let mut warmup_pool = build_flood_pool(warmup_size);
-    let warmup_start = std::time::Instant::now();
-    {
-        let mut warmup_iter = warmup_pool.pool_iterator();
-        prepare_transactions_extra_with_time_limit(
-            &env,
-            &chain,
-            &mut warmup_iter,
-            HashSet::new(),
-            &|_| true,
-            &mut PendingTxCheckResult::always_admit(),
-            None,
-            None, // no time limit => drains the whole warmup flood
-        )
-        .unwrap();
+        // Empty signatures, so the pile is cheap to build.
+        let tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), tx);
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
     }
-    let time_to_reject_tx = warmup_start.elapsed() / warmup_size as u32;
-
-    // Real flood: far more than the ~8 visits the time budget below allows, so
-    // it can't be drained within the deadline.
-    let flood_size = 64 * cap;
-    let mut pool = build_flood_pool(flood_size);
 
     // A few valid transactions from other accounts submitted alongside the
     // flood. Each transfers a negligible amount, so all of them are funded.
     let honest_accounts = ["test2", "test3", "test4"];
-    const HONEST_TXS_PER_ACCOUNT: u64 = 2;
     let mut honest_count = 0u64;
     for name in honest_accounts {
         let account: AccountId = name.parse().unwrap();
         let signer = InMemorySigner::test_signer(&account);
-        for nonce in 1..=HONEST_TXS_PER_ACCOUNT {
+        for nonce in 1..=honest_txs_per_account {
             let tx = SignedTransaction::send_money(
                 nonce,
                 account.clone(),
@@ -3883,9 +3840,43 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
         }
     }
 
-    // Time budget of ~1/8 needed to drain the flood (but still ~8x of single visit full of rejections)
-    let time_limit =
-        Some(Duration::nanoseconds(time_to_reject_tx.as_nanos() as i64 * 8 * cap as i64));
+    (pool, honest_count)
+}
+
+/// One account's flood of rejected transactions must not keep the other
+/// accounts waiting. Rejected transactions advance no gas/size budget, so the
+/// per-visit group cap (`MAX_TXS_PER_GROUP_PER_VISIT`) is what makes the loop
+/// leave the flood's group and give the other accounts a turn.
+///
+/// There is no time limit here. The test looks at the order in which the
+/// transactions are examined, so the speed of the machine plays no part:
+///  - the flood never gets more than the cap in a row while others wait,
+///  - the loop comes back to the flood after the others had their turn,
+///  - all the valid transactions are included.
+#[test]
+fn test_prepare_transactions_flood_fairness() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let block_hash = env.head.prev_block_hash;
+    let flooder: AccountId = "test1".parse().unwrap();
+    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
+
+    let flood_size = 8 * cap;
+    // The first flood transaction is funded and that ends the flood's first
+    // visit, so the first visit full of rejections is its second one. With
+    // three transactions each, the other accounts still wait at that point,
+    // wherever the flood is in the order of the groups.
+    let honest_txs_per_account = 3;
+    let (mut pool, honest_count) =
+        build_flood_pool(block_hash, &flooder, flood_size, honest_txs_per_account);
+
+    // Whether each examined transaction is a flood one, in the order in which
+    // they are examined.
+    let mut examined_is_flood: Vec<bool> = Vec::new();
+    let mut check_pending = |tx: &SignedTransaction| {
+        let is_flood = tx.transaction.signer_id() == &flooder;
+        examined_is_flood.push(is_flood);
+        PendingTxCheckResult::Admit(PendingConstraints::default())
+    };
 
     let result = {
         let mut pool_iter = pool.pool_iterator();
@@ -3895,9 +3886,109 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
             &mut pool_iter,
             HashSet::new(),
             &|_| true,
-            &mut PendingTxCheckResult::always_admit(),
+            &mut check_pending,
             None,
-            time_limit,
+            None,
+        )
+        .unwrap()
+        .0
+    };
+
+    // The longest run of flood transactions examined in a row while a
+    // transaction from another account was still waiting.
+    let mut honest_waiting = honest_count;
+    let mut flood_run = 0u64;
+    let mut longest_flood_run = 0u64;
+    for is_flood in &examined_is_flood {
+        if *is_flood {
+            flood_run += 1;
+        } else {
+            honest_waiting -= 1;
+            flood_run = 0;
+        }
+        if honest_waiting > 0 {
+            longest_flood_run = longest_flood_run.max(flood_run);
+        }
+    }
+
+    // Property 1 (fairness): the flood gets a full visit while others wait, and
+    // no more than that.
+    assert_eq!(honest_waiting, 0, "all honest transactions should be examined");
+    assert_eq!(
+        longest_flood_run, cap,
+        "expected the flood to get exactly one visit's worth in a row while others wait",
+    );
+
+    // Property 2: the loop keeps coming back to the flood, here until none of
+    // it is left.
+    let flood_examined = examined_is_flood.iter().filter(|is_flood| **is_flood).count() as u64;
+    assert_eq!(flood_examined, flood_size, "expected the whole flood to be examined");
+    assert_eq!(pool.len(), 0, "expected the pool to be drained");
+
+    // Property 3: transactions from the other accounts are included despite
+    // the flood, plus exactly the one funded flood tx.
+    let included_honest =
+        signed_txs(&result.transactions).filter(|tx| tx.signer_id() != &flooder).count() as u64;
+    assert_eq!(included_honest, honest_count, "all honest transactions should be included");
+    let included_flood =
+        signed_txs(&result.transactions).filter(|tx| tx.signer_id() == &flooder).count();
+    assert_eq!(included_flood, 1, "exactly one flood transaction is funded");
+}
+
+/// One account's flood of rejected transactions must not use up more than the
+/// time limit. Rejected transactions advance no gas/size budget, so the
+/// `time_limit` is what bounds them.
+///
+/// The time limit is a wall clock one, and the test does not race it. The
+/// pending check sleeps for longer than it on one chosen flood transaction, in
+/// the middle of a visit, and preparation must not go past that transaction.
+/// On a busy machine the time may run out earlier, which only makes it stop
+/// sooner, so the limit can be short.
+#[test]
+fn test_prepare_transactions_flood_respects_time_limit() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let block_hash = env.head.prev_block_hash;
+    let flooder: AccountId = "test1".parse().unwrap();
+    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
+
+    // Only the flood: `test_prepare_transactions_flood_fairness` covers what
+    // the other accounts get.
+    let flood_size = 8 * cap;
+    let honest_txs_per_account = 0;
+    let (mut pool, _) = build_flood_pool(block_hash, &flooder, flood_size, honest_txs_per_account);
+
+    // Set up the time limit so that all transactions can be processed if not
+    // for the sleep. Set up the sleep duration to be a bit longer.
+    let time_limit = Duration::milliseconds(10);
+    let sleep_time = Duration::milliseconds(15);
+
+    // The prepare_transactions will sleep after processing the
+    // `sleepy_flood_tx`-th flood transaction. At this point the time limit
+    // should have been reached, and the preparation should stop.
+    //
+    // Position it a few groups in, in the midst of a group visit.
+    let sleepy_flood_tx = 2 * cap + cap / 2;
+
+    let mut flood_seen = 0u64;
+    let mut check_pending = |_: &SignedTransaction| {
+        flood_seen += 1;
+        if flood_seen == sleepy_flood_tx {
+            thread::sleep(sleep_time.unsigned_abs());
+        }
+        PendingTxCheckResult::Admit(PendingConstraints::default())
+    };
+
+    let result = {
+        let mut pool_iter = pool.pool_iterator();
+        prepare_transactions_extra_with_time_limit(
+            &env,
+            &chain,
+            &mut pool_iter,
+            HashSet::new(),
+            &|_| true,
+            &mut check_pending,
+            None,
+            Some(time_limit),
         )
         .unwrap()
         .0
@@ -3910,31 +4001,19 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
         result.limited_by,
     );
 
-    // Property 2 (fairness): transactions from the other accounts are
-    // included despite the flood, plus exactly the one funded flood tx.
-    let included_honest =
-        signed_txs(&result.transactions).filter(|tx| tx.signer_id() != &flooder).count() as u64;
-    assert_eq!(included_honest, honest_count, "all honest transactions should be included");
-    let included_flood =
-        signed_txs(&result.transactions).filter(|tx| tx.signer_id() == &flooder).count();
-    assert_eq!(included_flood, 1, "exactly one flood transaction is funded");
-
-    // Property 3 (a bit into the implementation): check the count pulled was more than one visit's worth.
+    // Property 2: it stopped as soon as the time ran out, without finishing
+    // the visit. There is no lower bound, that would depend on the machine.
     let flood_examined = flood_size - pool.len() as u64;
     assert!(
-        flood_examined > cap,
-        "expected to pull more than one visit from the flood, pulled {flood_examined}",
-    );
-    assert!(
-        flood_examined < flood_size,
-        "expected the flood to not be fully drained, pulled {flood_examined}",
+        flood_examined <= sleepy_flood_tx,
+        "expected to stop by flood transaction {sleepy_flood_tx}, pulled {flood_examined}",
     );
 }
 
 /// The time limit must also bound a flood that fits inside a *single* group
-/// visit. `test_prepare_transactions_flood_respects_time_limit_and_fairness`
-/// covers the case where the flood exceeds `MAX_TXS_PER_GROUP_PER_VISIT`, so the
-/// loop returns to the outer check between visits. It cannot cover this one:
+/// visit. `test_prepare_transactions_flood_respects_time_limit` covers the case
+/// where the flood exceeds `MAX_TXS_PER_GROUP_PER_VISIT`, so the loop returns
+/// to the outer check between visits. It cannot cover this one:
 /// here the whole flood fits in one visit, so the outer check is never reached
 /// again, and only a check inside the per-group loop can stop it.
 ///
