@@ -55,7 +55,9 @@ jobs:
           # part of the delay keeps the jobs of other merge groups from
           # retrying in the same second.
           for ATTEMPT in 1 2 3 4; do
-            NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci.txt 2>&1) || true
+            # With stdin closed the script fails rather than waits for a new
+            # authorization code if Nayduck rejects the current one.
+            NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci.txt < /dev/null 2>&1) || true
             echo "$NEW_TEST"
             RUN_ID=$(grep -oE '#/run/[0-9]+' <<< "$NEW_TEST" | grep -oE '[0-9]+' | tail -n 1) || true
             if [ -n "$RUN_ID" ] || [ "$ATTEMPT" = 4 ]; then break; fi
