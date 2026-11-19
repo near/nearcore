@@ -22,6 +22,9 @@ tracing.workspace = true
 bencher.workspace = true
 tempfile.workspace = true
 
+[features]
+test_features = []
+
 [[bench]]
 name = "cache"
 harness = false

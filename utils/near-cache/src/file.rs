@@ -260,7 +260,12 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         }
     }
 
-    /// Clears the on-disk LRU index and the files in the directory.
+    /// TESTING ONLY: Clears the on-disk LRU index and the files in the
+    /// directory.
+    ///
+    /// The index lock is not held while the files are removed, so this must
+    /// not run concurrently with other accesses to the cache.
+    #[cfg(feature = "test_features")]
     pub fn clear(&self) {
         // Drop the index along with the files it mirrors.
         self.disk_index.lock().clear();
