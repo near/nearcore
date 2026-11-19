@@ -43,6 +43,13 @@ jobs:
 
       - uses: ./.github/actions/install-clang
       - name: Build neard
+        # Fat LTO makes up most of the release build time and this job does not
+        # compare throughput numbers, so build without it. The overrides are
+        # limited to this step on purpose: the scheduled benchmarks in
+        # infra-ops build their own binary with the unmodified release profile.
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run:
           cargo build --release --features tx_generator --config .cargo/config.profiling.toml
 
