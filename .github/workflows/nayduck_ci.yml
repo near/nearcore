@@ -73,7 +73,14 @@ jobs:
 
           # wait all the tests to finish
           while true; do
-            TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
+            TEST_RESULTS=$(curl -s --max-time 30 https://nayduck.nearone.org/api/run/$RUN_ID) || true
+            # Nayduck may be briefly unavailable and the response is then not
+            # the JSON of the run. Try again; the job timeout bounds the wait.
+            if ! jq -e '.tests | length > 0' <<< "$TEST_RESULTS" > /dev/null 2>&1; then
+              echo "Could not get the status of the run. Sleeping 1 minute..."
+              sleep 60
+              continue
+            fi
             TESTS_FAILED=$(jq '.tests | .[] | select(.status == "FAILED") ' <<< "$TEST_RESULTS" )
             if [ -n "$TESTS_FAILED" ]; then break; fi
             TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< "$TEST_RESULTS" )
