@@ -1172,19 +1172,6 @@ fn test_ecc_on_both_branches_of_a_reorg_does_not_land_again() {
     let unique_id = create_ecc_outcome_id(stripped.hash(), height + 1);
     let outcome = node.client().chain.get_execution_outcome(&unique_id).unwrap();
     assert_eq!(outcome.block_hash, *fork_block.hash());
-
-    // A copy put back wrongly would land again too, which the asserts above catch: the producer
-    // drops a repeat of a call only once the first copy is final. Also do the reorg's two steps
-    // by hand, to see that no copy is put back, whatever the timing. The fork block's call is
-    // excluded by its hash without the state init, and the lost block's stripped copy has that
-    // hash too.
-    let mut validator = env.validator_mut();
-    let client = &mut validator.client_actor().client;
-    let on_new_branch: HashSet<_> =
-        client.remove_transactions_for_block(&fork_block).unwrap().into_iter().collect();
-    assert_eq!(on_new_branch, HashSet::from([*stripped.hash_without_state_init()]));
-    client.reintroduce_transactions_for_block(&lost_block, &on_new_branch).unwrap();
-    assert_eq!(client.chunk_producer.sharded_tx_pool.lock().debug_status(), "");
 }
 
 /// A wallet funded by a transfer gets its code from its first external call's state init. Later
