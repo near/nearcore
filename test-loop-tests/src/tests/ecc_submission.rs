@@ -1,9 +1,10 @@
 //! Submitting ECCs to an RPC node: what it refuses, and where it sends what it accepts.
 
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::peer_manager_actor::HandlerResult;
-use crate::utils::account::{archival_account_id, create_account_id};
+use crate::utils::account::{archival_account_id, create_account_id, create_validator_ids};
 use crate::utils::cloud_archival::{apply_writer_settings, get_cloud_storage};
 use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
@@ -736,6 +737,109 @@ fn test_chunks_hold_eccs_within_their_compute_share() {
     let chunks_of_hash = hashes.map(|hash| chunks_with_ecc(&env.rpc_node(), hash, first_height));
     let distinct_chunks = chunks_of_hash.iter().flatten().collect::<HashSet<_>>();
     assert_eq!(distinct_chunks.len(), 3, "{chunks_of_hash:?}");
+}
+
+/// What goes wrong at the start of the epoch in `check_ecc_to_staked_contract_waits_for_epoch_start`.
+#[derive(Clone, Copy)]
+enum EpochStartFault {
+    None,
+    MissingChunk,
+    MissingBlock,
+}
+
+/// A call to a staked contract that reaches the producers just before an epoch starts does not go
+/// into the epoch's first chunk, because apply pays the stake back to the contract before it runs
+/// anything, and the producer's dry run does not. The call waits in the pool, and lands in the
+/// first chunk that the producer prepares on a block of the new epoch. `fault` breaks the first
+/// chunk or block of the epoch, and the call still lands.
+fn check_ecc_to_staked_contract_waits_for_epoch_start(fault: EpochStartFault) {
+    init_test_logger();
+    // TODO(spice): the producer does not pack ECCs under Spice yet.
+    if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    // Four producers, as the chain does not move on without a block of a producer that is down.
+    // The first one stakes and holds the contract.
+    let validator_ids = create_validator_ids(4);
+    let contract_id = validator_ids[0].clone();
+    let mut env = TestLoopBuilder::new()
+        .enable_rpc()
+        .validators(4, 0)
+        .epoch_length(10)
+        .track_all_shards()
+        .add_user_accounts(&validator_ids, Balance::from_near(1_000))
+        .config_modifier(|client_config, _| give_eccs_time(client_config))
+        .build();
+    let deploy_tx = env.rpc_node().tx_deploy_contract(&contract_id, ecc_contract());
+    env.rpc_runner().run_tx(deploy_tx, Duration::seconds(10));
+    env.rpc_runner().run_until_new_epoch();
+
+    // The first block of the next epoch, when the chain skips no height.
+    let node = env.rpc_node();
+    let client = node.client();
+    let epoch_start = client.epoch_manager.get_epoch_start_height(&node.head().last_block_hash);
+    let next_epoch_start = epoch_start.unwrap() + client.config.epoch_length;
+    let shard_id = ShardLayout::single_shard().shard_ids().next().unwrap();
+    env = match fault {
+        EpochStartFault::None => env,
+        // The chunk that is the first of an epoch for its shard, in every epoch.
+        EpochStartFault::MissingChunk => env
+            .drop(DropCondition::ChunksProducedByHeight(HashMap::from([(shard_id, vec![false])]))),
+        EpochStartFault::MissingBlock => {
+            env.drop(DropCondition::BlocksByHeight(HashSet::from([next_epoch_start])))
+        }
+    };
+
+    // The chunk for the last height of the epoch is prepared once the chain reaches the height
+    // before it, so the call is the first the producers can pack into the first chunk of the
+    // epoch, which they prepare on the last block of the old one.
+    env.rpc_runner().run_until_head_height(next_epoch_start - 2);
+    let sent_at = env.rpc_node().head().height;
+    let call = ecc(&contract_id);
+    let call_hash = call.get_hash();
+    assert_eq!(env.rpc_node().process_tx(call, false), ProcessTxResponse::RequestRouted);
+    env.rpc_runner().run_until_included(&[call_hash]);
+    let outcome_id = ecc_outcome_id(&env.rpc_node(), call_hash, sent_at);
+    let outcome = env.rpc_runner().run_until_outcome_available(outcome_id, Duration::seconds(10));
+    assert_eq!(
+        outcome.outcome_with_id.outcome.status,
+        ExecutionStatus::SuccessValue(vec![1, 2, 3])
+    );
+
+    let node = env.rpc_node();
+    let client = node.client();
+    let epoch_start = client.epoch_manager.get_epoch_start_height(&node.head().last_block_hash);
+    let epoch_start = epoch_start.unwrap();
+    let first_block = client.chain.get_block_by_height(epoch_start).unwrap();
+    let missing_block = matches!(fault, EpochStartFault::MissingBlock);
+    assert_eq!(epoch_start, next_epoch_start + u64::from(missing_block));
+    let missing_chunk = matches!(fault, EpochStartFault::MissingChunk);
+    assert_eq!(first_block.header().chunk_mask(), [!missing_chunk]);
+
+    let chunks = chunks_with_ecc(&node, call_hash, sent_at);
+    assert_eq!(chunks.len(), 1, "{chunks:?}");
+    let chunk = client.chain.get_chunk(chunks.iter().next().unwrap()).unwrap();
+    assert!(
+        chunk.height_created() > epoch_start,
+        "the call is in the chunk of height {}, and the epoch starts at {epoch_start}",
+        chunk.height_created(),
+    );
+}
+
+#[test]
+fn test_ecc_to_staked_contract_waits_for_epoch_start() {
+    check_ecc_to_staked_contract_waits_for_epoch_start(EpochStartFault::None);
+}
+
+#[test]
+fn test_ecc_to_staked_contract_waits_for_epoch_start_with_missing_chunk() {
+    check_ecc_to_staked_contract_waits_for_epoch_start(EpochStartFault::MissingChunk);
+}
+
+#[test]
+fn test_ecc_to_staked_contract_waits_for_epoch_start_with_missing_block() {
+    check_ecc_to_staked_contract_waits_for_epoch_start(EpochStartFault::MissingBlock);
 }
 
 /// What the contract from `ecc_transfer_contract` sends to its receiver on every ECC.
