@@ -1,5 +1,5 @@
 use crate::archive::cloud_archival_utils::{
-    CloudArchivalReaderError, apply_batch_state_changes, find_present_block_below,
+    CloudArchivalReaderError, SnapshotInfo, apply_batch_state_changes, find_present_block_below,
     find_snapshot_at_or_before, pull_block_batch, pull_epoch_data, pull_shard_batch,
     save_block_data, save_reader_position, shard_state_anchor, shards_tracked_in_batch,
 };
@@ -173,13 +173,10 @@ async fn install_shard_state(
     start_height: BlockHeight,
 ) -> Result<(), CloudArchivalReaderError> {
     let shard_id = shard_uid.shard_id();
-    let (epoch_height, epoch_id) =
+    let SnapshotInfo { epoch_height, epoch_id, first_height: mut height } =
         find_snapshot_at_or_before(cloud_storage, start_height, shard_id).await?;
     let header = cloud_storage.retrieve_state_header(epoch_height, epoch_id, shard_id).await?;
     let mut state_root = header.synced_state_root();
-    let mut height = header
-        .chunk_height_included()
-        .ok_or(CloudArchivalReaderError::NoChunkInStateSyncHeader { shard_id })?;
     tracing::info!(
         target: "cloud_archival",
         %shard_uid,
