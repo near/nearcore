@@ -44,9 +44,6 @@ pub struct TestEnvBuilder {
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
-    // Owns the temporary home directories in `home_dirs`, so they are removed
-    // when the built `TestEnv` is dropped.
-    home_dir_guards: Vec<tempfile::TempDir>,
     stores: Option<Vec<Store>>,
     contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<Arc<EpochManagerHandle>>>,
@@ -63,6 +60,10 @@ pub struct TestEnvBuilder {
     track_all_shards: bool,
     protocol_version_check: ProtocolVersionCheckConfig,
     transaction_pool_size_limit: Option<u64>,
+    // Owns the temporary home directories in `home_dirs`. Must stay the last
+    // field: if the builder is dropped without `build()`, the directories are
+    // removed after the stores opened in them are dropped.
+    home_dir_guards: Vec<tempfile::TempDir>,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -80,7 +81,6 @@ impl TestEnvBuilder {
             clients,
             validators,
             home_dirs: None,
-            home_dir_guards: Vec::new(),
             stores: None,
             contract_caches: None,
             epoch_managers: None,
@@ -95,6 +95,7 @@ impl TestEnvBuilder {
             track_all_shards: false,
             protocol_version_check: Default::default(),
             transaction_pool_size_limit: None,
+            home_dir_guards: Vec::new(),
         }
     }
 
@@ -690,5 +691,22 @@ mod tests {
 
         let leftovers: Vec<_> = home_dirs.iter().filter(|dir| dir.exists()).collect();
         assert!(leftovers.is_empty(), "test env left home directories behind: {leftovers:?}");
+    }
+
+    /// A builder dropped without `build()` must also remove the home
+    /// directories it created for `real_stores()`.
+    #[test]
+    fn unbuilt_builder_removes_home_dirs_on_drop() {
+        let builder = TestEnv::default_builder().real_stores();
+        let home_dirs = builder.home_dirs.clone().unwrap();
+        assert!(home_dirs.iter().all(|dir| dir.exists()));
+
+        drop(builder);
+
+        let leftovers: Vec<_> = home_dirs.iter().filter(|dir| dir.exists()).collect();
+        assert!(
+            leftovers.is_empty(),
+            "unbuilt builder left home directories behind: {leftovers:?}"
+        );
     }
 }
