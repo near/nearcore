@@ -28,6 +28,9 @@ import urllib.request
 
 RUNNER = pathlib.Path(__file__).parent / 'helpers' / 'neard_runner.py'
 BINARY_BYTES = b'0123456789'
+# TestState.STOPPED in helpers/neard_runner.py. The value is written to
+# data.json directly, because importing neard_runner needs its dependencies.
+STOPPED_STATE = 6
 
 
 def free_port():
@@ -103,6 +106,18 @@ class NeardRunnerStartupTest(unittest.TestCase):
                 'epoch_height': 0,
                 'url': slow.url()
             }]}))
+        # A runner restarted after `stop`: the saved state is STOPPED, so
+        # `ready` must turn True once the binaries are downloaded. No binary is
+        # recorded as downloaded yet, so the runner fetches it on startup.
+        (home / 'data.json').write_text(
+            json.dumps({
+                'binaries': [],
+                'neard_process': None,
+                'current_neard_path': None,
+                'state': STOPPED_STATE,
+                'backups': {},
+                'state_data': None,
+            }))
         port = free_port()
         cmd = [
             sys.executable,
@@ -151,6 +166,18 @@ class NeardRunnerStartupTest(unittest.TestCase):
                           f'{stderr_path.read_text()}')
             time.sleep(0.2)
         self.assertEqual(binary.read_bytes(), BINARY_BYTES)
+
+        # Once the download is done, `ready` reports the saved state again.
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            result = ready_rpc(port)
+            if result is True:
+                break
+            time.sleep(0.2)
+        self.assertIs(
+            result, True,
+            'neard_runner did not answer `ready` with True after the binary '
+            f'download finished; last answer: {result!r}')
 
 
 if __name__ == '__main__':
