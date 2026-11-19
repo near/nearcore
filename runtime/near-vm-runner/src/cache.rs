@@ -7,10 +7,10 @@ use crate::logic::Config;
 use crate::logic::errors::{CompilationError, VMRunnerError};
 use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(not(windows))]
-use near_cache::LruFileCache;
 use near_cache::LruWeightedCache;
-pub use near_cache::{BackgroundJobSpawner, noop_background_spawner};
+pub use near_cache::noop_background_spawner;
+#[cfg(not(windows))]
+use near_cache::{BackgroundJobSpawner, LruFileCache};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
 use parking_lot::Mutex;
