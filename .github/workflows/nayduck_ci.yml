@@ -50,9 +50,14 @@ jobs:
       - name: Run Nayduck tests and wait for results
         id: nayduck_run
         run: |
-          NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
-          RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
+          NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci.txt 2>&1) || true
+          echo "$NEW_TEST"
+          RUN_ID=$(grep -oE '#/run/[0-9]+' <<< "$NEW_TEST" | grep -oE '[0-9]+' | tail -n 1) || true
           echo "nayduck_run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Failed to schedule the Nayduck run; see the output above."
+            exit 1
+          fi
 
           sleep 10
 
