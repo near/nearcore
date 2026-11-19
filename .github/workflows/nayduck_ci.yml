@@ -28,13 +28,13 @@ jobs:
 
       - name: Checkout nearcore repository
         if: github.event_name != 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
       - name: Checkout nearcore repository for workflow dispatch
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{github.event.inputs.neard-branch}}
           persist-credentials: false
@@ -94,13 +94,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -112,7 +112,7 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: WarpBuilds/setup-python@v5
+      - uses: WarpBuilds/setup-python@6cfa838faedb1152a7dc8626f00fdc041d8ebd82 # v5.1.4
         with:
           python-version: 3.11
           cache: pip

@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: arn:aws:iam::590184106962:role/GitHubActionsRunner
           aws-region: us-west-1
@@ -40,14 +40,14 @@ jobs:
         # for release events we need to checkout all branches to be able to determine
         # later branch name
         if: ${{ github.event_name != 'workflow_dispatch' && github.event_name == 'release'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Checkout ${{ github.event.inputs.branch }} branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.inputs.branch }}
           persist-credentials: false

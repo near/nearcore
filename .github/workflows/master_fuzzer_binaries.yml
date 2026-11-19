@@ -23,13 +23,13 @@ jobs:
       - run: sudo swapon /swap-file
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
   
       - id: "auth"
         name: Authenticate with Google Cloud
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/346595944828/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "github-service-account@nearone-clusterfuzz.iam.gserviceaccount.com"
@@ -52,7 +52,7 @@ jobs:
           rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
       - name: "Set up GCP SDK"
-        uses: "google-github-actions/setup-gcloud@v1"
+        uses: "google-github-actions/setup-gcloud@e30db14379863a8c79331b04a9969f4c1e225e0b" # v1.1.1
         with:
           version: ">= 416.0.0"
 

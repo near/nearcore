@@ -215,6 +215,10 @@ check-cspell:
     # For nixpkgs users that's `nodePackages.cspell`
     git ls-files | cspell --no-progress --file-list stdin
 
+# zizmor-based security checks of the GitHub Actions workflows
+check-zizmor:
+    zizmor --min-severity high .github/
+
 # Derives COMPOSE_PROFILES from NUM_VALIDATORS; plain `docker compose up`
 # users must sync it manually.
 # Bring up the bug-bounty localnet (4 validators by default; edit tools/bounty-localnet/.env to change).
