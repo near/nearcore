@@ -44,6 +44,9 @@ pub struct TestEnvBuilder {
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
+    // Owns the temporary home directories in `home_dirs`, so they are removed
+    // when the built `TestEnv` is dropped.
+    home_dir_guards: Vec<tempfile::TempDir>,
     stores: Option<Vec<Store>>,
     contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<Arc<EpochManagerHandle>>>,
@@ -77,6 +80,7 @@ impl TestEnvBuilder {
             clients,
             validators,
             home_dirs: None,
+            home_dir_guards: Vec::new(),
             stores: None,
             contract_caches: None,
             epoch_managers: None,
@@ -161,13 +165,10 @@ impl TestEnvBuilder {
 
     fn ensure_home_dirs(mut self) -> Self {
         if self.home_dirs.is_none() {
-            let home_dirs = (0..self.clients.len())
-                .map(|_| {
-                    let temp_dir = tempfile::tempdir().unwrap();
-                    temp_dir.into_path()
-                })
-                .collect_vec();
-            self.home_dirs = Some(home_dirs)
+            let temp_dirs =
+                (0..self.clients.len()).map(|_| tempfile::tempdir().unwrap()).collect_vec();
+            self.home_dirs = Some(temp_dirs.iter().map(|d| d.path().to_path_buf()).collect_vec());
+            self.home_dir_guards = temp_dirs;
         }
         self
     }
@@ -630,6 +631,7 @@ impl TestEnvBuilder {
             .collect();
 
         TestEnv {
+            home_dir_guards: self.home_dir_guards,
             clock,
             actor_system,
             chain_genesis,
@@ -669,5 +671,24 @@ impl TestEnvBuilder {
 
     pub fn state_snapshot_enabled(&self) -> bool {
         self.state_snapshot_enabled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TestEnv;
+
+    /// The home directories created for `real_stores()` are temporary and
+    /// must be removed when the built `TestEnv` is dropped.
+    #[test]
+    fn test_env_removes_home_dirs_on_drop() {
+        let builder = TestEnv::default_builder().real_stores();
+        let home_dirs = builder.home_dirs.clone().unwrap();
+        assert!(home_dirs.iter().all(|dir| dir.exists()));
+
+        drop(builder.build());
+
+        let leftovers: Vec<_> = home_dirs.iter().filter(|dir| dir.exists()).collect();
+        assert!(leftovers.is_empty(), "test env left home directories behind: {leftovers:?}");
     }
 }
