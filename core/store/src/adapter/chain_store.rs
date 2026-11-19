@@ -431,6 +431,19 @@ impl ChainStoreAdapter {
         )
     }
 
+    /// For spice, whether the chunks of `block_hash` in all of `shard_ids` are certified (as of
+    /// the final head).
+    pub fn are_chunks_certified(
+        &self,
+        block_hash: &CryptoHash,
+        shard_ids: impl IntoIterator<Item = ShardId>,
+    ) -> bool {
+        shard_ids.into_iter().all(|shard_id| {
+            let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
+            self.get_chunk_certifying_block(&chunk_id).is_some()
+        })
+    }
+
     /// Hashes of every processed block descending from `start`, `start` excluded, in
     /// increasing height order.
     pub fn get_processed_descendants(&self, start: &Tip) -> Result<Vec<CryptoHash>, Error> {
