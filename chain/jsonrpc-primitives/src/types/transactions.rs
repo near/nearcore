@@ -8,8 +8,9 @@ use serde_json::Value;
 /// `external_call_base64`, so requests with a signed transaction look as they did before ECCs.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(rename = "RpcSendTransactionRequest"))]
 #[serde(try_from = "RpcSendTransactionRequestWire", into = "RpcSendTransactionRequestWire")]
-pub struct RpcSendTransactionRequest {
+pub struct RpcSendTransactionEnvelopeRequest {
     pub transaction: TransactionEnvelope,
     pub wait_until: TxExecutionStatus,
 }
@@ -28,7 +29,7 @@ struct RpcSendTransactionRequestWire {
     wait_until: TxExecutionStatus,
 }
 
-impl TryFrom<RpcSendTransactionRequestWire> for RpcSendTransactionRequest {
+impl TryFrom<RpcSendTransactionRequestWire> for RpcSendTransactionEnvelopeRequest {
     type Error = &'static str;
 
     fn try_from(wire: RpcSendTransactionRequestWire) -> Result<Self, Self::Error> {
@@ -46,13 +47,46 @@ impl TryFrom<RpcSendTransactionRequestWire> for RpcSendTransactionRequest {
     }
 }
 
-impl From<RpcSendTransactionRequest> for RpcSendTransactionRequestWire {
-    fn from(request: RpcSendTransactionRequest) -> Self {
+impl From<RpcSendTransactionEnvelopeRequest> for RpcSendTransactionRequestWire {
+    fn from(request: RpcSendTransactionEnvelopeRequest) -> Self {
         let (signed_tx_base64, external_call_base64) = match request.transaction {
             TransactionEnvelope::Signed(signed_tx) => (Some(signed_tx), None),
             TransactionEnvelope::Unsigned(ecc) => (None, Some(ecc)),
         };
         Self { signed_tx_base64, external_call_base64, wait_until: request.wait_until }
+    }
+}
+
+/// A send request with a signed transaction.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(rename = "RpcSendSignedTransactionRequest"))]
+pub struct RpcSendTransactionRequest {
+    #[serde(rename = "signed_tx_base64")]
+    pub signed_transaction: SignedTransaction,
+    #[serde(default)]
+    pub wait_until: TxExecutionStatus,
+}
+
+impl From<RpcSendTransactionRequest> for RpcSendTransactionEnvelopeRequest {
+    fn from(request: RpcSendTransactionRequest) -> Self {
+        Self { transaction: request.signed_transaction.into(), wait_until: request.wait_until }
+    }
+}
+
+/// A send request with an external contract call (ECC).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RpcSendExternalCallRequest {
+    #[serde(rename = "external_call_base64")]
+    pub external_call: EccTransaction,
+    #[serde(default)]
+    pub wait_until: TxExecutionStatus,
+}
+
+impl From<RpcSendExternalCallRequest> for RpcSendTransactionEnvelopeRequest {
+    fn from(request: RpcSendExternalCallRequest) -> Self {
+        Self { transaction: request.external_call.into(), wait_until: request.wait_until }
     }
 }
 
