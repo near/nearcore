@@ -14,6 +14,7 @@ use near_config_utils::ValidationError;
 #[cfg(feature = "schemars")]
 use near_parameters::view::Rational32SchemarsProvider;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardLayoutConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::StateRoot;
@@ -25,6 +26,7 @@ use near_primitives::{
         AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
     },
     version::ProtocolVersion,
+    views::CongestionInfoView,
 };
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
@@ -316,7 +318,22 @@ pub enum GenesisContents {
     /// it is impossible to compute the corresponding genesis hash in this form,
     /// such that the genesis hash is consistent with that of an equivalent
     /// genesis that spells out the records.
-    StateRoots { state_roots: Vec<StateRoot> },
+    StateRoots {
+        state_roots: Vec<StateRoot>,
+        /// The congestion infos of the genesis chunks, one per shard, in the
+        /// same order as the state roots.
+        ///
+        /// They are part of the genesis block and are otherwise computed from
+        /// the genesis state. With them, the genesis block can be built
+        /// without the genesis state. When `None`, the genesis state has to be
+        /// in the database.
+        ///
+        /// The view type stores the `u128` fields as strings. Plain `u128`
+        /// cannot be read through the flattened, untagged representation of
+        /// `GenesisContents`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        congestion_infos: Option<Vec<CongestionInfoView>>,
+    },
 }
 
 fn contents_are_from_record_file(contents: &GenesisContents) -> bool {
@@ -536,7 +553,7 @@ impl GenesisJsonHasher {
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
         match &genesis.contents {
-            GenesisContents::StateRoots { state_roots } => {
+            GenesisContents::StateRoots { state_roots, .. } => {
                 self.process_state_roots(state_roots);
             }
             _ => {
@@ -623,8 +640,31 @@ impl Genesis {
         Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
-    pub fn new_from_state_roots(config: GenesisConfig, state_roots: Vec<StateRoot>) -> Self {
-        Self { config, contents: GenesisContents::StateRoots { state_roots } }
+    /// Creates a genesis from the state that is already in the database,
+    /// instead of from the records. The `state_roots` are the roots of that
+    /// state, one per shard, in the order of the shards in the genesis shard
+    /// layout. The `congestion_infos` are those of the genesis chunks, in the
+    /// same order.
+    pub fn new_from_state_roots(
+        config: GenesisConfig,
+        state_roots: Vec<StateRoot>,
+        congestion_infos: Option<Vec<CongestionInfo>>,
+    ) -> Self {
+        let congestion_infos = congestion_infos.map(|congestion_infos| {
+            congestion_infos.into_iter().map(CongestionInfoView::from).collect()
+        });
+        let contents = GenesisContents::StateRoots { state_roots, congestion_infos };
+        Self { config, contents }
+    }
+
+    /// The congestion infos of the genesis chunks, if the genesis file has
+    /// them. Only a genesis given by state roots can have them.
+    pub fn congestion_infos(&self) -> Option<Vec<CongestionInfo>> {
+        let GenesisContents::StateRoots { congestion_infos, .. } = &self.contents else {
+            return None;
+        };
+        let congestion_infos = congestion_infos.as_ref()?;
+        Some(congestion_infos.iter().cloned().map(CongestionInfo::from).collect())
     }
 
     fn new_validated(
@@ -929,7 +969,9 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
 #[cfg(test)]
 mod test {
     use crate::genesis_config::RecordsProcessor;
-    use crate::{Genesis, GenesisValidationMode};
+    use crate::{Genesis, GenesisConfig, GenesisContents, GenesisValidationMode};
+    use near_primitives::congestion_info::{CongestionInfo, CongestionInfoV1};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::state_record::StateRecord;
     use serde::Deserializer;
 
@@ -1285,5 +1327,61 @@ mod test {
         }"#;
         let _genesis =
             serde_json::from_str::<Genesis>(&genesis_str).expect("Failed to deserialize Genesis");
+    }
+
+    /// The congestion infos of a genesis given by state roots are the same
+    /// after serializing and deserializing the genesis, including gas values
+    /// that do not fit in 64 bits.
+    #[test]
+    fn test_state_roots_genesis_congestion_infos_round_trip() {
+        let state_roots = vec![CryptoHash::hash_bytes(&[0]), CryptoHash::hash_bytes(&[1])];
+        let congestion_info_a = CongestionInfo::V1(CongestionInfoV1 {
+            delayed_receipts_gas: u128::from(u64::MAX) + 1,
+            buffered_receipts_gas: u128::MAX,
+            receipt_bytes: u64::MAX,
+            allowed_shard: 10,
+        });
+        let congestion_info_b = CongestionInfo::V1(CongestionInfoV1 {
+            delayed_receipts_gas: 0,
+            buffered_receipts_gas: 0,
+            receipt_bytes: 0,
+            allowed_shard: 11,
+        });
+        let congestion_infos = vec![congestion_info_a, congestion_info_b];
+        let genesis = Genesis::new_from_state_roots(
+            GenesisConfig::default(),
+            state_roots.clone(),
+            Some(congestion_infos.clone()),
+        );
+
+        let genesis_str = serde_json::to_string_pretty(&genesis).unwrap();
+        let genesis = serde_json::from_str::<Genesis>(&genesis_str).unwrap();
+
+        let GenesisContents::StateRoots { state_roots: read_state_roots, .. } = &genesis.contents
+        else {
+            panic!("expected a genesis given by state roots, got {:?}", genesis.contents);
+        };
+        assert_eq!(read_state_roots, &state_roots);
+        assert_eq!(genesis.congestion_infos(), Some(congestion_infos));
+    }
+
+    /// The congestion infos are optional in a genesis given by state roots.
+    /// They are not serialized when absent.
+    #[test]
+    fn test_state_roots_genesis_without_congestion_infos() {
+        let state_roots = vec![CryptoHash::hash_bytes(&[0])];
+        let genesis =
+            Genesis::new_from_state_roots(GenesisConfig::default(), state_roots.clone(), None);
+
+        let genesis_str = serde_json::to_string_pretty(&genesis).unwrap();
+        assert!(!genesis_str.contains("congestion_infos"));
+        let genesis = serde_json::from_str::<Genesis>(&genesis_str).unwrap();
+
+        let GenesisContents::StateRoots { state_roots: read_state_roots, .. } = &genesis.contents
+        else {
+            panic!("expected a genesis given by state roots, got {:?}", genesis.contents);
+        };
+        assert_eq!(read_state_roots, &state_roots);
+        assert_eq!(genesis.congestion_infos(), None);
     }
 }
