@@ -193,6 +193,8 @@ class NeardRunner:
         # TODO: consider locking the TestState variable separately, since there
         # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
+        # set once the neard binaries are downloaded, see serve()
+        self.binaries_ready = threading.Event()
 
     def _get_root_disk_size(self):
         return psutil.disk_usage('/').total
@@ -847,6 +849,9 @@ class NeardRunner:
             logging.info('update binaries finished')
 
     def do_ready(self):
+        # Answered without self.lock, which is held while the binaries download.
+        if not self.binaries_ready.is_set():
+            return False
         with self.lock:
             state = self.get_state()
             return state == TestState.RUNNING or state == TestState.STOPPED
@@ -1564,16 +1569,24 @@ class NeardRunner:
                 self.run_logrotate()
             time.sleep(10)
 
-    def serve(self, port):
-        # TODO: maybe use asyncio? kind of silly to use multiple threads for
-        # something so lightweight
-        main_loop = threading.Thread(target=self.main_loop)
-        main_loop.start()
+    def serve(self, port, download_binaries):
         # this will listen only on the loopback interface and won't be accessible
         # over the internet. If connecting to another machine, we can SSH and then make
         # the request locally
         s = RpcServer(('localhost', port), self)
-        s.serve_forever()
+        # The port answers before the binaries are downloaded, so `ready` can
+        # return False during the download instead of refusing the connection.
+        rpc_thread = threading.Thread(target=s.serve_forever, daemon=True)
+        rpc_thread.start()
+
+        download_binaries()
+        self.binaries_ready.set()
+
+        # TODO: maybe use asyncio? kind of silly to use multiple threads for
+        # something so lightweight
+        main_loop = threading.Thread(target=self.main_loop)
+        main_loop.start()
+        rpc_thread.join()
 
 
 def main():
@@ -1599,12 +1612,13 @@ def main():
     logging.info("creating neard runner")
     runner = NeardRunner(args)
 
-    logging.info("downloading binaries")
-    with runner.lock:
-        runner.download_binaries(force=False)
+    def download_binaries():
+        logging.info("downloading binaries")
+        with runner.lock:
+            runner.download_binaries(force=False)
 
     logging.info("serve")
-    runner.serve(args.port)
+    runner.serve(args.port, download_binaries)
 
 
 if __name__ == '__main__':
