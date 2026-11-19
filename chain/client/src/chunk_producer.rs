@@ -552,7 +552,8 @@ impl ChunkProducer {
                         // TODO(spice): a placeholder under Spice, where the chunk extra has no
                         // gas limit. Packing doesn't use it now; the producer's dry run of ECCs
                         // will, for their compute share. Get the real one before ECCs are packed
-                        // under Spice.
+                        // under Spice. Also check `starts_new_epoch`: it comes from `prev_block`,
+                        // while the state is the last certified block's.
                         chunk_extra.gas_limit(),
                     )?;
                     let mut session = self.new_pending_tx_session(shard_uid);

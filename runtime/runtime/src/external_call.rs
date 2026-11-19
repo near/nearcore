@@ -280,6 +280,10 @@ pub enum EccDryRun {
 /// `loaded_account` is the contract's account if the chunk's signed transactions have read it
 /// already, as apply does by then. Otherwise it is read from `state_update`, and the read counts
 /// toward the shares, as it does in apply.
+///
+/// The dry run does not update the validators' accounts, which apply does first at the start of
+/// an epoch, so it can reach another verdict for an account that the update changes: one with
+/// stake, or the protocol treasury. A caller that packs the call must not dry run it then.
 pub fn dry_run_external_call(
     state_update: &mut TrieUpdate,
     context: EccDryRunContext,

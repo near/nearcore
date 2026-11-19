@@ -294,6 +294,7 @@ impl NightshadeRuntime {
                 &mut external_calls,
                 self.epoch_manager.as_ref(),
                 runtime_config,
+                &self.genesis_config.protocol_treasury_account,
                 &epoch_id,
                 prev_block,
                 size_left,
@@ -556,6 +557,11 @@ impl NightshadeRuntime {
 
     /// Runs the external call a view call describes as the producer of the chunk after
     /// `block_hash` would run it first in the chunk, and keeps nothing the run writes.
+    ///
+    /// If the chunk is for the first block of an epoch, the producer holds back calls to an
+    /// account that apply's update of the validators' accounts changes, and apply runs that
+    /// update first. The view call does not, so for such an account it answers from the state
+    /// before the update.
     fn view_external_call(
         &self,
         shard_uid: ShardUId,
@@ -2491,8 +2497,12 @@ struct EccGroupVisit {
 /// repeat a call that ran, or put aside if they are in `skip_tx_hashes`. The ones after it stay in the group, and so does one
 /// that does not fit in `size_left`, the room left in the chunk, or would break the rules on
 /// the chunk's ECCs taken together (`external_calls`). Takes nothing if the chunk holds an ECC
-/// to the contract already. The ECC it takes is not added to `external_calls`: the caller adds it
-/// once it is packed, which may not happen, as the contract may refuse it.
+/// to the contract already, or if the chunk is for the first block of an epoch and the contract
+/// is an account that apply's update of the validators' accounts changes (see
+/// `is_updated_at_epoch_start`): apply runs the update first, and the dry run does not, so it
+/// could reach another verdict. The calls wait in the group for the next chunk. The ECC it takes
+/// is not added to `external_calls`: the caller adds it once it is packed, which may not happen,
+/// as the contract may refuse it.
 fn take_ecc_from_group(
     group: &mut EccGroup,
     state_update: &dyn TrieAccess,
@@ -2501,6 +2511,7 @@ fn take_ecc_from_group(
     external_calls: &mut ExternalCallsValidity,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_config: &RuntimeConfig,
+    protocol_treasury_account: &AccountId,
     epoch_id: &EpochId,
     prev_block: &PrepareTransactionsBlockContext,
     size_left: u64,
@@ -2515,6 +2526,12 @@ fn take_ecc_from_group(
         return Ok(visit);
     }
     let contract_id = contract_id.clone();
+    if prev_block.starts_new_epoch
+        && is_updated_at_epoch_start(state_update, &contract_id, protocol_treasury_account)?
+    {
+        tracing::trace!(target: "runtime", %contract_id, "holding back ECCs to an account that the epoch start updates");
+        return Ok(visit);
+    }
 
     // Congestion control gives one answer for the whole group, so it is asked once, at the first
     // call that needs it.
@@ -2581,6 +2598,20 @@ fn take_ecc_from_group(
         break;
     }
     Ok(visit)
+}
+
+/// Whether an update of the validators' accounts at the start of an epoch may change the
+/// account. True iff the account is treasury or locked balance is above zero.
+fn is_updated_at_epoch_start(
+    state_update: &dyn TrieAccess,
+    account_id: &AccountId,
+    protocol_treasury_account: &AccountId,
+) -> Result<bool, StorageError> {
+    if account_id == protocol_treasury_account {
+        return Ok(true);
+    }
+    let account = get_account(state_update, account_id)?;
+    Ok(account.is_some_and(|account| account.locked() > Balance::ZERO))
 }
 
 /// Returns true if the transaction passes the congestion control checks. The
