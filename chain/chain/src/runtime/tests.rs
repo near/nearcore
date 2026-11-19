@@ -3941,9 +3941,9 @@ fn test_prepare_transactions_flood_fairness() {
 ///
 /// The time limit is a wall clock one, and the test does not race it. The
 /// pending check sleeps for longer than it on one chosen flood transaction, in
-/// the middle of a visit, and preparation must not go past that transaction.
-/// On a busy machine the time may run out earlier, which only makes it stop
-/// sooner, so the limit can be short.
+/// the middle of a visit, and preparation must stop at exactly that
+/// transaction. Getting to it takes a tiny part of the time limit, so the
+/// time does not run out earlier.
 #[test]
 fn test_prepare_transactions_flood_respects_time_limit() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -3966,8 +3966,10 @@ fn test_prepare_transactions_flood_respects_time_limit() {
     // `sleepy_flood_tx`-th flood transaction. At this point the time limit
     // should have been reached, and the preparation should stop.
     //
-    // Position it a few groups in, in the midst of a group visit.
-    let sleepy_flood_tx = 2 * cap + cap / 2;
+    // Position it in the midst of a visit, and early, so that getting to it
+    // takes little time. The first flood transaction is funded and ends the
+    // first visit, so this one is in the middle of the second visit.
+    let sleepy_flood_tx = cap / 2;
 
     let mut flood_seen = 0u64;
     let mut check_pending = |_: &SignedTransaction| {
@@ -4002,11 +4004,11 @@ fn test_prepare_transactions_flood_respects_time_limit() {
     );
 
     // Property 2: it stopped as soon as the time ran out, without finishing
-    // the visit. There is no lower bound, that would depend on the machine.
+    // the visit, and not before.
     let flood_examined = flood_size - pool.len() as u64;
-    assert!(
-        flood_examined <= sleepy_flood_tx,
-        "expected to stop by flood transaction {sleepy_flood_tx}, pulled {flood_examined}",
+    assert_eq!(
+        flood_examined, sleepy_flood_tx,
+        "expected to stop at the flood transaction on which the time ran out",
     );
 }
 
