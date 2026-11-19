@@ -14,7 +14,7 @@ use crate::spice::tests::{
     pre_spice_boundary_genesis, save_and_record_block,
 };
 use assert_matches::assert_matches;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::Actor;
@@ -258,7 +258,7 @@ impl TestActor {
 
     fn drain_tasks(&mut self) -> Vec<Box<dyn FnOnce() + Send>> {
         let mut tasks = Vec::new();
-        while let Ok(Some(task)) = self.tasks_rc.try_next() {
+        while let Ok(task) = self.tasks_rc.try_recv() {
             tasks.push(task)
         }
         tasks
@@ -266,7 +266,7 @@ impl TestActor {
 
     fn drain_events(&mut self) -> Vec<ExecutorApplyChunksDone> {
         let mut events = Vec::new();
-        while let Ok(Some(event)) = self.actor_rc.try_next() {
+        while let Ok(event) = self.actor_rc.try_recv() {
             events.push(event);
         }
         events
@@ -407,7 +407,7 @@ fn simulate_outgoing_messages(
     actors: &mut [TestActor],
     outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
 ) {
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
+    while let Ok(message) = outgoing_rc.try_recv() {
         simulate_single_outgoing_message(actors, &message);
     }
 }
@@ -613,13 +613,16 @@ fn test_scheduling_same_block_twice() {
 
     assert!(!block_executed(&actors[0], &blocks[0]));
     let mut tasks = Vec::new();
-    while let Ok(Some(task)) = actors[0].tasks_rc.try_next() {
+    while let Ok(task) = actors[0].tasks_rc.try_recv() {
         tasks.push(task);
     }
     assert_ne!(tasks.len(), 0);
 
     actors[0].handle(ProcessedBlock { block_hash: *blocks[0].hash() });
-    assert!(actors[0].tasks_rc.try_next().is_err(), "no new tasks should be scheduled");
+    assert!(
+        matches!(actors[0].tasks_rc.try_recv(), Err(TryRecvError::Empty)),
+        "no new tasks should be scheduled"
+    );
 }
 
 #[test]
@@ -634,7 +637,10 @@ fn test_executing_same_block_twice() {
     assert!(block_executed(&actors[0], &blocks[0]));
 
     actors[0].handle(ProcessedBlock { block_hash: *blocks[0].hash() });
-    assert!(actors[0].tasks_rc.try_next().is_err(), "no new tasks should be scheduled");
+    assert!(
+        matches!(actors[0].tasks_rc.try_recv(), Err(TryRecvError::Empty)),
+        "no new tasks should be scheduled"
+    );
 }
 
 #[test]
@@ -882,7 +888,7 @@ fn test_not_executing_with_bad_receipts() {
     }
 
     record_endorsements(&mut actors, &blocks[0]);
-    while let Ok(Some(mut message)) = outgoing_rc.try_next() {
+    while let Ok(mut message) = outgoing_rc.try_recv() {
         let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
             receipt_proofs,
             ..
@@ -916,7 +922,7 @@ fn test_extra_pending_bad_receipt_proof_does_not_prevent_execution() {
         assert!(block_executed(&actor, &first_block));
     }
 
-    while let Ok(Some(mut message)) = outgoing_rc.try_next() {
+    while let Ok(mut message) = outgoing_rc.try_recv() {
         let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
             receipt_proofs,
             ..
@@ -1093,7 +1099,7 @@ fn outgoing_receipt_proof_to(
     to_shard_id: ShardId,
 ) -> ReceiptProof {
     let mut proof = None;
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
+    while let Ok(message) = outgoing_rc.try_recv() {
         let OutgoingMessage::SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts {
             receipt_proofs,
             ..
@@ -1129,7 +1135,7 @@ fn test_receipts_arriving_after_execution_scheduled_are_not_pending() {
     }
 
     let mut extra_receipts = Vec::new();
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
+    while let Ok(message) = outgoing_rc.try_recv() {
         if matches!(
             message,
             OutgoingMessage::SpiceDistributorOutgoingReceipts(
@@ -1200,7 +1206,7 @@ fn test_not_sending_witness_when_not_validator() {
     assert!(block_executed(&actor, &blocks[0]));
 
     let mut witnesses = Vec::new();
-    while let Ok(Some(event)) = outgoing_rc.try_next() {
+    while let Ok(event) = outgoing_rc.try_recv() {
         let OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
             state_witness,
             ..
@@ -1295,7 +1301,7 @@ fn test_witness_is_valid() {
     assert!(block_executed(&actor, &block));
 
     let mut count_witnesses = 0;
-    while let Ok(Some(event)) = outgoing_rc.try_next() {
+    while let Ok(event) = outgoing_rc.try_recv() {
         let OutgoingMessage::SpiceDistributorStateWitness(SpiceDistributorStateWitness {
             state_witness,
             ..
@@ -1810,7 +1816,7 @@ impl BoundaryActor {
     fn drain_sends(&mut self) -> HashMap<ShardId, BoundarySends> {
         let block_hash = *self.last_pre_spice.hash();
         let mut sends: HashMap<ShardId, BoundarySends> = HashMap::new();
-        while let Ok(Some(message)) = self.outgoing_rc.try_next() {
+        while let Ok(message) = self.outgoing_rc.try_recv() {
             match message {
                 OutgoingMessage::SpiceDistributorOutgoingReceipts(
                     SpiceDistributorOutgoingReceipts { block_hash: sent_hash, receipt_proofs },

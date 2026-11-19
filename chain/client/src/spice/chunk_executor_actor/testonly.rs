@@ -145,11 +145,11 @@ impl TestonlySyncChunkExecutorActor {
     fn run_internal_events(&mut self) {
         loop {
             let mut events_processed = 0;
-            while let Ok(Some(task)) = self.tasks_rc.try_next() {
+            while let Ok(task) = self.tasks_rc.try_recv() {
                 events_processed += 1;
                 task();
             }
-            while let Ok(Some(event)) = self.actor_rc.try_next() {
+            while let Ok(event) = self.actor_rc.try_recv() {
                 events_processed += 1;
                 let block_hash = event.block_hash;
                 let shard_uid = event.shard_uid;
