@@ -29,16 +29,16 @@ fn needed_shards(
     // state sync at `block` has a chunk extra there but none at the block before: the node never
     // applied it, so it has no proofs from it either.
     let applied_itself = shards_applied_itself(shard_tracker, epoch_manager, block)?;
-    let chunk_store = chain_store.chunk_store();
-    let sources = shard_layout
-        .shard_ids()
-        .filter(|&shard_id| {
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-            !applied_itself.contains(&shard_id)
-                || (chunk_store.get_chunk_extra(block.hash(), &shard_uid).is_ok()
-                    && chunk_store.get_chunk_extra(block.prev_hash(), &shard_uid).is_err())
-        })
-        .collect();
+    let mut sources = Vec::new();
+    for shard_id in shard_layout.shard_ids() {
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        if !applied_itself.contains(&shard_id)
+            || (chunk_extra_exists(chain_store, block.hash(), &shard_uid)?
+                && !chunk_extra_exists(chain_store, block.prev_hash(), &shard_uid)?)
+        {
+            sources.push(shard_id);
+        }
+    }
     // The proof feeds applying the destination shard in the next block. `block` is a
     // spice or last pre-spice block, so the next one is a spice block: no boundary case.
     let destinations = shard_layout
@@ -52,6 +52,18 @@ fn needed_shards(
         })
         .collect();
     Ok(NeededShards { sources, destinations })
+}
+
+fn chunk_extra_exists(
+    chain_store: &ChainStoreAdapter,
+    block_hash: &CryptoHash,
+    shard_uid: &ShardUId,
+) -> Result<bool, Error> {
+    match chain_store.chunk_store().get_chunk_extra(block_hash, shard_uid) {
+        Ok(_) => Ok(true),
+        Err(Error::DBNotFoundErr(_)) => Ok(false),
+        Err(err) => Err(err),
+    }
 }
 
 /// The shards of a block whose receipt proofs this node needs.

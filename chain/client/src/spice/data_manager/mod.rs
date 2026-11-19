@@ -14,7 +14,7 @@ pub use data_id::{DataId, ReceiptProofId};
 pub(crate) use encode::{EncodedData, encode};
 use heights::ChainHeights;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
-use item::{FetchItem, PartInsertResult};
+use item::{Expiry, FetchItem, PartInsertResult};
 use lru::LruCache;
 use near_async::time::Instant;
 use near_chain::{Block, Error};
@@ -150,7 +150,7 @@ pub(crate) struct SpiceDataManager {
     /// Processed blocks above the final execution head, with their heights.
     processed_blocks: HashMap<CryptoHash, BlockHeight>,
     /// The final execution head of each shard, as the chunk executor reports it, see
-    /// [`Self::is_past`].
+    /// [`Expiry::AtShardFinalExecutionHead`].
     shard_final_execution_heads: HashMap<ShardId, BlockHeight>,
 }
 
@@ -257,23 +257,57 @@ impl SpiceDataManager {
         }
         let epoch_info = self.epoch_manager.get_epoch_info(block.epoch_id())?;
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
-        let new_items_and_producers = self
-            .needed_items(block)?
-            .into_iter()
-            .filter(|id| {
-                !self.items.contains_key(id) && !self.is_past(id, height) && !self.is_done(id)
-            })
-            .map(|id| {
-                let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
-                Ok((id, producers))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        for (id, producers) in new_items_and_producers {
+        let mut new_items = Vec::new();
+        for id in self.needed_items(block)? {
+            if self.items.contains_key(&id) {
+                continue;
+            }
+            let expiry = self.expiry(&id)?;
+            if self.is_expired(expiry, height) || self.is_done(&id) {
+                continue;
+            }
+            let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
+            new_items.push((id, producers, expiry));
+        }
+        for (id, producers, expiry) in new_items {
             self.items_by_height.entry(height).or_default().insert(id.clone());
-            let item = FetchItem::new(height, *block.epoch_id(), *block.next_epoch_id(), producers);
+            let item = FetchItem::new(
+                height,
+                *block.epoch_id(),
+                *block.next_epoch_id(),
+                producers,
+                expiry,
+            );
             self.items.insert(id, item);
         }
         Ok(())
+    }
+
+    /// The expiry of `id`. A receipt proof into a shard this node tracks in the epoch of the block
+    /// that applies it expires at the final execution head, which waits for that shard. One into a
+    /// shard this node applies otherwise expires at that shard's own final execution head.
+    fn expiry(&self, id: &DataId) -> Result<Expiry, Error> {
+        match id {
+            DataId::ReceiptProof(ReceiptProofId { source, to_shard }) => {
+                if self.shard_tracker.cares_about_shard_checked(&source.block_hash, *to_shard)? {
+                    Ok(Expiry::AtFinalExecutionHead)
+                } else {
+                    Ok(Expiry::AtShardFinalExecutionHead(*to_shard))
+                }
+            }
+            DataId::Witness(_) => Ok(Expiry::AtFinalExecutionHead),
+        }
+    }
+
+    /// Whether an item at `height` with `expiry` is no longer needed. A shard that reported no
+    /// final execution head needs all of its items.
+    fn is_expired(&self, expiry: Expiry, height: BlockHeight) -> bool {
+        match expiry {
+            Expiry::AtFinalExecutionHead => self.heights.at_or_below_final_execution(height),
+            Expiry::AtShardFinalExecutionHead(shard_id) => {
+                self.shard_final_execution_heads.get(&shard_id).is_some_and(|&head| height < head)
+            }
+        }
     }
 
     /// Adds the tracked items from the chunks of `block` in `shards` to `pulls`.
@@ -438,49 +472,49 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Records the final execution head, below which processed blocks are forgotten and parts for
-    /// untracked items are no longer wanted. Before the first head is recorded, the genesis height
-    /// stands in for it.
+    /// Records the final execution head and stops tracking the items that expire at it. At or below
+    /// it, processed blocks are forgotten and parts for untracked items are no longer wanted. Before
+    /// the first head is recorded, the genesis height stands in for it.
     fn on_final_execution_head(&mut self, final_execution_head: Option<&Tip>) {
         let height = final_execution_head
             .map_or_else(|| self.chain_store.get_genesis_height(), |head| head.height);
-        if self.heights.update_final_execution_head(height) {
-            self.processed_blocks.retain(|_, block_height| *block_height > height);
+        let Some(from) = self.heights.update_final_execution_head(height) else {
+            return;
+        };
+        self.processed_blocks.retain(|_, block_height| *block_height > height);
+        // Items expiring at the head are not tracked at or below it, so the heights below `from`
+        // hold none.
+        let expired: Vec<DataId> = self
+            .items_by_height
+            .range((from, Bound::Included(height)))
+            .flat_map(|(_, ids)| ids)
+            .filter(|id| self.items[*id].expiry == Expiry::AtFinalExecutionHead)
+            .cloned()
+            .collect();
+        for id in expired {
+            self.remove_item(&id);
         }
     }
 
     /// Records the final execution head of `shard_id`, which the chunk executor reports, and stops
-    /// tracking the receipt proofs into the shard from blocks below it.
+    /// tracking the items below it that expire at it.
     pub(crate) fn on_shard_final_execution_head(&mut self, shard_id: ShardId, height: BlockHeight) {
         let previous = self.shard_final_execution_heads.get(&shard_id).copied();
         if previous.is_some_and(|head| head >= height) {
             return;
         }
         self.shard_final_execution_heads.insert(shard_id, height);
-        // The proofs into the shard below its previous head were dropped then, and none is tracked
-        // again, see `is_past`.
+        // The items below the previous head were dropped then, and none is tracked again.
         let from = previous.map_or(Bound::Unbounded, Bound::Included);
         let past: Vec<DataId> = self
             .items_by_height
             .range((from, Bound::Excluded(height)))
             .flat_map(|(_, ids)| ids)
-            .filter(|id| matches!(id, DataId::ReceiptProof(id) if id.to_shard == shard_id))
+            .filter(|id| self.items[*id].expiry == Expiry::AtShardFinalExecutionHead(shard_id))
             .cloned()
             .collect();
         for id in past {
             self.remove_item(&id);
-        }
-    }
-
-    /// Whether this node no longer needs `id`, of the block at `height`: a receipt proof from below
-    /// the final execution head of the shard it goes to. A shard that reported no head needs all of
-    /// them.
-    fn is_past(&self, id: &DataId, height: BlockHeight) -> bool {
-        match id {
-            DataId::ReceiptProof(ReceiptProofId { to_shard, .. }) => {
-                self.shard_final_execution_heads.get(to_shard).is_some_and(|&head| height < head)
-            }
-            DataId::Witness(_) => false,
         }
     }
 

@@ -77,23 +77,19 @@ fn track_block_skips_items_already_on_disk() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn blocks_below_the_shard_final_execution_head_are_not_tracked() {
-    let (chain, blocks) = chain_with_blocks(3);
+fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
+    let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    manager.set_shard_final_execution_head(1, &blocks[1]);
+    manager.set_final_execution_head(&blocks[0]);
 
-    // Height 1 is below the head of shard 1, which the proofs go to: neither the processed block nor
-    // a later track adds it. The head's own block is tracked: the block applying its proofs is above
-    // the head.
+    // Height 1 is finally executed: neither the processed block nor a later track adds it.
     let requests = manager.on_block_processed(&blocks[0]);
-    for block in &blocks {
-        manager.track_block(block);
-    }
+    manager.track_block(&blocks[0]);
+    manager.track_block(&blocks[1]);
 
     assert_eq!(requests, vec![]);
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
-    assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
 }
 
 #[test]
@@ -109,7 +105,7 @@ fn a_processed_block_tracks_its_items() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn the_shard_final_execution_head_expires_the_items_below_it() {
+fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
     let (chain, all_blocks) = chain_with_blocks(4);
     // Heights 2, 3, 4.
     let blocks = &all_blocks[1..];
@@ -118,25 +114,21 @@ fn the_shard_final_execution_head_expires_the_items_below_it() {
         manager.track_block(&block);
     }
 
-    manager.set_shard_final_execution_head(1, &blocks[1]);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
 
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
     assert_eq!(
         manager.manager.items_by_height.keys().copied().collect_vec(),
-        vec![blocks[1].header().height(), blocks[2].header().height()],
+        vec![blocks[2].header().height()],
     );
-
-    // The next head drops the item at the previous head's height.
-    manager.set_shard_final_execution_head(1, &blocks[2]);
-    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
-    assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_fork_item_expires_with_the_shard_final_execution_head_or_the_final_head() {
+fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     let (mut chain, blocks) = chain_with_blocks(2);
     let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
     let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
@@ -148,24 +140,18 @@ fn a_fork_item_expires_with_the_shard_final_execution_head_or_the_final_head() {
     }
     let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
 
-    manager.set_shard_final_execution_head(1, &blocks[1]);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&canonical_at_4);
     for id in &fork_ids {
         assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
     }
 
-    // The head of the shard expires the fork below it. The fork at its height goes once the final
-    // head passes it.
-    manager.set_shard_final_execution_head(1, &canonical_at_4);
-    assert!(!manager.is_tracking(&fork_ids[0]));
-    assert!(manager.is_tracking(&fork_ids[1]));
-    manager.set_final_head(&canonical_at_4);
+    manager.set_final_execution_head(&canonical_at_4);
     manager.on_block_processed(&canonical_at_4);
-    assert!(!manager.is_tracking(&fork_ids[1]));
-    // Only the head's own block is left: the block applying its proofs is above the head.
-    assert_eq!(
-        manager.manager.items_by_height.keys().copied().collect_vec(),
-        vec![canonical_at_4.header().height()],
-    );
+    for id in &fork_ids {
+        assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
+    }
+    assert!(manager.manager.items_by_height.is_empty());
 }
 
 /// The fork at height 3 is certified by its own child, so it takes the only window slot
@@ -301,7 +287,8 @@ fn expiry_drops_the_expired_items_from_every_index() {
     manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
     manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
-    manager.set_shard_final_execution_head(1, &blocks[1]);
+    manager.set_final_execution_head(&blocks[0]);
+    manager.on_block_processed(&blocks[2]);
 
     manager.assert_forgotten(&expired);
     assert!(manager.is_pullable(&live));
@@ -389,26 +376,6 @@ fn a_late_part_for_a_done_item_is_already_settled() {
     manager.on_block_processed(block);
     let result = manager.manager.receive_from(&producers[4], &id, &commitment, late);
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn an_undelivered_proof_into_a_shard_the_node_stops_applying_expires_with_its_last_head() {
-    let (chain, blocks) = chain_with_blocks(4);
-    let mut manager = TestManager::new(&chain);
-    let id = manager.track_needed_proof(&blocks[0]);
-    manager.certify_up_to(1);
-
-    // The final head passes the proof's block, but the proof is not done, so it stays tracked and
-    // pulled.
-    manager.set_final_head(&blocks[2]);
-    manager.on_block_processed(&blocks[3]);
-    assert!(manager.is_tracking(&id));
-    assert!(manager.is_pullable(&id));
-
-    // The executor stopped applying the shard at the block after the proof's.
-    manager.set_shard_final_execution_head(1, &blocks[1]);
-    manager.assert_forgotten(&id);
 }
 
 #[test]
@@ -622,22 +589,54 @@ fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn the_proofs_into_a_shard_expire_with_its_final_execution_head() {
+fn the_shard_final_execution_head_does_not_expire_a_proof_into_a_shard_tracked_this_epoch() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+    assert_eq!(manager.item(&id).expiry, Expiry::AtFinalExecutionHead);
+
+    manager.set_shard_final_execution_head(1, &blocks[2]);
+    assert!(manager.is_tracking(&id));
+
+    manager.set_final_execution_head(&blocks[0]);
+    manager.on_block_processed(&blocks[2]);
+    manager.assert_forgotten(&id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn the_final_execution_head_does_not_expire_a_proof_into_a_shard_not_tracked_this_epoch() {
+    let (chain, blocks) = chain_into_third_epoch();
+    let blocks = second_epoch_blocks(&chain, &blocks);
+    let mut manager = TestManager::catching_up(&chain, 1);
+    let id = manager.track_needed_proof(&blocks[0]);
+    assert_eq!(manager.item(&id).expiry, Expiry::AtShardFinalExecutionHead(ShardId::new(1)));
+
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    assert!(manager.is_tracking(&id));
+
+    // A block at the final execution head is tracked for such a shard.
+    let at_head = manager.track_needed_proof(&blocks[1]);
+    assert!(manager.is_tracking(&at_head));
+
+    manager.set_shard_final_execution_head(1, &blocks[2]);
+    manager.assert_forgotten(&id);
+    manager.assert_forgotten(&at_head);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_shard_final_execution_head_expires_only_the_proofs_into_its_shard_and_they_are_not_tracked_again()
+ {
     const SHARD_0: u64 = 0;
     const SHARD_1: u64 = 1;
-    const SHARD_2: u64 = 2;
 
-    let (chain, blocks) = chain_with_shards_and_blocks(3, 3);
-    let shard_layout = chain.epoch_manager.get_shard_layout(blocks[0].header().epoch_id()).unwrap();
-    let shard_uid =
-        |shard: u64| ShardUId::from_shard_id_and_layout(ShardId::new(shard), &shard_layout);
-    let shard_tracker = ShardTracker::new(
-        TrackedShardsConfig::Shards(vec![shard_uid(SHARD_0), shard_uid(SHARD_1)]),
-        chain.epoch_manager.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
-    );
+    let (chain, blocks) = chain_into_third_epoch();
+    let blocks = second_epoch_blocks(&chain, &blocks);
+    let shard_tracker = even_epoch_shard_tracker(&chain, &[SHARD_0, SHARD_1]);
     let mut manager = TestManager::with_shard_tracker(&chain, shard_tracker, PullConfig::default());
-    for block in &blocks {
+    for block in &blocks[..3] {
         manager.track_block(block);
     }
     let head = &blocks[2];
@@ -646,18 +645,62 @@ fn the_proofs_into_a_shard_expire_with_its_final_execution_head() {
     // 1 stay. The head's own block is kept: the block applying its proofs is above the head.
     manager.set_shard_final_execution_head(SHARD_0, head);
     for block in &blocks[..2] {
-        assert!(!manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_0)));
-        assert!(manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_1)));
+        assert!(!manager.is_tracking(&receipt_id(block, SHARD_1, SHARD_0)));
+        assert!(manager.is_tracking(&receipt_id(block, SHARD_1, SHARD_1)));
     }
-    assert!(manager.is_tracking(&receipt_id(head, SHARD_2, SHARD_0)));
-
-    // Shard 1's head follows.
-    manager.set_shard_final_execution_head(SHARD_1, head);
-    for block in &blocks[..2] {
-        assert!(!manager.is_tracking(&receipt_id(block, SHARD_2, SHARD_1)));
-    }
+    assert!(manager.is_tracking(&receipt_id(head, SHARD_1, SHARD_0)));
 
     // A block below a shard's head is not tracked again for it.
     manager.track_block(&blocks[0]);
-    assert!(!manager.is_tracking(&receipt_id(&blocks[0], SHARD_2, SHARD_0)));
+    assert!(!manager.is_tracking(&receipt_id(&blocks[0], SHARD_1, SHARD_0)));
+
+    manager.set_shard_final_execution_head(SHARD_1, head);
+    for block in &blocks[..2] {
+        assert!(!manager.is_tracking(&receipt_id(block, SHARD_1, SHARD_1)));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn an_undelivered_proof_into_a_shard_not_tracked_this_epoch_stays_past_the_final_head_until_its_shard_head()
+ {
+    let (chain, blocks) = chain_into_third_epoch();
+    let blocks = second_epoch_blocks(&chain, &blocks);
+    let mut manager = TestManager::catching_up(&chain, 1);
+    let id = manager.track_needed_proof(&blocks[0]);
+    let source = SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
+    manager.manager.mark_pullable_by(&certifying_block(&blocks[3], &[source])).unwrap();
+
+    // The final head passes the proof's block, but the proof is not done, so it stays tracked and
+    // pulled.
+    manager.set_final_head(&blocks[2]);
+    manager.on_block_processed(&blocks[3]);
+    assert!(manager.is_tracking(&id));
+    assert!(manager.is_pullable(&id));
+
+    manager.set_shard_final_execution_head(1, &blocks[1]);
+    manager.assert_forgotten(&id);
+}
+
+/// The block after the last block of an epoch is in the next epoch, where the caught-up shard is
+/// tracked, and the final execution head waits for that shard there.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn the_proof_from_the_last_block_of_an_epoch_into_a_shard_tracked_next_epoch_expires_at_the_final_execution_head()
+ {
+    let (chain, blocks) = chain_into_third_epoch();
+    let second_epoch = second_epoch_blocks(&chain, &blocks);
+    let [.., before_last, last] = second_epoch.as_slice() else {
+        panic!("the second epoch has at least two blocks");
+    };
+    let mut manager = TestManager::catching_up(&chain, 1);
+    let within = manager.track_needed_proof(before_last);
+    let boundary = manager.track_needed_proof(last);
+    assert_eq!(manager.item(&within).expiry, Expiry::AtShardFinalExecutionHead(ShardId::new(1)));
+    assert_eq!(manager.item(&boundary).expiry, Expiry::AtFinalExecutionHead);
+
+    manager.set_final_execution_head(last);
+    manager.on_block_processed(blocks.last().unwrap());
+    manager.assert_forgotten(&boundary);
+    assert!(manager.is_tracking(&within));
 }

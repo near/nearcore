@@ -274,9 +274,10 @@ impl ChunkExecutorActor {
     }
 
     /// Reports the block that evicted a shard's executor as the shard's final execution head, once
-    /// that block is final and canonical: the node applies the shard at no block from there on. A
-    /// fork block gives its place to `block`, the one being processed, if that one does not apply
-    /// the shard either.
+    /// that block is final and canonical: the node applies the shard at no block from there on.
+    /// Only proofs into a shard applied without being tracked this epoch expire at that shard's
+    /// head. A fork block gives its place to `block`, the one being processed, if that one does not
+    /// apply the shard either.
     fn report_stopped_shards(&mut self, block: &Block) -> Result<(), Error> {
         let final_height = self.chain_store.final_head()?.height;
         self.stopped_shards.retain(|shard_uid, stopped_at| {
