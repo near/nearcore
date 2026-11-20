@@ -24384,7 +24384,7 @@
           },
           "queue_push_storage_proof_size": {
             "default": 0,
-            "description": "Storage proof size charged in advance for each push to a receipt queue.",
+            "description": "Storage proof size charged in advance for each push to an outgoing buffer or the yield timeout queue.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
