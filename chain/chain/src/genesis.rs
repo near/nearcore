@@ -20,7 +20,7 @@ use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
 use near_runtime::bootstrap_congestion_info;
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::{Store, get_genesis_state_roots};
+use near_store::{ShardTries, ShardUId, Store, get_genesis_state_roots};
 use std::sync::Arc;
 
 impl Chain {
@@ -277,10 +277,16 @@ impl Chain {
     }
 }
 
-/// This method calculates the congestion info for the genesis chunks. It uses
-/// the congestion info bootstrapping logic. This method is just a wrapper
-/// around the [`get_genesis_congestion_infos_impl`]. It logs an error if one
-/// happens.
+/// This method returns the congestion info for the genesis chunks, one per
+/// shard, in the order of the `state_roots`.
+///
+/// It reads them from the database if they are there. Otherwise it calculates
+/// them from the genesis state, using the congestion info bootstrapping logic,
+/// and saves them to the database. It returns an error when they are not in the
+/// database and the genesis state is not available.
+///
+/// This method is just a wrapper around the
+/// [`get_genesis_congestion_infos_impl`]. It logs an error if one happens.
 pub fn get_genesis_congestion_infos(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
@@ -311,17 +317,8 @@ fn get_genesis_congestion_infos_impl(
     for (shard_index, &state_root) in state_roots.iter().enumerate() {
         let shard_id = genesis_shard_layout.get_shard_id(shard_index)?;
         let congestion_info =
-            match get_genesis_congestion_info(runtime, &genesis_prev_hash, shard_id, state_root) {
-                Ok(info) => info,
-                Err(_) => {
-                    tracing::info!(
-                        target: "chain",
-                        %shard_id,
-                        "genesis state unavailable, using default congestion info"
-                    );
-                    CongestionInfo::default()
-                }
-            };
+            get_genesis_congestion_info(runtime, &genesis_prev_hash, shard_id, state_root)
+                .map_err(|err| missing_genesis_congestion_info_error(shard_id, err))?;
         new_infos.push(congestion_info);
     }
 
@@ -334,6 +331,37 @@ fn get_genesis_congestion_infos_impl(
     store_update.commit();
 
     Ok(new_infos)
+}
+
+fn missing_genesis_congestion_info_error(shard_id: ShardId, err: Error) -> Error {
+    Error::Other(format!(
+        "cannot build the genesis block: the congestion info of the genesis chunk of shard \
+         {shard_id} is not in the database and cannot be computed because the genesis state is \
+         unavailable ({err}). This happens when the genesis file has only the state roots, \
+         without `congestion_infos`, and the database was deleted. Restore the database that \
+         came with the genesis file, or use a genesis file that has `congestion_infos`."
+    ))
+}
+
+/// Computes the congestion infos of the genesis chunks from the genesis state.
+/// It does not read or write the ones saved in the database.
+///
+/// The `state_roots` must be in the order of the shards in the `shard_layout`.
+/// The result is in the same order.
+pub fn compute_genesis_congestion_infos(
+    tries: &ShardTries,
+    shard_layout: &ShardLayout,
+    state_roots: &[StateRoot],
+) -> Result<Vec<CongestionInfo>, Error> {
+    let mut congestion_infos = vec![];
+    for (shard_index, &state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_layout.get_shard_id(shard_index)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let trie = tries.get_view_trie_for_shard(shard_uid, state_root);
+        let congestion_info = bootstrap_congestion_info(&trie, shard_id)?;
+        congestion_infos.push(congestion_info);
+    }
+    Ok(congestion_infos)
 }
 
 fn get_genesis_congestion_info(

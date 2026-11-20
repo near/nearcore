@@ -3,6 +3,7 @@ use crate::metrics::{self, Phase, SCAN_PROGRESS_INTERVAL, ShardMetrics, ShardPha
 use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use near_chain::genesis::{compute_genesis_congestion_infos, get_genesis_congestion_infos};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
@@ -15,6 +16,7 @@ use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -694,6 +696,12 @@ impl ForkNetworkCommand {
             storage_mutator,
         )?;
         let new_state_roots = update_state.into_iter().map(|u| u.state_root()).collect::<Vec<_>>();
+        // The genesis file has the state roots and not the state, so it also
+        // gets the congestion infos of the genesis chunks. They are computed
+        // from the state here.
+        let tries = runtime.get_tries();
+        let congestion_infos =
+            compute_genesis_congestion_infos(&tries, &target_shard_layout, &new_state_roots)?;
         tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
 
@@ -712,6 +720,7 @@ impl ForkNetworkCommand {
             epoch_config,
             target_shard_layout,
             new_state_roots,
+            congestion_infos,
             new_validator_accounts,
         );
         Ok(())
@@ -854,6 +863,10 @@ impl ForkNetworkCommand {
             chunk_producers,
             num_rpcs,
         )?;
+        // `set_genesis_block` saved the genesis congestion infos in the
+        // database above, this reads them from there.
+        let congestion_infos =
+            get_genesis_congestion_infos(epoch_manager.as_ref(), runtime.as_ref(), &state_roots)?;
         tracing::info!("creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
@@ -863,6 +876,7 @@ impl ForkNetworkCommand {
             epoch_config,
             target_shard_layout.clone(),
             state_roots.clone(),
+            congestion_infos,
             validators,
         );
         Self::set_genesis_block(
@@ -1721,6 +1735,7 @@ impl ForkNetworkCommand {
         // `epoch_config`, which has no static layout once dynamic resharding is enabled.
         shard_layout: ShardLayout,
         new_state_roots: Vec<StateRoot>,
+        congestion_infos: Vec<CongestionInfo>,
         new_validator_accounts: Vec<AccountInfo>,
     ) {
         let new_config = GenesisConfig {
@@ -1764,7 +1779,8 @@ impl ForkNetworkCommand {
                 .chunk_producer_assignment_changes_limit,
         };
 
-        let genesis = Genesis::new_from_state_roots(new_config, new_state_roots);
+        let genesis =
+            Genesis::new_from_state_roots(new_config, new_state_roots, Some(congestion_infos));
         let original_genesis_file = home_dir.join(&genesis_file);
 
         tracing::info!(?original_genesis_file, "writing new genesis");
