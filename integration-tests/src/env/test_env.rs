@@ -369,7 +369,9 @@ impl TestEnv {
         let mut output = StateWitnessPropagationOutput {
             found_differing_post_state_root_due_to_state_transitions: false,
         };
-        let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
+        // For each waiter, the validator and whether its validation result must be a success.
+        let mut witness_processing_done_waiters: Vec<(AccountId, bool, ProcessingDoneWaiter)> =
+            Vec::new();
 
         // Here we are completely bypassing the partial_witness_actor and directly distributing the state witness to the
         // clients. Ideally the route should have been the following:
@@ -395,14 +397,24 @@ impl TestEnv {
                     .ordered_chunk_validators();
 
                 for account_id in chunk_validators {
-                    let processing_done_tracker = ProcessingDoneTracker::new();
-                    witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
-
                     if !self.contains_client(&account_id) {
                         tracing::warn!(target: "test", %account_id, "client not found for account_id");
                         continue;
                     }
                     let account_index = self.get_client_index(&account_id);
+                    // A witness whose previous block the validator doesn't have yet is saved as an
+                    // orphan and validated later, without the tracker, so it has no result here.
+                    let expect_valid = !allow_errors
+                        && self.clients[account_index]
+                            .chain
+                            .get_block(state_witness.chunk_header().prev_block_hash())
+                            .is_ok();
+                    let processing_done_tracker = ProcessingDoneTracker::new();
+                    witness_processing_done_waiters.push((
+                        account_id.clone(),
+                        expect_valid,
+                        processing_done_tracker.make_waiter(),
+                    ));
                     let witness_message = ChunkStateWitnessMessage {
                         witness: state_witness.clone(),
                         raw_witness_size,
@@ -426,8 +438,11 @@ impl TestEnv {
         }
 
         // Wait for all state witnesses to be processed before returning.
-        for processing_done_waiter in witness_processing_done_waiters {
-            processing_done_waiter.wait();
+        for (account_id, expect_valid, processing_done_waiter) in witness_processing_done_waiters {
+            let validated = processing_done_waiter.wait();
+            if expect_valid && !validated {
+                panic!("chunk state witness validation failed on {account_id}");
+            }
         }
 
         output
