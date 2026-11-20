@@ -2,14 +2,13 @@ use crate::ApplyState;
 use crate::bandwidth_scheduler::BandwidthSchedulerOutput;
 use bytesize::ByteSize;
 use itertools::Itertools;
-use near_parameters::RuntimeConfig;
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
 use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
-use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use near_primitives::receipt::{Receipt, StateStoredReceipt, StateStoredReceiptMetadata};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::ProtocolVersion;
@@ -295,7 +294,7 @@ impl ReceiptSinkV2WithInfo {
         state_update: &mut TrieUpdate,
     ) -> Result<(), RuntimeError> {
         let shard = receipt.receiver_shard_id(&self.info.shard_layout)?;
-        let size = receipt_congestion_size(&receipt, &apply_state.config)?;
+        let size = compute_receipt_congestion_size(&receipt, &apply_state.config)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
 
         match ReceiptSinkV2::try_forward(
@@ -318,17 +317,6 @@ impl ReceiptSinkV2WithInfo {
         }
         Ok(())
     }
-}
-
-/// The size a receipt counts for bandwidth and congestion: its size, but at least
-/// `min_receipt_congestion_size`. This bounds how many receipts a shard receives per height, and
-/// so how many it pushes to its delayed queue after its limits.
-pub(crate) fn receipt_congestion_size(
-    receipt: &Receipt,
-    config: &RuntimeConfig,
-) -> Result<u64, IntegerOverflowError> {
-    let size = compute_receipt_size(receipt)?;
-    Ok(size.max(config.congestion_control_config.min_receipt_congestion_size))
 }
 
 impl ReceiptSinkV2 {
@@ -753,7 +741,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         let config = &apply_state.config;
 
         let gas = compute_receipt_congestion_gas(&receipt, &config)?;
-        let size = receipt_congestion_size(receipt, config)?;
+        let size = compute_receipt_congestion_size(receipt, config)?;
         // No queue push charge: a receipt is pushed here only after the chunk reached its compute
         // or storage proof limit, so the charge could not change what the chunk runs.
         // `min_receipt_congestion_size` bounds the incoming receipts pushed here, and the chunk's
@@ -879,6 +867,7 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_parameters::RuntimeConfig;
     use near_primitives::action::Action;
+    use near_primitives::fees::compute_receipt_size;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{ActionReceipt, DataReceipt, ReceiptEnum, ReceiptV0};
     use near_primitives::shard_layout::ShardUId;
@@ -1174,13 +1163,13 @@ mod tests {
 
         // Check: with no floor (before protocol version 89) a receipt counts its own size.
         config.congestion_control_config.min_receipt_congestion_size = 0;
-        assert_eq!(receipt_congestion_size(&small, &config).unwrap(), small_size);
-        assert_eq!(receipt_congestion_size(&large, &config).unwrap(), large_size);
+        assert_eq!(compute_receipt_congestion_size(&small, &config).unwrap(), small_size);
+        assert_eq!(compute_receipt_congestion_size(&large, &config).unwrap(), large_size);
 
         // Check: with a floor, a small receipt counts the floor and a large one its own size.
         config.congestion_control_config.min_receipt_congestion_size = 1_000;
         assert!(small_size < 1_000 && large_size > 1_000);
-        assert_eq!(receipt_congestion_size(&small, &config).unwrap(), 1_000);
-        assert_eq!(receipt_congestion_size(&large, &config).unwrap(), large_size);
+        assert_eq!(compute_receipt_congestion_size(&small, &config).unwrap(), 1_000);
+        assert_eq!(compute_receipt_congestion_size(&large, &config).unwrap(), large_size);
     }
 }

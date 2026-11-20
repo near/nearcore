@@ -1,7 +1,6 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, exec_fee, safe_gas_to_balance, total_send_fees, tx_cost};
-use crate::congestion_control::receipt_congestion_size;
 use crate::conversions::Convert;
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions, set_config,
@@ -48,7 +47,7 @@ use near_primitives::errors::{
     DepositCostFailureReason, EpochError, ExternalCallChunkLimit, FunctionCallError,
     InvalidTxError, MissingTrieValue, ReceiptValidationError, RuntimeError, TxExecutionError,
 };
-use near_primitives::fees::compute_receipt_congestion_gas;
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
@@ -6904,7 +6903,7 @@ fn test_congestion_delayed_receipts_accounting() {
             * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap().as_gas(),
     );
     let expected_receipts_bytes =
-        (n - 1) * receipt_congestion_size(&receipts[0], &apply_state.config).unwrap();
+        (n - 1) * compute_receipt_congestion_size(&receipts[0], &apply_state.config).unwrap();
 
     assert_eq!(u128::from(expected_delayed_gas.as_gas()), congestion.delayed_receipts_gas());
     assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());

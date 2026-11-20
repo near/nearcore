@@ -1,6 +1,6 @@
 use crate::action::GlobalContractIdentifier;
 use crate::errors::{EpochError, IntegerOverflowError};
-use crate::fees::{compute_receipt_congestion_gas, compute_receipt_size};
+use crate::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use crate::hash::CryptoHash;
 use crate::shard_layout::ShardLayout;
 use crate::transaction::{Action, TransferAction};
@@ -121,20 +121,20 @@ pub struct StateStoredReceiptMetadata {
     /// Please see [compute_receipt_congestion_gas] for more details.
     pub congestion_gas: Gas,
     /// The congestion size of the receipt when it was stored in the state.
-    /// Please see [compute_receipt_size] for more details.
+    /// Please see [compute_receipt_congestion_size] for more details.
     pub congestion_size: u64,
 }
 
 impl StateStoredReceiptMetadata {
     /// Computes the metadata of a receipt that is about to be stored in a
-    /// state queue from its own size. Unlike the runtime, it does not apply
-    /// `min_receipt_congestion_size` to the size.
+    /// state queue, the same way the runtime does when it delays or buffers
+    /// the receipt.
     pub fn compute(
         receipt: &Receipt,
         config: &RuntimeConfig,
     ) -> Result<Self, IntegerOverflowError> {
         let congestion_gas = compute_receipt_congestion_gas(receipt, config)?;
-        let congestion_size = compute_receipt_size(receipt)?;
+        let congestion_size = compute_receipt_congestion_size(receipt, config)?;
         Ok(Self { congestion_gas, congestion_size })
     }
 }
