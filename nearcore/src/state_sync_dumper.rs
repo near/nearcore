@@ -606,8 +606,8 @@ impl StateDumper {
     }
 
     /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
-    /// Under spice, only once final blocks certify the sync block's chunks: its state sync headers
-    /// are proven against them.
+    /// Under spice, only once final blocks certify the sync block's chunks of the tracked shards:
+    /// their state sync headers are proven against them.
     fn latest_sync_header(&self) -> anyhow::Result<Option<Arc<BlockHeader>>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
@@ -624,11 +624,15 @@ impl StateDumper {
         };
         let sync_header = self.get_block_header(&sync_hash)?;
         if sync_header.is_spice() {
-            let shard_ids =
-                self.epoch_manager.shard_ids(sync_header.epoch_id()).with_context(|| {
-                    format!("failed getting shard ids {:?}", sync_header.epoch_id())
-                })?;
-            if !self.chain.chain_store().are_chunks_certified(&sync_hash, shard_ids) {
+            let tracked_shard_ids = self
+                .epoch_manager
+                .shard_ids(sync_header.epoch_id())
+                .with_context(|| format!("failed getting shard ids {:?}", sync_header.epoch_id()))?
+                .into_iter()
+                .filter(|&shard_id| {
+                    self.shard_tracker.cares_about_shard(sync_header.prev_hash(), shard_id)
+                });
+            if !self.chain.chain_store().are_chunks_certified(&sync_hash, tracked_shard_ids) {
                 return Ok(None);
             }
         }
