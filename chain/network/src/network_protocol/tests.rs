@@ -2,7 +2,6 @@ use super::*;
 use crate::network_protocol::PeersResponse;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
-use crate::testonly::Rng as TestRng;
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
@@ -68,22 +67,6 @@ const ENCODINGS: [Encoding; 2] = [Encoding::Proto, Encoding::Borsh];
 /// Accepts structs signed in either encoding.
 const ACCEPT_BOTH: NetworkTransitionConfig = NetworkTransitionConfig::RELEASE_2_15;
 
-/// Makes an `OwnedAccount` of a new validator, signed using `encoding`.
-fn make_signed_owned_account(
-    rng: &mut TestRng,
-    clock: &time::Clock,
-    peer_id: PeerId,
-    encoding: Encoding,
-) -> SignedOwnedAccount {
-    let signer = data::make_validator_signer(rng);
-    OwnedAccount {
-        account_key: signer.public_key(),
-        peer_id,
-        timestamp: to_unix_nanos(clock.now_utc()),
-    }
-    .sign(&signer, encoding)
-}
-
 /// Messages with signed structs survive a round trip, whichever encoding was used to sign the
 /// structs. Borsh-signed structs are sent only in borsh-encoded messages.
 #[test]
@@ -93,8 +76,9 @@ fn serialize_deserialize_signed_structs() {
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
     for signed_encoding in ENCODINGS {
         let mut handshake = data::make_handshake(&mut rng, &chain);
-        let owned_account = make_signed_owned_account(
-            &mut rng,
+        let signer = data::make_validator_signer(&mut rng);
+        let owned_account = data::make_signed_owned_account(
+            &signer,
             &clock.clock(),
             handshake.sender_peer_id.clone(),
             signed_encoding,
@@ -198,7 +182,8 @@ fn verify_signed_structs() {
         assert!(changed.verify(&ACCEPT_BOTH).is_err(), "{encoding:?}");
 
         let peer_id = data::make_peer_id(&mut rng);
-        let signed = make_signed_owned_account(&mut rng, &clock.clock(), peer_id, encoding);
+        let signer = data::make_validator_signer(&mut rng);
+        let signed = data::make_signed_owned_account(&signer, &clock.clock(), peer_id, encoding);
         signed.verify(&ACCEPT_BOTH).unwrap();
         let got = SignedOwnedAccount::try_from_slice(&borsh::to_vec(&signed).unwrap()).unwrap();
         assert_eq!(got, signed);
@@ -222,7 +207,9 @@ fn verify_signed_structs() {
             let signed = data::make_signed_account_data(&mut rng, &clock.clock(), encoding);
             assert_eq!(signed.verify(&transition).is_ok(), accepted, "{transition:?} {encoding:?}");
             let peer_id = data::make_peer_id(&mut rng);
-            let signed = make_signed_owned_account(&mut rng, &clock.clock(), peer_id, encoding);
+            let signer = data::make_validator_signer(&mut rng);
+            let signed =
+                data::make_signed_owned_account(&signer, &clock.clock(), peer_id, encoding);
             assert_eq!(signed.verify(&transition).is_ok(), accepted, "{transition:?} {encoding:?}");
         }
     }

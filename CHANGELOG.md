@@ -7,6 +7,7 @@
 ### Non-protocol Changes
 
 * Raised the minimum supported Rust version to 1.100.0. Building `nearcore` from source now requires a Rust 1.100.0 toolchain.
+* A node reserves a quarter of its inbound Tier 3 connections from peers requesting state (`network.max_inbound_tier3_connections`) for validators of the current and the next epoch. A requester counts as a validator if its handshake proves that it owns the account key of one. Other requesters can take only the rest of the connections. The new `network.inbound_tier3_connections_reserved_for_validators` option sets the number of reserved connections.
 
 ## [2.15.0]
 

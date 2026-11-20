@@ -6,16 +6,16 @@ use crate::client::{
 use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, SnapshotHostInfoV1,
-    StateRequestAck, StateResponseInfo, StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody,
-    TieredMessageBody,
+    Encoding, Handshake, PartialEdgeInfo, PeerMessage, SignedOwnedAccount, SnapshotHostInfo,
+    SnapshotHostInfoV1, StateRequestAck, StateResponseInfo, StateResponseInfoV2, SyncSnapshotHosts,
+    T2MessageBody, TieredMessageBody,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::PeerHandle;
 use crate::peer_manager;
 use crate::peer_manager::connection::PoolError;
 use crate::peer_manager::peer_manager_actor::{Event, TIER3_IDLE_TIMEOUT};
-use crate::peer_manager::testonly::ActorHandler;
+use crate::peer_manager::testonly::{ActorHandler, make_chain_info};
 use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
@@ -46,6 +46,10 @@ use std::sync::Arc;
 /// Limit on inbound Tier3 connections, kept low so that the tests don't need many file
 /// descriptors.
 const MAX_INBOUND_TIER3_CONNECTIONS: usize = 8;
+/// Number of the requester connections reserved for validators by default: a quarter of the limit.
+const RESERVED_FOR_VALIDATORS: usize = 2;
+/// Number of the requester connections which non-validators can take.
+const NON_VALIDATOR_SLOTS: usize = MAX_INBOUND_TIER3_CONNECTIONS - RESERVED_FOR_VALIDATORS;
 
 /// The response which a host started with `start_pm` sends for a state request. The network
 /// doesn't look into the response, so it is left empty.
@@ -67,8 +71,20 @@ async fn start_pm(
     chain: &Arc<data::Chain>,
     rng: &mut impl Rng,
 ) -> ActorHandler {
+    start_pm_with_reserve(clock, chain, rng, None).await
+}
+
+/// Like `start_pm`, with `reserved` as the configured number of requester connections reserved for
+/// validators.
+async fn start_pm_with_reserve(
+    clock: &time::Clock,
+    chain: &Arc<data::Chain>,
+    rng: &mut impl Rng,
+    reserved: Option<u32>,
+) -> ActorHandler {
     let mut cfg = chain.make_config(rng);
     cfg.max_inbound_tier3_connections = MAX_INBOUND_TIER3_CONNECTIONS as u32;
+    cfg.inbound_tier3_connections_reserved_for_validators = reserved;
     let state_request_sender = StateRequestSenderForNetwork {
         state_request_header: AsyncSender::from_fn(|StateRequestHeader { shard_id, sync_hash }| {
             StateRequestResponse::Respond(StatePartOrHeader(Box::new(state_response(
@@ -95,13 +111,15 @@ async fn start_pm(
     .await
 }
 
-/// Opens a Tier3 connection to `pm` and sends a handshake as the owner of `key`.
+/// Opens a Tier3 connection to `pm` and sends a handshake as the owner of `key`, with
+/// `owned_account` as the proof of ownership of an account key.
 async fn connect_tier3(
     pm: &ActorHandler,
     chain: &data::Chain,
     key: &SecretKey,
     clock: &time::Clock,
     encoding: Encoding,
+    owned_account: Option<SignedOwnedAccount>,
 ) -> (tcp::StreamId, Stream) {
     let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T3, &SocketOptions::default())
         .await
@@ -124,7 +142,7 @@ async fn connect_tier3(
                 Edge::create_fresh_nonce(clock),
                 key,
             ),
-            owned_account: None,
+            owned_account,
         }))
         .await;
     (stream_id, stream)
@@ -144,6 +162,39 @@ async fn handshake_result(
         .await
 }
 
+/// Makes the proof that the peer with `key` owns the account key of the validator `account`.
+/// It is signed using protobuf, which handshakes in either encoding can carry.
+fn owned_account(
+    account: &NetworkConfig,
+    key: &SecretKey,
+    clock: &time::Clock,
+) -> SignedOwnedAccount {
+    let signer = account.validator.signer.get().unwrap();
+    data::make_signed_owned_account(&signer, clock, PeerId::new(key.public_key()), Encoding::Proto)
+}
+
+/// Connects to `pm` as a new requester, which proves that it owns the account key of the validator
+/// `account` if set, and waits for its handshake. Returns the reason why `pm` closed the connection
+/// if it rejected the handshake.
+async fn try_connect_requester(
+    pm: &ActorHandler,
+    chain: &data::Chain,
+    clock: &time::Clock,
+    rng: &mut impl Rng,
+    encoding: Encoding,
+    account: Option<&NetworkConfig>,
+) -> Result<(tcp::StreamId, Stream), ClosingReason> {
+    let key = data::make_secret_key(rng);
+    let owned_account = account.map(|account| owned_account(account, &key, clock));
+    let mut events = pm.events.from_now();
+    let (stream_id, mut stream) =
+        connect_tier3(pm, chain, &key, clock, encoding, owned_account).await;
+    handshake_result(&mut events, stream_id).await?;
+    let msg = stream.read().await.unwrap();
+    assert!(matches!(msg, PeerMessage::Tier3Handshake(_)), "unexpected message: {msg}");
+    Ok((stream_id, stream))
+}
+
 /// Connects to `pm` as a new requester and waits for its handshake.
 async fn connect_requester(
     pm: &ActorHandler,
@@ -152,13 +203,46 @@ async fn connect_requester(
     rng: &mut impl Rng,
     encoding: Encoding,
 ) -> (tcp::StreamId, Stream) {
-    let mut events = pm.events.from_now();
-    let (stream_id, mut stream) =
-        connect_tier3(pm, chain, &data::make_secret_key(rng), clock, encoding).await;
-    assert_eq!(handshake_result(&mut events, stream_id).await, Ok(()));
-    let msg = stream.read().await.unwrap();
-    assert!(matches!(msg, PeerMessage::Tier3Handshake(_)), "unexpected message: {msg}");
-    (stream_id, stream)
+    try_connect_requester(pm, chain, clock, rng, encoding, None).await.unwrap()
+}
+
+/// Connects to `pm` as a new requester which owns the account key of `validator`, and waits for
+/// its handshake.
+async fn connect_validator_requester(
+    pm: &ActorHandler,
+    chain: &data::Chain,
+    clock: &time::Clock,
+    rng: &mut impl Rng,
+    encoding: Encoding,
+    validator: &NetworkConfig,
+) -> (tcp::StreamId, Stream) {
+    try_connect_requester(pm, chain, clock, rng, encoding, Some(validator)).await.unwrap()
+}
+
+/// Connects to `pm` as a new requester like `try_connect_requester`, and checks that `pm` rejects
+/// the handshake because its pool returns `err`.
+async fn assert_requester_rejected(
+    pm: &ActorHandler,
+    chain: &data::Chain,
+    clock: &time::Clock,
+    rng: &mut impl Rng,
+    encoding: Encoding,
+    account: Option<&NetworkConfig>,
+    err: PoolError,
+) {
+    let result = try_connect_requester(pm, chain, clock, rng, encoding, account).await;
+    let want = ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(err));
+    assert_eq!(result.err(), Some(want));
+}
+
+/// Makes `n` validators.
+fn make_validators(chain: &data::Chain, rng: &mut impl Rng, n: usize) -> Vec<NetworkConfig> {
+    (0..n).map(|_| chain.make_config(rng)).collect()
+}
+
+/// Lets `pm` know `validators` as the validators of the current and the next epoch.
+async fn set_validators(pm: &ActorHandler, chain: &data::Chain, validators: &[NetworkConfig]) {
+    pm.set_chain_info(make_chain_info(chain, &validators.iter().collect::<Vec<_>>())).await;
 }
 
 /// Makes `pm` aware of a snapshot of `shard_id` advertised under `snapshot_hash` by the node
@@ -245,20 +329,27 @@ async fn requesters_limited_with_encoding(encoding: Encoding) {
     let clock = clock.clock();
 
     let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, RESERVED_FOR_VALIDATORS);
+    set_validators(&pm, &chain, &validators).await;
     let mut requesters = vec![];
-    for _ in 0..MAX_INBOUND_TIER3_CONNECTIONS {
+    for _ in 0..NON_VALIDATOR_SLOTS {
         requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
     }
-
-    let mut events = pm.events.from_now();
-    let (stream_id, _stream) =
-        connect_tier3(&pm, &chain, &data::make_secret_key(rng), &clock, encoding).await;
-    assert_eq!(
-        handshake_result(&mut events, stream_id).await,
-        Err(ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
-            PoolError::TooManyTier3Requesters
-        ))),
-    );
+    let mut validator_requesters = vec![];
+    for validator in &validators {
+        validator_requesters
+            .push(connect_validator_requester(&pm, &chain, &clock, rng, encoding, validator).await);
+    }
+    assert_requester_rejected(
+        &pm,
+        &chain,
+        &clock,
+        rng,
+        encoding,
+        None,
+        PoolError::TooManyTier3Requesters,
+    )
+    .await;
 
     // A host answering our own state request is accepted regardless of the limit.
     let host_key = data::make_secret_key(rng);
@@ -269,7 +360,8 @@ async fn requesters_limited_with_encoding(encoding: Encoding) {
     })
     .await;
     let mut events = pm.events.from_now();
-    let (stream_id, _host_stream) = connect_tier3(&pm, &chain, &host_key, &clock, encoding).await;
+    let (stream_id, _host_stream) =
+        connect_tier3(&pm, &chain, &host_key, &clock, encoding, None).await;
     assert_eq!(handshake_result(&mut events, stream_id).await, Ok(()));
 
     let (closed_id, closed) = requesters.pop().unwrap();
@@ -284,7 +376,8 @@ async fn requesters_limited_with_encoding(encoding: Encoding) {
     connect_requester(&pm, &chain, &clock, rng, encoding).await;
 }
 
-// Verify that requesters handshaking concurrently can't exceed MAX_INBOUND_TIER3_CONNECTIONS.
+// Verify that requesters handshaking concurrently stay within their limits: non-validators within
+// the slots which aren't reserved, and validators within MAX_INBOUND_TIER3_CONNECTIONS.
 #[tokio::test]
 async fn concurrent_requesters_limited() {
     for encoding in [Encoding::Proto, Encoding::Borsh] {
@@ -300,31 +393,331 @@ async fn concurrent_requesters_limited_with_encoding(encoding: Encoding) {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let clock = clock.clock();
 
-    // Leave room for a few requesters, then let twice as many handshake at once.
+    // Leave room for a few non-validators, then let twice as many handshake at once.
     const FREE: usize = 4;
     let pm = start_pm(&clock, &chain, rng).await;
     let mut requesters = vec![];
-    for _ in 0..MAX_INBOUND_TIER3_CONNECTIONS - FREE {
+    for _ in 0..NON_VALIDATOR_SLOTS - FREE {
         requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
     }
-    let events = pm.events.from_now();
     let keys: Vec<SecretKey> = (0..2 * FREE).map(|_| data::make_secret_key(rng)).collect();
-    let racing =
-        join_all(keys.iter().map(|key| connect_tier3(&pm, &chain, key, &clock, encoding))).await;
+    let attempts = keys.iter().map(|key| (key, None)).collect();
+    let (non_validators, errors) = race_requesters(&pm, &chain, &clock, encoding, attempts).await;
+    assert_eq!(non_validators.len(), FREE);
+    assert_eq!(errors, vec![PoolError::Tier3RequestersReservedForValidators; FREE]);
 
-    let mut accepted = 0;
-    for (stream_id, _) in &racing {
-        match handshake_result(&mut events.clone(), *stream_id).await {
-            Ok(()) => accepted += 1,
-            Err(reason) => assert_eq!(
-                reason,
-                ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
-                    PoolError::TooManyTier3Requesters
-                ))
-            ),
+    // Only the reserved slots are left, and twice as many validators handshake at once.
+    let validators = make_validators(&chain, rng, 2 * RESERVED_FOR_VALIDATORS);
+    set_validators(&pm, &chain, &validators).await;
+    let keys: Vec<SecretKey> =
+        (0..2 * RESERVED_FOR_VALIDATORS).map(|_| data::make_secret_key(rng)).collect();
+    let attempts = keys
+        .iter()
+        .zip(&validators)
+        .map(|(key, validator)| (key, Some(owned_account(validator, key, &clock))))
+        .collect();
+    let (accepted_validators, errors) =
+        race_requesters(&pm, &chain, &clock, encoding, attempts).await;
+    assert_eq!(accepted_validators.len(), RESERVED_FOR_VALIDATORS);
+    assert_eq!(errors, vec![PoolError::TooManyTier3Requesters; RESERVED_FOR_VALIDATORS]);
+}
+
+/// Lets requesters handshake with `pm` at once, each with a key and an optional proof of ownership
+/// of an account key. Returns the connections which `pm` accepted, and the errors with which its
+/// pool rejected the others.
+async fn race_requesters(
+    pm: &ActorHandler,
+    chain: &data::Chain,
+    clock: &time::Clock,
+    encoding: Encoding,
+    attempts: Vec<(&SecretKey, Option<SignedOwnedAccount>)>,
+) -> (Vec<Stream>, Vec<PoolError>) {
+    let events = pm.events.from_now();
+    let racing =
+        join_all(attempts.into_iter().map(|(key, owned_account)| {
+            connect_tier3(pm, chain, key, clock, encoding, owned_account)
+        }))
+        .await;
+    let mut accepted = vec![];
+    let mut errors = vec![];
+    for (stream_id, stream) in racing {
+        match handshake_result(&mut events.clone(), stream_id).await {
+            Ok(()) => accepted.push(stream),
+            Err(ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(err))) => {
+                errors.push(err)
+            }
+            Err(reason) => panic!("unexpected closing reason: {reason}"),
         }
     }
-    assert_eq!(accepted, FREE);
+    (accepted, errors)
+}
+
+// Verify that non-validators can't take the requester slots reserved for validators, and that
+// validators can.
+#[tokio::test]
+async fn validators_get_reserved_requester_slots() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        validators_get_reserved_requester_slots_with_encoding(encoding).await;
+    }
+}
+
+async fn validators_get_reserved_requester_slots_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(921853253);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, RESERVED_FOR_VALIDATORS + 1);
+    set_validators(&pm, &chain, &validators).await;
+    let mut requesters = vec![];
+    for _ in 0..NON_VALIDATOR_SLOTS {
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
+    }
+    assert_requester_rejected(
+        &pm,
+        &chain,
+        &clock,
+        rng,
+        encoding,
+        None,
+        PoolError::Tier3RequestersReservedForValidators,
+    )
+    .await;
+    for validator in &validators[..RESERVED_FOR_VALIDATORS] {
+        requesters
+            .push(connect_validator_requester(&pm, &chain, &clock, rng, encoding, validator).await);
+    }
+    let validator = &validators[RESERVED_FOR_VALIDATORS];
+    assert_requester_rejected(
+        &pm,
+        &chain,
+        &clock,
+        rng,
+        encoding,
+        Some(validator),
+        PoolError::TooManyTier3Requesters,
+    )
+    .await;
+}
+
+// Verify that validators can take any of the requester slots, not only the reserved ones.
+#[tokio::test]
+async fn validators_use_unreserved_requester_slots() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        validators_use_unreserved_requester_slots_with_encoding(encoding).await;
+    }
+}
+
+async fn validators_use_unreserved_requester_slots_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(921853254);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, MAX_INBOUND_TIER3_CONNECTIONS + 1);
+    set_validators(&pm, &chain, &validators).await;
+    let mut requesters = vec![];
+    for validator in &validators[..MAX_INBOUND_TIER3_CONNECTIONS] {
+        requesters
+            .push(connect_validator_requester(&pm, &chain, &clock, rng, encoding, validator).await);
+    }
+    let validator = &validators[MAX_INBOUND_TIER3_CONNECTIONS];
+    for account in [Some(validator), None] {
+        assert_requester_rejected(
+            &pm,
+            &chain,
+            &clock,
+            rng,
+            encoding,
+            account,
+            PoolError::TooManyTier3Requesters,
+        )
+        .await;
+    }
+}
+
+// Verify that the peers which own an account key that isn't a validator's, and the peers which
+// don't prove the ownership of any account key, don't get the slots reserved for validators.
+#[tokio::test]
+async fn non_validator_owned_account_not_reserved() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        non_validator_owned_account_not_reserved_with_encoding(encoding).await;
+    }
+}
+
+async fn non_validator_owned_account_not_reserved_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(921853255);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, 1);
+    set_validators(&pm, &chain, &validators).await;
+    // Half of the slots of non-validators are taken by peers which own the account keys of accounts
+    // that `pm` doesn't know as validators, and the other half by peers without account keys.
+    let others = make_validators(&chain, rng, NON_VALIDATOR_SLOTS / 2 + 1);
+    let mut requesters = vec![];
+    for other in &others[..NON_VALIDATOR_SLOTS / 2] {
+        let requester =
+            try_connect_requester(&pm, &chain, &clock, rng, encoding, Some(other)).await;
+        requesters.push(requester.unwrap());
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
+    }
+    for account in [others.last(), None] {
+        assert_requester_rejected(
+            &pm,
+            &chain,
+            &clock,
+            rng,
+            encoding,
+            account,
+            PoolError::Tier3RequestersReservedForValidators,
+        )
+        .await;
+    }
+    connect_validator_requester(&pm, &chain, &clock, rng, encoding, &validators[0]).await;
+}
+
+// Verify that a requester is counted as a validator or not depending on the validators known at its
+// handshake, and that later changes of the validators don't change it.
+#[tokio::test]
+async fn validator_status_fixed_at_handshake() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        validator_status_fixed_at_handshake_with_encoding(encoding).await;
+    }
+}
+
+async fn validator_status_fixed_at_handshake_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(921853256);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    // A requester which was a validator at its handshake is still counted as one after the
+    // validators change.
+    let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, 1);
+    set_validators(&pm, &chain, &validators).await;
+    let mut requesters =
+        vec![connect_validator_requester(&pm, &chain, &clock, rng, encoding, &validators[0]).await];
+    set_validators(&pm, &chain, &[]).await;
+    for _ in 0..NON_VALIDATOR_SLOTS {
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
+    }
+    assert_requester_rejected(
+        &pm,
+        &chain,
+        &clock,
+        rng,
+        encoding,
+        None,
+        PoolError::Tier3RequestersReservedForValidators,
+    )
+    .await;
+
+    // A requester which wasn't a validator at its handshake is still counted as a non-validator
+    // after the validators change.
+    let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, 1);
+    let mut requesters =
+        vec![connect_validator_requester(&pm, &chain, &clock, rng, encoding, &validators[0]).await];
+    set_validators(&pm, &chain, &validators).await;
+    for _ in 1..NON_VALIDATOR_SLOTS {
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
+    }
+    assert_requester_rejected(
+        &pm,
+        &chain,
+        &clock,
+        rng,
+        encoding,
+        None,
+        PoolError::Tier3RequestersReservedForValidators,
+    )
+    .await;
+}
+
+// Verify that a validator holds at most one requester slot, however many peers prove that they
+// own its account key.
+#[tokio::test]
+async fn validator_key_holds_one_requester_slot() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        validator_key_holds_one_requester_slot_with_encoding(encoding).await;
+    }
+}
+
+async fn validator_key_holds_one_requester_slot_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(921853257);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let pm = start_pm(&clock, &chain, rng).await;
+    let validators = make_validators(&chain, rng, 1);
+    set_validators(&pm, &chain, &validators).await;
+    let validator = &validators[0];
+    let _requester =
+        connect_validator_requester(&pm, &chain, &clock, rng, encoding, validator).await;
+    let peer_id = pm.tcp.tier3.load().ready.keys().next().unwrap().clone();
+    let account_key = validator.validator.signer.get().unwrap().public_key();
+    assert_requester_rejected(
+        &pm,
+        &chain,
+        &clock,
+        rng,
+        encoding,
+        Some(validator),
+        PoolError::AlreadyConnectedAccount { peer_id, account_key },
+    )
+    .await;
+}
+
+// Verify that a host reserves the configured number of requester slots for validators: with none
+// reserved, non-validators can take all the slots, and with all of them reserved, only validators
+// can connect.
+#[tokio::test]
+async fn configured_reserve_used() {
+    for encoding in [Encoding::Proto, Encoding::Borsh] {
+        configured_reserve_used_with_encoding(encoding).await;
+    }
+}
+
+async fn configured_reserve_used_with_encoding(encoding: Encoding) {
+    init_test_logger();
+    let mut rng = make_rng(921853259);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let pm = start_pm_with_reserve(&clock, &chain, rng, Some(0)).await;
+    let mut requesters = vec![];
+    for _ in 0..MAX_INBOUND_TIER3_CONNECTIONS {
+        requesters.push(connect_requester(&pm, &chain, &clock, rng, encoding).await);
+    }
+    let err = PoolError::TooManyTier3Requesters;
+    assert_requester_rejected(&pm, &chain, &clock, rng, encoding, None, err).await;
+
+    let all = MAX_INBOUND_TIER3_CONNECTIONS as u32;
+    let pm = start_pm_with_reserve(&clock, &chain, rng, Some(all)).await;
+    let validators = make_validators(&chain, rng, 1);
+    set_validators(&pm, &chain, &validators).await;
+    let err = PoolError::Tier3RequestersReservedForValidators;
+    assert_requester_rejected(&pm, &chain, &clock, rng, encoding, None, err).await;
+    connect_validator_requester(&pm, &chain, &clock, rng, encoding, &validators[0]).await;
 }
 
 // Verify that a host sends the acks and the responses for state header and part requests over
@@ -471,7 +864,8 @@ async fn ack_accepted_over_tier3_with_encoding(encoding: Encoding) {
     })
     .await;
     let mut events = pm.events.from_now();
-    let (stream_id, mut stream) = connect_tier3(&pm, &chain, &host_key, &clock, encoding).await;
+    let (stream_id, mut stream) =
+        connect_tier3(&pm, &chain, &host_key, &clock, encoding, None).await;
     assert_eq!(handshake_result(&mut events, stream_id).await, Ok(()));
 
     let ack = StateRequestAck {
