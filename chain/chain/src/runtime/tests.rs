@@ -3981,6 +3981,9 @@ fn test_prepare_transactions_flood_respects_time_limit() {
         PendingTxCheckResult::Admit(PendingConstraints::default())
     };
 
+    // Timed from the outside. The time limit is counted from a point inside
+    // the call, so this is never less than what the call itself counted.
+    let start = Instant::now();
     let result = {
         let mut pool_iter = pool.pool_iterator();
         prepare_transactions_extra_with_time_limit(
@@ -3996,6 +3999,7 @@ fn test_prepare_transactions_flood_respects_time_limit() {
         .unwrap()
         .0
     };
+    let elapsed = start.elapsed();
 
     // Property 1: preparation stopped on the time limit, not because the flood was exhausted.
     assert!(
@@ -4010,6 +4014,13 @@ fn test_prepare_transactions_flood_respects_time_limit() {
     assert!(
         flood_examined <= sleepy_flood_tx,
         "expected to stop by flood transaction {sleepy_flood_tx}, pulled {flood_examined}",
+    );
+
+    // Property 3: it did not stop on the time limit before the time ran out.
+    // A busy machine only makes the call take longer, so this cannot flake.
+    assert!(
+        elapsed >= time_limit,
+        "expected to run for at least {time_limit:?}, stopped after {elapsed:?}",
     );
 }
 
