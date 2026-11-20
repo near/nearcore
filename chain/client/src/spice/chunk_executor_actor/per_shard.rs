@@ -6,8 +6,8 @@ use super::receipt_tracker::UnverifiedReceiptTracker;
 use super::storage::{save_receipt_proof, save_witness_and_contract_accesses};
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
-    SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
-    SpiceShardFinalExecutionHead,
+    NeedChange, SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
+    SpiceDistributorStateWitness, SpiceReceiptProofNeeds,
 };
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
@@ -48,6 +48,7 @@ use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::mem::take;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -96,9 +97,12 @@ pub(crate) struct PerShardChunkExecutor {
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
     /// Height of the shard's final execution head: the last final block of the highest block this
-    /// executor applied. Kept in memory and reported to the data distributor as it moves, see
-    /// [`SpiceShardFinalExecutionHead`].
+    /// executor applied. Kept in memory; as it moves, the data distributor is told that the
+    /// receipts from the blocks below it are no longer needed.
     final_execution_head: Option<BlockHeight>,
+    /// The receipt proofs into this shard found missing since the coordinator last took them, with
+    /// their source block's height.
+    missing_receipt_proofs: BTreeSet<(BlockHeight, SpiceChunkId)>,
     /// For a shard the node catches up for the next epoch, the sync block after which the canonical
     /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
     pub(super) replayed_after_sync_block: Option<CryptoHash>,
@@ -152,10 +156,13 @@ enum ApplyOutcome {
     /// Block is no longer relevant for this shard (neither canonical nor a descendant of the final
     /// execution head, not in this shard's layout, or already applied on disk).
     Dropped,
-    /// Cannot be applied yet: inputs not yet on disk (prev chunk execution result, prev chunk
-    /// extra, or receipts missing), or the shard's catchup not finished. Re-driven by a later
+    /// Cannot be applied yet: inputs not yet on disk (prev chunk execution result or prev chunk
+    /// extra), or the shard's catchup not finished. Re-driven by a later
     /// processed block / receipt / endorsement / sibling apply.
     NotReady,
+    /// Cannot be applied yet: the receipt proofs from these chunks of the parent block are missing.
+    /// The parent's execution results are stored, so the chunks are certified.
+    MissingReceiptProofs { source_height: BlockHeight, sources: Vec<SpiceChunkId> },
 }
 
 struct ChunkApplicationContext<'a> {
@@ -205,8 +212,20 @@ impl PerShardChunkExecutor {
             parked_blocks: ParkedBlocks::default(),
             replayed_after_sync_block: None,
             final_execution_head: None,
+            missing_receipt_proofs: BTreeSet::new(),
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
+    }
+
+    /// Whether the block at `height` with `block_hash` is parked or being applied.
+    pub(crate) fn holds(&self, height: BlockHeight, block_hash: &CryptoHash) -> bool {
+        self.parked_blocks.parents.contains_key(&(height, *block_hash))
+            || self.blocks_in_execution.contains(block_hash)
+    }
+
+    /// Takes the receipt proofs into this shard found missing since the last call.
+    pub(crate) fn take_missing_receipt_proofs(&mut self) -> BTreeSet<(BlockHeight, SpiceChunkId)> {
+        take(&mut self.missing_receipt_proofs)
     }
 
     /// The layout-versioned identity of the shard this executor owns. Receipt
@@ -324,6 +343,11 @@ impl PerShardChunkExecutor {
 
         match self.try_apply(&entry.1) {
             Ok(ApplyOutcome::NotReady) => {}
+            // TODO(spice-data-distribution): consider declaring the proofs the next parked blocks
+            // need too.
+            Ok(ApplyOutcome::MissingReceiptProofs { source_height, sources }) => self
+                .missing_receipt_proofs
+                .extend(sources.into_iter().map(|source| (source_height, source))),
             Ok(ApplyOutcome::Scheduled | ApplyOutcome::Dropped) => {
                 self.parked_blocks.remove(&entry)
             }
@@ -405,7 +429,17 @@ impl PerShardChunkExecutor {
             );
             if proofs.len() != prev_block_shard_layout.num_shards() as usize {
                 tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, have=proofs.len(), want=prev_block_shard_layout.num_shards(), "not ready: missing incoming receipts");
-                return Ok(ApplyOutcome::NotReady);
+                let sources = prev_block_shard_layout
+                    .shard_ids()
+                    .filter(|from_shard_id| {
+                        !proofs.iter().any(|proof| proof.1.from_shard_id == *from_shard_id)
+                    })
+                    .map(|shard_id| SpiceChunkId { block_hash: prev_block_hash, shard_id })
+                    .collect();
+                return Ok(ApplyOutcome::MissingReceiptProofs {
+                    source_height: prev_block.header().height(),
+                    sources,
+                });
             }
             proofs
         };
@@ -518,9 +552,10 @@ impl PerShardChunkExecutor {
     }
 
     /// Moves the shard's final execution head to the last final block of `block_hash`, which the
-    /// shard applied, reports it to the data distributor, and drops the receipts buffered from the
-    /// blocks below it. The head is a final block, as the final execution head is: below it no fork
-    /// can become canonical, and the shard applied every canonical block.
+    /// shard applied, tells the data distributor the receipts from the blocks below it are no
+    /// longer needed, and drops the receipts buffered from them. The head is a final block, as the
+    /// final execution head is: below it no fork can become canonical, and the shard applied every
+    /// canonical block.
     fn advance_final_execution_head(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let last_final_block = *self.chain_store.get_block_header(block_hash)?.last_final_block();
         if last_final_block == CryptoHash::default() {
@@ -531,9 +566,9 @@ impl PerShardChunkExecutor {
             return Ok(());
         }
         self.final_execution_head = Some(last_final_height);
-        self.data_distributor_adapter.send(SpiceShardFinalExecutionHead {
-            shard_id: self.shard_uid.shard_id(),
-            height: last_final_height,
+        self.data_distributor_adapter.send(SpiceReceiptProofNeeds {
+            to_shard: self.shard_uid.shard_id(),
+            change: NeedChange::NoLongerNeededBelow(last_final_height),
         });
         self.unverified_receipts.prune_below(&self.chain_store, last_final_height)
     }
