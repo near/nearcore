@@ -298,7 +298,7 @@ pub(crate) fn serve_store_while(
         nightshade_runtime,
         noop().into_multi_sender(),
         near_config.client_config.clone(),
-        Controls::new(near_config.client_config.archive, AdversarialMode::None),
+        Controls::new(near_config.client_config.archive),
         near_config.validator_signer.clone(),
     );
 

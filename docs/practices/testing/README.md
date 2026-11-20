@@ -159,10 +159,10 @@ launching nodes manually.
 
 To allow testing adversarial behavior, or generally, behaviors that a node should
 not normally exercise, the node has adversarial controls: the `adv_*` RPC
-methods and `NetworkAdversarialMessage`. They work only when `adversarial_mode`
-in `config.json` is `Rpc`. The default is `None`, or `Rpc` in binaries built with
-`test_features`. A node with `adversarial_mode` other than `None` logs an error
-on launch, and it does not start unless `ADVERSARY_CONSENT=1` is set.
+methods. They work only when `adversarial_mode` in `config.json` is `Rpc`. The
+default is `None`, or `Rpc` in binaries built with `test_features`. A node with
+`adversarial_mode` other than `None` logs an error on launch, and it does not
+start unless `ADVERSARY_CONSENT=1` is set.
 
 The nightly runner runs all the python tests against the binary compiled with
 `test_features`, and thus the python tests can make the binary perform actions
