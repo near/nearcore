@@ -2980,6 +2980,22 @@ pub struct EpochValidatorInfo {
     /// E-1 (via `ValidatorAccountsUpdate`).
     #[serde(default)]
     pub validator_reward_paid_prev_epoch: HashMap<AccountId, Balance>,
+    /// Chunk endorsements of each shard so far in the current epoch, summed over the shard's
+    /// chunk validators, in shard id order. Empty for a finished epoch.
+    #[serde(default)]
+    pub chunk_endorsements_per_shard: Vec<ShardChunkEndorsementsView>,
+}
+
+/// Chunk endorsements of one shard, summed over its chunk validators.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ShardChunkEndorsementsView {
+    pub shard_id: ShardId,
+    /// Number of chunk endorsements the blocks recorded for this shard.
+    pub num_produced_endorsements: NumBlocks,
+    /// Number of chunk endorsements expected for this shard: one per chunk validator per block,
+    /// including blocks that miss the shard's chunk.
+    pub num_expected_endorsements: NumBlocks,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]

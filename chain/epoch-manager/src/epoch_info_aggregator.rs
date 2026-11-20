@@ -11,6 +11,7 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(
@@ -24,6 +25,9 @@ pub struct EpochInfoAggregator {
     /// Map from chunk validator id to (num_endorsements_recorded, num_endorsements_expected) so
     /// far in the given epoch, summed over all shards.
     pub chunk_endorsement: HashMap<ValidatorId, ValidatorStats>,
+    /// Map from shard id to (num_endorsements_recorded, num_endorsements_expected) so far in
+    /// the given epoch, summed over all chunk validators of the shard.
+    pub chunk_endorsement_by_shard: HashMap<ShardId, ValidatorStats>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -40,6 +44,7 @@ impl EpochInfoAggregator {
             block_tracker: Default::default(),
             chunk_production: Default::default(),
             chunk_endorsement: Default::default(),
+            chunk_endorsement_by_shard: Default::default(),
             version_tracker: Default::default(),
             all_proposals: BTreeMap::default(),
             epoch_id,
@@ -177,6 +182,7 @@ impl EpochInfoAggregator {
             } else {
                 Box::new(std::iter::repeat(*mask).take(chunk_validators.len()))
             };
+            let shard_stats = self.chunk_endorsement_by_shard.entry(shard_id).or_default();
             for (chunk_validator_id, endorsement_produced) in
                 chunk_validators.iter().zip(chunk_endorsements)
             {
@@ -184,8 +190,10 @@ impl EpochInfoAggregator {
                     self.chunk_endorsement.entry(*chunk_validator_id).or_default();
                 if endorsement_produced {
                     endorsement_stats.produced += 1;
+                    shard_stats.produced += 1;
                 }
                 endorsement_stats.expected += 1;
+                shard_stats.expected += 1;
             }
         }
 
@@ -280,15 +288,16 @@ impl EpochInfoAggregator {
             add_stats(self.chunk_production.entry(*shard_id).or_default(), stats);
         }
         add_stats(&mut self.chunk_endorsement, &other.chunk_endorsement);
+        add_stats(&mut self.chunk_endorsement_by_shard, &other.chunk_endorsement_by_shard);
     }
 }
 
-fn add_stats(
-    target: &mut HashMap<ValidatorId, ValidatorStats>,
-    source: &HashMap<ValidatorId, ValidatorStats>,
+fn add_stats<K: Copy + Eq + Hash>(
+    target: &mut HashMap<K, ValidatorStats>,
+    source: &HashMap<K, ValidatorStats>,
 ) {
-    for (validator_id, stats) in source {
-        let entry = target.entry(*validator_id).or_default();
+    for (key, stats) in source {
+        let entry = target.entry(*key).or_default();
         entry.produced += stats.produced;
         entry.expected += stats.expected;
     }
