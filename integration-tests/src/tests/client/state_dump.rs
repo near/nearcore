@@ -1,5 +1,5 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+use crate::env::test_env::{TestEnv, state_root_at};
 use assert_matches::assert_matches;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::time::{Clock, Duration};
@@ -7,16 +7,16 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue};
+use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
-use near_client::{Client, ProcessTxResponse};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::{Block, Tip};
+use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Balance, BlockHeight, ShardId, StateRoot};
+use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
@@ -224,7 +224,7 @@ fn run_state_sync_with_dumped_parts(
         .runtime_adapter
         .query(
             shard_uid,
-            &query_state_root(&env.clients[0], &head_block),
+            &state_root_at(&env.clients[0], &head_block, shard_uid),
             head.height,
             0,
             &head.prev_block_hash,
@@ -334,9 +334,11 @@ fn run_state_sync_with_dumped_parts(
     let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();
     let synced_block_header = env.clients[1].chain.get_block_header(&sync_hash).unwrap();
     let synced_block_tip = Tip::from_header(&synced_block_header);
+    // Under spice the state a sync block's state sync hands out is what the block's execution left
+    // behind.
     let response = env.clients[1].runtime_adapter.query(
         ShardUId::single_shard(),
-        &query_state_root(&env.clients[1], &synced_block),
+        &state_root_at(&env.clients[1], &synced_block, ShardUId::single_shard()),
         synced_block_tip.height,
         0,
         &synced_block_tip.prev_block_hash,
@@ -423,17 +425,6 @@ fn slow_test_state_sync_with_dumped_parts_4_non_final() {
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 8);
-}
-
-/// The state root a query at `block` reads. A spice chunk header carries no state root, so under
-/// spice it is the root the block's execution left behind, which is also the state a spice sync
-/// block's state sync hands out.
-fn query_state_root(client: &Client, block: &Block) -> StateRoot {
-    if block.header().is_spice() {
-        *client.chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap().state_root()
-    } else {
-        block.chunks()[0].prev_state_root()
-    }
 }
 
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
