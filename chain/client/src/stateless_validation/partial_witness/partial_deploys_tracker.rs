@@ -1,7 +1,6 @@
 use crate::metrics;
 use lru::LruCache;
 use near_async::time::Instant;
-use near_chain::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonPartsTracker,
@@ -129,7 +128,7 @@ impl PartialEncodedContractDeploysTracker {
         &mut self,
         partial_deploys: PartialEncodedContractDeploys,
         encoder: Arc<ReedSolomonEncoder>,
-    ) -> Result<Option<ChunkContractDeploys>, Error> {
+    ) -> Option<ChunkContractDeploys> {
         let key = DeploysCacheKey::new(&partial_deploys);
         let (_, part) = partial_deploys.into();
         if !self.parts_cache.contains(&key) {
@@ -162,12 +161,12 @@ impl PartialEncodedContractDeploysTracker {
                         ?key,
                         "failed to reed solomon decode deployed contracts"
                     );
-                    return Ok(None);
+                    return None;
                 }
             };
             self.processed_deploys.push(key, ());
-            return Ok(Some(deploys));
+            return Some(deploys);
         }
-        Ok(None)
+        None
     }
 }

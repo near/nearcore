@@ -825,7 +825,7 @@ impl PartialWitnessActor {
         let encoder = self.contract_deploys_encoder(part_owners.len());
         if let Some(deploys) = self
             .partial_deploys_tracker
-            .store_partial_encoded_contract_deploys(partial_deploys, encoder)?
+            .store_partial_encoded_contract_deploys(partial_deploys, encoder)
         {
             let contracts = match deploys.decompress_contracts() {
                 Ok(contracts) => contracts,

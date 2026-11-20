@@ -1694,11 +1694,11 @@ impl ClientActor {
             // Head hasn't advanced in ~1 epoch: we really are behind (a peer can't
             // fake this), so use the unvalidated claimed heights to decide how far
             // behind we are; the proof and downstream checks re-validate the target.
-            self.sync_requirement_from_claimed_peers(head.clone())?
+            self.sync_requirement_from_claimed_peers(head.clone())
         } else {
             // Head is recent, so we still know the validator set for nearby heights
             // and can verify a peer's advertised height before entering sync.
-            self.sync_requirement_from_verified_peers(head.clone())?
+            self.sync_requirement_from_verified_peers(head.clone())
         };
         // After state sync the verified peer heights sit below the new head, so peers read as
         // level with us. Our own header head is already ahead and no peer can forge it. It
@@ -1765,10 +1765,7 @@ impl ClientActor {
 
     /// Sync decision from unverified advertised heights. Used only once our own
     /// clock already shows we are behind.
-    fn sync_requirement_from_claimed_peers(
-        &self,
-        head: Tip,
-    ) -> Result<SyncRequirement, near_chain::Error> {
+    fn sync_requirement_from_claimed_peers(&self, head: Tip) -> SyncRequirement {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let eligible_peers = self.peers_advertising_above(head.height);
         let now = self.clock.now_utc();
@@ -1777,21 +1774,18 @@ impl ClientActor {
         let Some(peer_info) =
             selector.sync_target_from_claimed_peers(&eligible_peers, trigger_height, now)
         else {
-            return Ok(SyncRequirement::NoPeers);
+            return SyncRequirement::NoPeers;
         };
         let peer_id = peer_info.peer_info.id.clone();
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
         let highest_height = peer_info.highest_block_height.min(shutdown_height);
-        Ok(self.sync_requirement(peer_id, highest_height, head))
+        self.sync_requirement(peer_id, highest_height, head)
     }
 
     /// Sync decision from the SetNetworkInfo heights, each capped by what we proved for
     /// that peer. Their slower push keeps us from syncing over a block we are about to
     /// process.
-    fn sync_requirement_from_verified_peers(
-        &self,
-        head: Tip,
-    ) -> Result<SyncRequirement, near_chain::Error> {
+    fn sync_requirement_from_verified_peers(&self, head: Tip) -> SyncRequirement {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let best_peer = self
             .network_info
@@ -1816,11 +1810,11 @@ impl ClientActor {
             .max_by_key(|(_, height, claimed_height)| (*height, *claimed_height));
         let Some((peer_id, height, _)) = best_peer else {
             tracing::debug!(target: "sync", connected_peers = self.network_info.connected_peers.len(), "no eligible peer to sync from");
-            return Ok(SyncRequirement::NoPeers);
+            return SyncRequirement::NoPeers;
         };
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
         let highest_height = height.min(shutdown_height);
-        Ok(self.sync_requirement(peer_id, highest_height, head))
+        self.sync_requirement(peer_id, highest_height, head)
     }
 
     fn sync_requirement(

@@ -338,7 +338,7 @@ impl EpochSync {
                 &epoch.block_producers,
                 epoch.use_versioned_bp_hash_format,
                 prev_epoch.last_final_block_header.next_bp_hash(),
-            )? {
+            ) {
                 return Err(Error::InvalidEpochSyncProof(format!(
                     "invalid block producer handoff to epoch index {}",
                     epoch_index
@@ -458,10 +458,10 @@ impl EpochSync {
         block_producers: &Vec<ValidatorStake>,
         use_versioned_bp_hash_format: bool,
         prev_epoch_next_bp_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
+    ) -> bool {
         let bp_hash =
             compute_bp_hash_from_validator_stakes(block_producers, use_versioned_bp_hash_format);
-        Ok(bp_hash == *prev_epoch_next_bp_hash)
+        bp_hash == *prev_epoch_next_bp_hash
     }
 
     /// Verifies that the epoch's last_final_block_header is sufficiently endorsed by the current
