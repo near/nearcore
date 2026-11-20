@@ -15,6 +15,7 @@ use near_client::sync::external::{
     is_part_filename,
 };
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::block::BlockHeader;
@@ -606,6 +607,9 @@ impl StateDumper {
     }
 
     /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
+    /// Under spice, only once final blocks certify the sync block's chunks of the tracked shards
+    /// and this node has executed them: their state sync headers are proven against the
+    /// certification and read the state the execution left behind.
     fn latest_sync_header(&self) -> anyhow::Result<Option<Arc<BlockHeader>>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
@@ -620,7 +624,36 @@ impl StateDumper {
         else {
             return Ok(None);
         };
-        self.get_block_header(&sync_hash).map(Some)
+        let sync_header = self.get_block_header(&sync_hash)?;
+        if sync_header.is_spice() {
+            let tracked_shard_ids: Vec<ShardId> = self
+                .epoch_manager
+                .shard_ids(sync_header.epoch_id())
+                .with_context(|| format!("failed getting shard ids {:?}", sync_header.epoch_id()))?
+                .into_iter()
+                .filter(|&shard_id| {
+                    self.shard_tracker.cares_about_shard(sync_header.prev_hash(), shard_id)
+                })
+                .collect();
+            if !self
+                .chain
+                .chain_store()
+                .are_chunks_certified(&sync_hash, tracked_shard_ids.iter().copied())
+            {
+                return Ok(None);
+            }
+            for shard_id in tracked_shard_ids {
+                let shard_uid =
+                    shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, sync_header.epoch_id())?;
+                match self.chain.get_chunk_extra(&sync_hash, &shard_uid) {
+                    Ok(_) => {}
+                    // Not executed here yet: the chunk executor can lag behind certification.
+                    Err(near_chain::Error::DBNotFoundErr(_)) => return Ok(None),
+                    Err(err) => return Err(err.into()),
+                }
+            }
+        }
+        Ok(Some(sync_header))
     }
 
     /// Generates the state sync header for the shard and initializes the `ShardDump` struct which
@@ -1020,11 +1053,6 @@ async fn do_state_sync_dump(
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) {
-    // TODO(spice): Make state sync work with spice.
-    if cfg!(feature = "protocol_feature_spice") {
-        return;
-    }
-
     if let Err(error) = state_sync_dump(
         clock,
         chain,

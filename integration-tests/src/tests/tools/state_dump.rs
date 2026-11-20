@@ -1,5 +1,5 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+use crate::env::test_env::{TestEnv, state_root_at};
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::genesis_validate::validate_genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
@@ -9,10 +9,12 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
-use near_primitives::hash::CryptoHash;
+use near_primitives::block::Block;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use near_primitives::types::{Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
+use near_primitives::types::{
+    Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion, StateRoot,
+};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::AccountState;
@@ -93,10 +95,15 @@ fn safe_produce_blocks(
     }
 }
 
+/// Every shard's state root at `block`, in shard order.
+fn state_roots_at(env: &TestEnv, block: &Block) -> Vec<StateRoot> {
+    let client = &env.clients[0];
+    let shard_layout = client.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+    shard_layout.shard_uids().map(|shard_uid| state_root_at(client, block, shard_uid)).collect()
+}
+
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -123,8 +130,7 @@ fn test_dump_state_preserve_validators() {
         HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -146,8 +152,6 @@ fn test_dump_state_preserve_validators() {
 
 /// Test that we respect the specified account ID list in dump_state.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_account_ids() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -197,8 +201,7 @@ fn test_dump_state_respect_select_account_ids() {
         HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -230,8 +233,6 @@ fn test_dump_state_respect_select_account_ids() {
 
 /// Test that we preserve the validators from the epoch of the state dump.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_preserve_validators_in_memory() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -258,8 +259,7 @@ fn test_dump_state_preserve_validators_in_memory() {
         HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -423,8 +423,6 @@ fn test_dump_state_not_track_shard() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_with_delayed_receipt() {
     init_test_logger();
 
@@ -488,8 +486,7 @@ fn test_dump_state_with_delayed_receipt() {
         HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
     );
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -511,8 +508,6 @@ fn test_dump_state_with_delayed_receipt() {
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_respect_select_whitelist_validators() {
     let epoch_length = 4;
     let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
@@ -544,8 +539,7 @@ fn test_dump_state_respect_select_whitelist_validators() {
         vec!["test1".parse().unwrap(), "non_validator_account".parse().unwrap()];
 
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -589,8 +583,6 @@ fn test_dump_state_respect_select_whitelist_validators() {
 /// An uninitialized `0u` account must survive a state dump: Genesis validation
 /// should accept such accounts.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_dump_state_with_uninitialized_universal_account() {
     init_test_logger();
 
@@ -624,8 +616,7 @@ fn test_dump_state_with_uninitialized_universal_account() {
 
     let head = env.clients[0].chain.head().unwrap();
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-    let state_roots: Vec<CryptoHash> =
-        last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
