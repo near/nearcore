@@ -113,6 +113,12 @@ impl TestManager {
         Self::with_pull_config(chain, shard, PullConfig::default())
     }
 
+    /// A manager whose node applies `shard` from the third epoch on, and no shard before it.
+    fn catching_up(chain: &Chain, shard: u64) -> Self {
+        let shard_tracker = even_epoch_shard_tracker(chain, &[shard]);
+        Self::with_shard_tracker(chain, shard_tracker, PullConfig::default())
+    }
+
     fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
         Self::with_shard_tracker(chain, applying_shard_tracker(chain, shard), pull_config)
     }
@@ -251,6 +257,36 @@ impl TestManager {
             other => panic!("commitment is not tracked: {other:?}"),
         }
     }
+}
+
+/// A two-shard chain of blocks from height 1 into the third epoch, each saved and recorded as
+/// canonical but not processed.
+fn chain_into_third_epoch() -> (Chain, Vec<Arc<Block>>) {
+    let (mut chain, _) = chain_with_blocks(0);
+    let mut prev = chain.genesis_block();
+    let mut blocks = Vec::new();
+    for height in 1..=(2 * chain.epoch_length + 1) {
+        let block = build_block_at(&chain, &prev, height);
+        save_and_record_block(&mut chain, &block);
+        let mut store_update = chain.chain_store.store().store_update();
+        store_update.chain_store_update().set_block_height(block.hash(), height);
+        store_update.commit();
+        blocks.push(block.clone());
+        prev = block;
+    }
+    (chain, blocks)
+}
+
+/// The blocks of `blocks` in the second epoch, the one before the third.
+fn second_epoch_blocks(chain: &Chain, blocks: &[Arc<Block>]) -> Vec<Arc<Block>> {
+    let epoch_height =
+        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
+    blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
+        .filter(|block| epoch_height(block.header().epoch_id()) == 1)
+        .cloned()
+        .collect()
 }
 
 /// One item from each of `blocks`, tracked and made pullable.
