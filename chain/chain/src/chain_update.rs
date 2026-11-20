@@ -394,7 +394,7 @@ impl<'a> ChainUpdate<'a> {
         if last_final_block_header.height() > final_head.height {
             let tip = Tip::from_header(&last_final_block_header);
             self.record_chunk_certifying_blocks(&last_final_block_header, final_head.height)?;
-            self.chain_store_update.save_final_head(&tip)?;
+            self.chain_store_update.save_final_head(&tip);
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -458,7 +458,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > head.height {
             let tip = Tip::from_header(header);
 
-            self.chain_store_update.save_body_head(&tip)?;
+            self.chain_store_update.save_body_head(&tip);
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
             let now_ns = time::OffsetDateTime::now_utc().unix_timestamp_nanos();

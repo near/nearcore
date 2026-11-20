@@ -1986,7 +1986,7 @@ fn test_boundary_bootstrap_reruns_on_startup_from_forks() {
     assert!(is_last_pre_spice_block(chain.epoch_manager.as_ref(), sibling.hash()).unwrap());
     let mut store_update = chain.chain_store.store_update();
     store_update.save_head(&Tip::from_header(sibling.header())).unwrap();
-    store_update.save_final_head(&Tip::from_header(fork_point.header())).unwrap();
+    store_update.save_final_head(&Tip::from_header(fork_point.header()));
     store_update.commit().unwrap();
     boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
     boundary.seed_pre_spice_apply_artifacts(*sibling.hash(), &shard_uids);

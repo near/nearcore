@@ -173,7 +173,7 @@ impl FlatStorageResharder {
     ///
     /// # Args:
     /// * `shard_uid`: UId of the shard
-    pub fn resume(&self, shard_uid: ShardUId) -> Result<(), Error> {
+    pub fn resume(&self, shard_uid: ShardUId) {
         let status = self.runtime.get_flat_storage_manager().get_flat_storage_status(shard_uid);
         let resharding_status = match status {
             FlatStorageStatus::Disabled
@@ -181,7 +181,7 @@ impl FlatStorageResharder {
             | FlatStorageStatus::Creation(_)
             | FlatStorageStatus::Ready(_) => {
                 tracing::info!(target: "resharding", ?shard_uid, ?status, "did not resume resharding");
-                return Ok(());
+                return;
             }
             // We only need to resume resharding if the status is `Resharding`.
             FlatStorageStatus::Resharding(status) => status,
@@ -209,7 +209,7 @@ impl FlatStorageResharder {
 
                 if all_children_done {
                     tracing::info!(target: "resharding", ?parent_shard_uid, ?status, "all children shards are ready, skipping resharding");
-                    return Ok(());
+                    return;
                 } else {
                     tracing::info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
                     // On resume, flat storage status is already set correctly and read from DB.
@@ -235,7 +235,6 @@ impl FlatStorageResharder {
                 }
             }
         }
-        Ok(())
     }
 
     /// The preprocessing step sets the appropriate flat storage status for the parent and children shards.
@@ -1175,7 +1174,7 @@ mod tests {
         store_update.commit();
 
         // Resume resharding
-        assert!(flat_storage_resharder.resume(parent_shard).is_ok(), "Resume should succeed");
+        flat_storage_resharder.resume(parent_shard);
 
         // Verify all dirty values are cleaned up from both children
         let store = flat_storage_resharder.runtime.store().flat_store();

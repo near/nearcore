@@ -2410,14 +2410,14 @@ fn test_external_call_cache_repeats_only_an_accepted_final_canonical_inclusion()
     let mut final_head = Tip::from_header(&genesis);
     final_head.height = skipped_height + 1;
     let mut store_update = chain.mut_chain_store().store_update();
-    store_update.save_final_head(&final_head).unwrap();
+    store_update.save_final_head(&final_head);
     store_update.commit().unwrap();
     assert!(!is_repeat("skipped height"));
 
     // The final head moves past the window of the inclusion in the genesis block.
     final_head.height = genesis_height + EXTERNAL_CALL_REPEAT_WINDOW + 1;
     let mut store_update = chain.mut_chain_store().store_update();
-    store_update.save_final_head(&final_head).unwrap();
+    store_update.save_final_head(&final_head);
     store_update.commit().unwrap();
     assert!(!is_repeat("accepted"));
 }
