@@ -1933,11 +1933,19 @@ pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: Runt
         })
         .collect();
 
-    let results = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
@@ -1959,10 +1967,17 @@ pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: Runti
         })
         .collect();
 
-    let results = vec![
-        TrieNodesCount { db_reads: 5, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 5, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 5, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
@@ -1993,11 +2008,19 @@ pub fn test_accounting_cache_mode(node: impl Node, runtime_config: RuntimeConfig
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),
     ];
 
-    let results = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
@@ -2022,15 +2045,29 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![20])], bob_account()),
     ];
 
-    let results = vec![
-        TrieNodesCount { db_reads: 3, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 4 },
-    ];
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 3, mem_reads: 0 },
+            TrieNodesCount { db_reads: 4, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 3, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 4 },
+        ]
+    };
     check_trie_nodes_count(&node, &runtime_config, receipts.clone(), results, false);
 
-    let results = vec![
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 3, mem_reads: 1 },
-    ];
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 4, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 3, mem_reads: 1 },
+        ]
+    };
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
