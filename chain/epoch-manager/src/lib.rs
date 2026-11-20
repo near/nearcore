@@ -8,7 +8,7 @@ use crate::metrics::{
 };
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::reward_calculator::RewardCalculator;
-use epoch_info_aggregator::EpochInfoAggregator;
+use aggregated_epoch_stats::AggregatedEpochStats;
 use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
@@ -53,7 +53,7 @@ pub use validator_selection::proposals_to_epoch_info;
 use validator_stats::get_sortable_validator_online_ratio;
 
 mod adapter;
-pub mod epoch_info_aggregator;
+pub mod aggregated_epoch_stats;
 pub mod epoch_sync;
 mod genesis;
 mod metrics;
@@ -816,13 +816,13 @@ impl EpochManager {
     fn collect_blocks_info(
         &self,
         last_block_info: &BlockInfo,
-        aggregator: EpochInfoAggregator,
+        aggregator: AggregatedEpochStats,
     ) -> Result<EpochSummary, EpochError> {
         let epoch_info = self.get_epoch_info(last_block_info.epoch_id())?;
         let next_epoch_id = self.get_next_epoch_id_from_info(last_block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
 
-        let EpochInfoAggregator {
+        let AggregatedEpochStats {
             block_tracker: block_validator_tracker,
             chunk_production: chunk_production_tracker,
             chunk_endorsement: chunk_endorsement_tracker,
@@ -1100,7 +1100,7 @@ impl EpochManager {
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &Arc<BlockInfo>,
         rng_seed: RngSeed,
-        aggregator: EpochInfoAggregator,
+        aggregator: AggregatedEpochStats,
     ) -> Result<EpochEnd, EpochError> {
         let epoch_summary = self.collect_blocks_info(block_info, aggregator)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
@@ -1247,9 +1247,9 @@ impl EpochManager {
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?;
                 let genesis_height = block_info.height();
-                store_update.set_epoch_info_aggregator(
+                store_update.set_aggregated_epoch_stats(
                     &current_hash,
-                    &EpochInfoAggregator::new(*block_info.epoch_id(), current_hash),
+                    &AggregatedEpochStats::new(*block_info.epoch_id(), current_hash),
                 );
                 store_update.set_block_info(&block_info);
                 store_update.set_epoch_info(&EpochId(current_hash), &genesis_epoch_info);
@@ -1327,8 +1327,8 @@ impl EpochManager {
                     )?;
                 }
                 let aggregator =
-                    self.compute_epoch_info_aggregator(&block_info, &prev_block_info)?;
-                store_update.set_epoch_info_aggregator(&current_hash, &aggregator);
+                    self.compute_aggregated_epoch_stats(&block_info, &prev_block_info)?;
+                store_update.set_aggregated_epoch_stats(&current_hash, &aggregator);
 
                 // If this is the last block in the epoch, finalize this epoch.
                 epoch_end = if self.is_next_block_in_next_epoch(&block_info)? {
@@ -1699,7 +1699,7 @@ impl EpochManager {
         // metrics and the `validators` RPC use per-shard totals of the current epoch only. A
         // finished epoch is read from its `EpochSummary`, which keeps stats per validator only.
         let mut chunk_endorsements_per_shard = vec![];
-        // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
+        // This ugly code arises because of the incompatible types between `block_tracker` in `AggregatedEpochStats`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
         // in std.
         let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
@@ -1770,7 +1770,7 @@ impl EpochManager {
             ValidatorInfoIdentifier::BlockHash(h) => {
                 // If we are here, `h` is hash of the latest block of the
                 // current epoch.
-                let aggregator = self.get_epoch_info_aggregator(h)?;
+                let aggregator = self.get_aggregated_epoch_stats(h)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -2058,29 +2058,29 @@ impl EpochManager {
         self.store.get_block_info(hash)
     }
 
-    pub fn get_epoch_info_aggregator(
+    pub fn get_aggregated_epoch_stats(
         &self,
         block_hash: &CryptoHash,
-    ) -> Result<EpochInfoAggregator, EpochError> {
-        self.store.get_epoch_info_aggregator(block_hash)
+    ) -> Result<AggregatedEpochStats, EpochError> {
+        self.store.get_aggregated_epoch_stats(block_hash)
     }
 
     /// The epoch statistics up to and including `block_info`: the parent's stored statistics
     /// plus this block, or this block alone when it starts an epoch. Shared by block recording
     /// and the database migration.
-    pub fn compute_epoch_info_aggregator(
+    pub fn compute_aggregated_epoch_stats(
         &self,
         block_info: &BlockInfo,
         prev_block_info: &BlockInfo,
-    ) -> Result<EpochInfoAggregator, EpochError> {
+    ) -> Result<AggregatedEpochStats, EpochError> {
         let epoch_id = *block_info.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let shard_layout = self.get_shard_layout(&epoch_id)?;
         let mut aggregator =
             if prev_block_info.is_genesis() || *prev_block_info.epoch_id() != epoch_id {
-                EpochInfoAggregator::new(epoch_id, *prev_block_info.hash())
+                AggregatedEpochStats::new(epoch_id, *prev_block_info.hash())
             } else {
-                self.get_epoch_info_aggregator(prev_block_info.hash())?
+                self.get_aggregated_epoch_stats(prev_block_info.hash())?
             };
         self.append_block_to_aggregator(
             &mut aggregator,
@@ -2096,7 +2096,7 @@ impl EpochManager {
     /// `anchored_chunk_producers_for_aggregator` resolves.
     fn append_block_to_aggregator(
         &self,
-        aggregator: &mut EpochInfoAggregator,
+        aggregator: &mut AggregatedEpochStats,
         block_info: &BlockInfo,
         prev_block_info: &BlockInfo,
         epoch_info: &EpochInfo,
@@ -2230,7 +2230,7 @@ impl EpochManager {
             return Ok(Arc::new(ChunkProducerBlacklist::empty()));
         }
         self.chunk_producer_blacklists.get_or_try_put(anchor.final_hash, |final_hash| {
-            let aggregator = self.get_epoch_info_aggregator(final_hash)?;
+            let aggregator = self.get_aggregated_epoch_stats(final_hash)?;
             assert_eq!(
                 aggregator.epoch_id, *epoch.epoch_id,
                 "the aggregator of basis {final_hash} must be in the anchor's epoch"
@@ -2406,7 +2406,7 @@ impl EpochManager {
 
     /// Writes the aggregator row of an epoch's first block that was stored without
     /// `record_block_info`. The block starts its epoch, so the row holds only its own stats.
-    fn set_epoch_info_aggregator_for_first_block(
+    fn set_aggregated_epoch_stats_for_first_block(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
@@ -2415,7 +2415,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         let shard_layout = self.shard_layout_of_epoch_info(block_info.epoch_id(), epoch_info)?;
         let mut aggregator =
-            EpochInfoAggregator::new(*block_info.epoch_id(), *prev_block_info.hash());
+            AggregatedEpochStats::new(*block_info.epoch_id(), *prev_block_info.hash());
         self.append_block_to_aggregator(
             &mut aggregator,
             block_info,
@@ -2423,7 +2423,7 @@ impl EpochManager {
             epoch_info,
             &shard_layout,
         );
-        store_update.set_epoch_info_aggregator(block_info.hash(), &aggregator);
+        store_update.set_aggregated_epoch_stats(block_info.hash(), &aggregator);
         Ok(())
     }
 

@@ -52,7 +52,7 @@ const DEFAULT_EPOCH_LENGTH: u64 = 7;
 /// Epoch length to use in tests involving two reshardings.
 /// Using smaller epoch length resulted in 1 block producer not being assigned to any block
 /// for the entire second epoch (bad luck). Because of that, it was not included in
-/// `EpochInfoAggregator::version_tracker` and the second shard split happened two epochs
+/// `AggregatedEpochStats::version_tracker` and the second shard split happened two epochs
 /// (instead of 1 epoch) after the first resharding.
 const TWO_RESHARDINGS_EPOCH_LENGTH: u64 = 9;
 

@@ -790,10 +790,10 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_info: &EpochInfo,
     ) -> Result<(), EpochError>;
 
-    /// Write the `DBCol::EpochInfoAggregators` row of the current epoch's first block after
+    /// Write the `DBCol::AggregatedEpochStats` row of the current epoch's first block after
     /// epoch sync, which installs that `BlockInfo` outside `record_block_info`. Writes into
     /// `store_update` so it commits atomically with the block.
-    fn set_epoch_info_aggregator_after_epoch_sync(
+    fn set_aggregated_epoch_stats_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
@@ -1316,14 +1316,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         self.read().seed_chunk_producers_for_first_block(store_update, block_info, epoch_info)
     }
 
-    fn set_epoch_info_aggregator_after_epoch_sync(
+    fn set_aggregated_epoch_stats_after_epoch_sync(
         &self,
         store_update: &mut EpochStoreUpdateAdapter,
         block_info: &BlockInfo,
         prev_block_info: &BlockInfo,
         epoch_info: &EpochInfo,
     ) -> Result<(), EpochError> {
-        self.read().set_epoch_info_aggregator_for_first_block(
+        self.read().set_aggregated_epoch_stats_for_first_block(
             store_update,
             block_info,
             prev_block_info,

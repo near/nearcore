@@ -187,7 +187,7 @@ const epochInfo = {
     },
 };
 
-const epochInfoAggregator = {
+const aggregatedEpochStats = {
     struct: {
         epoch_id: epochId,
         last_block_hash: blockHash,
@@ -376,7 +376,7 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     Chunk: chunk,
     ChunkExtra: chunkExtra,
     EpochInfo: epochInfo,
-    EpochInfoAggregator: epochInfoAggregator,
+    AggregatedEpochStats: aggregatedEpochStats,
     EpochConfig: epochConfig,
     ExecutionOutcome: executionOutcome,
     FlatState: undefined,

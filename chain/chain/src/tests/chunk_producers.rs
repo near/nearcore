@@ -6,7 +6,7 @@ mod tests {
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::EpochManagerAdapter;
-    use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
+    use near_epoch_manager::aggregated_epoch_stats::AggregatedEpochStats;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::errors::EpochError;
     use near_primitives::hash::CryptoHash;
@@ -476,7 +476,7 @@ mod tests {
         };
 
         let aggregator_row = |chain: &Chain, block: &CryptoHash| -> bool {
-            chain.chain_store().store().exists(DBCol::EpochInfoAggregators, block.as_ref())
+            chain.chain_store().store().exists(DBCol::AggregatedEpochStats, block.as_ref())
         };
 
         for anchor in &hashes {
@@ -565,7 +565,7 @@ mod tests {
         };
         assert!(row(&chain).is_some(), "fork's row should exist before GC");
         let aggregator_row = |chain: &Chain| -> bool {
-            chain.chain_store().store().exists(DBCol::EpochInfoAggregators, fork_hash.as_ref())
+            chain.chain_store().store().exists(DBCol::AggregatedEpochStats, fork_hash.as_ref())
         };
         assert!(aggregator_row(&chain), "fork's aggregator row should exist before GC");
 
@@ -632,7 +632,7 @@ mod tests {
         };
 
         let aggregator_row = |chain: &Chain, block: &CryptoHash| -> bool {
-            chain.chain_store().store().exists(DBCol::EpochInfoAggregators, block.as_ref())
+            chain.chain_store().store().exists(DBCol::AggregatedEpochStats, block.as_ref())
         };
 
         for anchor in [blocks[3].hash(), blocks[4].hash(), blocks[5].hash()] {
@@ -740,9 +740,9 @@ mod tests {
             &sentinel,
         );
         store_update.set_ser(
-            DBCol::EpochInfoAggregators,
+            DBCol::AggregatedEpochStats,
             fork_hash.as_ref(),
-            &EpochInfoAggregator::new(epoch_id, fork_hash),
+            &AggregatedEpochStats::new(epoch_id, fork_hash),
         );
         store_update.commit();
 
@@ -767,7 +767,7 @@ mod tests {
             "header-only fork's ChunkProducers row must be deleted by the header sweep"
         );
         assert!(
-            !chain.chain_store().store().exists(DBCol::EpochInfoAggregators, fork_hash.as_ref()),
+            !chain.chain_store().store().exists(DBCol::AggregatedEpochStats, fork_hash.as_ref()),
             "header-only fork's aggregator row must be deleted by the header sweep"
         );
     }

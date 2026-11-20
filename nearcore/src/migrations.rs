@@ -750,7 +750,7 @@ fn delete_old_block_headers(store: &Store) {
     tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
 }
 
-/// Key of the single `EpochInfoAggregator` in `DBCol::EpochInfo` before DB version 55.
+/// Key of the single `AggregatedEpochStats` in `DBCol::EpochInfo` before DB version 55.
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 #[cfg(test)]

@@ -286,7 +286,7 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         isLoading: versionTrackerLoading,
     } = useQuery(['versionTracker', addr,validators !== null ], () =>  {
             const query: EntityQuery = {
-                EpochInfoAggregator: null,
+                AggregatedEpochStats: null,
             };
             const queryWithParams: EntityQueryWithParams = { ...query };
             return fetchEntity(addr, queryWithParams);

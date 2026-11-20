@@ -63,12 +63,12 @@ impl EpochStoreAdapter {
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
-    pub fn get_epoch_info_aggregator<T: BorshDeserialize>(
+    pub fn get_aggregated_epoch_stats<T: BorshDeserialize>(
         &self,
         block_hash: &CryptoHash,
     ) -> Result<T, EpochError> {
         self.store
-            .get_ser::<T>(DBCol::EpochInfoAggregators, block_hash.as_ref())
+            .get_ser::<T>(DBCol::AggregatedEpochStats, block_hash.as_ref())
             .ok_or(EpochError::MissingBlock(*block_hash))
     }
 
@@ -154,15 +154,15 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_info);
     }
 
-    pub fn set_epoch_info_aggregator<T: BorshSerialize + ?Sized>(
+    pub fn set_aggregated_epoch_stats<T: BorshSerialize + ?Sized>(
         &mut self,
         block_hash: &CryptoHash,
-        epoch_info_aggregator: &T,
+        aggregated_epoch_stats: &T,
     ) {
         self.store_update.set_ser(
-            DBCol::EpochInfoAggregators,
+            DBCol::AggregatedEpochStats,
             block_hash.as_ref(),
-            epoch_info_aggregator,
+            aggregated_epoch_stats,
         );
     }
 

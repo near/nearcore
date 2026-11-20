@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(
     Clone, BorshSerialize, BorshDeserialize, Debug, Default, serde::Serialize, ProtocolSchema,
 )]
-pub struct EpochInfoAggregator {
+pub struct AggregatedEpochStats {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of chunk producer id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
@@ -37,7 +37,7 @@ pub struct EpochInfoAggregator {
     pub last_block_hash: CryptoHash,
 }
 
-impl EpochInfoAggregator {
+impl AggregatedEpochStats {
     pub fn new(epoch_id: EpochId, last_block_hash: CryptoHash) -> Self {
         Self {
             block_tracker: Default::default(),
