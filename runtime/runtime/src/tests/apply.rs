@@ -11975,7 +11975,8 @@ mod ecc_state_init {
             tokens_burnt.push(outcome.outcome.tokens_burnt);
         }
         assert_eq!(tokens_burnt[0], tokens_burnt[1]);
-        // The installing call paid the fees of a self-addressed `UniversalStateInit` action on top.
+        // The installing call paid the fees of a self-addressed `UniversalStateInit` action on top,
+        // less the account creation fee that the transfer creating the account paid.
         let action = Action::UniversalStateInit(Box::new(UniversalStateInitAction {
             state_init: init,
             deposit: Balance::ZERO,
@@ -11985,7 +11986,11 @@ mod ecc_state_init {
             .unwrap()
             .checked_add_result(exec_fee(config, &action, &account_id).unwrap())
             .unwrap();
-        let action_cost = safe_gas_to_balance(apply_state.gas_price, action_fee.gas).unwrap();
+        let create_account = config.fees.fee(ActionCosts::create_account);
+        let creation =
+            create_account.send_fee(true).gas.checked_add(create_account.exec_fee().gas).unwrap();
+        let install_fee = action_fee.gas.checked_sub(creation).unwrap();
+        let action_cost = safe_gas_to_balance(apply_state.gas_price, install_fee).unwrap();
         assert_eq!(install_cost, tokens_burnt[1].checked_add(action_cost).unwrap());
     }
 
@@ -12135,6 +12140,42 @@ mod ecc_state_init {
                 "{name}: the refusal counts {compute} compute, past the call budget of {budget}"
             );
         }
+    }
+
+    /// A call whose fees fit the gas budget only without the account creation fee runs: the
+    /// transfer that created the account paid that fee.
+    #[test]
+    fn test_ecc_state_init_without_account_creation_fee() {
+        let code = code(true);
+        // 70 two-byte keys with empty values.
+        let data = (0..70u16).map(|key| (key.to_be_bytes().to_vec(), vec![])).collect();
+        let init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data,
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw();
+        let (runtime, tries, root, apply_state, epoch_info_provider, account_id) =
+            setup(&code, &init);
+        let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
+        let before = get_account(&state_update, &account_id).unwrap().unwrap();
+        let ecc = EccTransaction::new_with_state_init(account_id.clone(), vec![], Some(init));
+        let config = &apply_state.config;
+        let budget = config.wasm_config.limit_config.max_gas_burnt_external;
+        let cost =
+            ecc_cost_for_account(config, &ecc, Some(&before), apply_state.gas_price).unwrap();
+        let create_account = config.fees.fee(ActionCosts::create_account);
+        let creation =
+            create_account.send_fee(true).gas.checked_add(create_account.exec_fee().gas).unwrap();
+        // Setup: the fees fit the budget, and with the account creation fee they would pass it.
+        assert!(cost.gas_burnt < budget);
+        assert!(cost.gas_burnt.checked_add(creation).unwrap() > budget);
+
+        let (root, outcome) =
+            apply_ecc(&runtime, &tries, root, &apply_state, &epoch_info_provider, ecc);
+
+        assert_matches!(outcome.outcome.status, ExecutionStatus::SuccessValue(_));
+        assert!(account(&tries, root, &account_id).amount() < before.amount());
     }
 
     /// The dry run refuses a call whose state init derives to another account, as apply does.
