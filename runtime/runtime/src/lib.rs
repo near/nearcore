@@ -3180,6 +3180,17 @@ impl ApplyState {
     }
 }
 
+/// Reads `key` before a write of it. A write records no trie nodes until the state update
+/// is finalized, after the storage proof limits are checked. The read records the nodes
+/// that the write needs now, so the limits count them.
+pub(crate) fn read_key_before_write(
+    state_update: &TrieUpdate,
+    key: &TrieKey,
+) -> Result<(), StorageError> {
+    state_update.contains_key(key, AccessOptions::DEFAULT)?;
+    Ok(())
+}
+
 /// Finds the transactions that apply skips with no outcome. A repeat of an earlier transaction in
 /// the chunk would commit a second outcome under the same id. An ECC's id leaves out its state
 /// init. A transaction whose routing account is not in `shard_layout_and_id`, the chunk's shard

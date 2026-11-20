@@ -5,7 +5,7 @@ use crate::contract_preparation::ContractPreparation;
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use crate::{ActionResult, ApplyState, metrics, safe_add_balance};
+use crate::{ActionResult, ApplyState, metrics, read_key_before_write, safe_add_balance};
 use near_parameters::RuntimeConfig;
 use near_primitives::account::Account;
 use near_primitives::apply::ApplyChunkReason;
@@ -53,12 +53,22 @@ pub(crate) fn new_receipts(
     let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
     let initial_promise_yield_indices = promise_yield_indices.clone();
 
-    let mut new_receipts: Vec<_> = receipt_manager
+    let read_queue_keys_before_push =
+        ProtocolFeature::ReadQueueKeysBeforePush.enabled(apply_state.current_protocol_version);
+    let mut new_receipts = receipt_manager
         .action_receipts
         .into_iter()
         .map(|receipt| {
             // If the newly created receipt is a PromiseYield, enqueue a timeout for it
             if receipt.is_promise_yield {
+                if read_queue_keys_before_push {
+                    read_key_before_write(
+                        state_update,
+                        &TrieKey::PromiseYieldTimeout {
+                            index: promise_yield_indices.next_available_index,
+                        },
+                    )?;
+                }
                 enqueue_promise_yield_timeout(
                     state_update,
                     &mut promise_yield_indices,
@@ -82,16 +92,16 @@ pub(crate) fn new_receipts(
                 receipt.is_promise_yield,
             );
 
-            Receipt::V0(ReceiptV0 {
+            Ok(Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: receipt.receiver_id,
                 // The caller sets the actual receipt ID: apply_action_receipt in its
                 // "Generating receipt IDs" section, or set_ecc_receipt_ids for an external call
                 receipt_id: CryptoHash::default(),
                 receipt: new_receipt,
-            })
+            }))
         })
-        .collect();
+        .collect::<Result<Vec<_>, StorageError>>()?;
 
     // Create data receipts for resumed yields
     new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
