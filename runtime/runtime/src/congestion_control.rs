@@ -306,7 +306,7 @@ impl ReceiptSinkV2WithInfo {
             &mut self.sink.outgoing_receipts,
             apply_state,
             &mut self.sink.stats,
-        )? {
+        ) {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
                 self.sink.buffer_receipt(receipt, size, gas, state_update, shard)?;
@@ -353,7 +353,7 @@ impl ReceiptSinkV2 {
                 &mut self.outgoing_receipts,
                 apply_state,
                 &mut self.stats,
-            )? {
+            ) {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas.as_gas().into())?;
@@ -397,7 +397,7 @@ impl ReceiptSinkV2 {
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
         stats: &mut ReceiptSinkStats,
-    ) -> Result<ReceiptForwarding, RuntimeError> {
+    ) -> ReceiptForwarding {
         // There is a bug which allows to create receipts that are above the size limit. Receipts
         // above the size limit might not fit under the maximum outgoing size limit. Let's pretend
         // that all receipts are at most `max_receipt_size` to avoid receipts getting stuck.
@@ -438,10 +438,10 @@ impl ReceiptSinkV2 {
             forward_limit.size -= size;
             stats.forwarded_receipts.entry(shard).or_default().add_receipt(size, gas);
 
-            Ok(ReceiptForwarding::Forwarded)
+            ReceiptForwarding::Forwarded
         } else {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "not forwarding buffered receipt");
-            Ok(ReceiptForwarding::NotForwarded(receipt))
+            ReceiptForwarding::NotForwarded(receipt)
         }
     }
 

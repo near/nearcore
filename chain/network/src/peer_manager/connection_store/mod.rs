@@ -69,10 +69,10 @@ impl Inner {
 pub(crate) struct ConnectionStore(ArcMutex<Inner>);
 
 impl ConnectionStore {
-    pub fn new(store: store::Store) -> anyhow::Result<Self> {
+    pub fn new(store: store::Store) -> Self {
         let outbound = store.get_recent_outbound_connections();
         let inner = Inner { store, outbound };
-        Ok(ConnectionStore(ArcMutex::new(inner)))
+        ConnectionStore(ArcMutex::new(inner))
     }
 
     /// Returns all stored outbound connections
