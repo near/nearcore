@@ -285,6 +285,7 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
+    MinReceiptCongestionSize,
 
     // Bandwidth scheduler
     MaxShardBandwidth,

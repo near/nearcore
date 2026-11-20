@@ -47,7 +47,7 @@ use near_primitives::errors::{
     DepositCostFailureReason, EpochError, ExternalCallChunkLimit, FunctionCallError,
     InvalidTxError, MissingTrieValue, ReceiptValidationError, RuntimeError, TxExecutionError,
 };
-use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
@@ -6903,7 +6903,8 @@ fn test_congestion_delayed_receipts_accounting() {
         (n - 1)
             * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap().as_gas(),
     );
-    let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+    let expected_receipts_bytes =
+        (n - 1) * compute_receipt_congestion_size(&receipts[0], &apply_state.config).unwrap();
 
     assert_eq!(u128::from(expected_delayed_gas.as_gas()), congestion.delayed_receipts_gas());
     assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());

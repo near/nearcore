@@ -8,7 +8,7 @@ use near_primitives::bandwidth_scheduler::{
 use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{IntegerOverflowError, RuntimeError};
-use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
+use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use near_primitives::receipt::{Receipt, StateStoredReceipt, StateStoredReceiptMetadata};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::ProtocolVersion;
@@ -294,7 +294,7 @@ impl ReceiptSinkV2WithInfo {
         state_update: &mut TrieUpdate,
     ) -> Result<(), RuntimeError> {
         let shard = receipt.receiver_shard_id(&self.info.shard_layout)?;
-        let size = compute_receipt_size(&receipt)?;
+        let size = compute_receipt_congestion_size(&receipt, &apply_state.config)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
 
         match ReceiptSinkV2::try_forward(
@@ -738,7 +738,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         let config = &apply_state.config;
 
         let gas = compute_receipt_congestion_gas(&receipt, &config)?;
-        let size = compute_receipt_size(&receipt)? as u64;
+        let size = compute_receipt_congestion_size(receipt, config)?;
 
         // TODO It would be great to have this method take owned Receipt and
         // get rid of the Cow from the Receipt and StateStoredReceipt.
@@ -860,8 +860,9 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_parameters::RuntimeConfig;
     use near_primitives::action::Action;
+    use near_primitives::fees::compute_receipt_size;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::{ActionReceipt, ReceiptEnum, ReceiptV0};
+    use near_primitives::receipt::{ActionReceipt, DataReceipt, ReceiptEnum, ReceiptV0};
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::types::{Balance, StateChangeCause};
     use near_store::test_utils::TestTriesBuilder;
@@ -1138,5 +1139,30 @@ mod tests {
             bits(&actual),
             bits(&child_only)
         );
+    }
+
+    #[test]
+    fn test_receipt_congestion_size_floor() {
+        let small = Receipt::V0(ReceiptV0 {
+            predecessor_id: "alice.near".parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+            receipt_id: CryptoHash::hash_borsh(1u64),
+            receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
+        });
+        let large = test_receipt(2);
+        let small_size = compute_receipt_size(&small).unwrap();
+        let large_size = compute_receipt_size(&large).unwrap();
+        let mut config = RuntimeConfig::test();
+
+        // Check: with no floor (before protocol version 89) a receipt counts its own size.
+        config.congestion_control_config.min_receipt_congestion_size = 0;
+        assert_eq!(compute_receipt_congestion_size(&small, &config).unwrap(), small_size);
+        assert_eq!(compute_receipt_congestion_size(&large, &config).unwrap(), large_size);
+
+        // Check: with a floor, a small receipt counts the floor and a large one its own size.
+        config.congestion_control_config.min_receipt_congestion_size = 1_000;
+        assert!(small_size < 1_000 && large_size > 1_000);
+        assert_eq!(compute_receipt_congestion_size(&small, &config).unwrap(), 1_000);
+        assert_eq!(compute_receipt_congestion_size(&large, &config).unwrap(), large_size);
     }
 }
