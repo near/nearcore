@@ -134,6 +134,10 @@ pub enum ProtocolFeature {
     /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
     /// shares its id with the outcome of the same transaction in its own shard.
     SkipForeignShardTransactions,
+    /// An action receipt with a single `DeleteAccount` action is instant only when its receiver is
+    /// its predecessor. Before, every such receipt was instant, so a delete of another account ran
+    /// on the sender's shard instead of being forwarded to the receiver's shard.
+    InstantDeleteAccountOnlyForSelf,
 }
 
 impl ProtocolFeature {
@@ -175,6 +179,7 @@ impl ProtocolFeature {
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             ProtocolFeature::ContractCompilationStatus => 158,
             ProtocolFeature::ChargeAllTrieNodesAsTouched => 159,
+            ProtocolFeature::InstantDeleteAccountOnlyForSelf => 160,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
@@ -222,7 +227,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 159;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 160;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

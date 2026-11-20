@@ -63,7 +63,7 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"AiT4cS2JKudRd44itswGppa6LyCfu6zFLFwmhBxgP6d9");
+        insta::assert_snapshot!(hash, @"HgfACog5awVx2MR7t8yjDUGkVtWkgxotqF36cu5HvUqV");
     } else {
         // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"8vSa6ZurjAqiAnpV4wd23KjeAFLVhbwyDPJbfongBmY2");
@@ -83,7 +83,7 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"FWS47vsoSEx3JaB3HvzVmjfdbdrWKhAnBrcd72qte93H");
+        insta::assert_snapshot!(hash, @"9YiTB1GnTtKurvvvT84wNX6p7C5DBJrNvuJyCJM5T3ng");
     } else {
         // cspell:disable-next-line
         insta::assert_snapshot!(hash, @"87nFAMnaKVg3fjVKYFs6zmKarwy7moizoiPHxzLLS9Sj");
