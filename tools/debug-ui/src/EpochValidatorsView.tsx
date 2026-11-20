@@ -294,7 +294,8 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         onSuccess: (data) => {
             const validatorProtocolVersion = new Map<string, string>();
             const entries = data as ApiEntityData;
-            const versionTracker = entries.entries.find((entry: ApiEntityDataEntry) => entry.name === 'version_tracker');
+            const statsV1 = entries.entries.find((entry: ApiEntityDataEntry) => entry.name === 'V1')?.value as ApiEntityData | undefined;
+            const versionTracker = statsV1?.entries.find((entry: ApiEntityDataEntry) => entry.name === 'version_tracker');
             const sorted_validators = validators?.sorted();
             let versions = new Map<string, number>();
             let total_voting_stake = 0;

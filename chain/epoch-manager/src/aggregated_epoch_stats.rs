@@ -12,11 +12,89 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
 
-/// Aggregator of information needed for validator computation at the end of the epoch.
-#[derive(
-    Clone, BorshSerialize, BorshDeserialize, Debug, Default, serde::Serialize, ProtocolSchema,
-)]
-pub struct AggregatedEpochStats {
+/// Stats of an epoch up to a block, needed for validator computation at the end of the epoch.
+/// Versioned so that a new layout can be added without a migration that rewrites every row.
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, serde::Serialize, ProtocolSchema)]
+pub enum AggregatedEpochStats {
+    V1(AggregatedEpochStatsV1),
+}
+
+impl AggregatedEpochStats {
+    pub fn new(epoch_id: EpochId, last_block_hash: CryptoHash) -> Self {
+        Self::V1(AggregatedEpochStatsV1::new(epoch_id, last_block_hash))
+    }
+
+    pub fn block_tracker(&self) -> &HashMap<ValidatorId, ValidatorStats> {
+        match self {
+            Self::V1(stats) => &stats.block_tracker,
+        }
+    }
+
+    pub fn chunk_production(&self) -> &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>> {
+        match self {
+            Self::V1(stats) => &stats.chunk_production,
+        }
+    }
+
+    pub fn chunk_endorsement(&self) -> &HashMap<ValidatorId, ValidatorStats> {
+        match self {
+            Self::V1(stats) => &stats.chunk_endorsement,
+        }
+    }
+
+    pub fn chunk_endorsement_by_shard(&self) -> &HashMap<ShardId, ValidatorStats> {
+        match self {
+            Self::V1(stats) => &stats.chunk_endorsement_by_shard,
+        }
+    }
+
+    pub fn version_tracker(&self) -> &HashMap<ValidatorId, ProtocolVersion> {
+        match self {
+            Self::V1(stats) => &stats.version_tracker,
+        }
+    }
+
+    pub fn all_proposals(&self) -> &BTreeMap<AccountId, ValidatorStake> {
+        match self {
+            Self::V1(stats) => &stats.all_proposals,
+        }
+    }
+
+    pub fn epoch_id(&self) -> &EpochId {
+        match self {
+            Self::V1(stats) => &stats.epoch_id,
+        }
+    }
+
+    pub fn last_block_hash(&self) -> &CryptoHash {
+        match self {
+            Self::V1(stats) => &stats.last_block_hash,
+        }
+    }
+
+    /// See [`AggregatedEpochStatsV1::append_block`].
+    pub fn append_block(
+        &mut self,
+        block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
+        shard_layout: &ShardLayout,
+        prev_block_height: BlockHeight,
+        chunk_producers: Option<&HashMap<ShardId, ValidatorId>>,
+    ) {
+        match self {
+            Self::V1(stats) => stats.append_block(
+                block_info,
+                epoch_info,
+                shard_layout,
+                prev_block_height,
+                chunk_producers,
+            ),
+        }
+    }
+}
+
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, serde::Serialize, ProtocolSchema)]
+pub struct AggregatedEpochStatsV1 {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of chunk producer id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
@@ -37,7 +115,7 @@ pub struct AggregatedEpochStats {
     pub last_block_hash: CryptoHash,
 }
 
-impl AggregatedEpochStats {
+impl AggregatedEpochStatsV1 {
     pub fn new(epoch_id: EpochId, last_block_hash: CryptoHash) -> Self {
         Self {
             block_tracker: Default::default(),

@@ -604,7 +604,7 @@ fn early_kickout_attribution_does_not_flap() {
     // Snapshot validator 0's and the replacement's stats at the blacklist point.
     let agg_before = handle.read().get_aggregated_epoch_stats(&prev).unwrap();
     let stats = |agg: &AggregatedEpochStats, id: ValidatorId| {
-        agg.chunk_production
+        agg.chunk_production()
             .get(&shard_id)
             .and_then(|m| m.get(&id))
             .map(|s| (s.produced, s.expected))
@@ -2052,7 +2052,7 @@ impl ForkFixture {
             .get_aggregated_epoch_stats(&basis)
             .ok()
             .and_then(|agg| {
-                agg.chunk_production.get(&shard_id).and_then(|m| m.get(&target).cloned())
+                agg.chunk_production().get(&shard_id).and_then(|m| m.get(&target).cloned())
             })
             .map(|s| (s.produced, s.expected))
             .unwrap_or((0, 0));
@@ -2144,8 +2144,11 @@ fn get_chunk_producer_blacklist_isolates_abandoned_fork() {
     let canonical_basis =
         *handle.read().get_block_info(&canonical_tip).unwrap().last_final_block_hash();
     let basis_row = handle.read().get_aggregated_epoch_stats(&canonical_basis).unwrap();
-    let row_bl =
-        compute_chunk_producer_blacklist(&basis_row.chunk_production, epoch_info.as_ref(), layout);
+    let row_bl = compute_chunk_producer_blacklist(
+        &basis_row.chunk_production(),
+        epoch_info.as_ref(),
+        layout,
+    );
     assert_eq!(row_bl.blacklist, canonical_bl, "the basis row must match the memoized blacklist");
 
     // Phase 6: the sibling resolves to its own {0, 1}; the valve did not fire (3 producers,
