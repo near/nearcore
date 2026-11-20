@@ -29,6 +29,10 @@ use std::str::FromStr;
 use std::thread;
 
 mod epoch_info_aggregator_layout;
+mod epoch_info_aggregator_rows;
+
+#[cfg(feature = "test_features")]
+pub use epoch_info_aggregator_rows::test_only_migrate_54_to_55;
 
 const BATCH_SIZE: u64 = 100_000;
 const MAX_SST_FILE_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
@@ -83,6 +87,12 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             51 => migrate_51_to_52(hot_store),
             52 => Ok(()), // DBCol::ExternalCallTransactions column added, no need to perform a migration
             53 => epoch_info_aggregator_layout::migrate_53_to_54(hot_store),
+            54 => epoch_info_aggregator_rows::migrate_54_to_55(
+                hot_store,
+                &self.config.genesis.config,
+                self.home_dir,
+                is_snapshot,
+            ),
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -740,6 +750,9 @@ fn delete_old_block_headers(store: &Store) {
     tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
 }
 
+/// Key of the single `AggregatedEpochStats` in `DBCol::EpochInfo` before DB version 55.
+pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
+
 #[cfg(test)]
 mod migrate_50_to_51_tests {
     use super::{InnerLiteWithRoot, InnerLiteWithoutRoot, UnversionedRow, migrate_50_to_51};
@@ -1073,7 +1086,7 @@ mod tests {
         let migrated_store = migrated_storage.get_hot_store();
         assert_eq!(migrated_store.get_db_version().unwrap(), DB_VERSION);
         // The checkpoint really was at 49, and every arm from there ran in order.
-        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51, 52, 53]);
+        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51, 52, 53, 54]);
         // The column family now exists and is readable. It is empty until EarlyKickout
         // activates.
         assert_eq!(migrated_store.iter(DBCol::ChunkProducers).count(), 0);

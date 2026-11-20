@@ -1,5 +1,5 @@
 use crate::EpochManager;
-use crate::epoch_info_aggregator::EpochInfoAggregator;
+use crate::aggregated_epoch_stats::AggregatedEpochStats;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{DEFAULT_TOTAL_SUPPLY, record_block, setup_default_epoch_manager, stake};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -28,9 +28,9 @@ fn test_epoch_info_aggregator_matches_recomputation() {
         let blocks = record_random_fork_tree(&mut em, &mut rng, seed, num_heights);
 
         for (hash, height) in blocks {
-            let aggregator = em.get_epoch_info_aggregator_upto_last(&hash).unwrap();
+            let aggregator = em.get_aggregated_epoch_stats(&hash).unwrap();
             let recomputed = recompute_aggregator(&em, &hash);
-            // `EpochInfoAggregator` has no `PartialEq`. Borsh writes its maps in key order.
+            // `AggregatedEpochStats` has no `PartialEq`. Borsh writes its maps in key order.
             assert_eq!(
                 borsh::to_vec(&aggregator).unwrap(),
                 borsh::to_vec(&recomputed).unwrap(),
@@ -116,31 +116,36 @@ fn record_block_with_random_chunks_and_proposals(
     em.record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
 }
 
-/// Recomputes the aggregator of `block_hash` from its epoch start with `update_tail`,
-/// independent of `get_epoch_info_aggregator_upto_last`. It uses the same chunk producer
-/// lookup, so the test covers how stats are combined, not which producer is credited.
-fn recompute_aggregator(em: &EpochManager, block_hash: &CryptoHash) -> EpochInfoAggregator {
+/// Recomputes the aggregator of `block_hash` by appending its epoch's blocks from the epoch
+/// start, independent of the stored row `get_aggregated_epoch_stats` reads. It uses the same
+/// chunk producer lookup, so the test covers how stats are combined, not which producer is
+/// credited.
+fn recompute_aggregator(em: &EpochManager, block_hash: &CryptoHash) -> AggregatedEpochStats {
     let mut block_info = em.get_block_info(block_hash).unwrap();
     let epoch_id = *block_info.epoch_id();
     let epoch_info = em.get_epoch_info(&epoch_id).unwrap();
     let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
-    let mut aggregator = EpochInfoAggregator::new(epoch_id, *block_hash);
+    let mut blocks_with_parents = vec![];
     while !block_info.is_genesis() && *block_info.epoch_id() == epoch_id {
         let prev_block_info = em.get_block_info(block_info.prev_hash()).unwrap();
+        blocks_with_parents.push((block_info, prev_block_info.clone()));
+        block_info = prev_block_info;
+    }
+    let mut aggregator = AggregatedEpochStats::new(epoch_id, *block_info.hash());
+    for (block_info, prev_block_info) in blocks_with_parents.iter().rev() {
         let chunk_producers = em.anchored_chunk_producers_for_aggregator(
             &epoch_id,
             &epoch_info,
             &shard_layout,
-            Some(&prev_block_info),
+            prev_block_info,
         );
-        aggregator.update_tail(
-            &block_info,
+        aggregator.append_block(
+            block_info,
             &epoch_info,
             &shard_layout,
             prev_block_info.height(),
             chunk_producers.as_ref(),
         );
-        block_info = prev_block_info;
     }
     aggregator
 }

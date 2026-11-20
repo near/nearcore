@@ -202,8 +202,8 @@ fn verify_proposals(epoch_manager: &EpochManager, block_infos: &[Arc<BlockInfo>]
                 assert_ne!(prev_block_info.epoch_id(), block_info.epoch_id(), "epoch id changes");
             }
             let aggregator =
-                epoch_manager.get_epoch_info_aggregator_upto_last(block_info.prev_hash()).unwrap();
-            assert_eq!(aggregator.all_proposals, proposals, "Proposals do not match");
+                epoch_manager.get_aggregated_epoch_stats(block_info.prev_hash()).unwrap();
+            assert_eq!(*aggregator.all_proposals(), proposals, "Proposals do not match");
             proposals = BTreeMap::from_iter(
                 block_info.proposals_iter().map(|p| (p.account_id().clone(), p)),
             );
@@ -226,37 +226,36 @@ fn verify_block_stats(
         let blocks_in_epoch = (i - heights.binary_search(&prev_epoch_end_height).unwrap()) as u64;
         let blocks_in_epoch_expected = heights[i] - prev_epoch_end_height;
         {
-            let aggregator =
-                epoch_manager.get_epoch_info_aggregator_upto_last(&block_hashes[i]).unwrap();
+            let aggregator = epoch_manager.get_aggregated_epoch_stats(&block_hashes[i]).unwrap();
             let epoch_id = block_infos[i].epoch_id();
             let epoch_info = epoch_manager.get_epoch_info(epoch_id).unwrap();
-            for key in aggregator.block_tracker.keys().copied() {
+            for key in aggregator.block_tracker().keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);
             }
-            for shard_stats in aggregator.chunk_production.values() {
+            for shard_stats in aggregator.chunk_production().values() {
                 for key in shard_stats.keys().copied() {
                     assert!(key < epoch_info.validators_iter().len() as u64);
                 }
             }
             let sum_produced =
-                aggregator.block_tracker.values().map(|value| value.produced).sum::<u64>();
+                aggregator.block_tracker().values().map(|value| value.produced).sum::<u64>();
             let sum_expected =
-                aggregator.block_tracker.values().map(|value| value.expected).sum::<u64>();
+                aggregator.block_tracker().values().map(|value| value.expected).sum::<u64>();
             assert_eq!(sum_produced, blocks_in_epoch);
             assert_eq!(sum_expected, blocks_in_epoch_expected);
             // TODO: The following sophisticated check doesn't do anything. The
             // chunk production map is empty because the chunk mask in all block infos
             // is empty.
-            for &shard_id in aggregator.chunk_production.keys() {
+            for &shard_id in aggregator.chunk_production().keys() {
                 let sum_produced = aggregator
-                    .chunk_production
+                    .chunk_production()
                     .get(&shard_id)
                     .unwrap()
                     .values()
                     .map(|value| value.produced)
                     .sum::<u64>();
                 let sum_expected = aggregator
-                    .chunk_production
+                    .chunk_production()
                     .get(&shard_id)
                     .unwrap()
                     .values()

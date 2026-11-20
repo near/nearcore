@@ -4,7 +4,7 @@ use crate::{DBCol, Store, StoreUpdate, metrics};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{AGGREGATOR_KEY, EpochSummary};
+use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_sync::{CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofV1};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -63,10 +63,13 @@ impl EpochStoreAdapter {
             .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
-    pub fn get_epoch_info_aggregator<T: BorshDeserialize>(&self) -> Result<T, EpochError> {
+    pub fn get_aggregated_epoch_stats<T: BorshDeserialize>(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<T, EpochError> {
         self.store
-            .get_ser::<T>(DBCol::EpochInfo, AGGREGATOR_KEY)
-            .ok_or_else(|| EpochError::IOErr("Missing epoch info aggregator".to_string()))
+            .get_ser::<T>(DBCol::AggregatedEpochStats, block_hash.as_ref())
+            .ok_or(EpochError::MissingBlock(*block_hash))
     }
 
     pub fn get_epoch_validator_info(&self, epoch_id: &EpochId) -> Result<EpochSummary, EpochError> {
@@ -151,11 +154,16 @@ impl<'a> EpochStoreUpdateAdapter<'a> {
         self.store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), epoch_info);
     }
 
-    pub fn set_epoch_info_aggregator<T: BorshSerialize + ?Sized>(
+    pub fn set_aggregated_epoch_stats<T: BorshSerialize + ?Sized>(
         &mut self,
-        epoch_info_aggregator: &T,
+        block_hash: &CryptoHash,
+        aggregated_epoch_stats: &T,
     ) {
-        self.store_update.set_ser(DBCol::EpochInfo, AGGREGATOR_KEY, epoch_info_aggregator);
+        self.store_update.set_ser(
+            DBCol::AggregatedEpochStats,
+            block_hash.as_ref(),
+            aggregated_epoch_stats,
+        );
     }
 
     pub fn set_epoch_validator_info(&mut self, epoch_id: &EpochId, epoch_summary: &EpochSummary) {

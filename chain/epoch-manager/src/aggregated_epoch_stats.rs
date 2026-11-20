@@ -11,13 +11,90 @@ use near_primitives::types::{
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
 
-/// Aggregator of information needed for validator computation at the end of the epoch.
-#[derive(
-    Clone, BorshSerialize, BorshDeserialize, Debug, Default, serde::Serialize, ProtocolSchema,
-)]
-pub struct EpochInfoAggregator {
+/// Stats of an epoch up to a block, needed for validator computation at the end of the epoch.
+/// Versioned so that a new layout can be added without a migration that rewrites every row.
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, serde::Serialize, ProtocolSchema)]
+pub enum AggregatedEpochStats {
+    V1(AggregatedEpochStatsV1),
+}
+
+impl AggregatedEpochStats {
+    pub fn new(epoch_id: EpochId, last_block_hash: CryptoHash) -> Self {
+        Self::V1(AggregatedEpochStatsV1::new(epoch_id, last_block_hash))
+    }
+
+    pub fn block_tracker(&self) -> &HashMap<ValidatorId, ValidatorStats> {
+        match self {
+            Self::V1(stats) => &stats.block_tracker,
+        }
+    }
+
+    pub fn chunk_production(&self) -> &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>> {
+        match self {
+            Self::V1(stats) => &stats.chunk_production,
+        }
+    }
+
+    pub fn chunk_endorsement(&self) -> &HashMap<ValidatorId, ValidatorStats> {
+        match self {
+            Self::V1(stats) => &stats.chunk_endorsement,
+        }
+    }
+
+    pub fn chunk_endorsement_by_shard(&self) -> &HashMap<ShardId, ValidatorStats> {
+        match self {
+            Self::V1(stats) => &stats.chunk_endorsement_by_shard,
+        }
+    }
+
+    pub fn version_tracker(&self) -> &HashMap<ValidatorId, ProtocolVersion> {
+        match self {
+            Self::V1(stats) => &stats.version_tracker,
+        }
+    }
+
+    pub fn all_proposals(&self) -> &BTreeMap<AccountId, ValidatorStake> {
+        match self {
+            Self::V1(stats) => &stats.all_proposals,
+        }
+    }
+
+    pub fn epoch_id(&self) -> &EpochId {
+        match self {
+            Self::V1(stats) => &stats.epoch_id,
+        }
+    }
+
+    pub fn last_block_hash(&self) -> &CryptoHash {
+        match self {
+            Self::V1(stats) => &stats.last_block_hash,
+        }
+    }
+
+    /// See [`AggregatedEpochStatsV1::append_block`].
+    pub fn append_block(
+        &mut self,
+        block_info: &BlockInfo,
+        epoch_info: &EpochInfo,
+        shard_layout: &ShardLayout,
+        prev_block_height: BlockHeight,
+        chunk_producers: Option<&HashMap<ShardId, ValidatorId>>,
+    ) {
+        match self {
+            Self::V1(stats) => stats.append_block(
+                block_info,
+                epoch_info,
+                shard_layout,
+                prev_block_height,
+                chunk_producers,
+            ),
+        }
+    }
+}
+
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug, serde::Serialize, ProtocolSchema)]
+pub struct AggregatedEpochStatsV1 {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of chunk producer id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
@@ -38,7 +115,7 @@ pub struct EpochInfoAggregator {
     pub last_block_hash: CryptoHash,
 }
 
-impl EpochInfoAggregator {
+impl AggregatedEpochStatsV1 {
     pub fn new(epoch_id: EpochId, last_block_hash: CryptoHash) -> Self {
         Self {
             block_tracker: Default::default(),
@@ -52,27 +129,11 @@ impl EpochInfoAggregator {
         }
     }
 
-    /// Aggregates data from a block which directly precede the first block this
-    /// aggregator has statistic on.
-    ///
-    /// For example, this method can be used in the following situation (where
-    /// A through G are blocks ordered in increasing height and arrows denote
-    /// ‘is parent’ relationship and B is start of a new epoch):
-    ///
-    /// ```text
-    ///     ┌─ block_info
-    /// A ← B ← C ← D ← E ← F ← G ← H ← I
-    ///         │←── self ─→│
-    /// ```
-    ///
-    /// Note that there is no method which allows adding information about G,
-    /// H or I blocks into the aggregator.  The expected usage is to create
-    /// a new aggregator starting from I, add H and G into it (using this
-    /// method) and then [merge][`Self::merge`] it into `self`.
-    /// `chunk_producers` carries the per-shard producers resolved via the
-    /// grandparent anchor (EarlyKickout); `None` falls back to the legacy
-    /// height-based sampler.
-    pub fn update_tail(
+    /// Adds the stats of `block_info`, a child of the last block this aggregator holds, and
+    /// makes it the last block. `chunk_producers` carries the per-shard producers resolved via
+    /// the grandparent anchor (EarlyKickout); `None` falls back to the legacy height-based
+    /// sampler.
+    pub fn append_block(
         &mut self,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
@@ -80,8 +141,10 @@ impl EpochInfoAggregator {
         prev_block_height: BlockHeight,
         chunk_producers: Option<&HashMap<ShardId, ValidatorId>>,
     ) {
-        let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
-            .entered();
+        let _span =
+            tracing::debug_span!(target: "epoch_tracker", "append_block", prev_block_height)
+                .entered();
+        assert_eq!(self.epoch_id, *block_info.epoch_id());
 
         // Step 1: update block tracer (block-production stats)
 
@@ -199,106 +262,13 @@ impl EpochInfoAggregator {
 
         // Step 3: update version tracker
         let block_producer_id = epoch_info.sample_block_producer(block_info_height);
-        self.version_tracker
-            .entry(block_producer_id)
-            .or_insert_with(|| *block_info.latest_protocol_version());
+        self.version_tracker.insert(block_producer_id, *block_info.latest_protocol_version());
 
         // Step 4: update proposals
         for proposal in block_info.proposals_iter() {
-            self.all_proposals.entry(proposal.account_id().clone()).or_insert(proposal);
-        }
-    }
-
-    /// Merges information from `other` aggregator into `self`.
-    ///
-    /// The `other` aggregator must hold statistics from blocks which **follow**
-    /// the ones this aggregator has.  Both aggregators have to be for the same
-    /// epoch (the function panics if they aren’t).
-    ///
-    /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height, arrows denote ‘is
-    /// parent’ relationship and B is start of a new epoch):
-    ///
-    /// ```text
-    ///     │←─── self ────→│   │←─ other ─→│
-    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
-    ///     └── new epoch ──→
-    /// ```
-    ///
-    /// Once the method finishes `self` will hold statistics for blocks from
-    /// B till J.
-    pub fn merge(&mut self, other: EpochInfoAggregator) {
-        self.merge_common(&other);
-
-        // merge version tracker
-        self.version_tracker.extend(other.version_tracker);
-        // merge proposals
-        self.all_proposals.extend(other.all_proposals);
-
-        self.last_block_hash = other.last_block_hash;
-    }
-
-    /// Merges information from `other` aggregator into `self`.
-    ///
-    /// The `other` aggregator must hold statistics from blocks which
-    /// **precede** the ones this aggregator has.  Both aggregators have to be
-    /// for the same epoch (the function panics if they aren’t).
-    ///
-    /// For example, this method can be used in the following situation (where
-    /// A through J are blocks ordered in increasing height, arrows denote ‘is
-    /// parent’ relationship and B is start of a new epoch):
-    ///
-    /// ```text
-    ///     │←─── other ───→│   │←─ self ──→│
-    /// A ← B ← C ← D ← E ← F ← G ← H ← I ← J
-    ///     └── new epoch ──→
-    /// ```
-    ///
-    /// Once the method finishes `self` will hold statistics for blocks from
-    /// B till J.
-    ///
-    /// The method is a bit like doing `other.merge(self)` except that `other`
-    /// is not changed.
-    pub fn merge_prefix(&mut self, other: &EpochInfoAggregator) {
-        self.merge_common(&other);
-
-        // merge version tracker
-        self.version_tracker.reserve(other.version_tracker.len());
-        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in &other.version_tracker {
-            self.version_tracker.entry(*k).or_insert_with(|| *v);
+            self.all_proposals.insert(proposal.account_id().clone(), proposal);
         }
 
-        // merge proposals
-        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
-        for (k, v) in &other.all_proposals {
-            self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
-        }
-    }
-
-    /// Merges block, chunk production and chunk endorsement stats from `other` into `self`.
-    ///
-    /// See [`Self::merge`] and [`Self::merge_prefix`] method for description of
-    /// merging.
-    fn merge_common(&mut self, other: &EpochInfoAggregator) {
-        assert_eq!(self.epoch_id, other.epoch_id);
-
-        add_stats(&mut self.block_tracker, &other.block_tracker);
-        for (shard_id, stats) in &other.chunk_production {
-            add_stats(self.chunk_production.entry(*shard_id).or_default(), stats);
-        }
-        add_stats(&mut self.chunk_endorsement, &other.chunk_endorsement);
-        add_stats(&mut self.chunk_endorsement_by_shard, &other.chunk_endorsement_by_shard);
-    }
-}
-
-fn add_stats<K: Copy + Eq + Hash>(
-    target: &mut HashMap<K, ValidatorStats>,
-    source: &HashMap<K, ValidatorStats>,
-) {
-    for (key, stats) in source {
-        let entry = target.entry(*key).or_default();
-        entry.produced += stats.produced;
-        entry.expected += stats.expected;
+        self.last_block_hash = *block_info.hash();
     }
 }
