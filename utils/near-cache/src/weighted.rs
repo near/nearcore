@@ -14,12 +14,22 @@ impl<K: std::hash::Hash + Eq, V> LruWeightedCache<K, V> {
     /// transient `current_weight + weight` sum in `insert` can never overflow.
     pub const MAX_WEIGHT: u64 = u64::MAX / 2 - 1;
 
+    /// Creates a cache that holds at most `item_capacity` entries of at most
+    /// `max_weight` total weight.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_weight` is larger than [`Self::MAX_WEIGHT`].
     pub fn new(item_capacity: NonZeroUsize, max_weight: u64) -> Self {
         Self::with_lru(max_weight, lru::LruCache::new(item_capacity))
     }
 
     /// Like [`Self::new`], but with no item-count cap — eviction is driven
     /// purely by `max_weight`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_weight` is larger than [`Self::MAX_WEIGHT`].
     pub fn without_item_cap(max_weight: u64) -> Self {
         Self::with_lru(max_weight, lru::LruCache::unbounded())
     }
