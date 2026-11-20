@@ -2031,12 +2031,12 @@ fn test_waiting_on_receipts_from_forks_on_start() {
 
     let id_at =
         |block_hash: CryptoHash| DataId::receipt_proof(block_hash, from_shard_id, to_shard_id);
-    for block_hash in [*next_block.hash(), *next_next_block.hash(), *fork_block.hash()] {
+    // The head's own block is waited on too: the block applying its proofs is above the head.
+    for block_hash in
+        [*block.hash(), *next_block.hash(), *next_next_block.hash(), *fork_block.hash()]
+    {
         assert!(actor.is_tracking(&id_at(block_hash)));
     }
-    // The proofs go to a shard this node tracks this epoch, so the head block's own are not
-    // waited on.
-    assert!(!actor.is_tracking(&id_at(*block.hash())));
     // No block certifies a proof's source chunk, so the processed head pulls none of them.
     actor.handle(ProcessedBlock { block_hash: *next_next_block.hash() });
     assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
@@ -3599,13 +3599,13 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(!proof_blocks.contains(fork_block.hash()));
 
     // The canonical block's proof goes to a shard this node tracks this epoch, so it expires once
-    // the final execution head reaches its height, whatever the head of that shard.
+    // the final execution head passes its height, whatever the head of that shard.
     actor.handle(SpiceShardFinalExecutionHead {
         shard_id: to_shard_id,
         height: head.header().height(),
     });
     assert!(actor.is_tracking(&proof_id(&next_block)));
-    save_final_execution_head(&chain, &next_block);
+    save_final_execution_head(&chain, &head);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));

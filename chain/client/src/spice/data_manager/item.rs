@@ -35,7 +35,7 @@ pub(super) struct ItemProducer {
 /// What makes an item that is never done stop being needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Expiry {
-    /// The final execution head reaching the item's height.
+    /// The final execution head passing the item's height.
     AtFinalExecutionHead,
     /// The final execution head of this shard, which the item goes to, passing the item's height.
     AtShardFinalExecutionHead(ShardId),

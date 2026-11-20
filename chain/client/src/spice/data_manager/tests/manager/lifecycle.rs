@@ -77,19 +77,35 @@ fn track_block_skips_items_already_on_disk() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
-    let (chain, blocks) = chain_with_blocks(2);
+fn blocks_below_the_final_execution_head_are_not_tracked() {
+    let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
 
-    // Height 1 is finally executed: neither the processed block nor a later track adds it.
+    // Height 1 is below the head: neither the processed block nor a later track adds it.
     let requests = manager.on_block_processed(&blocks[0]);
     manager.track_block(&blocks[0]);
-    manager.track_block(&blocks[1]);
+    manager.track_block(&blocks[2]);
 
     assert_eq!(requests, vec![]);
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
+}
+
+/// After state sync the final execution head is the sync block, and the block after it is not
+/// applied yet.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn the_items_of_the_final_execution_head_block_are_tracked() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_execution_head(&blocks[1]);
+
+    manager.on_block_processed(&blocks[1]);
+
+    let id = receipt_id(&blocks[1], 0, 1);
+    assert!(manager.is_tracking(&id));
+    assert_eq!(manager.item(&id).expiry, Expiry::AtFinalExecutionHead);
 }
 
 #[test]
@@ -105,7 +121,7 @@ fn a_processed_block_tracks_its_items() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
+fn a_processed_block_expires_the_items_below_the_final_execution_head() {
     let (chain, all_blocks) = chain_with_blocks(4);
     // Heights 2, 3, 4.
     let blocks = &all_blocks[1..];
@@ -118,8 +134,14 @@ fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
     manager.on_block_processed(&blocks[2]);
 
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
+
+    // The items at the previous head expire once the head passes them.
+    manager.set_final_execution_head(&blocks[2]);
+    manager.on_block_processed(&blocks[2]);
+
+    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
     assert_eq!(
         manager.manager.items_by_height.keys().copied().collect_vec(),
         vec![blocks[2].header().height()],
@@ -133,9 +155,10 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
     let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
     let fork_at_4 = process_block_at(&mut chain, &blocks[1], 4);
-    assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_4.hash());
+    let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
+    assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_5.hash());
     let mut manager = TestManager::new(&chain);
-    for block in blocks.iter().chain([&canonical_at_4, &fork_at_3, &fork_at_4]) {
+    for block in blocks.iter().chain([&canonical_at_4, &canonical_at_5, &fork_at_3, &fork_at_4]) {
         manager.track_block(block);
     }
     let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
@@ -146,12 +169,15 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
         assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
     }
 
-    manager.set_final_execution_head(&canonical_at_4);
-    manager.on_block_processed(&canonical_at_4);
+    manager.set_final_execution_head(&canonical_at_5);
+    manager.on_block_processed(&canonical_at_5);
     for id in &fork_ids {
         assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
     }
-    assert!(manager.manager.items_by_height.is_empty());
+    assert_eq!(
+        manager.manager.items_by_height.keys().copied().collect_vec(),
+        vec![canonical_at_5.header().height()],
+    );
 }
 
 /// The fork at height 3 is certified by its own child, so it takes the only window slot
@@ -287,7 +313,7 @@ fn expiry_drops_the_expired_items_from_every_index() {
     manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
     manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
 
     manager.assert_forgotten(&expired);
@@ -598,7 +624,7 @@ fn the_shard_final_execution_head_does_not_expire_a_proof_into_a_shard_tracked_t
     manager.set_shard_final_execution_head(1, &blocks[2]);
     assert!(manager.is_tracking(&id));
 
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
     manager.assert_forgotten(&id);
 }
@@ -616,7 +642,7 @@ fn the_final_execution_head_does_not_expire_a_proof_into_a_shard_not_tracked_thi
     manager.on_block_processed(&blocks[2]);
     assert!(manager.is_tracking(&id));
 
-    // A block at the final execution head is tracked for such a shard.
+    // A block at the final execution head is tracked.
     let at_head = manager.track_needed_proof(&blocks[1]);
     assert!(manager.is_tracking(&at_head));
 
@@ -693,13 +719,18 @@ fn the_proof_from_the_last_block_of_an_epoch_into_a_shard_tracked_next_epoch_exp
     let [.., before_last, last] = second_epoch.as_slice() else {
         panic!("the second epoch has at least two blocks");
     };
+    let after_last = blocks
+        .iter()
+        .skip_while(|block| block.hash() != last.hash())
+        .nth(1)
+        .expect("the third epoch has a block");
     let mut manager = TestManager::catching_up(&chain, 1);
     let within = manager.track_needed_proof(before_last);
     let boundary = manager.track_needed_proof(last);
     assert_eq!(manager.item(&within).expiry, Expiry::AtShardFinalExecutionHead(ShardId::new(1)));
     assert_eq!(manager.item(&boundary).expiry, Expiry::AtFinalExecutionHead);
 
-    manager.set_final_execution_head(last);
+    manager.set_final_execution_head(after_last);
     manager.on_block_processed(blocks.last().unwrap());
     manager.assert_forgotten(&boundary);
     assert!(manager.is_tracking(&within));

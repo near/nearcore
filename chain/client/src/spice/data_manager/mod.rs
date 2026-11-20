@@ -257,18 +257,20 @@ impl SpiceDataManager {
         }
         let epoch_info = self.epoch_manager.get_epoch_info(block.epoch_id())?;
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
-        let mut new_items = Vec::new();
-        for id in self.needed_items(block)? {
-            if self.items.contains_key(&id) {
-                continue;
-            }
-            let expiry = self.expiry(&id)?;
-            if self.is_expired(expiry, height) || self.is_done(&id) {
-                continue;
-            }
-            let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
-            new_items.push((id, producers, expiry));
-        }
+        let new_items = self
+            .needed_items(block)?
+            .into_iter()
+            .filter(|id| !self.items.contains_key(id))
+            .map(|id| {
+                let expiry = self.expiry(&id)?;
+                if self.is_expired(expiry, height) || self.is_done(&id) {
+                    return Ok(None);
+                }
+                let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
+                Ok(Some((id, producers, expiry)))
+            })
+            .filter_map(Result::transpose)
+            .collect::<Result<Vec<_>, Error>>()?;
         for (id, producers, expiry) in new_items {
             self.items_by_height.entry(height).or_default().insert(id.clone());
             let item = FetchItem::new(
@@ -286,6 +288,8 @@ impl SpiceDataManager {
     /// The expiry of `id`. A receipt proof into a shard this node tracks in the epoch of the block
     /// that applies it expires at the final execution head, which waits for that shard. One into a
     /// shard this node applies otherwise expires at that shard's own final execution head.
+    // TODO(spice-data-distribution): an item whose shard's head is never reported again, as after a
+    // validator key change, is never removed. Remove items past a retention horizon of a few epochs.
     fn expiry(&self, id: &DataId) -> Result<Expiry, Error> {
         match id {
             DataId::ReceiptProof(ReceiptProofId { source, to_shard }) => {
@@ -303,7 +307,7 @@ impl SpiceDataManager {
     /// final execution head needs all of its items.
     fn is_expired(&self, expiry: Expiry, height: BlockHeight) -> bool {
         match expiry {
-            Expiry::AtFinalExecutionHead => self.heights.at_or_below_final_execution(height),
+            Expiry::AtFinalExecutionHead => self.heights.below_final_execution(height),
             Expiry::AtShardFinalExecutionHead(shard_id) => {
                 self.shard_final_execution_heads.get(&shard_id).is_some_and(|&head| height < head)
             }
@@ -472,21 +476,21 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Records the final execution head and stops tracking the items that expire at it. At or below
-    /// it, processed blocks are forgotten and parts for untracked items are no longer wanted. Before
-    /// the first head is recorded, the genesis height stands in for it.
+    /// Records the final execution head and stops tracking the items below it that expire at it.
+    /// Below it, processed blocks are forgotten and parts for untracked items are no longer wanted.
+    /// Before the first head is recorded, the genesis height stands in for it.
     fn on_final_execution_head(&mut self, final_execution_head: Option<&Tip>) {
         let height = final_execution_head
             .map_or_else(|| self.chain_store.get_genesis_height(), |head| head.height);
         let Some(from) = self.heights.update_final_execution_head(height) else {
             return;
         };
-        self.processed_blocks.retain(|_, block_height| *block_height > height);
-        // Items expiring at the head are not tracked at or below it, so the heights below `from`
-        // hold none.
+        self.processed_blocks.retain(|_, block_height| *block_height >= height);
+        // Items expiring at the head are not tracked below it, so the heights below `from` hold
+        // none.
         let expired: Vec<DataId> = self
             .items_by_height
-            .range((from, Bound::Included(height)))
+            .range((from, Bound::Excluded(height)))
             .flat_map(|(_, ids)| ids)
             .filter(|id| self.items[*id].expiry == Expiry::AtFinalExecutionHead)
             .cloned()
