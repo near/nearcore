@@ -46,7 +46,7 @@ fn load_trie_from_flat_state(
             shard_uid.to_string(),
         )?
     } else {
-        load_memtrie_single_thread(store, shard_uid)?
+        load_memtrie_single_thread(store, shard_uid)
     };
 
     tracing::info!(target: "memtrie", shard_uid=%shard_uid, duration = ?load_start.elapsed(), "done loading trie from flat state");
@@ -60,10 +60,7 @@ fn load_trie_from_flat_state(
     Ok(MemTries::new_from_arena_and_root(shard_uid, block_height, arena, root_id))
 }
 
-fn load_memtrie_single_thread(
-    store: &Store,
-    shard_uid: ShardUId,
-) -> Result<(STArena, MemTrieNodeId), StorageError> {
+fn load_memtrie_single_thread(store: &Store, shard_uid: ShardUId) -> (STArena, MemTrieNodeId) {
     tracing::info!(target: "memtrie", shard_uid=%shard_uid, "loading trie from flat state");
     let mut arena = STArena::new(shard_uid.to_string());
     let mut recon = TrieConstructor::new(&mut arena);
@@ -82,7 +79,7 @@ fn load_memtrie_single_thread(
         }
     }
     let root_id = recon.finalize().expect("state root cannot be empty");
-    Ok((arena, root_id))
+    (arena, root_id)
 }
 
 fn get_state_root(

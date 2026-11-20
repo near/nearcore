@@ -67,7 +67,7 @@ pub fn undo_only_block_head(
 
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     chain_store_update.clear_head_block_data(epoch_manager)?;
-    chain_store_update.save_body_head(&new_head)?;
+    chain_store_update.save_body_head(&new_head);
     chain_store_update.commit()?;
 
     let new_chain_store_head = chain_store.head()?;

@@ -1792,7 +1792,7 @@ fn test_requesting_witnesses_from_forks_on_start() {
 fn save_heads(chain: &mut Chain, head: &Block, final_head: &Block) {
     let mut store_update = chain.mut_chain_store().store_update();
     store_update.save_head(&Tip::from_header(head.header())).unwrap();
-    store_update.save_final_head(&Tip::from_header(final_head.header())).unwrap();
+    store_update.save_final_head(&Tip::from_header(final_head.header()));
     store_update.commit().unwrap();
 }
 

@@ -1275,7 +1275,7 @@ mod memtrie_batch_iteration_tests {
     ) -> Option<Vec<u8>> {
         let read_trie = trie.lock_for_iter();
         // Get the iterator for the trie, skipping the first key if needed
-        let mut iter = read_trie.iter().expect("failed to get iterator");
+        let mut iter = read_trie.iter();
         if let Some(key) = previous_batch_last_key {
             iter.seek(Bound::Excluded(key)).expect("failed to seek");
         }
@@ -1349,7 +1349,7 @@ mod memtrie_batch_iteration_tests {
         let trie = new_tries.get_trie_for_shard(shard_uid, root).recording_reads_new_recorder();
         {
             let read_trie = trie.lock_for_iter();
-            let iter = read_trie.iter().expect("failed to get iterator");
+            let iter = read_trie.iter();
             let got = iter
                 .map(|item| item.expect("got error iterating"))
                 .map(|(k, v)| (k, Some(v)))

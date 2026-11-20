@@ -134,7 +134,7 @@ fn test_storage_after_commit_of_cold_update() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store());
 
     let state_reads = test_get_store_reads(DBCol::State);
 
@@ -313,7 +313,7 @@ fn test_cold_db_copy_with_height_skips() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store());
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -458,7 +458,7 @@ fn test_cold_loop_on_gc_boundary() {
     set_genesis_height(&mut store_update, &0);
     store_update.commit();
 
-    test_copy_all_data_to_cold(cold_db, hot_store).unwrap();
+    test_copy_all_data_to_cold(cold_db, hot_store);
 
     update_cold_head(cold_db, hot_store, &(height_delta - 1)).unwrap();
 

@@ -144,7 +144,7 @@ impl Chain {
         let block_head = Tip::from_header(genesis.header());
         let header_head = block_head.clone();
         store_update.save_head(&block_head)?;
-        store_update.save_final_head(&header_head)?;
+        store_update.save_final_head(&header_head);
         if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
             let mut spice_update = store_update.store().store_update();
             let mut adapter = spice_update.chain_store_update();

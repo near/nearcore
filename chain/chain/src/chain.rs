@@ -1704,9 +1704,9 @@ impl Chain {
         let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
         let mut chain_store_update = self.mut_chain_store().store_update();
-        chain_store_update.save_body_head(&tip)?;
+        chain_store_update.save_body_head(&tip);
         // Reset final head to genesis since at this point we don't have the last final block.
-        chain_store_update.save_final_head(&final_head)?;
+        chain_store_update.save_final_head(&final_head);
         // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
         // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
@@ -2372,7 +2372,7 @@ impl Chain {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
             if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_uid)? {
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head);
             }
         }
 

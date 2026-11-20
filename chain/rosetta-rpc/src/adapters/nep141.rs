@@ -46,7 +46,7 @@ fn compose_rosetta_nep141_events(
                     if let Some(currency) =
                         currency_map.get(&outcome.outcome.executor_id.to_string())
                     {
-                        let base = get_base(Event::Nep141, outcome, block_header)?;
+                        let base = get_base(Event::Nep141, outcome, block_header);
                         let custom = crate::models::FtEvent {
                             affected_id: AccountIdentifier::from_str(&transfer_event.old_owner_id)?,
                             involved_id: Some(AccountIdentifier::from_str(
@@ -64,9 +64,9 @@ fn compose_rosetta_nep141_events(
                             symbol: currency.symbol.clone(),
                             decimals: currency.decimals,
                         };
-                        ft_events.push(build_event(base, custom)?);
+                        ft_events.push(build_event(base, custom));
 
-                        let base = get_base(Event::Nep141, outcome, block_header)?;
+                        let base = get_base(Event::Nep141, outcome, block_header);
                         let custom = crate::models::FtEvent {
                             affected_id: AccountIdentifier::from_str(&transfer_event.new_owner_id)?,
                             involved_id: Some(AccountIdentifier::from_str(
@@ -83,7 +83,7 @@ fn compose_rosetta_nep141_events(
                             symbol: currency.symbol.clone(),
                             decimals: currency.decimals,
                         };
-                        ft_events.push(build_event(base, custom)?);
+                        ft_events.push(build_event(base, custom));
                     }
                 }
             }
@@ -169,15 +169,15 @@ pub(crate) fn get_base(
     event_type: Event,
     outcome: &ExecutionOutcomeWithIdView,
     block_header: &near_primitives::views::BlockHeaderView,
-) -> crate::errors::Result<crate::models::EventBase> {
-    Ok(crate::models::EventBase {
+) -> crate::models::EventBase {
+    crate::models::EventBase {
         standard: get_standard(&event_type),
         receipt_id: outcome.id,
         block_height: block_header.height,
         block_timestamp: block_header.timestamp,
         contract_account_id: outcome.outcome.executor_id.clone().into(),
         status: outcome.outcome.status.clone(),
-    })
+    }
 }
 
 pub(crate) enum Event {
@@ -194,8 +194,8 @@ pub const FT: &str = "FT_NEP141";
 fn build_event(
     base: crate::models::EventBase,
     custom: crate::models::FtEvent,
-) -> crate::errors::Result<FungibleTokenEvent> {
-    Ok(FungibleTokenEvent {
+) -> FungibleTokenEvent {
+    FungibleTokenEvent {
         standard: base.standard,
         receipt_id: base.receipt_id,
         block_height: base.block_height,
@@ -209,7 +209,7 @@ fn build_event(
         cause: custom.cause,
         status: get_status(&base.status),
         event_memo: custom.memo,
-    })
+    }
 }
 
 fn get_status(status: &near_primitives::views::ExecutionStatusView) -> String {

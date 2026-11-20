@@ -118,7 +118,7 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&block_merkle_tree))
             }
             EntityQuery::BlockMisc(()) => {
-                let block_misc = BlockMiscData::from_store(&store)?;
+                let block_misc = BlockMiscData::from_store(&store);
                 Ok(serialize_entity(&block_misc))
             }
             EntityQuery::ChunkByHash { chunk_hash } => {
@@ -931,8 +931,8 @@ struct BlockMiscData {
 }
 
 impl BlockMiscData {
-    pub fn from_store(store: &Store) -> anyhow::Result<BlockMiscData> {
-        Ok(BlockMiscData {
+    pub fn from_store(store: &Store) -> BlockMiscData {
+        BlockMiscData {
             head: store.get_ser(DBCol::BlockMisc, HEAD_KEY),
             tail: store.get_ser(DBCol::BlockMisc, TAIL_KEY),
             chunk_tail: store.get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY),
@@ -947,6 +947,6 @@ impl BlockMiscData {
             state_sync_dump: store.get_ser(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY),
             state_snapshot: store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY),
             // TODO(cloud_archival) Add cloud head keys (CLOUD_WRITER_BLOCK_HEAD_KEY, ...)
-        })
+        }
     }
 }

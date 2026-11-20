@@ -52,7 +52,7 @@ pub fn apply_block_postprocessing(
             chunk_store.get_chunk_extra(&new_final.last_block_hash, shard_uid).is_ok()
         })
         .collect();
-    update_flat_storage_head(runtime_adapter, &shard_uids_applied_up_to_new_final, &new_final)?;
+    update_flat_storage_head(runtime_adapter, &shard_uids_applied_up_to_new_final, &new_final);
     gc_memtrie_roots(runtime_adapter, chain_store, &shard_uids_applied_up_to_new_final, &new_final);
     Ok(())
 }
@@ -66,18 +66,17 @@ pub fn apply_shard_postprocessing(
     chain_store: &ChainStoreAdapter,
     shard_uid: ShardUId,
     final_block: &BlockHeader,
-) -> Result<(), Error> {
+) {
     let final_block = Tip::from_header(final_block);
-    update_flat_storage_head(runtime_adapter, &[shard_uid], &final_block)?;
+    update_flat_storage_head(runtime_adapter, &[shard_uid], &final_block);
     gc_memtrie_roots(runtime_adapter, chain_store, &[shard_uid], &final_block);
-    Ok(())
 }
 
 fn update_flat_storage_head(
     runtime_adapter: &dyn RuntimeAdapter,
     shard_uids: &[ShardUId],
     final_execution_head: &Tip,
-) -> Result<(), Error> {
+) {
     // TODO(spice): Evaluate if using block before final_execution_head still
     // makes sense for spice. For now it's used mainly because it's used for
     // updating flat head without spice with the following reasoning: using
@@ -87,16 +86,15 @@ fn update_flat_storage_head(
     // TODO(spice): handle state sync and resharding edge cases when updating
     // flat head.
     if new_flat_head == CryptoHash::default() {
-        return Ok(());
+        return;
     }
     let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
     for &shard_uid in shard_uids {
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none() {
             continue;
         }
-        flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+        flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head);
     }
-    Ok(())
 }
 
 fn gc_memtrie_roots(

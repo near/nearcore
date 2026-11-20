@@ -437,7 +437,7 @@ impl TxTracker {
         tx_ref: &TxRef,
         nonce_updates: &HashSet<NonceLookupKey>,
         source_height: BlockHeight,
-    ) -> anyhow::Result<()> {
+    ) {
         let source_height = Some(source_height);
         for nonce_key in nonce_updates {
             let info = self.get_target_nonce(db, nonce_key, source_height).unwrap();
@@ -454,7 +454,6 @@ impl TxTracker {
                     .is_none()
             );
         }
-        Ok(())
     }
 
     async fn store_access_key_updates(
@@ -476,7 +475,7 @@ impl TxTracker {
         Ok(())
     }
 
-    fn queue_txs(&mut self, block: &MappedBlock, db: &DB) -> anyhow::Result<()> {
+    fn queue_txs(&mut self, block: &MappedBlock, db: &DB) {
         self.height_queued = Some(block.source_height);
         self.next_heights.pop_front().unwrap();
 
@@ -497,7 +496,7 @@ impl TxTracker {
                             &tx_ref,
                             &tx.nonce_updates,
                             block.source_height,
-                        )?;
+                        );
                     }
                     crate::TargetChainTx::AwaitingNonce(tx) => {
                         let nonce_key = NonceLookupKey::from_tx(&tx.target_tx);
@@ -509,12 +508,11 @@ impl TxTracker {
                             &tx_ref,
                             &tx.nonce_updates,
                             block.source_height,
-                        )?;
+                        );
                     }
                 };
             }
         }
-        Ok(())
     }
 
     pub(crate) async fn queue_block(
@@ -526,7 +524,7 @@ impl TxTracker {
     ) -> anyhow::Result<()> {
         Self::store_access_key_updates(&block, target_view_client, db).await?;
         let mut me = lock.lock();
-        me.queue_txs(&block, db)?;
+        me.queue_txs(&block, db);
         tx_block_queue.lock().push_back(block);
         Ok(())
     }
@@ -1071,10 +1069,10 @@ impl TxTracker {
         tx: &Transaction,
         nonce_updates: &HashSet<NonceLookupKey>,
         keys_to_remove: &mut HashSet<NonceLookupKey>,
-    ) -> anyhow::Result<()> {
+    ) {
         let tx_ref = match tx_ref {
             Some(t) => t,
-            None => return Ok(()),
+            None => return,
         };
         let updater = NonceUpdater::TxRef(tx_ref.clone());
         if let Some(keys) = self.updater_to_keys.remove(&updater) {
@@ -1126,7 +1124,6 @@ impl TxTracker {
             keys_to_remove.insert(nonce_key);
         }
         assert!(info.queued_txs.remove(tx_ref));
-        Ok(())
     }
 
     // We just successfully sent some transactions. Remember them so we can see if they really show up on chain.
@@ -1188,7 +1185,7 @@ impl TxTracker {
                             &t.target_tx.transaction,
                             &t.nonce_updates,
                             &mut keys_to_remove,
-                        )?;
+                        );
                     }
                 }
                 crate::TargetChainTx::AwaitingNonce(t) => {
@@ -1198,7 +1195,7 @@ impl TxTracker {
                         &t.target_tx,
                         &t.nonce_updates,
                         &mut keys_to_remove,
-                    )?;
+                    );
                 }
             }
         }

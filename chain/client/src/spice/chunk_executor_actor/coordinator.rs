@@ -424,12 +424,13 @@ impl ChunkExecutorActor {
             {
                 return Ok(());
             }
-            return apply_shard_postprocessing(
+            apply_shard_postprocessing(
                 self.runtime_adapter.as_ref(),
                 &self.chain_store,
                 shard_uid,
                 &header,
             );
+            return Ok(());
         }
         // Each tracked shard's apply-done lands here; postprocess the block once all
         // of them are applied. `postprocess_block` is idempotent, so being driven here

@@ -72,8 +72,7 @@ fn test_shard_postprocessing_follows_a_final_block() {
         &chain.chain_store().chain_store(),
         shard_uid,
         final_block,
-    )
-    .unwrap();
+    );
 
     // The shard follows the final block: its flat head moves to the block before it, and its
     // memtrie roots up to that block are dropped.

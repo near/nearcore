@@ -38,12 +38,12 @@ fn test_reload_from_storage() {
     let conn_info = make_connection_info(rng, clock.now_utc());
     {
         tracing::debug!(target:"test", "write connection info to storage");
-        let connection_store = ConnectionStore::new(store.clone()).unwrap();
+        let connection_store = ConnectionStore::new(store.clone());
         connection_store.insert_outbound_connections(vec![conn_info.clone()]);
     }
     {
         tracing::debug!(target:"test", "read connection info from storage");
-        let connection_store = ConnectionStore::new(store).unwrap();
+        let connection_store = ConnectionStore::new(store);
         assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info]);
     }
 }
@@ -54,7 +54,7 @@ fn test_overwrite_stored_connection() {
     let rng = &mut rng;
     let clock = time::FakeClock::default();
     let store = store::Store::from(near_store::db::TestDB::new());
-    let connection_store = ConnectionStore::new(store).unwrap();
+    let connection_store = ConnectionStore::new(store);
 
     tracing::debug!(target:"test", "create and store a connection");
     let now_utc = clock.now_utc();
@@ -78,7 +78,7 @@ fn test_evict_longest_disconnected() {
     let rng = &mut rng;
     let clock = time::FakeClock::default();
     let store = store::Store::from(near_store::db::TestDB::new());
-    let connection_store = ConnectionStore::new(store).unwrap();
+    let connection_store = ConnectionStore::new(store);
 
     tracing::debug!(target:"test", "create and store live connections up to the connection store limit");
     let now_utc = clock.now_utc();
@@ -109,7 +109,7 @@ fn test_recovery_from_clock_rewind() {
     let rng = &mut rng;
     let clock = time::FakeClock::default();
     let store = store::Store::from(near_store::db::TestDB::new());
-    let connection_store = ConnectionStore::new(store).unwrap();
+    let connection_store = ConnectionStore::new(store);
 
     tracing::debug!(target:"test", "create and store live connections up to the connection store limit");
     let now_utc = clock.now_utc();

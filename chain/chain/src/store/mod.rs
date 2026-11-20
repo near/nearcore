@@ -1422,20 +1422,18 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 impl<'a> ChainStoreUpdate<'a> {
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.save_body_head(t)?;
+        self.save_body_head(t);
         self.save_header_head(t)
     }
 
     /// Update block body head and latest known height.
-    pub fn save_body_head(&mut self, t: &Tip) -> Result<(), Error> {
+    pub fn save_body_head(&mut self, t: &Tip) {
         self.try_save_latest_known(t.height);
         self.head = Some(t.clone().into());
-        Ok(())
     }
 
-    pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
+    pub fn save_final_head(&mut self, t: &Tip) {
         self.final_head = Some(t.clone().into());
-        Ok(())
     }
 
     /// Updates fields in the ChainStore that store information about the

@@ -534,7 +534,7 @@ async fn dump_state_parts(
 fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
     let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
-    for (key, value) in trie.disk_iter().unwrap().flatten() {
+    for (key, value) in trie.disk_iter().flatten() {
         if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
             return Some(sr);
         }

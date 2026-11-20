@@ -368,7 +368,7 @@ impl<'a> RosettaTransactions<'a> {
     fn generate_transaction_for_fungible_token(
         &mut self,
         fungible_token_event: &FungibleTokenEvent,
-    ) -> crate::errors::Result<&mut crate::models::Transaction> {
+    ) -> &mut crate::models::Transaction {
         let transaction_identifier = fungible_token_event.receipt_id;
         let related_transactions = self.exec_to_rx.get_related(transaction_identifier);
         let execution_status =
@@ -387,7 +387,7 @@ impl<'a> RosettaTransactions<'a> {
                     execution_status,
                 },
             });
-        Ok(tx)
+        tx
     }
 }
 
@@ -502,7 +502,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
         convert_fungible_token_balance_change_to_operations(
             &fungible_token_event,
             &mut transactions
-                .generate_transaction_for_fungible_token(&fungible_token_event)?
+                .generate_transaction_for_fungible_token(&fungible_token_event)
                 .operations,
         )
     }

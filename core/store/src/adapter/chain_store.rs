@@ -20,7 +20,6 @@ use near_primitives::utils::{
 };
 use near_primitives::views::LightClientBlockView;
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::sync::{Arc, OnceLock};
 
 #[derive(Clone)]
@@ -490,10 +489,9 @@ impl Into<StoreUpdate> for ChainStoreUpdateAdapter<'static> {
 }
 
 impl ChainStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
         store_update.commit();
-        Ok(())
     }
 }
 

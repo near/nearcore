@@ -735,7 +735,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store().get_state_header(shard_id, block_hash)
             {
                 let state_num_parts = shard_state_header.num_state_parts();
-                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts);
                 let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &key);
             }
@@ -987,7 +987,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store().get_state_header(shard_id, block_hash)
             {
                 let state_num_parts = shard_state_header.num_state_parts();
-                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts);
                 let state_header_key =
                     borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
@@ -1105,18 +1105,12 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col_state_parts(
-        &mut self,
-        sync_hash: CryptoHash,
-        shard_id: ShardId,
-        num_parts: u64,
-    ) -> Result<(), Error> {
+    pub fn gc_col_state_parts(&mut self, sync_hash: CryptoHash, shard_id: ShardId, num_parts: u64) {
         for part_idx in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_idx)).unwrap();
             self.gc_col(DBCol::StateParts, &key);
             self.gc_col(DBCol::StatePartsApplied, &key);
         }
-        Ok(())
     }
 
     fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {

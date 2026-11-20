@@ -43,8 +43,8 @@ impl<'a> TrieUpdateIterator<'a> {
         lock: Option<&'a TrieWithReadLock<'_>>,
     ) -> Result<Self, StorageError> {
         let mut trie_iter = match lock {
-            Some(lock) => lock.iter()?,
-            None => TrieIterator::Disk(state_update.trie.disk_iter()?),
+            Some(lock) => lock.iter(),
+            None => TrieIterator::Disk(state_update.trie.disk_iter()),
         };
         trie_iter.seek_prefix(prefix)?;
 

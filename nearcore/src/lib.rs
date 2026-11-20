@@ -203,30 +203,30 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 }
 
 // Safely get the split store while checking that all conditions to use it are met.
-fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result<Option<Store>> {
+fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> Option<Store> {
     // SplitStore should only be used on archival nodes.
     if !config.config.archive {
-        return Ok(None);
+        return None;
     }
 
     // SplitStore should only be used if cold store is configured.
     if config.config.cold_store.is_none() {
-        return Ok(None);
+        return None;
     }
 
     // SplitStore should only be used in the view client if it is enabled.
     if !config.config.split_storage.as_ref().is_some_and(|c| c.enable_split_storage_view_client) {
-        return Ok(None);
+        return None;
     }
 
     // SplitStore should only be used if the migration is finished. The
     // migration to cold store is finished when the db kind of the hot store is
     // changed from Archive to Hot.
     if storage.get_hot_store().get_db_kind() != Some(DbKind::Hot) {
-        return Ok(None);
+        return None;
     }
 
-    Ok(storage.get_split_store())
+    storage.get_split_store()
 }
 
 fn new_spice_client_config(
@@ -474,7 +474,7 @@ pub async fn start_with_config_and_synchronization_impl(
 
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
-    let split_store = get_split_store(&config, &storage)?;
+    let split_store = get_split_store(&config, &storage);
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
             let view_epoch_manager = EpochManager::new_arc_handle(
@@ -529,7 +529,7 @@ pub async fn start_with_config_and_synchronization_impl(
         storage.get_cloud_storage(),
         shard_tracker.clone(),
         epoch_manager.clone(),
-    )?;
+    );
 
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());

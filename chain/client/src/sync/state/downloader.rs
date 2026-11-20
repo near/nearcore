@@ -57,7 +57,7 @@ impl StateSyncDownloader {
             let handle = task_tracker.get_handle(&format!("shard {} header", shard_id)).await;
             handle.set_status("Reading existing header");
             let existing_header =
-                get_state_header_if_exists_in_storage(&store, sync_hash, shard_id)?;
+                get_state_header_if_exists_in_storage(&store, sync_hash, shard_id);
             if let Some(header) = existing_header {
                 return Ok(header);
             }
