@@ -7,8 +7,9 @@ use super::storage::{save_receipt_proof, save_witness_and_contract_accesses};
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
-    SpiceShardFinalExecutionHead,
+    SpiceRequestReceiptProofs, SpiceShardFinalExecutionHead,
 };
+use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
 use near_chain::BlockHeader;
@@ -405,6 +406,21 @@ impl PerShardChunkExecutor {
             );
             if proofs.len() != prev_block_shard_layout.num_shards() as usize {
                 tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, have=proofs.len(), want=prev_block_shard_layout.num_shards(), "not ready: missing incoming receipts");
+                // The parent's execution results are stored, so its chunks are certified and
+                // their proofs can be fetched.
+                let to_shard_id = prev_block_shard_uid.shard_id();
+                let ids = prev_block_shard_layout
+                    .shard_ids()
+                    .filter(|&from_shard_id| {
+                        self.chain_store
+                            .get_receipt_proof(&prev_block_hash, to_shard_id, from_shard_id)
+                            .is_none()
+                    })
+                    .map(|from_shard_id| {
+                        ReceiptProofId::new(prev_block_hash, from_shard_id, to_shard_id)
+                    })
+                    .collect();
+                self.data_distributor_adapter.send(SpiceRequestReceiptProofs { ids });
                 return Ok(ApplyOutcome::NotReady);
             }
             proofs

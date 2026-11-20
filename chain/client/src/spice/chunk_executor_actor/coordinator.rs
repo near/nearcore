@@ -7,7 +7,7 @@ use super::per_shard::{
     is_descendant_of_final_execution_head,
 };
 use crate::spice::data_distributor_actor::{
-    SpiceDataDistributorAdapter, SpiceShardFinalExecutionHead, SpiceTrackBlockData,
+    SpiceDataDistributorAdapter, SpiceShardFinalExecutionHead,
 };
 use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
@@ -400,7 +400,6 @@ impl ChunkExecutorActor {
             // would hold back the blocks after it.
             executor.parked_blocks.drop_up_to_height(sync_header.height());
             let mut block_hash = sync_hash;
-            let mut parents = Vec::new();
             while block_hash != final_execution_head.last_block_hash {
                 let Ok(next) = self.chain_store.get_next_block_hash(&block_hash) else {
                     break;
@@ -413,11 +412,7 @@ impl ChunkExecutorActor {
                 }
 
                 executor.park_block(&header);
-                parents.push(*header.prev_hash());
                 block_hash = next;
-            }
-            if !parents.is_empty() {
-                self.data_distributor_adapter.send(SpiceTrackBlockData { block_hashes: parents });
             }
 
             executor.replayed_after_sync_block = Some(sync_hash);
