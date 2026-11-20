@@ -123,6 +123,11 @@ pub enum ProtocolFeature {
     /// Read each gas key nonce before `DeleteKey` removes it, so the storage
     /// proof limits count the trie nodes that the removal records.
     ReadGasKeyNoncesBeforeRemoval,
+    /// Read each key that links an action receipt to its input data before writing it:
+    /// `PostponedReceiptId`, `PendingDataCount` and `PostponedReceipt` when an action
+    /// receipt is postponed, and `ReceivedData` when data arrives. The storage proof
+    /// limits then count the trie nodes that the insert records.
+    ReadDataDependencyKeysBeforeWrite,
     /// Apply skips, with no outcome, a chunk's transaction whose routing account (the signer, or
     /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
     /// shares its id with the outcome of the same transaction in its own shard.
@@ -156,6 +161,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixRegisterInputCharging => 89,
             ProtocolFeature::PinReceiptFees => 89,
             ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
+            ProtocolFeature::ReadDataDependencyKeysBeforeWrite => 89,
             ProtocolFeature::ExternalContractCalls => 89,
             ProtocolFeature::SkipForeignShardTransactions => 89,
             ProtocolFeature::RejectBlockChallenges => 89,
