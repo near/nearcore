@@ -314,8 +314,8 @@ impl SpiceDataManager {
         }
     }
 
-    /// Tracks `ids`, which the chunk executor needs to apply a block, if this node lost track of
-    /// them, and pulls them at once: each comes from a certified chunk.
+    /// Tracks `ids`, which the chunk executor needs to apply a block, if they are not tracked, as
+    /// after a restart, and pulls them at once: each comes from a certified chunk.
     pub(crate) fn request_receipt_proofs(
         &mut self,
         ids: Vec<ReceiptProofId>,
@@ -331,8 +331,8 @@ impl SpiceDataManager {
     }
 
     fn track_requested(&mut self, id: &DataId) -> Result<(), Error> {
-        // A tracked item is pulled by the usual rules; only one this node lost track of, as to a
-        // restart, is tracked again.
+        // A tracked item, as of a block a caught-up shard applies below the final execution head,
+        // keeps its state and is pulled by the usual rules.
         if self.items.contains_key(id) || self.done_items.contains(id) || self.is_done(id) {
             return Ok(());
         }
