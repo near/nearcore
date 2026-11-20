@@ -236,7 +236,9 @@ impl TrieUpdate {
             return;
         }
         if let Some(recorder) = &self.trie.recorder {
-            recorder.record_queue_push(size as usize);
+            recorder.record_queue_push(
+                usize::try_from(size).expect("queue push charge must fit in usize"),
+            );
         }
     }
 

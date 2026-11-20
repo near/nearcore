@@ -38,7 +38,7 @@ pub enum Parameter {
     PerReceiptStorageProofSizeLimit,
     /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
     NewTransactionsValidationStateSizeSoftLimit,
-    /// Storage proof size charged in advance for each push to a receipt queue.
+    /// Storage proof size charged in advance for each push to an outgoing buffer or the yield timeout queue.
     QueuePushStorageProofSize,
     /// Maximum size of transactions contained inside ChunkStateWitness.
     /// A witness contains transactions from both the previous chunk and the current one.

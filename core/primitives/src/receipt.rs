@@ -127,8 +127,8 @@ pub struct StateStoredReceiptMetadata {
 
 impl StateStoredReceiptMetadata {
     /// Computes the metadata of a receipt that is about to be stored in a
-    /// state queue, the same way the runtime does when it delays or buffers
-    /// the receipt.
+    /// state queue from its own size. Unlike the runtime, it does not apply
+    /// `min_receipt_congestion_size` to the size.
     pub fn compute(
         receipt: &Receipt,
         config: &RuntimeConfig,

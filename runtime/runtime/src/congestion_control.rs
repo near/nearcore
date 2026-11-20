@@ -756,7 +756,8 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         let size = receipt_congestion_size(receipt, config)?;
         // No queue push charge: a receipt is pushed here only after the chunk reached its compute
         // or storage proof limit, so the charge could not change what the chunk runs.
-        // `min_receipt_congestion_size` bounds these pushes.
+        // `min_receipt_congestion_size` bounds the incoming receipts pushed here, and the chunk's
+        // transactions bound the local ones.
 
         // TODO It would be great to have this method take owned Receipt and
         // get rid of the Cow from the Receipt and StateStoredReceipt.

@@ -43,7 +43,7 @@ max_external_calls_per_chunk: { old: 0, new: 100 }
 # read, and the queue index is little-endian, so each push into a long queue records a full trie
 # path, after the soft limit is checked. Each receipt counts at least 1_000 bytes for bandwidth and
 # congestion, which bounds the receipts a shard receives per height, and so the pushes after its
-# limits. Each push is charged 2_000 bytes in advance, an upper bound on its path, so the soft
-# limit stops a chunk before the next receipt.
+# limits. Each push to an outgoing buffer or the yield timeout queue is charged 2_000 bytes in
+# advance, an upper bound on its path, so the soft limit stops a chunk before the next receipt.
 min_receipt_congestion_size: { old: 0, new: 1_000 }
 queue_push_storage_proof_size: { old: 0, new: 2_000 }
