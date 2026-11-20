@@ -233,7 +233,7 @@ fn verify_block_stats(
             for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);
             }
-            for shard_stats in aggregator.shard_tracker.values() {
+            for shard_stats in aggregator.chunk_production.values() {
                 for key in shard_stats.keys().copied() {
                     assert!(key < epoch_info.validators_iter().len() as u64);
                 }
@@ -245,22 +245,22 @@ fn verify_block_stats(
             assert_eq!(sum_produced, blocks_in_epoch);
             assert_eq!(sum_expected, blocks_in_epoch_expected);
             // TODO: The following sophisticated check doesn't do anything. The
-            // shard tracker is empty because the chunk mask in all block infos
+            // chunk production map is empty because the chunk mask in all block infos
             // is empty.
-            for &shard_id in aggregator.shard_tracker.keys() {
+            for &shard_id in aggregator.chunk_production.keys() {
                 let sum_produced = aggregator
-                    .shard_tracker
+                    .chunk_production
                     .get(&shard_id)
                     .unwrap()
                     .values()
-                    .map(|value| value.produced())
+                    .map(|value| value.produced)
                     .sum::<u64>();
                 let sum_expected = aggregator
-                    .shard_tracker
+                    .chunk_production
                     .get(&shard_id)
                     .unwrap()
                     .values()
-                    .map(|value| value.expected())
+                    .map(|value| value.expected)
                     .sum::<u64>();
                 assert_eq!(sum_produced, blocks_in_epoch);
                 assert_eq!(sum_expected, blocks_in_epoch_expected);
