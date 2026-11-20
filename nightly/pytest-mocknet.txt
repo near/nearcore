@@ -3,3 +3,4 @@
 
 # SshSharingMachine against the python-rc it depends on (no ssh connections).
 pytest --skip-build mocknet/test_mocknet_ssh.py
+pytest --skip-build mocknet/test_neard_runner_startup.py
