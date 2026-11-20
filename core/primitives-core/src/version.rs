@@ -166,6 +166,7 @@ impl ProtocolFeature {
             ProtocolFeature::ExternalContractCalls => 89,
             ProtocolFeature::SkipForeignShardTransactions => 89,
             ProtocolFeature::RejectBlockChallenges => 89,
+            ProtocolFeature::ChargeAllTrieNodesAsTouched => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -174,7 +175,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             ProtocolFeature::ContractCompilationStatus => 158,
-            ProtocolFeature::ChargeAllTrieNodesAsTouched => 159,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,
