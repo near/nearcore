@@ -322,7 +322,7 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         block_inside_messages.lock().push(msg);
     });
     loop {
-        client.run_catchup(&block_catch_up, None, &noop().into_sender())?;
+        client.run_catchup(&block_catch_up, &noop().into_sender())?;
         let mut catchup_done = true;
         for msg in block_messages.lock().drain(..) {
             let results = do_apply_chunks_sequential(

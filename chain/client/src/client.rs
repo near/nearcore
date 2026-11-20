@@ -2561,7 +2561,6 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         catchup_finished_sender: &Sender<CatchupFinished>,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
