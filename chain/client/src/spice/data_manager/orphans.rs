@@ -58,10 +58,10 @@ impl SpiceDataManager {
             return Ok(PartsOutcome::NotWanted);
         }
         let header = self.chain_store.get_block_header_if_exists(id.block_hash());
-        if header
-            .as_ref()
-            .is_some_and(|header| self.heights.at_or_below_final_execution(header.height()))
-        {
+        // An expiry that cannot be read leaves the parts parked for the block's trigger to decide.
+        if header.as_ref().is_some_and(|header| {
+            self.expiry(&id).is_ok_and(|expiry| self.is_expired(expiry, header.height()))
+        }) {
             return Ok(PartsOutcome::NotWanted);
         }
         let block_epochs = match &header {

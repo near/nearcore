@@ -3598,11 +3598,16 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(witness_blocks.contains(next_block.hash()));
     assert!(!proof_blocks.contains(fork_block.hash()));
 
-    // The canonical block's proof expires once the head of the shard it goes to passes it.
+    // The canonical block's proof goes to a shard this node tracks this epoch, so it expires once
+    // the final execution head passes its height, whatever the head of that shard.
     actor.handle(SpiceShardFinalExecutionHead {
         shard_id: to_shard_id,
         height: head.header().height(),
     });
+    assert!(actor.is_tracking(&proof_id(&next_block)));
+    save_final_execution_head(&chain, &head);
+    actor.handle(ProcessedBlock { block_hash: *head.hash() });
+    fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));
 }
 

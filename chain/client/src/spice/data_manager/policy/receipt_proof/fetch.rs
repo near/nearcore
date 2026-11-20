@@ -35,8 +35,10 @@ fn needed_shards(
         .filter(|&shard_id| {
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             !applied_itself.contains(&shard_id)
-                || (chunk_store.get_chunk_extra(block.hash(), &shard_uid).is_ok()
-                    && chunk_store.get_chunk_extra(block.prev_hash(), &shard_uid).is_err())
+                || (chunk_store.get_chunk_extra_if_exists(block.hash(), &shard_uid).is_some()
+                    && chunk_store
+                        .get_chunk_extra_if_exists(block.prev_hash(), &shard_uid)
+                        .is_none())
         })
         .collect();
     // The proof feeds applying the destination shard in the next block. `block` is a

@@ -423,6 +423,8 @@ impl Handler<SpiceShardFinalExecutionHead> for SpiceDataDistributorActor {
     }
 }
 
+// TODO(spice-data-distribution): a block that fails to be tracked again is not retried. The chunk
+// executor declaring the proofs it misses at each failed apply replaces this message.
 impl Handler<SpiceTrackBlockData> for SpiceDataDistributorActor {
     fn handle(&mut self, SpiceTrackBlockData { block_hashes }: SpiceTrackBlockData) {
         if let Err(err) = self.track_block_data_again(&block_hashes) {
