@@ -911,7 +911,8 @@ impl TestEnv {
 }
 
 /// The state root of `shard_uid` at `block`: the one its chunk applies onto. A spice chunk header
-/// carries none, so under spice it is the one the block's execution left behind.
+/// carries none, so under spice it is the one the block's execution left behind, and `block` must
+/// already be executed.
 pub(crate) fn state_root_at(client: &Client, block: &Block, shard_uid: ShardUId) -> StateRoot {
     if block.header().is_spice() {
         *client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap().state_root()
