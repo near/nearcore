@@ -14,6 +14,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::chunk_executor_actor::ChunkExecutorSenderForClient;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -153,7 +154,7 @@ pub struct StartClientResult {
 }
 
 pub struct SpiceClientConfig {
-    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub chunk_executor_sender: ChunkExecutorSenderForClient,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
     pub spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -342,7 +343,7 @@ pub struct ClientActor {
 
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
-    chunk_executor_sender: Sender<ProcessedBlock>,
+    chunk_executor_sender: ChunkExecutorSenderForClient,
 
     /// With spice spice chunk validator validates witnesses for which it
     /// needs to be aware of new blocks.
@@ -432,7 +433,7 @@ impl ClientActor {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
-        chunk_executor_sender: Sender<ProcessedBlock>,
+        chunk_executor_sender: ChunkExecutorSenderForClient,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
         spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -1866,7 +1867,10 @@ impl ClientActor {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
-            if let Err(err) = self.client.run_catchup(&self.sync_jobs_sender.block_catch_up) {
+            if let Err(err) = self.client.run_catchup(
+                &self.sync_jobs_sender.block_catch_up,
+                &self.chunk_executor_sender.catchup_finished,
+            ) {
                 tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
             }
         }

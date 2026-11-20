@@ -1,5 +1,5 @@
 use crate::spice::chunk_executor_actor::{
-    ChunkExecutorActor, is_descendant_of_final_execution_head,
+    CatchupFinished, ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::chunk_executor_actor::{
@@ -884,6 +884,41 @@ fn test_not_applying_forks_past_final_execution_head() {
     actors[0].run_internal_events();
 
     assert!(!block_executed(&actors[0], &fork_block));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_dropping_a_parked_fork_once_the_final_execution_head_passes_it() {
+    const NUM_SHARDS: usize = 2;
+    const NODE: usize = 0;
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(NUM_SHARDS, outgoing_sc);
+    let genesis = actors[NODE].chain.genesis_block();
+    let fork_block = produce_block(&mut actors, &genesis);
+    let fork_child = produce_block(&mut actors, &fork_block);
+    let shard_id = tracked_shard(&actors[NODE], &fork_block);
+    for block in [&fork_block, &fork_child] {
+        actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+    assert!(actors[NODE].actor.parked_blocks(shard_id).contains(fork_child.hash()));
+
+    let mut prev_block = genesis;
+    while actors[NODE].actor.chain_store.spice_final_execution_head().unwrap().height
+        < fork_child.header().height()
+    {
+        let block = produce_block(&mut actors, &prev_block);
+        for actor in &mut actors {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        }
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        record_endorsements(&mut actors, &block);
+        prev_block = block;
+    }
+
+    assert!(
+        !actors[NODE].actor.parked_blocks(shard_id).contains(fork_child.hash()),
+        "Once the final execution head of the canonical chain passes it, the fork block should be dropped"
+    );
 }
 
 #[test]
@@ -2383,7 +2418,6 @@ struct CatchUpTest {
     sync_block: Arc<Block>,
     blocks_up_to_head: Vec<Arc<Block>>,
     blocks_after_head: Vec<Arc<Block>>,
-    next_epoch_first_block: Arc<Block>,
     outgoing_rc: UnboundedReceiver<OutgoingMessage>,
 }
 
@@ -2485,7 +2519,6 @@ impl CatchUpTest {
             sync_block: sync_block.clone(),
             blocks_up_to_head: blocks_up_to_head.to_vec(),
             blocks_after_head: blocks_after_head.to_vec(),
-            next_epoch_first_block,
             outgoing_rc,
         }
     }
@@ -2524,36 +2557,32 @@ impl CatchUpTest {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
-    // The shard's catchup finished.
+fn test_parking_again_the_blocks_of_a_caught_up_shard_on_startup() {
+    // The shard's catchup finished, and the node restarted in the next epoch.
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
 
-    // The restarted node processes the next epoch's first block.
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    // The node starts.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
-    // The blocks up to the final execution head are parked again, the ones after it are not.
+    // The blocks up to the final execution head are parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
     for block in &catch_up.blocks_up_to_head {
         assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
-    }
-    for block in &catch_up.blocks_after_head {
-        assert!(!parked.contains(block.hash()), "parked at height {}", block.header().height());
     }
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
-    // The shard's catchup finished, and the restarted node processes the next epoch's first block,
-    // which parks again the blocks up to the final execution head.
+    // The shard's catchup finished, and the node restarted in the next epoch.
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+
+    // The node starts, which parks again the blocks up to the final execution head.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
     // The data distributor is asked, in one message, to track the data of each parked block's parent,
     // whose receipts the block applies.
@@ -2571,39 +2600,13 @@ fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_parking_again_the_blocks_after_the_current_epochs_sync_block() {
-    // The shard's catchup finished before the epoch's end.
-    let mut catch_up = CatchUpTest::setup();
-    catch_up.finish_catchup();
-
-    // Restarted after the catchup finished, the node processes the blocks after the final execution
-    // head.
-    for block in &catch_up.blocks_after_head {
-        catch_up
-            .test_actor
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-    }
-
-    // The blocks up to the final execution head are parked again.
-    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
-    for block in &catch_up.blocks_up_to_head {
-        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
-    }
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_parking_again_the_blocks_of_a_shard_still_being_caught_up() {
     // The shard's catchup is still running.
     let mut catch_up = CatchUpTest::setup();
 
-    // Restarted before the catchup finishes, the node processes the blocks after the final
-    // execution head.
-    for block in &catch_up.blocks_after_head {
-        catch_up
-            .test_actor
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-    }
+    // The node starts.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
     // The blocks up to the final execution head are not parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
@@ -2624,13 +2627,30 @@ fn test_parking_again_the_blocks_of_a_shard_once_its_catchup_finishes() {
             .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     }
 
-    // The catchup finishes, and the node processes the next epoch's first block.
+    // The catchup finishes.
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The blocks up to the final execution head are parked again.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_keeping_parked_canonical_blocks_below_the_final_execution_head() {
+    // The shard's catchup is still running, and the node processes the blocks up to the final
+    // execution head, which wait for it.
+    let mut catch_up = CatchUpTest::setup();
+    for block in &catch_up.blocks_up_to_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    // They stay parked: they are on the canonical chain.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
     for block in &catch_up.blocks_up_to_head {
         assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
@@ -2672,6 +2692,24 @@ fn test_executing_a_shard_once_its_catchup_finishes() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_block_parked_during_the_catchup_once_it_finishes() {
+    // The node processed the block after the sync block while the shard's catchup was running, and
+    // has what the block needs to apply the shard.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    // The catchup finishes.
+    catch_up.finish_catchup();
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
+
+    // The shard is applied at the block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
     // The node, which tracks no shard in the catch-up epoch, postprocessed the blocks after the
     // final execution head as it processed them.
@@ -2701,7 +2739,7 @@ fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
 fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
     // The shard's catchup is still running, and a block below the sync block, which the shard never
     // applies, is still parked, as after a restart that changed the tracked shards. The node has
-    // processed the sync block, which waits behind it.
+    // processed the sync block.
     let mut catch_up = CatchUpTest::setup();
     let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
     let stale_block = catch_up
@@ -2714,11 +2752,43 @@ fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
         .test_actor
         .handle_with_internal_events(ProcessedBlock { block_hash: *catch_up.sync_block.hash() });
 
-    // The catchup finishes, and the node processes the next epoch's first block.
+    // The catchup finishes.
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
+
+    // The shard is applied at the block after the sync block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_shard_caught_up_before_the_final_execution_head_passes_its_sync_block() {
+    // Restarted early in the epoch with changed tracked shards, the node has a block below the sync
+    // block parked, which the shard never applies, and its final execution head is below that
+    // block. While the shard's catchup ran, the node processed the sync block and the block after
+    // it.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    let chain = &catch_up.test_actor.chain;
+    let stale_block = chain.get_block_header(catch_up.sync_block.header().prev_hash()).unwrap();
+    let final_execution_head = chain.get_block_header(stale_block.prev_hash()).unwrap();
+    let mut store_update = chain.chain_store.store().store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(&final_execution_head));
+    store_update.commit();
+    catch_up.test_actor.actor.park_block(catch_up.shard_uid, &stale_block);
+    for block_hash in [*catch_up.sync_block.hash(), *block.hash()] {
+        catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash });
+    }
+
+    // The catchup finishes before the final execution head passes the sync block.
+    catch_up.finish_catchup();
+    let final_execution_head =
+        catch_up.test_actor.actor.chain_store.spice_final_execution_head().unwrap();
+    assert!(final_execution_head.height <= catch_up.sync_block.header().height());
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The shard is applied at the block after the sync block.
     let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
