@@ -1222,7 +1222,7 @@ fn get_trie(store: TrieStoreAdapter, hash: CryptoHash, shard_id: u32, shard_vers
     let shard_uid = ShardUId { version: shard_version, shard_id };
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
-    let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true, None);
+    let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true);
     Trie::new(Arc::new(trie_storage), hash, None)
 }
 

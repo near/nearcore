@@ -222,7 +222,7 @@ mod trie_storage_tests {
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
         let key = hash(&value);
         assert_eq!(trie_cache.get(&key), None);
 
@@ -243,7 +243,6 @@ mod trie_storage_tests {
             TrieCache::new(&TrieConfig::default(), shard_uid, false),
             shard_uid,
             false,
-            None,
         );
         let value = vec![1u8];
         let key = hash(&value);

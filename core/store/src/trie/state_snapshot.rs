@@ -216,8 +216,7 @@ impl ShardTries {
         let cache = self
             .get_trie_cache_for(shard_uid, true)
             .expect("trie cache should be enabled for view calls");
-        let storage =
-            Arc::new(TrieCachingStorage::new(data.store.clone(), cache, shard_uid, true, None));
+        let storage = Arc::new(TrieCachingStorage::new(data.store.clone(), cache, shard_uid, true));
         let flat_storage_chunk_view = data.flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         let snapshot_trie = Trie::new(storage, *state_root, flat_storage_chunk_view);

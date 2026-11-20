@@ -10,8 +10,8 @@ trie node cache hits. It will NOT give you time measurements, use Grafana to
 observe those.
 
 The main use cases in the past were to estimate the performance of new storage
-features (prefetcher, flat state) and to find out why specific contracts produce
-slow receipts.
+features such as flat state and to find out why specific contracts produce slow
+receipts.
 
 ## Setup
 
@@ -114,9 +114,9 @@ apply_transactions shard_id=3
       process_transaction tx_hash=C4itKVLP5gBoAPsEXyEbi67Gg5dvQVugdMjrWBBLprzB shard_cache_hit=57
         GET FlatState "AGxlb25hcmRvX2RheS12aW5jaGlrLm5lYXI=" size=36
         GET FlatState "Amxlb25hcmRvX2RheS12aW5jaGlrLm5lYXICANLByB1merOzxcGB1HI9/L60QvONzOE6ovF3hjYUbhA8" size=36
-      process_transaction tx_hash=GRSXC4QCBJHN4hmJiATAbFGt9g5PiksQDNNRaSk666WX shard_cache_miss=3 prefetch_pending=3 shard_cache_hit=35
+      process_transaction tx_hash=GRSXC4QCBJHN4hmJiATAbFGt9g5PiksQDNNRaSk666WX shard_cache_miss=3 shard_cache_hit=35
         GET FlatState "AnJlbGF5LmF1cm9yYQIA5iq407bcLgisCKxQQi47TByaFNe9FOgQg5y2gpU4lEM=" size=36
-      process_transaction tx_hash=6bDPeat12pGqA3KEyyg4tJ35kBtRCuFQ7HtCpWoxr8qx shard_cache_miss=2 prefetch_pending=1 shard_cache_hit=21 prefetch_hit=1
+      process_transaction tx_hash=6bDPeat12pGqA3KEyyg4tJ35kBtRCuFQ7HtCpWoxr8qx shard_cache_miss=2 shard_cache_hit=21
         GET FlatState "AnJlbGF5LmF1cm9yYQIAyKT1vEHVesMEvbp2ICA33x6zxfmBJiLzHey0ZxauO1k=" size=36
       process_receipt receipt_id=GRB3skohuShBvdGAoEoR3SdJJw7MwCxxscJHKLdPoYUC predecessor=1663adeba849fb7c26195678e1c5378278e5caa6325d4672246821d8e61bb160 receiver=token.sweat id=GRB3skohuShBvdGAoEoR3SdJJw7MwCxxscJHKLdPoYUC shard_cache_too_large=1 shard_cache_miss=1 shard_cache_hit=38
         GET FlatState "AXRva2VuLnN3ZWF0" size=36
@@ -164,8 +164,8 @@ apply_transactions shard_id=3
   process_state_update 
     apply num_transactions=3 shard_cache_hit=207
       process_transaction tx_hash=C4itKVLP5gBoAPsEXyEbi67Gg5dvQVugdMjrWBBLprzB shard_cache_hit=57
-      process_transaction tx_hash=GRSXC4QCBJHN4hmJiATAbFGt9g5PiksQDNNRaSk666WX shard_cache_miss=3 prefetch_pending=3 shard_cache_hit=35
-      process_transaction tx_hash=6bDPeat12pGqA3KEyyg4tJ35kBtRCuFQ7HtCpWoxr8qx shard_cache_miss=2 prefetch_pending=1 shard_cache_hit=21 prefetch_hit=1
+      process_transaction tx_hash=GRSXC4QCBJHN4hmJiATAbFGt9g5PiksQDNNRaSk666WX shard_cache_miss=3 shard_cache_hit=35
+      process_transaction tx_hash=6bDPeat12pGqA3KEyyg4tJ35kBtRCuFQ7HtCpWoxr8qx shard_cache_miss=2 shard_cache_hit=21
       process_receipt receipt_id=GRB3skohuShBvdGAoEoR3SdJJw7MwCxxscJHKLdPoYUC predecessor=1663adeba849fb7c26195678e1c5378278e5caa6325d4672246821d8e61bb160 receiver=token.sweat id=GRB3skohuShBvdGAoEoR3SdJJw7MwCxxscJHKLdPoYUC shard_cache_too_large=1 shard_cache_miss=1 shard_cache_hit=38
 ```
 
@@ -179,9 +179,7 @@ this chunk, and one already existing action receipt getting processed.
 
 Cache hit statistics for each level are also displayed. For example, the first
 transaction has 57 read requests and all of them hit in the shard cache. For
-the second transaction, we miss the cache 3 times but the values were already in the
-process of being prefetched. This would be account data which we fetch in
-parallel for all transactions in the chunk.
+the second transaction, three reads miss the cache and fall back to storage.
 
 Finally, there are several `process_receipt` groups, although the excerpt was
 cut to display only one. Here we see the receiving account
@@ -239,8 +237,7 @@ Afterwards, a value with 16 bytes (a `u128`) is fetched from the trie state.
 To serve this, it required reading 30 trie nodes, 19 of them were cached in the
 accounting cache and were not charged the full gas cost. And the remaining 11
 missed the accounting cache but they hit the shard cache. Nothing needed to be
-fetched from DB because the Sweatcoin specific prefetcher has already loaded
-everything into the shard cache.
+fetched from DB for those reads.
 
 *Note: We see trie node requests despite flat state being used. This is because
 the trace was collected with a binary that performed a read on both the trie and

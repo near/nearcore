@@ -7,7 +7,6 @@ pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
 pub use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::split::{FindSplitError, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
@@ -56,7 +55,6 @@ pub mod mem;
 mod nibble_slice;
 pub mod ops;
 pub mod outgoing_metadata;
-mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
 mod shard_tries;
@@ -753,10 +751,6 @@ impl Trie {
 
     pub fn has_flat_storage_chunk_view(&self) -> bool {
         self.flat_storage_chunk_view.is_some()
-    }
-
-    pub fn internal_get_storage_as_caching_storage(&self) -> Option<&TrieCachingStorage> {
-        self.storage.as_caching_storage()
     }
 
     #[cfg(feature = "test_features")]

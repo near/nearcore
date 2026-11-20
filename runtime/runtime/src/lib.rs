@@ -15,7 +15,6 @@ pub use crate::external_call::{
     dry_run_external_call, dry_run_external_call_with_output, process_external_call,
 };
 use crate::function_call::action_function_call;
-use crate::prefetch::TriePrefetcher;
 pub use crate::types::SignedValidPeriodTransactions;
 use crate::verifier::{
     StorageStakingError, check_storage_stake, validate_receipt, validate_transaction_envelope,
@@ -132,7 +131,6 @@ mod function_call;
 mod global_contracts;
 pub mod metrics;
 mod pipelining;
-mod prefetch;
 pub mod receipt_manager;
 mod receipt_runtime_configs;
 pub mod state_viewer;
@@ -2046,11 +2044,6 @@ impl Runtime {
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
         processing_state.stats.is_new_chunk = apply_state.is_new_chunk;
 
-        if let Some(prefetcher) = &mut processing_state.prefetcher {
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_transactions_data(&signed_txs);
-        }
-
         // Step 1: update validator accounts.
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
@@ -2221,7 +2214,7 @@ impl Runtime {
             },
             || {
                 // Use a faster hash builder and more shards to shorten time spent in
-                // these shared maps when many rayon workers prefetch signer data.
+                // these shared maps when many rayon workers load signer data.
                 let accounts = dashmap::DashMap::with_capacity_and_hasher_and_shard_amount(
                     num_transactions,
                     AHashRandomState::new(),
@@ -2266,7 +2259,7 @@ impl Runtime {
                         access_keys.entry((signer_id, pubkey)).or_insert_with(|| {
                             get_access_key(&processing_state.state_update, signer_id, pubkey)
                         });
-                        // For gas key transactions, also prefetch the nonce
+                        // For gas key transactions, also load the nonce
                         if let Some(nonce_index) = tx.transaction.nonce().nonce_index() {
                             gas_key_nonces.entry((signer_id, pubkey, nonce_index)).or_insert_with(
                                 || {
@@ -2335,8 +2328,7 @@ impl Runtime {
                     }
                 };
 
-            let mut account =
-                accounts.get_mut(signer_id).expect("accounts should've been prefetched");
+            let mut account = accounts.get_mut(signer_id).expect("accounts should've been loaded");
             let account = match &mut *account {
                 Ok(Some(a)) => a,
                 Ok(None) => {
@@ -2354,7 +2346,7 @@ impl Runtime {
 
             let mut access_key = access_keys
                 .get_mut(&(signer_id, pubkey))
-                .expect("access keys should've been prefetched");
+                .expect("access keys should've been loaded");
             let mut access_key = match &mut *access_key {
                 Ok(Some(ak)) => Some(ak),
                 // A self-signed state init is the only transaction that may have
@@ -2384,7 +2376,7 @@ impl Runtime {
             let gas_key_nonce = |nonce_index| {
                 gas_key_nonces
                     .get(&(signer_id, pubkey, nonce_index))
-                    .expect("gas key nonces should've been prefetched")
+                    .expect("gas key nonces should've been loaded")
                     .clone()
             };
 
@@ -2629,14 +2621,8 @@ impl Runtime {
         let local_receipt_count = processing_state.local_receipts.len();
         let local_receipts = std::mem::take(&mut processing_state.local_receipts);
         processing_state.outcomes.reserve(local_receipt_count);
-        if let Some(prefetcher) = &mut processing_state.prefetcher {
-            // Prefetcher is allowed to fail
-            let (front, back) = local_receipts.as_slices();
-            _ = prefetcher.prefetch_receipts_data(front);
-            _ = prefetcher.prefetch_receipts_data(back);
-        }
-
         let mut prep_lookahead_iter = local_receipts.iter().map(IteratedReceipt::ForThisShard);
+
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
         // receipt in advance.
         let mut next_schedule_after = schedule_contract_preparation(
@@ -2753,11 +2739,6 @@ impl Runtime {
                 }
             }
 
-            if let Some(prefetcher) = &mut processing_state.prefetcher {
-                // Prefetcher is allowed to fail
-                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
-            }
-
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
             validate_receipt(
                 &processing_state.apply_state.config.wasm_config.limit_config,
@@ -2809,11 +2790,6 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         let incoming_processing_start = std::time::Instant::now();
         let protocol_version = processing_state.protocol_version;
-        if let Some(prefetcher) = &mut processing_state.prefetcher {
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&processing_state.incoming_receipts);
-        }
-
         let mut prep_lookahead_iter =
             processing_state.incoming_receipts.iter().map(IteratedReceipt::ForThisShard);
         // Advance the preparation by one step (stagger it) so that we're preparing one interesting
@@ -2996,7 +2972,6 @@ impl Runtime {
             mut stats,
             mut state_update,
             delayed_receipts: pending_delayed_receipts,
-            prefetcher,
             processed_receipts,
             receipt_to_tx,
             external_calls,
@@ -3088,21 +3063,6 @@ impl Runtime {
             let nodes = NewTrieNodes::from_changes(&trie_changes);
             // Nobody receives them if the job that wanted them is gone.
             let _ = sender.send(PostStateNodes { state_root: trie_changes.new_root, nodes });
-        }
-
-        if let Some(prefetcher) = &prefetcher {
-            // Only clear the prefetcher queue after finalize is done because as part of receipt
-            // processing we also prefetch account data and access keys that are accessed in
-            // finalize. This data can take a very long time otherwise if not prefetched.
-            //
-            // (This probably results in more data being accessed than strictly necessary and
-            // prefetcher may touch data that is no longer relevant as a result but...)
-            //
-            // In the future it may make sense to have prefetcher have a mode where it has two
-            // queues: one for data that is going to be required soon, and the other that it would
-            // only work when otherwise idle.
-            let discarded_prefetch_requests = prefetcher.clear();
-            tracing::debug!(target: "runtime", discarded_prefetch_requests);
         }
 
         // Dedup proposals from the same account.
@@ -3570,7 +3530,6 @@ struct ResolvePromiseYieldTimeoutsResult {
 struct ApplyProcessingState<'a> {
     protocol_version: ProtocolVersion,
     apply_state: &'a ApplyState,
-    prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
@@ -3584,7 +3543,6 @@ impl<'a> ApplyProcessingState<'a> {
         epoch_info_provider: &'a dyn EpochInfoProvider,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
-        let prefetcher = TriePrefetcher::new_if_enabled(&trie, &apply_state.config.wasm_config);
         let state_update = TrieUpdate::new(trie);
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
@@ -3595,15 +3553,7 @@ impl<'a> ApplyProcessingState<'a> {
             compute: 0,
         };
         let stats = ChunkApplyStatsV1::new(apply_state.block_height, apply_state.shard_id);
-        Self {
-            protocol_version,
-            apply_state,
-            prefetcher,
-            state_update,
-            epoch_info_provider,
-            total,
-            stats,
-        }
+        Self { protocol_version, apply_state, state_update, epoch_info_provider, total, stats }
     }
 
     fn into_processing_receipt_state(
@@ -3625,7 +3575,6 @@ impl<'a> ApplyProcessingState<'a> {
             pipeline_manager,
             protocol_version: self.protocol_version,
             apply_state: self.apply_state,
-            prefetcher: self.prefetcher,
             state_update: self.state_update,
             epoch_info_provider: self.epoch_info_provider,
             total: self.total,
@@ -3649,7 +3598,6 @@ impl<'a> ApplyProcessingState<'a> {
 struct ApplyProcessingReceiptState<'a> {
     protocol_version: ProtocolVersion,
     apply_state: &'a ApplyState,
-    prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     total: TotalResourceGuard,
