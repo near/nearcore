@@ -8,7 +8,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptSource;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
@@ -42,6 +42,7 @@ enum InvalidChunkCleanup {
 pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
+    StateSync,
 }
 
 impl fmt::Debug for GCMode {
@@ -49,6 +50,7 @@ impl fmt::Debug for GCMode {
         match self {
             GCMode::Fork(_) => write!(f, "GCMode::Fork"),
             GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
+            GCMode::StateSync => write!(f, "GCMode::StateSync"),
         }
     }
 }
@@ -527,10 +529,187 @@ impl ChainStore {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    fn indexed_heights(
+        &self,
+        col: DBCol,
+        first_height: BlockHeight,
+        end_height: BlockHeight,
+    ) -> Vec<BlockHeight> {
+        let mut heights = self
+            .store()
+            .iter_raw_bytes(col)
+            .filter_map(|(key, _)| {
+                let height = BlockHeight::from_le_bytes(key.get(..8)?.try_into().ok()?);
+                (first_height <= height && height < end_height).then_some(height)
+            })
+            .collect_vec();
+        heights.sort_unstable();
+        heights.dedup();
+        heights
+    }
+
+    /// First block of every epoch down to `first_height`, and the last three blocks of the
+    /// epoch before it.
+    ///
+    /// Also returns where the walk stopped early, e.g. at the epoch-synced epoch's start.
+    fn epoch_boundary_hashes(
+        &self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        tail_header: &BlockHeader,
+        first_height: BlockHeight,
+    ) -> (HashSet<CryptoHash>, Option<BlockHeight>) {
+        let mut boundary_hashes = HashSet::new();
+        let mut block_hash = *tail_header.hash();
+        let mut lowest_epoch_start = tail_header.height();
+        loop {
+            let Ok(block_info) = epoch_manager.get_block_info(&block_hash) else {
+                return (boundary_hashes, Some(lowest_epoch_start));
+            };
+            if block_info.is_genesis() {
+                return (boundary_hashes, None);
+            }
+            let first_hash = *block_info.epoch_first_block();
+            boundary_hashes.insert(first_hash);
+            // Epoch sync does not store the first block of the epoch before the synced one.
+            let Ok(first_header) = self.get_block_header(&first_hash) else {
+                return (boundary_hashes, Some(lowest_epoch_start));
+            };
+            if first_header.height() <= first_height {
+                return (boundary_hashes, None);
+            }
+            lowest_epoch_start = first_header.height();
+            let last_hash = *first_header.prev_hash();
+            let mut hash = last_hash;
+            // The proof reads the last three blocks of each epoch.
+            for _ in 0..3 {
+                boundary_hashes.insert(hash);
+                let Ok(header) = self.get_block_header(&hash) else { break };
+                hash = *header.prev_hash();
+            }
+            block_hash = last_hash;
+        }
+    }
+
+    /// Clears indexed data below the tails selected after state sync.
+    pub(crate) fn clear_data_before_state_sync_tail_update(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        tail_hash: CryptoHash,
+        new_chunk_tail: BlockHeight,
+    ) -> Result<(), Error> {
+        let tail_header = self.get_block_header(&tail_hash)?;
+        self.clear_blocks_below_state_sync_tail(epoch_manager, tail_header.height())?;
+        self.clear_chunks_below_state_sync_chunk_tail(new_chunk_tail)?;
+        self.clear_headers_below_state_sync_tail(epoch_manager, &tail_header, new_chunk_tail)
+    }
+
+    /// Clears block bodies and their derived data, but not header data.
+    fn clear_blocks_below_state_sync_tail(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        new_tail: BlockHeight,
+    ) -> Result<(), Error> {
+        let first_height = self.tail().max(self.get_genesis_height().saturating_add(1));
+        for height in self.indexed_heights(DBCol::BlockPerHeight, first_height, new_tail) {
+            let block_hashes = self
+                .chain_store()
+                .get_all_block_hashes_by_height(height)
+                .values()
+                .flatten()
+                .copied()
+                .collect_vec();
+            for block_hash in block_hashes {
+                self.clear_block_data(epoch_manager, block_hash, GCMode::StateSync)?;
+            }
+
+            let key = index_to_bytes(height);
+            let mut store_update = self.store().store_update();
+            store_update.delete(DBCol::BlockPerHeight, &key);
+            self.merge(store_update);
+            if self.is_height_processed(height) {
+                self.gc_col(DBCol::ProcessedBlockHeights, &key);
+            }
+        }
+        Ok(())
+    }
+
+    fn clear_chunks_below_state_sync_chunk_tail(
+        &mut self,
+        new_chunk_tail: BlockHeight,
+    ) -> Result<(), Error> {
+        let first_height = self.chunk_tail();
+        let chunk_heights =
+            self.indexed_heights(DBCol::ChunkHashesByHeight, first_height, new_chunk_tail);
+        #[cfg(feature = "protocol_feature_spice")]
+        let chunk_heights = {
+            let mut chunk_heights = chunk_heights;
+            chunk_heights.extend(self.indexed_heights(
+                DBCol::spice_invalid_chunks(),
+                first_height,
+                new_chunk_tail,
+            ));
+            chunk_heights.sort_unstable();
+            chunk_heights.dedup();
+            chunk_heights
+        };
+        for height in chunk_heights {
+            self.clear_chunk_data_at_height(height)?;
+        }
+        Ok(())
+    }
+
+    /// Clears header data below the tail. Keeps all of it in the transaction validity window,
+    /// the tail's epoch and above an epoch sync point, plus epoch boundary headers and the
+    /// first post-sync anchors' `ChunkProducers`.
+    fn clear_headers_below_state_sync_tail(
+        &mut self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        tail_header: &BlockHeader,
+        new_chunk_tail: BlockHeight,
+    ) -> Result<(), Error> {
+        let genesis_height = self.get_genesis_height();
+        let first_height = self.tail().min(self.chunk_tail());
+        let new_tail = tail_header.height();
+
+        // After a restart, the epoch info aggregator may walk the whole tail's epoch.
+        let tail_epoch_start = epoch_manager.get_epoch_start_height(tail_header.hash())?;
+        let (boundary_hashes, walk_stopped_at) =
+            self.epoch_boundary_hashes(epoch_manager, tail_header, first_height);
+        // Above where the walk stopped, canonical GC collects the data later.
+        let keep_from = new_tail
+            .saturating_sub(self.chain_store().transaction_validity_period)
+            .min(tail_epoch_start)
+            .min(walk_stopped_at.unwrap_or(BlockHeight::MAX));
+        let mut anchor_hashes = HashSet::from([*tail_header.prev_hash()]);
+        if let Ok(parent_header) = self.get_block_header(tail_header.prev_hash()) {
+            anchor_hashes.insert(*parent_header.prev_hash());
+        }
+
+        for height in self.indexed_heights(DBCol::HeaderHashesByHeight, first_height, new_tail) {
+            if genesis_height < height && height < keep_from {
+                for hash in self.chain_store().get_all_header_hashes_by_height(height) {
+                    if !anchor_hashes.contains(&hash) {
+                        self.gc_chunk_producers_for_block(&hash);
+                    }
+                    if !boundary_hashes.contains(&hash) {
+                        self.gc_col(DBCol::BlockHeader, hash.as_bytes());
+                        self.gc_col(DBCol::BlockInfo, hash.as_bytes());
+                    }
+                }
+            }
+            // Canonical GC removes the index from the new chunk tail up.
+            if height < new_chunk_tail {
+                self.gc_col(DBCol::HeaderHashesByHeight, &index_to_bytes(height));
+            }
+        }
+        Ok(())
+    }
+
     /// GC every ChunkProducers row anchored at `block_hash`. Rows are keyed by
     /// (block_hash, shard_id), so the hash prefixes all shards' rows. Callers delete alongside
     /// the block's `BlockInfo`, except the `clear_chunk_data_and_headers` sweep, which uses it
-    /// for header-only hashes that never got a body (their `BlockInfo` persists).
+    /// for header-only hashes that never got a body (their `BlockInfo` persists), and the state
+    /// sync cleanup.
     fn gc_chunk_producers_for_block(&mut self, block_hash: &CryptoHash) {
         let cp_keys: Vec<Box<[u8]>> = self
             .store()
@@ -745,15 +924,9 @@ impl<'a> ChainStoreUpdate<'a> {
             let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
             self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
         }
-        // ChunkProducers is keyed by ShardId, not ShardUId; the get_shard_uids_to_gc union can
-        // hold two UIDs sharing one ShardId at a reshard boundary, which would enqueue the same
-        // delete twice. Prefix-scan by block hash deletes each row once, next-layout rows too.
-        self.gc_chunk_producers_for_block(&block_hash);
-
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
         if cfg!(feature = "protocol_feature_spice") {
             self.gc_col(DBCol::all_next_block_hashes(), block_hash.as_bytes());
         }
@@ -770,13 +943,22 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
         self.gc_outcomes(&block);
-        self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
         self.gc_spice_core_data(&block_hash, &shard_layout);
 
-        // 4. Update or delete block_hash_per_height
-        self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
+        // 4. Delete header data and update or delete block_hash_per_height. The state sync
+        // cleanup does this itself.
+        if !matches!(&gc_mode, GCMode::StateSync) {
+            // ChunkProducers is keyed by ShardId, not ShardUId; the get_shard_uids_to_gc union can
+            // hold two UIDs sharing one ShardId at a reshard boundary, which would enqueue the
+            // same delete twice. Prefix-scan by block hash deletes each row once, next-layout rows
+            // too.
+            self.gc_chunk_producers_for_block(&block_hash);
+            self.gc_col(DBCol::BlockHeader, block_hash.as_bytes());
+            self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
+            self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
+        }
 
         match gc_mode {
             GCMode::Fork(_) => {
@@ -794,6 +976,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 self.clear_chunk_data_and_headers(min_chunk_height)?;
             }
+            GCMode::StateSync => {}
         };
         self.merge(store_update.into());
         Ok(())
@@ -931,6 +1114,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     // If the block is on canonical chain, we delete the state that's before applying this block
                     tries.apply_deletions(&trie_changes, shard_uid, store_update);
                 }
+                GCMode::StateSync => {}
             }
 
             self.gc_col(DBCol::TrieChanges, &trie_changes_key);
@@ -1346,5 +1530,25 @@ mod tests {
         let store = chain.chain_store().store();
         assert!(chain.chain_store().chunk_tail() > height, "gc did not pass the height");
         assert!(!store.exists(DBCol::spice_invalid_chunks(), &key), "hot gc kept evidence");
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+    fn state_sync_tail_update_deletes_invalid_chunk_evidence() {
+        let mut chain = get_chain(Clock::real());
+        let epoch_manager = chain.epoch_manager.clone();
+        let tail_hash = *chain.get_block_by_height(chain.tail()).unwrap().hash();
+        let height = chain.chain_store().chunk_tail();
+        let key = plant_invalid_chunk(&chain, height);
+
+        let mut update = chain.mut_chain_store().store_update();
+        update
+            .clear_data_before_state_sync_tail_update(epoch_manager.as_ref(), tail_hash, height + 1)
+            .unwrap();
+        update.update_chunk_tail(height + 1);
+        update.commit().unwrap();
+
+        let store = chain.chain_store().store();
+        assert!(!store.exists(DBCol::spice_invalid_chunks(), &key));
     }
 }
