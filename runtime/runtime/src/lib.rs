@@ -1589,10 +1589,21 @@ impl Runtime {
             ..
         } = *processing_state;
         let account_id = receipt.receiver_id();
+        let read_keys_before_write = ProtocolFeature::ReadDataDependencyKeysBeforeWrite
+            .enabled(apply_state.current_protocol_version);
         match receipt.versioned_receipt() {
             VersionedReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
+                if read_keys_before_write {
+                    read_key_before_write(
+                        state_update,
+                        &TrieKey::ReceivedData {
+                            receiver_id: account_id.clone(),
+                            data_id: data_receipt.data_id,
+                        },
+                    )?;
+                }
                 set_received_data(
                     state_update,
                     account_id.clone(),
@@ -1710,6 +1721,12 @@ impl Runtime {
                         action_receipt.input_data_ids().len()
                     )));
                 };
+                if read_keys_before_write {
+                    read_key_before_write(
+                        state_update,
+                        &TrieKey::PromiseYieldReceipt { receiver_id: account_id.clone(), data_id },
+                    )?;
+                }
                 set_promise_yield_receipt(state_update, receipt, data_id);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
@@ -1748,6 +1765,15 @@ impl Runtime {
                     }
 
                     // Save the data into the state keyed by the data_id
+                    if read_keys_before_write {
+                        read_key_before_write(
+                            state_update,
+                            &TrieKey::ReceivedData {
+                                receiver_id: account_id.clone(),
+                                data_id: data_receipt.data_id,
+                            },
+                        )?;
+                    }
                     set_received_data(
                         state_update,
                         account_id.clone(),
@@ -1818,20 +1844,22 @@ impl Runtime {
         receipt_to_tx: &mut Vec<(CryptoHash, ReceiptToTxInfo)>,
         executed_receipt_ids: &mut HashSet<CryptoHash>,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let read_keys_before_write = ProtocolFeature::ReadDataDependencyKeysBeforeWrite
+            .enabled(apply_state.current_protocol_version);
         let mut pending_data_count: u32 = 0;
         for data_id in action_receipt.input_data_ids() {
             if !has_received_data(state_update, account_id, *data_id)? {
                 pending_data_count += 1;
                 // The data for a given data_id is not available, so we save a link to this
                 // receipt_id for the pending data_id into the state.
-                set(
-                    state_update,
-                    TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: *data_id,
-                    },
-                    receipt.receipt_id(),
-                )
+                let key = TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: *data_id,
+                };
+                if read_keys_before_write {
+                    read_key_before_write(state_update, &key)?;
+                }
+                set(state_update, key, receipt.receipt_id());
             }
         }
 
@@ -1856,14 +1884,19 @@ impl Runtime {
         } else {
             // Not all input data is available now.
             // Save the counter for the number of pending input data items into the state.
-            set(
-                state_update,
-                TrieKey::PendingDataCount {
-                    receiver_id: account_id.clone(),
-                    receipt_id: *receipt.receipt_id(),
-                },
-                &pending_data_count,
-            );
+            let count_key = TrieKey::PendingDataCount {
+                receiver_id: account_id.clone(),
+                receipt_id: *receipt.receipt_id(),
+            };
+            let receipt_key = TrieKey::PostponedReceipt {
+                receiver_id: account_id.clone(),
+                receipt_id: *receipt.receipt_id(),
+            };
+            if read_keys_before_write {
+                read_key_before_write(state_update, &count_key)?;
+                read_key_before_write(state_update, &receipt_key)?;
+            }
+            set(state_update, count_key, &pending_data_count);
             // Save the receipt itself into the state.
             set_postponed_receipt(state_update, receipt);
         }
@@ -3178,6 +3211,14 @@ impl ApplyState {
         let computed = result?;
         Ok(computed)
     }
+}
+
+/// Reads `key` before a write of it. A write records no trie nodes until the state update
+/// is finalized, after the storage proof limits are checked. The read records the nodes
+/// that the write needs now, so the limits count them.
+fn read_key_before_write(state_update: &TrieUpdate, key: &TrieKey) -> Result<(), StorageError> {
+    state_update.contains_key(key, AccessOptions::DEFAULT)?;
+    Ok(())
 }
 
 /// Finds the transactions that apply skips with no outcome. A repeat of an earlier transaction in
