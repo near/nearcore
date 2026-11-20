@@ -12044,37 +12044,28 @@ fn test_ecc_accepted_with_deep_storage_path() {
 /// every receipt they produce goes to the outgoing buffer. Records the reads with the given soft
 /// limit and charges `queue_push_charge` bytes for each push. Returns the apply result.
 fn apply_buffered_delegate_actions(n: u64, soft_limit: u64, queue_push_charge: u64) -> ApplyResult {
-    let version = 3;
-    let accounts = vec![alice_account(), bob_account()];
-    let shard_layout = ShardLayout::multi_shard_custom(accounts.clone(), version);
+    let shard_layout = ShardLayout::multi_shard_custom(vec![alice_account(), bob_account()], 3);
     let local_shard = shard_layout.account_id_to_shard_id(&alice_account());
-    let local_shard_uid = ShardUId::new(version, local_shard);
     let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());
-    let accounts_with_keys = accounts
-        .into_iter()
-        .map(|account| {
-            let signer = Arc::new(InMemorySigner::test_signer(&account));
-            (account, vec![signer])
-        })
-        .collect::<Vec<_>>();
+    let shard_uid = ShardUId::new(3, local_shard);
+    let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&alice_account()));
     let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
-        accounts_with_keys,
+        vec![(alice_account(), vec![signer])],
         Balance::from_near(1_000_000),
-        Balance::from_near(500_000),
+        Balance::ZERO,
         Gas::from_teragas(1000),
-        local_shard_uid,
+        shard_uid,
         &shard_layout,
     );
-    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
     apply_state.shard_id = local_shard;
-    // The receiver shard is fully congested and allows only itself, so nothing is forwarded.
-    let max_congestion_incoming_gas =
-        apply_state.config.congestion_control_config.max_congestion_incoming_gas;
-    let receiver_congestion =
-        &mut apply_state.congestion_info.get_mut(&receiver_shard).unwrap().congestion_info;
-    receiver_congestion.add_delayed_receipt_gas(max_congestion_incoming_gas).unwrap();
-    receiver_congestion.set_allowed_shard(receiver_shard.into());
     apply_state.congestion_info.insert(local_shard, Default::default());
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    // The receiver shard is fully congested and allows only itself, so nothing is forwarded.
+    let max_gas = apply_state.config.congestion_control_config.max_congestion_incoming_gas;
+    let receiver =
+        &mut apply_state.congestion_info.get_mut(&receiver_shard).unwrap().congestion_info;
+    receiver.add_delayed_receipt_gas(max_gas).unwrap();
+    receiver.set_allowed_shard(receiver_shard.into());
 
     let mut runtime_config = apply_state.config.as_ref().clone();
     runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit;
@@ -12084,7 +12075,7 @@ fn apply_buffered_delegate_actions(n: u64, soft_limit: u64, queue_push_charge: u
     runtime
         .apply(
             tries
-                .get_trie_for_shard(local_shard_uid, root)
+                .get_trie_for_shard(shard_uid, root)
                 .recording_reads_with_proof_size_limit(soft_limit),
             &None,
             &apply_state,
@@ -12121,4 +12112,71 @@ fn test_queue_push_charge_stops_chunk_earlier() {
     // Check: the chunk stops before the receipt after the one that crosses the limit, so the
     // charged pushes of the receipts it ran fit under the limit with one receipt's slack.
     assert!((ran_with_charge - 1) * QUEUE_PUSH_CHARGE <= SOFT_LIMIT);
+}
+
+#[test]
+fn test_queue_push_charge_for_yield_timeouts() {
+    // Setup: each receipt calls a method that creates one yield, which pushes one entry to the
+    // yield timeout queue.
+    const N: usize = 200;
+    const SOFT_LIMIT: u64 = 300_000;
+    const QUEUE_PUSH_CHARGE: u64 = 2_000;
+    let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(
+        vec![alice_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    set_config(&mut apply_state, Arc::new(RuntimeConfig::free()));
+    let root = deploy_rs_contract(
+        &runtime,
+        &tries,
+        root,
+        &apply_state,
+        signers[0].clone(),
+        &epoch_info_provider,
+    );
+    let receipts = (0..N)
+        .map(|i| {
+            create_receipt_with_actions(
+                alice_account(),
+                signers[0].clone(),
+                vec![Action::function_call(
+                    "call_yield_create_return_data_id",
+                    vec![i as u8; 16],
+                    Gas::from_teragas(10),
+                )],
+            )
+        })
+        .collect_vec();
+    let receipts_run = |apply_state: &mut ApplyState, queue_push_charge: u64| {
+        let mut config = RuntimeConfig::free();
+        config.witness_config.main_storage_proof_size_soft_limit = SOFT_LIMIT;
+        config.witness_config.queue_push_storage_proof_size = queue_push_charge;
+        apply_state.config = Arc::new(config);
+        let apply_result = runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(SOFT_LIMIT),
+                &None,
+                apply_state,
+                &receipts,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        N as u64 - apply_result.delayed_receipts_count
+    };
+
+    let ran_without_charge = receipts_run(&mut apply_state, 0);
+    let ran_with_charge = receipts_run(&mut apply_state, QUEUE_PUSH_CHARGE);
+
+    // Check: with the charge each yield's timeout push counts toward the soft limit, so the
+    // chunk runs fewer receipts.
+    assert!(
+        0 < ran_with_charge && ran_with_charge < ran_without_charge,
+        "ran {ran_with_charge} receipts with the charge, {ran_without_charge} without"
+    );
 }
