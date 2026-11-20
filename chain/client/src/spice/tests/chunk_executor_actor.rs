@@ -628,7 +628,7 @@ fn test_reporting_the_shard_final_execution_head_to_the_data_distributor() {
     let mut reported_heights = Vec::new();
     for block in &blocks {
         actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        while let Ok(Some(message)) = outgoing_rc.try_next() {
+        while let Ok(message) = outgoing_rc.try_recv() {
             if let OutgoingMessage::SpiceShardFinalExecutionHead(head) = &message {
                 assert_eq!(head.shard_id, ShardId::new(0));
                 reported_heights.push(head.height);
@@ -1175,7 +1175,7 @@ fn test_reporting_the_head_of_a_shard_the_node_stops_applying() {
     let mut block = first_block.clone();
     for _ in 0..4 {
         actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        while let Ok(Some(message)) = outgoing_rc.try_next() {
+        while let Ok(message) = outgoing_rc.try_recv() {
             let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message else {
                 continue;
             };
@@ -1212,7 +1212,7 @@ fn test_reporting_a_shard_whose_executor_a_fork_block_evicted() {
     let mut block = first_block.clone();
     for _ in 0..=2 * FINALITY_LAG {
         actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        while let Ok(Some(message)) = outgoing_rc.try_next() {
+        while let Ok(message) = outgoing_rc.try_recv() {
             let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message else {
                 continue;
             };
@@ -1284,7 +1284,7 @@ fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() 
     actor.run_internal_events();
 
     let mut reports = Vec::new();
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
+    while let Ok(message) = outgoing_rc.try_recv() {
         if let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message {
             reports.push((head.shard_id, head.height));
         }
@@ -2558,7 +2558,7 @@ fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
     // The data distributor is asked, in one message, to track the data of each parked block's parent,
     // whose receipts the block applies.
     let mut requests = Vec::new();
-    while let Ok(Some(message)) = catch_up.outgoing_rc.try_next() {
+    while let Ok(message) = catch_up.outgoing_rc.try_recv() {
         if let OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData { block_hashes }) = message
         {
             requests.push(block_hashes);
