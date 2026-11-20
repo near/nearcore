@@ -1,4 +1,4 @@
-use super::item::{CodedTracker, CommitmentState, Expiry, FetchItem, PartInsertResult};
+use super::item::{CodedTracker, CommitmentState, FetchItem, PartInsertResult};
 use super::*;
 use crate::spice::chunk_executor_actor::{save_receipt_proof, save_witness_and_contract_accesses};
 use assert_matches::assert_matches;
@@ -135,13 +135,7 @@ fn producer(index: usize) -> AccountId {
 /// An item whose producers are `producer(0)` to `producer(count - 1)`.
 fn item_with_producers(count: usize) -> FetchItem {
     let producers = (0..count).map(producer).collect();
-    FetchItem::new(
-        1,
-        EpochId::default(),
-        EpochId::default(),
-        producers,
-        Expiry::AtFinalExecutionHead,
-    )
+    FetchItem::new(1, EpochId::default(), EpochId::default(), producers)
 }
 
 /// Inserts the first `DATA_PARTS` of `parts`, one from each of `senders`, and returns the
@@ -379,17 +373,6 @@ fn test_server(chain: &Chain) -> SpiceDataServer {
 fn requested_item(id: &DataId, ordinals: BTreeSet<u64>) -> RequestedItem {
     let wants = [(SpiceDataIdentifier::from(id), ordinals)].into();
     CheckedDataRequest::new(wants).expect("the request is within the limits").into_items().remove(0)
-}
-
-/// A shard tracker for a node that tracks `shards` in the epochs of even height and no shard in
-/// the others. The genesis epoch and the one after it have height 1, the third epoch height 2.
-fn even_epoch_shard_tracker(chain: &Chain, shards: &[u64]) -> ShardTracker {
-    let schedule = vec![shards.iter().copied().map(ShardId::new).collect(), vec![]];
-    ShardTracker::new(
-        TrackedShardsConfig::Schedule(schedule),
-        chain.epoch_manager.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
-    )
 }
 
 /// A shard tracker for a node that applies `shard`.

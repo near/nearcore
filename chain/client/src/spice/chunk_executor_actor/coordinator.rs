@@ -7,7 +7,7 @@ use super::per_shard::{
     is_descendant_of_final_execution_head,
 };
 use crate::spice::data_distributor_actor::{
-    SpiceDataDistributorAdapter, SpiceShardFinalExecutionHead, SpiceTrackBlockData,
+    NeedChange, SpiceDataDistributorAdapter, SpiceReceiptProofNeeds,
 };
 use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
@@ -35,7 +35,7 @@ use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
-use near_primitives::types::{BlockHeight, NumBlocks, ShardId, SpiceChunkId};
+use near_primitives::types::{NumBlocks, ShardId, SpiceChunkId};
 use near_store::ShardUId;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
@@ -70,11 +70,6 @@ pub struct ChunkExecutorActor {
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
     /// Each owns its own network-receipt buffer (no coordinator-side receipt state).
     per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
-    /// The shards whose executor was evicted, with the height and hash of the block that evicted
-    /// it, until that block is final, see [`Self::report_stopped_shards`]. Not persisted: startup
-    /// replays the blocks from the final execution head, so a shard the data distributor tracks
-    /// proofs into again gets its executor back, and the block that stopped it evicts it again.
-    stopped_shards: HashMap<ShardUId, (BlockHeight, CryptoHash)>,
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
@@ -144,7 +139,6 @@ impl ChunkExecutorActor {
             apply_chunks_spawner,
             myself_sender,
             per_shard_executors: HashMap::new(),
-            stopped_shards: HashMap::new(),
             validator_signer,
             core_reader,
             data_distributor_adapter,
@@ -251,8 +245,8 @@ impl ChunkExecutorActor {
     /// a shard rotating in next epoch must keep executing through the boundary
     /// so it can endorse, otherwise certification stalls at the rotation.
     /// Eviction is immediate; the apply-done handler's graceful-drop guard covers
-    /// any in-flight apply that lands after eviction. An evicted shard is reported to the data
-    /// distributor once the block that evicted it is final, see [`Self::report_stopped_shards`].
+    /// any in-flight apply that lands after eviction. The data distributor is told at once that the
+    /// receipts into an evicted shard are no longer needed.
     fn reconcile_tracked_shards(&mut self, block: &Block) -> Result<(), Error> {
         let tracked =
             self.shard_tracker.tracked_shard_uids_this_or_next_epoch(block.header().prev_hash())?;
@@ -268,34 +262,40 @@ impl ChunkExecutorActor {
             .collect();
         for shard_uid in evicted {
             self.per_shard_executors.remove(&shard_uid);
-            self.stopped_shards.insert(shard_uid, (block.header().height(), *block.hash()));
+            self.data_distributor_adapter.send(SpiceReceiptProofNeeds {
+                to_shard: shard_uid.shard_id(),
+                change: NeedChange::NoLongerNeeded,
+            });
         }
         Ok(())
     }
 
-    /// Reports the block that evicted a shard's executor as the shard's final execution head, once
-    /// that block is final and canonical: the node applies the shard at no block from there on. A
-    /// fork block gives its place to `block`, the one being processed, if that one does not apply
-    /// the shard either.
-    fn report_stopped_shards(&mut self, block: &Block) -> Result<(), Error> {
-        let final_height = self.chain_store.final_head()?.height;
-        self.stopped_shards.retain(|shard_uid, stopped_at| {
-            let (height, hash) = *stopped_at;
-            if height > final_height {
-                return true;
+    /// Tells the data distributor which receipt proofs the executors found missing, leaving out
+    /// those from a block an executor of the source shard holds: applying it saves them.
+    fn declare_missing_receipt_proofs(&mut self) {
+        let mut missing = Vec::new();
+        for executor in self.per_shard_executors.values_mut() {
+            let proofs = executor.take_missing_receipt_proofs();
+            if !proofs.is_empty() {
+                missing.push((executor.shard_uid().shard_id(), proofs));
             }
-            if is_canonical(&self.chain_store, height, &hash) {
+        }
+        for (to_shard, proofs) in missing {
+            let sources: Vec<SpiceChunkId> = proofs
+                .into_iter()
+                .filter(|(height, source)| {
+                    !self.per_shard_executors.values().any(|executor| {
+                        executor.shard_uid().shard_id() == source.shard_id
+                            && executor.holds(*height, &source.block_hash)
+                    })
+                })
+                .map(|(_, source)| source)
+                .collect();
+            if !sources.is_empty() {
                 self.data_distributor_adapter
-                    .send(SpiceShardFinalExecutionHead { shard_id: shard_uid.shard_id(), height });
-                return false;
+                    .send(SpiceReceiptProofNeeds { to_shard, change: NeedChange::Needed(sources) });
             }
-            if self.per_shard_executors.contains_key(shard_uid) {
-                return false;
-            }
-            *stopped_at = (block.header().height(), *block.hash());
-            true
-        });
-        Ok(())
+        }
     }
 
     /// Route a processed block: reconcile the tracked-shard set, hand the block to
@@ -320,9 +320,6 @@ impl ChunkExecutorActor {
         // restart or an executor eviction, needs it.
         if let Err(err) = self.replay_caught_up_shards(block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
-        }
-        if let Err(err) = self.report_stopped_shards(&block) {
-            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to report the shards this node stopped applying");
         }
         // A node tracking zero shards schedules no applies, so the apply-done
         // postprocess trigger never fires; postprocess the block here instead.
@@ -400,7 +397,6 @@ impl ChunkExecutorActor {
             // would hold back the blocks after it.
             executor.parked_blocks.drop_up_to_height(sync_header.height());
             let mut block_hash = sync_hash;
-            let mut parents = Vec::new();
             while block_hash != final_execution_head.last_block_hash {
                 let Ok(next) = self.chain_store.get_next_block_hash(&block_hash) else {
                     break;
@@ -413,11 +409,7 @@ impl ChunkExecutorActor {
                 }
 
                 executor.park_block(&header);
-                parents.push(*header.prev_hash());
                 block_hash = next;
-            }
-            if !parents.is_empty() {
-                self.data_distributor_adapter.send(SpiceTrackBlockData { block_hashes: parents });
             }
 
             executor.replayed_after_sync_block = Some(sync_hash);
@@ -753,6 +745,7 @@ impl near_async::messaging::Actor for ChunkExecutorActor {
                 "failed when trying to process all ready blocks on startup",
             );
         }
+        self.declare_missing_receipt_proofs();
     }
 }
 
@@ -783,6 +776,7 @@ impl Handler<ExecutorIncomingUnverifiedReceipts> for ChunkExecutorActor {
         if let Err(err) = executor.handle_incoming_receipt(block_hash, receipt_proof) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling incoming receipt");
         }
+        self.declare_missing_receipt_proofs();
     }
 }
 
@@ -793,6 +787,7 @@ impl Handler<ProcessedBlock> for ChunkExecutorActor {
         if let Err(err) = self.handle_processed_block(&block_hash) {
             tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed to process block");
         }
+        self.declare_missing_receipt_proofs();
     }
 }
 
@@ -805,6 +800,7 @@ impl Handler<ExecutionResultEndorsed> for ChunkExecutorActor {
                 tracing::error!(target: "chunk_executor", ?err, ?block_hash, "failed while handling execution result endorsed");
             }
         }
+        self.declare_missing_receipt_proofs();
     }
 }
 
@@ -816,5 +812,6 @@ impl Handler<ExecutorApplyChunksDone> for ChunkExecutorActor {
         if let Err(err) = self.coordinator_post_apply(&block_hash, shard_uid, &outgoing_proofs) {
             tracing::error!(target:"chunk_executor", ?err, ?block_hash, "failed to handle apply chunks done");
         }
+        self.declare_missing_receipt_proofs();
     }
 }

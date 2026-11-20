@@ -9,7 +9,7 @@ use near_primitives::reed_solomon::{
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -32,15 +32,6 @@ pub(super) struct ItemProducer {
     pub(super) commitment: Option<SpiceDataCommitment>,
 }
 
-/// What makes an item that is never done stop being needed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Expiry {
-    /// The final execution head passing the item's height.
-    AtFinalExecutionHead,
-    /// The final execution head of this shard, which the item goes to, passing the item's height.
-    AtShardFinalExecutionHead(ShardId),
-}
-
 /// An item produced by others and fetched by us.
 pub(crate) struct FetchItem {
     /// Height of the item's block.
@@ -53,7 +44,6 @@ pub(crate) struct FetchItem {
     pub(super) producers: Vec<ItemProducer>,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-    pub(super) expiry: Expiry,
 }
 
 #[derive(Debug)]
@@ -70,13 +60,12 @@ impl FetchItem {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         producers: Vec<AccountId>,
-        expiry: Expiry,
     ) -> Self {
         let producers = producers
             .into_iter()
             .map(|account_id| ItemProducer { account_id, commitment: None })
             .collect();
-        Self { height, epoch_id, next_epoch_id, producers, commitments: HashMap::new(), expiry }
+        Self { height, epoch_id, next_epoch_id, producers, commitments: HashMap::new() }
     }
 
     /// Each commitment still collecting parts, with the producers bound to it and its tracker.

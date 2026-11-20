@@ -1,4 +1,5 @@
 use super::item::FetchItem;
+use super::items::Items;
 use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, remove_indexed};
 use near_async::time::{Duration, Instant};
 use near_primitives::types::{AccountId, BlockHeight};
@@ -87,11 +88,7 @@ impl Pulls {
     /// The requests to issue at `now`, grouped by producer.
     /// Traverses the pullable items of the `pulled_heights` lowest heights, looked up in `items`.
     /// Records every request it returns as created at `now`.
-    pub(super) fn to_issue(
-        &mut self,
-        now: Instant,
-        items: &HashMap<DataId, FetchItem>,
-    ) -> Vec<PullRequest> {
+    pub(super) fn to_issue(&mut self, now: Instant, items: &Items) -> Vec<PullRequest> {
         let trigger = Trigger::new(now, self.config.request_timeout);
         let mut wants_by_producer: BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> =
             BTreeMap::new();

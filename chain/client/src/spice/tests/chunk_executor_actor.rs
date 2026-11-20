@@ -8,7 +8,7 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
-use crate::spice::data_distributor_actor::{SpiceShardFinalExecutionHead, SpiceTrackBlockData};
+use crate::spice::data_distributor_actor::{NeedChange, SpiceReceiptProofNeeds};
 use crate::spice::data_manager::ReceiptProofId;
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
@@ -63,7 +63,7 @@ use near_primitives::test_utils::{
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
+    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -119,8 +119,7 @@ enum OutgoingMessage {
     NetworkRequests(NetworkRequests),
     SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
-    SpiceShardFinalExecutionHead(SpiceShardFinalExecutionHead),
-    SpiceTrackBlockData(SpiceTrackBlockData),
+    SpiceReceiptProofNeeds(SpiceReceiptProofNeeds),
 }
 
 // We don't derive clone because it's desirable to not have clone for spice distributor message to
@@ -146,17 +145,8 @@ impl Clone for OutgoingMessage {
                 state_witness: state_witness.clone(),
                 contract_accesses: contract_accesses.clone(),
             }),
-            OutgoingMessage::SpiceShardFinalExecutionHead(SpiceShardFinalExecutionHead {
-                shard_id,
-                height,
-            }) => OutgoingMessage::SpiceShardFinalExecutionHead(SpiceShardFinalExecutionHead {
-                shard_id: *shard_id,
-                height: *height,
-            }),
-            OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData { block_hashes }) => {
-                OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData {
-                    block_hashes: block_hashes.clone(),
-                })
+            OutgoingMessage::SpiceReceiptProofNeeds(needs) => {
+                OutgoingMessage::SpiceReceiptProofNeeds(needs.clone())
             }
         }
     }
@@ -241,18 +231,10 @@ impl TestActor {
                         .unwrap();
                 }
             }),
-            shard_final_execution_head: Sender::from_fn({
-                let outgoing_sc = outgoing_sc.clone();
+            receipt_proof_needs: Sender::from_fn({
                 move |message| {
                     outgoing_sc
-                        .unbounded_send(OutgoingMessage::SpiceShardFinalExecutionHead(message))
-                        .unwrap();
-                }
-            }),
-            track_block_data: Sender::from_fn({
-                move |message| {
-                    outgoing_sc
-                        .unbounded_send(OutgoingMessage::SpiceTrackBlockData(message))
+                        .unbounded_send(OutgoingMessage::SpiceReceiptProofNeeds(message))
                         .unwrap();
                 }
             }),
@@ -431,8 +413,7 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
             }
         }
         OutgoingMessage::SpiceDistributorStateWitness(_)
-        | OutgoingMessage::SpiceShardFinalExecutionHead(_)
-        | OutgoingMessage::SpiceTrackBlockData(_) => {}
+        | OutgoingMessage::SpiceReceiptProofNeeds(_) => {}
     }
 }
 
@@ -618,9 +599,64 @@ fn test_executing_blocks() {
     }
 }
 
+/// The sources of the receipt proofs declared missing, from the messages not read yet.
+fn declared_missing(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec<SpiceChunkId> {
+    let mut declared = Vec::new();
+    while let Ok(Some(message)) = outgoing_rc.try_next() {
+        if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+            change: NeedChange::Needed(sources),
+            ..
+        }) = message
+        {
+            declared.extend(sources);
+        }
+    }
+    declared
+}
+
+/// Applying a block saves the receipt proofs it produces before the block stops being held, so a
+/// shard missing a proof from a block another shard of the node is applying waits for it.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_reporting_the_shard_final_execution_head_to_the_data_distributor() {
+fn test_a_missing_receipt_proof_from_a_block_another_executor_applies_is_not_declared() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let blocks = produce_n_blocks(&mut actors, 2);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    record_endorsements(&mut actors, &blocks[0]);
+    declared_missing(&mut outgoing_rc);
+    let node = &mut actors[1];
+    let shard_uids = node.actor.epoch_manager.shard_uids(blocks[0].header().epoch_id()).unwrap();
+    let (source_shard, waiting_shard) = (shard_uids[0], shard_uids[1]);
+
+    // Both shards apply the first block; only the waiting shard's application is done.
+    node.actor.handle(ProcessedBlock { block_hash: *blocks[0].hash() });
+    for task in node.drain_tasks() {
+        task();
+    }
+    let (source_done, waiting_done): (Vec<_>, Vec<_>) =
+        node.drain_events().into_iter().partition(|event| event.shard_uid == source_shard);
+    for event in waiting_done {
+        node.actor.handle(event);
+    }
+
+    // The second block misses the source shard's proof from the first, which that shard is
+    // applying.
+    node.actor.handle(ProcessedBlock { block_hash: *blocks[1].hash() });
+    assert!(!node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
+    assert_eq!(declared_missing(&mut outgoing_rc), vec![]);
+
+    // Once done, the source shard's proof is on disk and the second block is scheduled.
+    for event in source_done {
+        node.actor.handle(event);
+    }
+    assert!(node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
+    assert_eq!(declared_missing(&mut outgoing_rc), vec![]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_releasing_the_receipts_below_the_shard_final_execution_head() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(1, outgoing_sc);
     let genesis = actors[0].chain.genesis_block();
@@ -629,9 +665,13 @@ fn test_reporting_the_shard_final_execution_head_to_the_data_distributor() {
     for block in &blocks {
         actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
         while let Ok(Some(message)) = outgoing_rc.try_next() {
-            if let OutgoingMessage::SpiceShardFinalExecutionHead(head) = &message {
-                assert_eq!(head.shard_id, ShardId::new(0));
-                reported_heights.push(head.height);
+            if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+                to_shard,
+                change: NeedChange::NoLongerNeededBelow(height),
+            }) = &message
+            {
+                assert_eq!(*to_shard, ShardId::new(0));
+                reported_heights.push(*height);
             }
             simulate_single_outgoing_message(&mut actors, &message);
         }
@@ -639,7 +679,7 @@ fn test_reporting_the_shard_final_execution_head_to_the_data_distributor() {
     }
 
     // The head is the last final block of the last block the shard applied, two heights below it
-    // here, and each rise is reported once. The first block has no last final block.
+    // here, and each rise is released once. The first block has no last final block.
     let expected_heights =
         [&genesis, &blocks[0], &blocks[1], &blocks[2]].map(|block| block.header().height());
     assert_eq!(reported_heights, expected_heights);
@@ -1154,76 +1194,44 @@ fn test_a_receipt_buffered_below_the_shard_final_execution_head_is_dropped() {
     }
 }
 
+/// The shards whose receipts the executor released entirely, from the messages not read yet.
+fn released_shards(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec<ShardId> {
+    let mut released = Vec::new();
+    while let Ok(Some(message)) = outgoing_rc.try_next() {
+        if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+            to_shard,
+            change: NeedChange::NoLongerNeeded,
+        }) = message
+        {
+            released.push(to_shard);
+        }
+    }
+    released
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_reporting_the_head_of_a_shard_the_node_stops_applying() {
+fn test_releasing_at_once_the_receipts_into_a_shard_whose_executor_is_evicted() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(2, outgoing_sc);
     let genesis = actors[0].chain.genesis_block();
-    let first_block = produce_block(&mut actors, &genesis);
-    // An executor for a shard the node no longer tracks, as one it applied before.
-    let stopped_shard = untracked_shard_uid(&actors[0], &first_block);
-    actors[0].actor.park_block(stopped_shard, first_block.header());
-
-    let mut reports = Vec::new();
-    let mut block = first_block.clone();
-    for _ in 0..4 {
-        actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        while let Ok(Some(message)) = outgoing_rc.try_next() {
-            let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message else {
-                continue;
-            };
-            if head.shard_id == stopped_shard.shard_id() {
-                reports.push((block.header().height(), head.height));
-            }
-        }
-        block = produce_block(&mut actors, &block);
-    }
-
-    // The first block evicts the executor. It is final, and reported, once the block two heights
-    // above it is processed.
-    let first_height = first_block.header().height();
-    assert_eq!(reports, vec![(first_height + 2, first_height)]);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_reporting_a_shard_whose_executor_a_fork_block_evicted() {
-    const NUM_SHARDS: usize = 2;
-    const NODE: usize = 0;
-    const FINALITY_LAG: BlockHeight = 2;
-
-    let (outgoing_sc, mut outgoing_rc) = unbounded();
-    let mut actors = setup_with_shards(NUM_SHARDS, outgoing_sc);
-    let genesis = actors[NODE].chain.genesis_block();
-    let first_block = produce_block(&mut actors, &genesis);
     let fork_block = produce_block(&mut actors, &genesis);
-    let stopped_shard = untracked_shard_uid(&actors[NODE], &first_block);
-    actors[NODE].actor.park_block(stopped_shard, first_block.header());
+    // An executor for a shard the node no longer tracks, as one it applied before.
+    let stopped_shard = untracked_shard_uid(&actors[0], &fork_block);
+    actors[0].actor.park_block(stopped_shard, fork_block.header());
 
-    actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
-    let mut reports = Vec::new();
-    let mut block = first_block.clone();
-    for _ in 0..=2 * FINALITY_LAG {
-        actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        while let Ok(Some(message)) = outgoing_rc.try_next() {
-            let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message else {
-                continue;
-            };
-            if head.shard_id == stopped_shard.shard_id() {
-                reports.push((block.header().height(), head.height));
-            }
-        }
-        block = produce_block(&mut actors, &block);
-    }
+    // A fork block evicts it as well: nothing waits for the block to be final.
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
+    assert_eq!(released_shards(&mut outgoing_rc), vec![stopped_shard.shard_id()]);
 
-    let first_height = first_block.header().height();
-    assert_eq!(reports, vec![(first_height + 2 * FINALITY_LAG, first_height + FINALITY_LAG)]);
+    let block = produce_block(&mut actors, &genesis);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    assert_eq!(released_shards(&mut outgoing_rc), Vec::<ShardId>::new());
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() {
+fn test_releasing_after_a_restart_the_receipts_into_a_shard_the_node_stops_applying() {
     init_test_logger();
     let shard_layout = ShardLayout::multi_shard(2, 0);
     let shard_id = ShardId::new(1);
@@ -1277,13 +1285,7 @@ fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() 
     actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
     actor.run_internal_events();
 
-    let mut reports = Vec::new();
-    while let Ok(Some(message)) = outgoing_rc.try_next() {
-        if let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message {
-            reports.push((head.shard_id, head.height));
-        }
-    }
-    assert_eq!(reports, vec![(shard_id, stopping_height)]);
+    assert_eq!(released_shards(&mut outgoing_rc), vec![shard_id]);
 }
 
 /// The `ShardUId` of [`untracked_shard`].
@@ -2073,8 +2075,7 @@ impl BoundaryActor {
                 OutgoingMessage::NetworkRequests(request) => {
                     panic!("unexpected network request {request:?}")
                 }
-                OutgoingMessage::SpiceShardFinalExecutionHead(_)
-                | OutgoingMessage::SpiceTrackBlockData(_) => {}
+                OutgoingMessage::SpiceReceiptProofNeeds(_) => {}
             }
         }
         sends
@@ -2540,7 +2541,7 @@ fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
+fn test_declaring_the_receipts_from_the_sync_block_a_caught_up_shard_misses() {
     // The shard's catchup finished, and the restarted node processes the next epoch's first block,
     // which parks again the blocks up to the final execution head.
     let mut catch_up = CatchUpTest::setup();
@@ -2549,18 +2550,30 @@ fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
         block_hash: *catch_up.next_epoch_first_block.hash(),
     });
 
-    // The data distributor is asked, in one message, to track the data of each parked block's parent,
-    // whose receipts the block applies.
-    let mut requests = Vec::new();
+    // The block after the sync block misses every proof from the sync block: state sync wrote the
+    // shard's chunk extra there, and no executor applies the sync block.
+    let mut needs = Vec::new();
     while let Ok(Some(message)) = catch_up.outgoing_rc.try_next() {
-        if let OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData { block_hashes }) = message
+        if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+            to_shard,
+            change: NeedChange::Needed(sources),
+        }) = message
         {
-            requests.push(block_hashes);
+            needs.push((to_shard, sources));
         }
     }
-    let parents =
-        catch_up.blocks_up_to_head.iter().map(|block| *block.header().prev_hash()).collect_vec();
-    assert_eq!(requests, vec![parents]);
+    let sync_block = catch_up.sync_block.header();
+    let sources = catch_up
+        .test_actor
+        .actor
+        .epoch_manager
+        .shard_ids(sync_block.epoch_id())
+        .unwrap()
+        .into_iter()
+        .map(|shard_id| SpiceChunkId { block_hash: *sync_block.hash(), shard_id })
+        .sorted()
+        .collect_vec();
+    assert_eq!(needs, vec![(catch_up.shard_id, sources)]);
 }
 
 #[test]
