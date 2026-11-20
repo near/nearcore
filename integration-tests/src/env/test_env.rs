@@ -82,6 +82,9 @@ pub struct TestEnv {
     pub(crate) save_tx_outcomes: bool,
     pub(crate) save_receipt_to_tx: bool,
     pub(crate) protocol_version_check: ProtocolVersionCheckConfig,
+    // Must stay the last field: the home directories are removed after the
+    // clients and stores that use them are dropped.
+    pub(crate) home_dir_guards: Vec<tempfile::TempDir>,
 }
 
 pub struct StateWitnessPropagationOutput {
