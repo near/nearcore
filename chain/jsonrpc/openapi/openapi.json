@@ -4734,6 +4734,13 @@
             ],
             "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\nSee [`CongestionControlConfig`] for more details."
           },
+          "min_receipt_congestion_size": {
+            "default": 0,
+            "description": "The smallest size a receipt counts for bandwidth and congestion.\n\nSee [`CongestionControlConfig`] for more details.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "min_tx_gas": {
             "allOf": [
               {
