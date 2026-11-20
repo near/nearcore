@@ -358,15 +358,22 @@ pub(crate) fn map_records<P: AsRef<Path>>(
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
+    use super::map_receipt;
+    use crate::key_mapping::{default_extra_key, map_account, map_key};
+    use near_crypto::{KeyType, PublicKey, PublicKeyHandle, SecretKey};
     use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
-    use near_primitives::state_record::StateRecord;
+    use near_primitives::receipt::{
+        ActionReceipt, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion,
+        DataReceiver, Receipt, ReceiptEnum, ReceiptV0,
+    };
+    use near_primitives::state_record::{DelayedReceipt, StateRecord};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
     use near_primitives::types::{AccountId, Balance};
+    use near_primitives::utils::derive_near_implicit_account_id;
+    use near_primitives::version::ProtocolFeature;
     use near_primitives_core::account::AccessKey;
 
     #[test]
@@ -537,6 +544,157 @@ mod test {
         assert_eq!(receipt0, want_receipt0);
         crate::genesis::map_receipt(&mut receipt1, None, &default_key);
         assert_eq!(receipt1, want_receipt1);
+    }
+
+    /// Wraps an action receipt V3 in a receipt enum variant.
+    type WrapV3 = fn(ActionReceiptV3) -> ReceiptEnum;
+
+    /// The V3 action receipt variants: an action and a promise yield.
+    const WRAP_V3: [WrapV3; 2] = [ReceiptEnum::ActionV3, ReceiptEnum::PromiseYieldV3];
+
+    /// Every V3 variant, for a chain an access key signed and for one an ECC started.
+    fn cases_v3() -> impl Iterator<Item = (WrapV3, bool)> {
+        WRAP_V3.into_iter().flat_map(|wrap| [false, true].map(|ecc| (wrap, ecc)))
+    }
+
+    /// A public key made from `role`, so that every key of a receipt is different.
+    fn test_key(role: &str) -> PublicKey {
+        SecretKey::from_seed(KeyType::ED25519, role).public_key()
+    }
+
+    /// A NEAR-implicit account, which the remap changes (it leaves named accounts alone).
+    fn implicit_account(role: &str) -> AccountId {
+        derive_near_implicit_account_id(test_key(role).unwrap_as_ed25519())
+    }
+
+    /// A V3 receipt with an account in every place the remap must change. Its accounts and keys
+    /// are made by `account` and `key` from the role they play. The receipt of a chain an ECC
+    /// started has no key.
+    fn receipt_v3(
+        wrap: WrapV3,
+        ecc: bool,
+        account: impl Fn(&str) -> AccountId,
+        key: impl Fn(&str) -> PublicKey,
+    ) -> Receipt {
+        let authorization_context = if ecc {
+            AuthorizationContext::ExternalContractCall
+        } else {
+            AuthorizationContext::AccessKey(key("signer"))
+        };
+        let creation_protocol_version = ProtocolFeature::PinReceiptFees.protocol_version();
+        Receipt::V0(ReceiptV0 {
+            predecessor_id: account("predecessor"),
+            receiver_id: account("receiver"),
+            receipt_id: CryptoHash::default(),
+            receipt: wrap(ActionReceiptV3 {
+                signer_id: account("signer"),
+                refund_to: Some(account("refund")),
+                authorization_context,
+                gas_price: Balance::from_yoctonear(100),
+                creation_protocol_version: CreationProtocolVersion(creation_protocol_version),
+                output_data_receivers: vec![DataReceiver {
+                    data_id: CryptoHash::hash_bytes(b"data"),
+                    receiver_id: account("data_receiver"),
+                }],
+                input_data_ids: vec![CryptoHash::hash_bytes(b"input")],
+                actions: vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: key("added"),
+                        access_key: AccessKey::full_access(),
+                    })),
+                ],
+            }),
+        })
+    }
+
+    fn source_receipt_v3(wrap: WrapV3, ecc: bool) -> Receipt {
+        receipt_v3(wrap, ecc, implicit_account, test_key)
+    }
+
+    fn mapped_receipt_v3(wrap: WrapV3, ecc: bool) -> Receipt {
+        receipt_v3(
+            wrap,
+            ecc,
+            |role| map_account(&implicit_account(role), None),
+            |role| map_key(&test_key(role), None).public_key(),
+        )
+    }
+
+    fn actions_v3(receipt: &mut Receipt) -> &mut Vec<Action> {
+        match receipt.receipt_mut() {
+            ReceiptEnum::ActionV3(r) | ReceiptEnum::PromiseYieldV3(r) => &mut r.actions,
+            _ => panic!("not an action receipt v3"),
+        }
+    }
+
+    /// The receipts of a chain an access key signed are remapped, together with that key.
+    #[test]
+    fn test_map_receipt_v3_access_key() {
+        let default_key = default_extra_key(None).public_key();
+        for wrap in WRAP_V3 {
+            let mut receipt = source_receipt_v3(wrap, false);
+            let want = mapped_receipt_v3(wrap, false);
+            assert_ne!(receipt, want);
+            map_receipt(&mut receipt, None, &default_key);
+            assert_eq!(receipt, want);
+        }
+    }
+
+    /// The receipts of a chain an ECC started are remapped, and have no key to map.
+    #[test]
+    fn test_map_receipt_v3_ecc() {
+        let default_key = default_extra_key(None).public_key();
+        for wrap in WRAP_V3 {
+            let mut receipt = source_receipt_v3(wrap, true);
+            let want = mapped_receipt_v3(wrap, true);
+            assert_ne!(receipt, want);
+            map_receipt(&mut receipt, None, &default_key);
+            assert_eq!(receipt, want);
+        }
+    }
+
+    /// An account a receipt creates, with no full access key added, gets the default one.
+    #[test]
+    fn test_map_receipt_v3_create_account_gets_default_key() {
+        let default_key = default_extra_key(None).public_key();
+        let want = vec![
+            Action::CreateAccount(CreateAccountAction {}),
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: default_key.clone(),
+                access_key: AccessKey::full_access(),
+            })),
+        ];
+        for (wrap, ecc) in cases_v3() {
+            let mut receipt = source_receipt_v3(wrap, ecc);
+            actions_v3(&mut receipt).truncate(1);
+            map_receipt(&mut receipt, None, &default_key);
+            assert_eq!(*actions_v3(&mut receipt), want);
+        }
+    }
+
+    /// The receipts in the state, postponed and delayed, are remapped.
+    #[test]
+    fn test_map_records_receipts_v3() {
+        for (wrap, ecc) in cases_v3() {
+            let source = source_receipt_v3(wrap, ecc);
+            let want = mapped_receipt_v3(wrap, ecc);
+            let records = vec![
+                StateRecord::PostponedReceipt(Box::new(source.clone())),
+                StateRecord::DelayedReceipt(DelayedReceipt {
+                    index: None,
+                    receipt: Box::new(source),
+                }),
+            ];
+            let want_records = vec![
+                StateRecord::PostponedReceipt(Box::new(want.clone())),
+                StateRecord::DelayedReceipt(DelayedReceipt {
+                    index: None,
+                    receipt: Box::new(want),
+                }),
+            ];
+            assert_eq!(run_map_records(&records), want_records);
+        }
     }
 
     /// Write `records` as JSON, run `map_records(no_secret=true)`, return the output records.
