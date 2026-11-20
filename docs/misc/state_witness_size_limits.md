@@ -1,7 +1,7 @@
 ## State witness size limits
 
 Some limits were introduced to keep the size of `ChunkStateWitness` reasonable.
-`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under about 28.4 MiB, or about 28.9 MiB from protocol version 89 (see the total below).
+`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under about 28.4 MiB, or about 40.5 MiB from protocol version 89 (see the total below).
 
 There are two types of size limits:
 
@@ -45,7 +45,7 @@ The limits are:
 
 In total the maximum witness size is:
 
-* 4 MiB + 500 KiB + 20.6 MB + 4.5 MB ~= 28.4 MiB, from the limits above.
+* 4 MiB + 500 KiB + 20.6 MB + 4.5 MB ~= 28.4 MiB, from the limits above. This total leaves out receipt queue pushes, which protocol version 89 bounds and counts below.
 * From protocol version 89:
   * About 0.5 MB more from the higher `per_receipt_storage_proof_size_limit`.
   * About 9 MB more from the pushes of received receipts after the soft limit (4,500 pushes, each recording up to about 2,000 bytes).
