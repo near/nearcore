@@ -822,14 +822,9 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id_from_info(last_block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
 
-        let AggregatedEpochStats {
-            block_tracker: block_validator_tracker,
-            chunk_production: chunk_production_tracker,
-            chunk_endorsement: chunk_endorsement_tracker,
-            all_proposals,
-            version_tracker,
-            ..
-        } = aggregator;
+        let block_validator_tracker = aggregator.block_tracker();
+        let chunk_production_tracker = aggregator.chunk_production();
+        let chunk_endorsement_tracker = aggregator.chunk_endorsement();
         let mut proposals = vec![];
 
         let total_block_producer_stake: Balance = epoch_info
@@ -845,7 +840,7 @@ impl EpochManager {
         // Next protocol version calculation.
         // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
         let mut versions = HashMap::new();
-        for (validator_id, version) in &version_tracker {
+        for (validator_id, version) in aggregator.version_tracker() {
             let (validator_id, version) = (*validator_id, *version);
             let stake = epoch_info.validator_stake(validator_id);
             let version_entry = versions.entry(version).or_insert(Balance::ZERO);
@@ -886,7 +881,7 @@ impl EpochManager {
         let mut validator_kickout = HashMap::new();
 
         // Kickout validators voting for an old version.
-        for (validator_id, version) in version_tracker {
+        for (&validator_id, &version) in aggregator.version_tracker() {
             if version >= next_next_epoch_version {
                 continue;
             }
@@ -901,17 +896,17 @@ impl EpochManager {
         }
 
         // Kickout unstaked validators.
-        for (account_id, proposal) in all_proposals {
+        for (account_id, proposal) in aggregator.all_proposals() {
             if proposal.stake().is_zero()
                 && !next_epoch_info
                     .stake_change()
-                    .get(&account_id)
+                    .get(account_id)
                     .unwrap_or(&Balance::ZERO)
                     .is_zero()
             {
-                validator_kickout.insert(account_id, ValidatorKickoutReason::Unstaked);
+                validator_kickout.insert(account_id.clone(), ValidatorKickoutReason::Unstaked);
             }
-            proposals.push(proposal);
+            proposals.push(proposal.clone());
         }
 
         // The id of epoch T+1 is the hash of the last block of epoch T-1.
@@ -941,9 +936,9 @@ impl EpochManager {
         let (validator_block_chunk_stats, kickout) = Self::compute_validators_to_reward_and_kickout(
             &config,
             &epoch_info,
-            &block_validator_tracker,
-            &chunk_production_tracker,
-            &chunk_endorsement_tracker,
+            block_validator_tracker,
+            chunk_production_tracker,
+            chunk_endorsement_tracker,
             &spice_endorsement_tracker,
             prev_validator_kickout,
         );
@@ -1777,13 +1772,13 @@ impl EpochManager {
                     .map(|(validator_id, info)| {
                         let validator_id = validator_id as u64;
                         let block_stats = aggregator
-                            .block_tracker
+                            .block_tracker()
                             .get(&validator_id)
                             .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
                         let mut shards: Vec<(ShardId, &ValidatorStats)> = vec![];
-                        for (shard_id, tracker) in &aggregator.chunk_production {
+                        for (shard_id, tracker) in aggregator.chunk_production() {
                             if let Some(stats) = tracker.get(&validator_id) {
                                 shards.push((*shard_id, stats));
                             }
@@ -1800,7 +1795,7 @@ impl EpochManager {
                             produced_per_shard.push(stats.produced);
                             expected_per_shard.push(stats.expected);
                         }
-                        let endorsement_stats = aggregator.chunk_endorsement.get(&validator_id);
+                        let endorsement_stats = aggregator.chunk_endorsement().get(&validator_id);
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
@@ -1822,9 +1817,9 @@ impl EpochManager {
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
                 let all_proposals =
-                    aggregator.all_proposals.iter().map(|(_, p)| p.clone().into()).collect();
+                    aggregator.all_proposals().iter().map(|(_, p)| p.clone().into()).collect();
                 let next_epoch_id = self.get_next_epoch_id(h)?;
-                for (shard_id, stats) in &aggregator.chunk_endorsement_by_shard {
+                for (shard_id, stats) in aggregator.chunk_endorsement_by_shard() {
                     chunk_endorsements_per_shard.push(ShardChunkEndorsementsView {
                         shard_id: *shard_id,
                         num_produced_endorsements: stats.produced,
@@ -2232,11 +2227,12 @@ impl EpochManager {
         self.chunk_producer_blacklists.get_or_try_put(anchor.final_hash, |final_hash| {
             let aggregator = self.get_aggregated_epoch_stats(final_hash)?;
             assert_eq!(
-                aggregator.epoch_id, *epoch.epoch_id,
+                *aggregator.epoch_id(),
+                *epoch.epoch_id,
                 "the aggregator of basis {final_hash} must be in the anchor's epoch"
             );
             Ok(Arc::new(compute_chunk_producer_blacklist(
-                &aggregator.chunk_production,
+                aggregator.chunk_production(),
                 epoch.epoch_info,
                 epoch.shard_layout,
             )))

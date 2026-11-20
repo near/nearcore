@@ -187,10 +187,16 @@ const epochInfo = {
     },
 };
 
-const aggregatedEpochStats = {
+const aggregatedEpochStatsV1 = {
     struct: {
         epoch_id: epochId,
         last_block_hash: blockHash,
+    },
+};
+
+const aggregatedEpochStats = {
+    struct: {
+        V1: aggregatedEpochStatsV1,
     },
 };
 
