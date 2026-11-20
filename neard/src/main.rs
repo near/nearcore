@@ -4,10 +4,12 @@ use self::cli::NeardCmd;
 use anyhow::Context;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, Version};
 use near_store::db::metadata::DB_VERSION;
+use near_vm_runner::compiler_daemon::ExitOnWorkerMemoryExhaustion;
 use nearcore::get_default_home;
 use std::env;
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use tikv_jemallocator::Jemalloc;
 
 static NEARD_VERSION: &str = env!("NEARD_VERSION");
 static NEARD_BUILD: &str = env!("NEARD_BUILD");
@@ -40,9 +42,8 @@ fn neard_version() -> Version {
 
 static DEFAULT_HOME: LazyLock<PathBuf> = LazyLock::new(get_default_home);
 
-// cspell:words tikv jemallocator Jemalloc
 #[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static ALLOC: ExitOnWorkerMemoryExhaustion<Jemalloc> = ExitOnWorkerMemoryExhaustion::new(Jemalloc);
 
 fn main() -> anyhow::Result<()> {
     if env::var("RUST_BACKTRACE").is_err() {

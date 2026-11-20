@@ -54,6 +54,10 @@ near-undo-block.workspace = true
 near-vm-runner.workspace = true
 near-dump-test-contract = { workspace = true, optional = true }
 
+[dev-dependencies]
+borsh.workspace = true
+near-vm-runner = { workspace = true, features = ["test_features"] }
+
 [build-dependencies]
 anyhow.workspace = true
 rustc_version = "0.4"
