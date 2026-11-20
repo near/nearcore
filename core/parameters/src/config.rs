@@ -287,8 +287,8 @@ pub struct WitnessConfig {
     pub combined_transactions_size_limit: usize,
     /// Size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: u64,
-    /// Storage proof size charged in advance for each push to a receipt queue (the delayed
-    /// receipts, the outgoing buffers and the yield timeouts).
+    /// Storage proof size charged in advance for each push to the outgoing buffers or the yield
+    /// timeout queue.
     ///
     /// A push writes a key without reading it, so the trie nodes on its path are recorded only
     /// when the chunk's state changes are finalized, after the soft limit is checked. The charge

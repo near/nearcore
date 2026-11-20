@@ -3334,6 +3334,8 @@ fn send_ecc_receipts(
     }
     for receipt in receipts {
         record_transaction_receipt(processing_state, &receipt, *outcome_id, contract_id);
+        // An external call cannot create a yield, so this charges nothing today. It keeps the
+        // send the same as a receipt's run.
         charge_promise_yield_timeout_push(
             &processing_state.state_update,
             &processing_state.apply_state,
