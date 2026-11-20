@@ -15,16 +15,17 @@ const ROWS_PER_PROGRESS_LOG: usize = 1000;
 /// Replaces the single stored `AggregatedEpochStats` with one row per block in
 /// `DBCol::AggregatedEpochStats`.
 ///
-/// Writes rows for:
-/// - The final head's chain, from its epoch's first block to the final head.
-/// - Every block above the final head, up to the header head, in the header height index
-///   whose parent has a row or that starts an epoch, forks included.
-/// - After epoch sync, while the final head is below the synced epoch's first block (genesis,
-///   or a previous-epoch block after state sync): that first block, whose height comes from
-///   the stored epoch sync proof, and the blocks above it. The final head's chain is skipped.
+/// Walks the header height index from the final head's epoch first block up to the header
+/// head, forks included, and writes a row for every block that starts an epoch or whose
+/// parent has a row. After epoch sync, while the final head is below the synced epoch's
+/// first block (genesis, or a previous-epoch block after state sync), the walk starts at that
+/// first block, whose height comes from the stored epoch sync proof.
 ///
-/// Known gap: `undo-block` drops header-only blocks from the header height index but keeps
-/// their `BlockInfo`. After `undo-block` on DB version 54, those blocks get no row.
+/// Known gaps, both for blocks missing from the header height index:
+/// - `undo-block` drops header-only blocks from the index but keeps their `BlockInfo`. After
+///   `undo-block` on DB version 54, those blocks get no row.
+/// - Cloud archival readers do not write the index for the blocks they pull, so those blocks
+///   get no row.
 ///
 /// Hot store only: the column is not copied to cold storage.
 pub(super) fn migrate_54_to_55(
@@ -87,42 +88,34 @@ fn migrate_54_to_55_with_epoch_manager(
         .epoch_store()
         .get_epoch_sync_proof()?
         .map(|proof| proof.current_epoch.first_block_header_in_epoch.height());
-    let mut written = 0;
-    let first_height = match synced_epoch_start {
+    let start_height = match synced_epoch_start {
         Some(height) if final_head.height < height => height,
         _ => {
-            let mut block_info = epoch_manager.get_block_info(&final_head.last_block_hash)?;
-            let mut final_head_epoch_blocks_newest_first = vec![block_info.clone()];
-            while !block_info.is_genesis() && block_info.epoch_first_block() != block_info.hash() {
-                block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-                final_head_epoch_blocks_newest_first.push(block_info.clone());
+            let final_head_info = epoch_manager.get_block_info(&final_head.last_block_hash)?;
+            if final_head_info.is_genesis() {
+                final_head_info.height()
+            } else {
+                epoch_manager.get_block_info(final_head_info.epoch_first_block())?.height()
             }
-            for block_info in final_head_epoch_blocks_newest_first.iter().rev() {
-                let aggregator = if block_info.is_genesis() {
-                    AggregatedEpochStats::new(*block_info.epoch_id(), *block_info.hash())
-                } else {
-                    let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-                    epoch_manager.compute_aggregated_epoch_stats(block_info, &prev_block_info)?
-                };
-                set_aggregator_row(hot_store, block_info.hash(), &aggregator, &mut written);
-            }
-            final_head.height + 1
         }
     };
-    // By height, so that every parent comes first. A block whose parent has no row is on a fork
-    // that split below the final head; extending it would conflict with the final head.
+    // By height, so that every parent comes first. A block gets a row if it starts an epoch or
+    // its parent has one.
     let header_head = chain_store.header_head()?;
-    for height in first_height..=header_head.height {
+    let mut written = 0;
+    for height in start_height..=header_head.height {
         for hash in chain_store.get_all_header_hashes_by_height(height) {
             let block_info = epoch_manager.get_block_info(&hash)?;
-            if block_info.epoch_first_block() != &hash
-                && !hot_store.exists(DBCol::AggregatedEpochStats, block_info.prev_hash().as_ref())
+            let aggregator = if block_info.is_genesis() {
+                AggregatedEpochStats::new(*block_info.epoch_id(), hash)
+            } else if block_info.epoch_first_block() == &hash
+                || hot_store.exists(DBCol::AggregatedEpochStats, block_info.prev_hash().as_ref())
             {
+                let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
+                epoch_manager.compute_aggregated_epoch_stats(&block_info, &prev_block_info)?
+            } else {
                 continue;
-            }
-            let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-            let aggregator =
-                epoch_manager.compute_aggregated_epoch_stats(&block_info, &prev_block_info)?;
+            };
             set_aggregator_row(hot_store, &hash, &aggregator, &mut written);
         }
     }
