@@ -58,10 +58,10 @@ impl SpiceDataManager {
             return Ok(PartsOutcome::NotWanted);
         }
         let header = self.chain_store.get_block_header_if_exists(id.block_hash());
-        // An expiry that cannot be read leaves the parts parked for the block's trigger to decide.
-        if header.as_ref().is_some_and(|header| {
-            self.expiry(&id).is_ok_and(|expiry| self.is_expired(expiry, header.height()))
-        }) {
+        // No block below the final execution head is processed again, so parts parked for one would
+        // never be released. A proof the chunk executor still needs from it is requested again.
+        if header.as_ref().is_some_and(|header| self.heights.below_final_execution(header.height()))
+        {
             return Ok(PartsOutcome::NotWanted);
         }
         let block_epochs = match &header {

@@ -263,10 +263,11 @@ fn parts_for_an_untracked_item_of_a_processed_block_at_the_final_execution_head_
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
 
-/// A catch-up shard needs its proofs until its own head passes them.
+/// No block below the final execution head is processed again, so its parts would never be released;
+/// the chunk executor requests a proof it still needs instead.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn parts_for_a_proof_into_a_catch_up_shard_below_the_final_execution_head_are_parked() {
+fn parts_for_a_proof_into_a_catch_up_shard_below_the_final_execution_head_are_not_wanted() {
     let (chain, blocks) = chain_into_third_epoch();
     let blocks = second_epoch_blocks(&chain, &blocks);
     let mut manager = TestManager::catching_up(&chain, 1);
@@ -278,10 +279,7 @@ fn parts_for_a_proof_into_a_catch_up_shard_below_the_final_execution_head_are_pa
 
     let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
 
-    assert_matches!(result, Ok(PartsOutcome::Collecting));
-    let decoded = manager.manager.track_block(&blocks[0]).unwrap();
-    assert_eq!(decoded, vec![(id.clone(), receipt_data(0, 1))]);
-    assert_eq!(manager.item(&id).expiry, Expiry::AtShardFinalExecutionHead(ShardId::new(1)));
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
 
 /// The final head can pass a block whose trigger is still queued.
