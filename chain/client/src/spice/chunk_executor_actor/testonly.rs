@@ -95,7 +95,7 @@ impl TestonlySyncChunkExecutorActor {
             }),
             witness: noop().into_sender(),
             shard_final_execution_head: noop().into_sender(),
-            track_block_data: noop().into_sender(),
+            request_receipt_proofs: noop().into_sender(),
         };
         Self {
             actor: ChunkExecutorActor::new(

@@ -314,20 +314,51 @@ impl SpiceDataManager {
         }
     }
 
-    /// Adds the tracked items from the chunks of `block` in `shards` to `pulls`.
-    fn mark_pullable_from(&mut self, block: &BlockHeader, shards: &[ShardId]) {
-        let Some(ids) = self.items_by_height.get(&block.height()) else {
-            return;
-        };
+    /// Tracks `ids`, which the chunk executor needs to apply a block, if they are not tracked, as
+    /// after a restart, and pulls them at once: each comes from a certified chunk.
+    pub(crate) fn request_receipt_proofs(
+        &mut self,
+        ids: Vec<ReceiptProofId>,
+        now: Instant,
+    ) -> Vec<PullRequest> {
         for id in ids {
-            let source = id.producing_chunk();
-            if &source.block_hash == block.hash()
-                && shards.contains(&source.shard_id)
-                && !self.done_items.contains(id)
-            {
-                self.pulls.mark_pullable(id.clone(), block.height());
+            let id = DataId::ReceiptProof(id);
+            if let Err(err) = self.track_requested(&id) {
+                tracing::error!(target: "spice_data_distribution", ?err, ?id, "failed to track a requested item");
             }
         }
+        self.pulls.to_issue(now, &self.items)
+    }
+
+    fn track_requested(&mut self, id: &DataId) -> Result<(), Error> {
+        // A tracked item, as of a block a caught-up shard applies below the final execution head,
+        // keeps its state and is pulled by the usual rules.
+        if self.items.contains_key(id) || self.done_items.contains(id) || self.is_done(id) {
+            return Ok(());
+        }
+        let header = self.chain_store.get_block_header(id.block_hash())?;
+        // A proof this node produces itself, as from a shard it applies, is not fetched.
+        if !self.needed_items(&header)?.contains(id) {
+            return Ok(());
+        }
+        let expiry = self.expiry(id)?;
+        if self.is_expired(expiry, header.height()) {
+            return Ok(());
+        }
+        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
+        let producers = producers_in_epoch(&epoch_info, &shard_layout, id)?;
+        self.items_by_height.entry(header.height()).or_default().insert(id.clone());
+        let item = FetchItem::new(
+            header.height(),
+            *header.epoch_id(),
+            *header.next_epoch_id(),
+            producers,
+            expiry,
+        );
+        self.items.insert(id.clone(), item);
+        self.pulls.mark_pullable(id.clone(), header.height());
+        Ok(())
     }
 
     /// Adds the tracked items `block` makes pullable to `pulls`.
@@ -350,19 +381,6 @@ impl SpiceDataManager {
         block_hash: &CryptoHash,
         now: Instant,
     ) -> ProcessedBlockOutput {
-        self.handle_block(block_hash, &[], now)
-    }
-
-    /// Handles a processed block like [`Self::on_block_processed`], and pulls at once the items
-    /// from its chunks of `certified_shards`. For a block whose data the chunk executor needs again
-    /// after a restart, see `SpiceTrackBlockData`, the blocks certifying its chunks may have been
-    /// processed before it is tracked again.
-    pub(crate) fn handle_block(
-        &mut self,
-        block_hash: &CryptoHash,
-        certified_shards: &[ShardId],
-        now: Instant,
-    ) -> ProcessedBlockOutput {
         match self.final_execution_head() {
             Ok(final_execution_head) => {
                 self.on_final_execution_head(final_execution_head.as_deref())
@@ -378,13 +396,9 @@ impl SpiceDataManager {
             }
         }
         let decoded = match self.chain_store.get_block(block_hash) {
-            Ok(block) => {
-                let decoded = self
-                    .track_block(&block)
-                    .expect("chain and epoch data of a processed block should be readable");
-                self.mark_pullable_from(block.header(), certified_shards);
-                decoded
-            }
+            Ok(block) => self
+                .track_block(&block)
+                .expect("chain and epoch data of a processed block should be readable"),
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to read the block");
                 Vec::new()

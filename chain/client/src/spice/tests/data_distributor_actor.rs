@@ -5,10 +5,10 @@ use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MalformedDataRequest,
     SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
-    SpiceShardFinalExecutionHead, SpiceTrackBlockData,
+    SpiceRequestReceiptProofs, SpiceShardFinalExecutionHead,
 };
 use crate::spice::data_manager::{
-    AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, SenderFault,
+    AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, ReceiptProofId, SenderFault,
 };
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
@@ -2205,13 +2205,18 @@ fn test_tracking_again_the_proofs_of_a_block_the_executor_parks_again() {
     fake_runner.run_queued_actions(&mut actor);
     drain_outgoing_data_requests(&mut outgoing_rc);
     // Startup hands over the blocks from the final execution head on: the block below it is not
-    // tracked until the chunk executor parks again the block applying its proofs.
+    // tracked until the chunk executor asks for the proofs it misses.
     let proof_id = DataId::receipt_proof(*source.hash(), from_shard_id, to_shard_id);
     assert!(!actor.is_tracking(&proof_id));
 
-    // A block that fails to load does not keep the others untracked.
+    // A proof from a block that fails to load does not keep the others untracked.
     let unknown_block_hash = CryptoHash::hash_bytes(b"unknown block");
-    actor.handle(SpiceTrackBlockData { block_hashes: vec![unknown_block_hash, *source.hash()] });
+    actor.handle(SpiceRequestReceiptProofs {
+        ids: vec![
+            ReceiptProofId::new(unknown_block_hash, from_shard_id, to_shard_id),
+            ReceiptProofId::new(*source.hash(), from_shard_id, to_shard_id),
+        ],
+    });
 
     assert!(actor.is_tracking(&proof_id));
     // `head` certified the source chunk.

@@ -8,7 +8,9 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
-use crate::spice::data_distributor_actor::{SpiceShardFinalExecutionHead, SpiceTrackBlockData};
+use crate::spice::data_distributor_actor::{
+    SpiceRequestReceiptProofs, SpiceShardFinalExecutionHead,
+};
 use crate::spice::data_manager::ReceiptProofId;
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
@@ -120,7 +122,7 @@ enum OutgoingMessage {
     SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
     SpiceShardFinalExecutionHead(SpiceShardFinalExecutionHead),
-    SpiceTrackBlockData(SpiceTrackBlockData),
+    SpiceRequestReceiptProofs(SpiceRequestReceiptProofs),
 }
 
 // We don't derive clone because it's desirable to not have clone for spice distributor message to
@@ -153,9 +155,9 @@ impl Clone for OutgoingMessage {
                 shard_id: *shard_id,
                 height: *height,
             }),
-            OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData { block_hashes }) => {
-                OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData {
-                    block_hashes: block_hashes.clone(),
+            OutgoingMessage::SpiceRequestReceiptProofs(SpiceRequestReceiptProofs { ids }) => {
+                OutgoingMessage::SpiceRequestReceiptProofs(SpiceRequestReceiptProofs {
+                    ids: ids.clone(),
                 })
             }
         }
@@ -249,10 +251,10 @@ impl TestActor {
                         .unwrap();
                 }
             }),
-            track_block_data: Sender::from_fn({
+            request_receipt_proofs: Sender::from_fn({
                 move |message| {
                     outgoing_sc
-                        .unbounded_send(OutgoingMessage::SpiceTrackBlockData(message))
+                        .unbounded_send(OutgoingMessage::SpiceRequestReceiptProofs(message))
                         .unwrap();
                 }
             }),
@@ -432,7 +434,7 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
         }
         OutgoingMessage::SpiceDistributorStateWitness(_)
         | OutgoingMessage::SpiceShardFinalExecutionHead(_)
-        | OutgoingMessage::SpiceTrackBlockData(_) => {}
+        | OutgoingMessage::SpiceRequestReceiptProofs(_) => {}
     }
 }
 
@@ -2080,7 +2082,7 @@ impl BoundaryActor {
                     panic!("unexpected network request {request:?}")
                 }
                 OutgoingMessage::SpiceShardFinalExecutionHead(_)
-                | OutgoingMessage::SpiceTrackBlockData(_) => {}
+                | OutgoingMessage::SpiceRequestReceiptProofs(_) => {}
             }
         }
         sends
@@ -2546,7 +2548,7 @@ fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
+fn test_asking_the_data_distributor_for_the_proofs_a_block_parked_again_misses() {
     // The shard's catchup finished, and the restarted node processes the next epoch's first block,
     // which parks again the blocks up to the final execution head.
     let mut catch_up = CatchUpTest::setup();
@@ -2555,18 +2557,21 @@ fn test_asking_the_data_distributor_to_track_the_blocks_parked_again() {
         block_hash: *catch_up.next_epoch_first_block.hash(),
     });
 
-    // The data distributor is asked, in one message, to track the data of each parked block's parent,
-    // whose receipts the block applies.
-    let mut requests = Vec::new();
+    // The first block parked again applies the sync block's receipts, which the node does not have.
+    let mut requested = Vec::new();
     while let Ok(message) = catch_up.outgoing_rc.try_recv() {
-        if let OutgoingMessage::SpiceTrackBlockData(SpiceTrackBlockData { block_hashes }) = message
+        if let OutgoingMessage::SpiceRequestReceiptProofs(SpiceRequestReceiptProofs { ids }) =
+            message
         {
-            requests.push(block_hashes);
+            requested.extend(ids);
         }
     }
-    let parents =
-        catch_up.blocks_up_to_head.iter().map(|block| *block.header().prev_hash()).collect_vec();
-    assert_eq!(requests, vec![parents]);
+    let sync_hash = *catch_up.sync_block.hash();
+    assert!(
+        requested.iter().any(|id| id.source.block_hash == sync_hash),
+        "no proof from the sync block requested: {requested:?}"
+    );
+    assert!(requested.iter().all(|id| id.to_shard == catch_up.shard_id), "{requested:?}");
 }
 
 #[test]

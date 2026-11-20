@@ -574,3 +574,21 @@ fn an_answer_clears_its_senders_request_so_the_next_trigger_requests_from_it_aga
         )])
     );
 }
+
+/// The executor asks once the parent's execution results are stored, which can be before a
+/// processed block certifies the chunk: a tracked item still waits for that block, and its push.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_request_for_a_tracked_item_does_not_pull_it_before_its_chunk_is_certified() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+    let DataId::ReceiptProof(proof_id) = id.clone() else {
+        panic!("a needed proof is a receipt proof");
+    };
+
+    let requests = manager.manager.request_receipt_proofs(vec![proof_id], manager.clock.now());
+
+    assert_eq!(requests, vec![]);
+    assert!(!manager.is_pullable(&id));
+}

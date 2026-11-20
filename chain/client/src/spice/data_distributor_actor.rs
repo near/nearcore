@@ -71,7 +71,6 @@ use near_primitives::types::BlockHeight;
 use near_primitives::types::EpochId;
 use near_primitives::types::ShardId;
 use near_primitives::types::SpiceChunkId;
-use near_primitives::types::SpiceUncertifiedChunkInfo;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;
@@ -227,7 +226,7 @@ pub struct SpiceDataDistributorAdapter {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
     pub shard_final_execution_head: Sender<SpiceShardFinalExecutionHead>,
-    pub track_block_data: Sender<SpiceTrackBlockData>,
+    pub request_receipt_proofs: Sender<SpiceRequestReceiptProofs>,
 }
 
 struct DataPartsEntry {
@@ -272,11 +271,12 @@ pub struct SpiceShardFinalExecutionHead {
     pub height: BlockHeight,
 }
 
-/// The chunk executor parked blocks again for a shard caught up for the next epoch: track again
-/// the data of `block_hashes`, the blocks whose receipts they apply, lowest first.
+/// The chunk executor cannot apply a block without these receipt proofs: fetch them. Each comes
+/// from a certified chunk, since the executor applies a block only once its parent's execution
+/// results are stored.
 #[derive(Debug)]
-pub struct SpiceTrackBlockData {
-    pub block_hashes: Vec<CryptoHash>,
+pub struct SpiceRequestReceiptProofs {
+    pub ids: Vec<ReceiptProofId>,
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -423,12 +423,12 @@ impl Handler<SpiceShardFinalExecutionHead> for SpiceDataDistributorActor {
     }
 }
 
-// TODO(spice-data-distribution): a block that fails to be tracked again is not retried. The chunk
-// executor declaring the proofs it misses at each failed apply replaces this message.
-impl Handler<SpiceTrackBlockData> for SpiceDataDistributorActor {
-    fn handle(&mut self, SpiceTrackBlockData { block_hashes }: SpiceTrackBlockData) {
-        if let Err(err) = self.track_block_data_again(&block_hashes) {
-            tracing::error!(target: "spice_data_distribution", ?err, "failed to track again the data of blocks parked again");
+impl Handler<SpiceRequestReceiptProofs> for SpiceDataDistributorActor {
+    fn handle(&mut self, SpiceRequestReceiptProofs { ids }: SpiceRequestReceiptProofs) {
+        let pull_requests = self.data_manager.request_receipt_proofs(ids, self.clock.now());
+        let signer = self.validator_signer.get();
+        if let Some(requester) = signer.as_ref().map(|signer| signer.validator_id()) {
+            self.send_pull_requests(requester, pull_requests);
         }
     }
 }
@@ -1670,8 +1670,7 @@ impl SpiceDataDistributorActor {
         // The block after the head applies the head's receipts, so the head is handed over too,
         // unless it is genesis, which is never processed, or a block before this node's sync
         // point, which has a header only. The blocks below the head that a shard being caught up
-        // still applies come from the chunk executor, which parks them again, see
-        // `SpiceTrackBlockData`.
+        // still applies are requested by the chunk executor, see `SpiceRequestReceiptProofs`.
         let block_hash = final_execution_head.last_block_hash;
         if final_execution_head.height != self.chain_store.get_genesis_height()
             && self.chain_store.block_exists(&block_hash)
@@ -1722,46 +1721,6 @@ impl SpiceDataDistributorActor {
     fn process_block_in_data_manager(&mut self, block_hash: &CryptoHash) {
         let output = self.data_manager.on_block_processed(block_hash, self.clock.now());
         self.handle_data_manager_output(output);
-    }
-
-    /// Hands the data manager again `block_hashes`, whose data the chunk executor needs again, each
-    /// with the shards whose chunks of it the chain head has certified.
-    fn track_block_data_again(&mut self, block_hashes: &[CryptoHash]) -> Result<(), Error> {
-        let head = self.chain_store.head()?;
-        let uncertified_chunks = self.core_reader.get_uncertified_chunks(&head.last_block_hash)?;
-        for block_hash in block_hashes {
-            if let Err(err) = self.track_data_of_block_again(block_hash, &uncertified_chunks) {
-                tracing::error!(target: "spice_data_distribution", ?err, %block_hash, "failed to track again the data of a block parked again; skipping");
-            }
-        }
-        Ok(())
-    }
-
-    fn track_data_of_block_again(
-        &mut self,
-        block_hash: &CryptoHash,
-        uncertified_chunks: &[SpiceUncertifiedChunkInfo],
-    ) -> Result<(), Error> {
-        if !is_spice_or_last_pre_spice_block(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            block_hash,
-        )? {
-            return Ok(());
-        }
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let certified_shards = shard_layout
-            .shard_ids()
-            .filter(|&shard_id| {
-                let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
-                uncertified_chunks.iter().all(|chunk_info| chunk_info.chunk_id != chunk_id)
-            })
-            .collect_vec();
-        let output =
-            self.data_manager.handle_block(block_hash, &certified_shards, self.clock.now());
-        self.handle_data_manager_output(output);
-        Ok(())
     }
 
     /// Sends the pull requests the data manager issued and delivers the data it decoded.

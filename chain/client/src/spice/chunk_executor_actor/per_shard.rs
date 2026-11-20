@@ -7,8 +7,9 @@ use super::storage::{save_receipt_proof, save_witness_and_contract_accesses};
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
-    SpiceShardFinalExecutionHead,
+    SpiceRequestReceiptProofs, SpiceShardFinalExecutionHead,
 };
+use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
 use near_chain::BlockHeader;
@@ -398,16 +399,28 @@ impl PerShardChunkExecutor {
             // Genesis block has no outgoing receipts.
             vec![]
         } else {
-            let proofs = self.get_receipt_proofs_for_shard(
+            match self.incoming_receipt_proofs(
                 &prev_block_hash,
                 &prev_block_shard_layout,
                 prev_block_shard_uid.shard_id(),
-            );
-            if proofs.len() != prev_block_shard_layout.num_shards() as usize {
-                tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, have=proofs.len(), want=prev_block_shard_layout.num_shards(), "not ready: missing incoming receipts");
-                return Ok(ApplyOutcome::NotReady);
+            ) {
+                Ok(proofs) => proofs,
+                Err(missing) => {
+                    tracing::debug!(target: "chunk_executor", %block_hash, %prev_block_hash, ?shard_uid, missing=missing.len(), "not ready: missing incoming receipts");
+                    // The data manager tracks the proofs of the blocks it processes, and after a
+                    // restart those from the final execution head up. A block parked again below it,
+                    // for a caught-up shard, has its parent's proofs untracked: ask for them.
+                    let below_final_execution_head = self
+                        .chain_store
+                        .spice_final_execution_head()
+                        .is_ok_and(|head| prev_block.header().height() < head.height);
+                    if below_final_execution_head {
+                        self.data_distributor_adapter
+                            .send(SpiceRequestReceiptProofs { ids: missing });
+                    }
+                    return Ok(ApplyOutcome::NotReady);
+                }
             }
-            proofs
         };
 
         let block_chunk_headers = block.chunks();
@@ -425,6 +438,25 @@ impl PerShardChunkExecutor {
         )?;
         self.blocks_in_execution.insert(*block_hash);
         Ok(ApplyOutcome::Scheduled)
+    }
+
+    /// The proofs into `to_shard_id` from every shard of `source_shard_layout` at `block_hash`, in
+    /// layout order, or the ids of the ones not stored yet.
+    fn incoming_receipt_proofs(
+        &self,
+        block_hash: &CryptoHash,
+        source_shard_layout: &ShardLayout,
+        to_shard_id: ShardId,
+    ) -> Result<Vec<ReceiptProof>, Vec<ReceiptProofId>> {
+        let mut proofs = Vec::new();
+        let mut missing = Vec::new();
+        for from_shard_id in source_shard_layout.shard_ids() {
+            match self.chain_store.get_receipt_proof(block_hash, to_shard_id, from_shard_id) {
+                Some(proof) => proofs.push(proof),
+                None => missing.push(ReceiptProofId::new(*block_hash, from_shard_id, to_shard_id)),
+            }
+        }
+        if missing.is_empty() { Ok(proofs) } else { Err(missing) }
     }
 
     /// The stored proofs from shards of `source_shard_layout`, in layout order, which is
