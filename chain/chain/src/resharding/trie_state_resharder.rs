@@ -479,7 +479,6 @@ impl TrieStateResharder {
             .runtime
             .get_flat_storage_manager()
             .remove_flat_storage_for_shard(parent_shard_uid, &mut store_update)
-            .unwrap()
         {
             store_update.remove_flat_storage(parent_shard_uid);
         }

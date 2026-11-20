@@ -456,7 +456,7 @@ fn migrate_48_to_49(
 
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
     verify_block_headers(hot_store)?;
-    delete_old_block_headers(hot_store)?;
+    delete_old_block_headers(hot_store);
     Ok(())
 }
 
@@ -706,7 +706,7 @@ fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
+fn delete_old_block_headers(store: &Store) {
     tracing::info!(target: "migrations", "deleting all block headers from hot store");
 
     let mut store_update = store.store_update();
@@ -729,14 +729,12 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
         }
         if height % BATCH_SIZE == 0 {
             tracing::info!(target: "migrations", ?height, ?latest_known_height, "committing addition of required block headers to hot store");
-            store_update.commit()?;
+            store_update.commit();
             store_update = chain_store.store_update();
         }
     }
-    store_update.commit()?;
+    store_update.commit();
     tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
-
-    Ok(())
 }
 
 #[cfg(test)]

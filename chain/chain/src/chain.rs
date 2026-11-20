@@ -2372,7 +2372,7 @@ impl Chain {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
             if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_uid)? {
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head);
             }
         }
 

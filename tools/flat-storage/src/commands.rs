@@ -234,7 +234,7 @@ impl FlatStorageCommand {
         let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let mut store_update = store.flat_store().store_update();
-        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update);
         store_update.commit();
         Ok(())
     }

@@ -212,7 +212,7 @@ impl EpochSync {
         chain_store_update.set_header_head(&Tip::from_header(&last_header));
         chain_store_update.set_final_head(&Tip::from_header(&self.genesis));
 
-        chain_store_update.commit()?;
+        chain_store_update.commit();
 
         // `init_after_epoch_sync` writes the epoch infos into `store_update`, and the
         // store returns them only after the commit below. Read the current epoch's

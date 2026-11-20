@@ -2079,7 +2079,6 @@ fn slow_test_catchup_gas_price_change() {
                     ShardUId::single_shard(),
                     &mut store_update.flat_store_update()
                 )
-                .unwrap()
         );
         store_update.commit();
         for part_id in 0..num_parts {
