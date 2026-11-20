@@ -94,6 +94,7 @@ use near_vm_runner::logic::errors::FunctionCallError as VMFunctionCallError;
 use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache, NoContractRuntimeCache};
 use parking_lot::Mutex;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ops::Range;
 use std::slice::from_ref;
 use std::sync::Arc;
 use std::sync::mpsc::TryRecvError;
@@ -8889,6 +8890,41 @@ fn promise_data_receipt(receiver: AccountId, data_id: CryptoHash, size: usize) -
     })
 }
 
+/// A PromiseYield receipt (a single zero-value transfer) on `receiver`, waiting on `data_id`.
+fn promise_yield_receipt(
+    receiver: AccountId,
+    receipt_id: CryptoHash,
+    data_id: CryptoHash,
+) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: receiver.clone(),
+        receiver_id: receiver.clone(),
+        receipt_id,
+        receipt: ReceiptEnum::PromiseYield(ActionReceipt {
+            signer_id: receiver,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![data_id],
+            actions: vec![Action::Transfer(TransferAction { deposit: Balance::ZERO })],
+        }),
+    })
+}
+
+/// A PromiseResume receipt delivering empty data to `receiver` under `data_id`.
+fn promise_resume_receipt(
+    receiver: AccountId,
+    receipt_id: CryptoHash,
+    data_id: CryptoHash,
+) -> Receipt {
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: receiver.clone(),
+        receiver_id: receiver,
+        receipt_id,
+        receipt: ReceiptEnum::PromiseResume(DataReceipt { data_id, data: Some(vec![]) }),
+    })
+}
+
 /// An action receipt (a single zero-value transfer) awaiting `data_ids`.
 fn action_receipt_awaiting(
     receiver: AccountId,
@@ -12075,4 +12111,429 @@ fn test_ecc_accepted_with_deep_storage_path() {
         &epoch_info_provider,
     );
     assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// Action receipts for `alice` that each wait on `DATA_IDS` new data ids, with ids and data ids
+/// derived from `tag`.
+fn postponed_receipts(tag: &str, count: usize) -> Vec<Receipt> {
+    const DATA_IDS: usize = 128;
+    (0..count)
+        .map(|i| {
+            action_receipt_awaiting(
+                alice_account(),
+                hash(format!("{tag}-receipt-{i}").as_bytes()),
+                (0..DATA_IDS).map(|j| hash(format!("{tag}-data-{i}-{j}").as_bytes())).collect(),
+            )
+        })
+        .collect()
+}
+
+/// Sets up a runtime whose state holds `seeded` postponed receipts under `alice`.
+fn setup_postponed_receipts_state(
+    seeded: usize,
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, MockEpochInfoProvider) {
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    for batch in postponed_receipts("seed", seeded).chunks(256) {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                batch,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        root =
+            commit_apply_result(&apply_result, &mut apply_state, &tries, ShardUId::single_shard());
+    }
+    (runtime, tries, root, apply_state, epoch_info_provider)
+}
+
+#[test]
+fn test_postponed_receipts_within_storage_proof_soft_limit() {
+    // Setup: many rows pending under `alice`, so each new row needs a deep trie path.
+    let (runtime, tries, root, mut apply_state, epoch_info_provider) =
+        setup_postponed_receipts_state(256);
+    // Reduced storage proof limit, so 100 receipts are enough to pass it.
+    let soft_limit: usize = 400_000;
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit as u64;
+    apply_state.config = Arc::new(runtime_config);
+    let incoming = postponed_receipts("incoming", 100);
+    let apply_incoming = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(soft_limit as u64),
+                &None,
+                apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let proof_size = |apply_result: &ApplyResult| {
+        let PartialState::TrieValues(values) = &apply_result.proof.as_ref().unwrap().nodes;
+        values.iter().map(|value| value.len()).sum::<usize>()
+    };
+    let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
+
+    // The last receipt runs past the soft limit. One receipt writes 128 rows, about 20 KB of
+    // proof.
+    let max_proof = soft_limit + 30_000;
+
+    // Apply before the feature: the rows are written without a read.
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the limit misses the rows, so no receipt is delayed and the proof goes well past it.
+    assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert!(proof_size(&apply_result) > max_proof);
+
+    // Apply with the feature: each key is read before it is written.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the chunk stops at the soft limit and delays the rest.
+    assert!(apply_result.delayed_receipts_count > 0);
+    assert!(proof_size(&apply_result) <= max_proof);
+}
+
+#[test]
+fn test_single_input_postponed_receipts_within_storage_proof_soft_limit() {
+    // Setup: many receipts pending under `alice`, each waiting on one data id, so the three rows
+    // of a new postponed receipt need deep trie paths of similar size.
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let receipts_for = |tag: &str, count: usize| {
+        (0..count)
+            .map(|i| {
+                action_receipt_awaiting(
+                    alice_account(),
+                    hash(format!("{tag}-receipt-{i}").as_bytes()),
+                    vec![hash(format!("{tag}-data-{i}").as_bytes())],
+                )
+            })
+            .collect_vec()
+    };
+    for batch in receipts_for("stored", 32768).chunks(1024) {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                batch,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        root =
+            commit_apply_result(&apply_result, &mut apply_state, &tries, ShardUId::single_shard());
+    }
+    // Reduced storage proof limit, so the incoming receipts are enough to pass it.
+    let soft_limit: usize = 400_000;
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit as u64;
+    apply_state.config = Arc::new(runtime_config);
+    let incoming = receipts_for("incoming", 8192);
+    let apply_incoming = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(soft_limit as u64),
+                &None,
+                apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let proof_size = |apply_result: &ApplyResult| {
+        let PartialState::TrieValues(values) = &apply_result.proof.as_ref().unwrap().nodes;
+        values.iter().map(|value| value.len()).sum::<usize>()
+    };
+    let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
+
+    // The last receipt runs past the soft limit, by a few hundred bytes for its three rows.
+    let max_proof = soft_limit + 5_000;
+
+    // Apply before the feature: the three rows are written without a read.
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the limit misses the rows, so the recorded proof goes well past it.
+    assert!(proof_size(&apply_result) > max_proof);
+
+    // Apply with the feature: each key is read before it is written.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the chunk stops at the soft limit and delays the rest.
+    assert!(apply_result.delayed_receipts_count > 0);
+    assert!(proof_size(&apply_result) <= max_proof);
+}
+
+#[test]
+fn test_received_data_within_storage_proof_soft_limit() {
+    // Setup: many receipts pending under `alice`, each waiting on 128 data ids, and the data of
+    // `stored_ids` of each already stored, so new data rows need deep trie paths.
+    let seeded = 256;
+    let stored_ids = 0..32;
+    let incoming_ids = 32..40;
+    let (runtime, tries, mut root, mut apply_state, epoch_info_provider) =
+        setup_postponed_receipts_state(seeded);
+    let data_for = |ids: Range<usize>| {
+        (0..seeded)
+            .flat_map(|i| ids.clone().map(move |j| (i, j)))
+            .map(|(i, j)| {
+                promise_data_receipt(
+                    alice_account(),
+                    hash(format!("seed-data-{i}-{j}").as_bytes()),
+                    0,
+                )
+            })
+            .collect_vec()
+    };
+    for batch in data_for(stored_ids).chunks(1024) {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                batch,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        root =
+            commit_apply_result(&apply_result, &mut apply_state, &tries, ShardUId::single_shard());
+    }
+    // Reduced storage proof limit, so the incoming data is enough to pass it.
+    let soft_limit: usize = 400_000;
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit as u64;
+    apply_state.config = Arc::new(runtime_config);
+    // Each receipt still waits on other ids, so the incoming data stays stored.
+    let incoming = data_for(incoming_ids);
+    let apply_incoming = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(soft_limit as u64),
+                &None,
+                apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let proof_size = |apply_result: &ApplyResult| {
+        let PartialState::TrieValues(values) = &apply_result.proof.as_ref().unwrap().nodes;
+        values.iter().map(|value| value.len()).sum::<usize>()
+    };
+    let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
+
+    // The last receipt runs past the soft limit. Finalize also records ~21 B per
+    // processed receipt for its `PostponedReceiptId` removal: about 10 KB for ~450.
+    let max_proof = soft_limit + 20_000;
+
+    // Apply before the feature: the data rows are written without a read.
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the limit misses the data rows, so the recorded proof goes well past it.
+    assert!(proof_size(&apply_result) > max_proof);
+
+    // Apply with the feature: each `ReceivedData` key is read before it is written.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the chunk stops at the soft limit and delays the rest.
+    assert!(apply_result.delayed_receipts_count > 0);
+    assert!(proof_size(&apply_result) <= max_proof);
+}
+
+#[test]
+fn test_promise_resume_data_within_storage_proof_soft_limit() {
+    // Setup: many rows of received data under `alice`, so each new data row needs a deep trie
+    // path, and one yielded receipt under `alice` per incoming resume.
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let resumes = 2048;
+    let yield_data_id = |i: usize| hash(format!("yield-data-{i}").as_bytes());
+    let stored_data = (0..8192).map(|i| {
+        promise_data_receipt(alice_account(), hash(format!("stored-data-{i}").as_bytes()), 0)
+    });
+    let yields = (0..resumes).map(|i| {
+        promise_yield_receipt(
+            alice_account(),
+            hash(format!("yield-{i}").as_bytes()),
+            yield_data_id(i),
+        )
+    });
+    for batch in stored_data.chain(yields).collect_vec().chunks(1024) {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                batch,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        root =
+            commit_apply_result(&apply_result, &mut apply_state, &tries, ShardUId::single_shard());
+    }
+    // Reduced storage proof limit, so the incoming resumes are enough to pass it.
+    let soft_limit: usize = 400_000;
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit as u64;
+    apply_state.config = Arc::new(runtime_config);
+    let incoming = (0..resumes)
+        .map(|i| {
+            promise_resume_receipt(
+                alice_account(),
+                hash(format!("resume-{i}").as_bytes()),
+                yield_data_id(i),
+            )
+        })
+        .collect_vec();
+    let apply_incoming = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(soft_limit as u64),
+                &None,
+                apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let proof_size = |apply_result: &ApplyResult| {
+        let PartialState::TrieValues(values) = &apply_result.proof.as_ref().unwrap().nodes;
+        values.iter().map(|value| value.len()).sum::<usize>()
+    };
+    let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
+
+    // The last receipt runs past the soft limit. Finalize also records ~20 B per
+    // processed resume for its removals: about 12 KB for ~600.
+    let max_proof = soft_limit + 20_000;
+
+    // Apply before the feature: each resume writes its data row without a read.
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the limit misses the data rows, so the recorded proof goes well past it.
+    assert!(proof_size(&apply_result) > max_proof);
+
+    // Apply with the feature: each `ReceivedData` key is read before it is written.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the chunk stops at the soft limit and delays the rest.
+    assert!(apply_result.delayed_receipts_count > 0);
+    assert!(proof_size(&apply_result) <= max_proof);
+}
+
+#[test]
+fn test_promise_yield_receipts_within_storage_proof_soft_limit() {
+    // Setup: many yielded receipts pending under `alice`, so each new one needs a deep trie path.
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let yields_for = |tag: &str, count: usize| {
+        (0..count)
+            .map(|i| {
+                promise_yield_receipt(
+                    alice_account(),
+                    hash(format!("{tag}-yield-{i}").as_bytes()),
+                    hash(format!("{tag}-data-{i}").as_bytes()),
+                )
+            })
+            .collect_vec()
+    };
+    for batch in yields_for("stored", 32768).chunks(1024) {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                batch,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        root =
+            commit_apply_result(&apply_result, &mut apply_state, &tries, ShardUId::single_shard());
+    }
+    // Reduced storage proof limit, so the incoming yields are enough to pass it.
+    let soft_limit: usize = 400_000;
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit as u64;
+    apply_state.config = Arc::new(runtime_config);
+    let incoming = yields_for("incoming", 8192);
+    let apply_incoming = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(soft_limit as u64),
+                &None,
+                apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let proof_size = |apply_result: &ApplyResult| {
+        let PartialState::TrieValues(values) = &apply_result.proof.as_ref().unwrap().nodes;
+        values.iter().map(|value| value.len()).sum::<usize>()
+    };
+    let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
+
+    // The last receipt runs past the soft limit, by a few hundred bytes for one yielded receipt.
+    let max_proof = soft_limit + 2_000;
+
+    // Apply before the feature: each yielded receipt is written without a read.
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the limit misses the yielded receipts, so the recorded proof goes well past it.
+    assert!(proof_size(&apply_result) > max_proof);
+
+    // Apply with the feature: each `PromiseYieldReceipt` key is read before it is written.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the chunk stops at the soft limit and delays the rest.
+    assert!(apply_result.delayed_receipts_count > 0);
+    assert!(proof_size(&apply_result) <= max_proof);
 }
