@@ -1236,7 +1236,7 @@ pub(crate) fn view_trie(
     record_type: Option<u8>,
     from: Option<AccountId>,
     to: Option<AccountId>,
-) -> anyhow::Result<()> {
+) {
     let trie = get_trie(store, hash, shard_id, shard_version);
     trie.print_recursive(
         &mut std::io::stdout().lock(),
@@ -1247,7 +1247,6 @@ pub(crate) fn view_trie(
         &from.as_ref(),
         &to.as_ref(),
     );
-    Ok(())
 }
 
 pub(crate) fn view_trie_leaves(
@@ -1260,7 +1259,7 @@ pub(crate) fn view_trie_leaves(
     record_type: Option<u8>,
     from: Option<AccountId>,
     to: Option<AccountId>,
-) -> anyhow::Result<()> {
+) {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
     trie.print_recursive_leaves(
         &mut std::io::stdout().lock(),
@@ -1270,7 +1269,6 @@ pub(crate) fn view_trie_leaves(
         &from.as_ref(),
         &to.as_ref(),
     );
-    Ok(())
 }
 
 fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {

@@ -1037,8 +1037,7 @@ impl ViewTrieCmd {
                     record_type,
                     self.from,
                     self.to,
-                )
-                .unwrap();
+                );
             }
             ViewTrieFormat::Pretty => {
                 view_trie_leaves(
@@ -1051,8 +1050,7 @@ impl ViewTrieCmd {
                     record_type,
                     self.from,
                     self.to,
-                )
-                .unwrap();
+                );
             }
         }
     }

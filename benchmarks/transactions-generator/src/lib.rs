@@ -1043,8 +1043,8 @@ impl TxGenerator {
         params: Config,
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
-    ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender })
+    ) -> Self {
+        Self { params, client_sender, view_client_sender }
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
