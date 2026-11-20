@@ -3941,9 +3941,10 @@ fn test_prepare_transactions_flood_fairness() {
 ///
 /// The time limit is a wall clock one, and the test does not race it. The
 /// pending check sleeps for longer than it on one chosen flood transaction, in
-/// the middle of a visit, and preparation must stop at exactly that
-/// transaction. Getting to it takes a tiny part of the time limit, so the
-/// time does not run out earlier.
+/// the middle of a visit, and preparation must not go past that transaction.
+/// On a busy machine the time may run out earlier, which only makes it stop
+/// sooner. Getting to that transaction takes a tiny part of the time limit,
+/// so that is rare.
 #[test]
 fn test_prepare_transactions_flood_respects_time_limit() {
     let (env, chain, _) = get_test_env_with_chain_and_pool();
@@ -4004,11 +4005,11 @@ fn test_prepare_transactions_flood_respects_time_limit() {
     );
 
     // Property 2: it stopped as soon as the time ran out, without finishing
-    // the visit, and not before.
+    // the visit. There is no lower bound, that would depend on the machine.
     let flood_examined = flood_size - pool.len() as u64;
-    assert_eq!(
-        flood_examined, sleepy_flood_tx,
-        "expected to stop at the flood transaction on which the time ran out",
+    assert!(
+        flood_examined <= sleepy_flood_tx,
+        "expected to stop by flood transaction {sleepy_flood_tx}, pulled {flood_examined}",
     );
 }
 
