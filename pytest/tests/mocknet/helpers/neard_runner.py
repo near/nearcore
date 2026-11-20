@@ -157,6 +157,21 @@ LOGROTATE_TEMPLATE = """__neard_logs_dir__/__neard_logs_file_name__ {
 }"""
 
 
+def validate_traffic_source(traffic_source, rpc_backup):
+    """Raises ValueError for a traffic source neard mirror run would reject."""
+    if rpc_backup and len(traffic_source) != 0:
+        raise ValueError(
+            'source_rpc_backup cannot be combined with other source params')
+    if traffic_source.get('source_skip_state'
+                         ) and not traffic_source.get('source_cloud_archive'):
+        raise ValueError('source_skip_state needs source_cloud_archive')
+    if traffic_source.get(
+            'source_cloud_archive') and not traffic_source.get('source_home'):
+        raise ValueError(
+            'source_cloud_archive needs source_home, a cloud archive reader home'
+        )
+
+
 class NeardRunner:
 
     def __init__(self, args):
@@ -677,6 +692,14 @@ class NeardRunner:
         batch_interval_millis: int | None = None
         binary_idx: int | None = None
         force_restart: bool = False
+        # Where the traffic generator reads the source chain from. Persisted in
+        # data.json once given, so a later plain start keeps the same source. A
+        # start with any of them replaces the whole saved source, and
+        # source_rpc_backup goes back to the RPC backup home.
+        source_cloud_archive: bool | None = None
+        source_skip_state: bool | None = None
+        source_home: str | None = None
+        source_rpc_backup: bool = False
 
         model_config = ConfigDict(extra='forbid')
 
@@ -686,6 +709,16 @@ class NeardRunner:
             batch_interval_millis = params.batch_interval_millis
             binary_idx = params.binary_idx
             force_restart = params.force_restart
+            traffic_source = {
+                k: v for k, v in (
+                    ('source_cloud_archive', params.source_cloud_archive),
+                    ('source_skip_state', params.source_skip_state),
+                    ('source_home', params.source_home),
+                ) if v is not None
+            }
+            validate_traffic_source(traffic_source, params.source_rpc_backup)
+            set_traffic_source = params.source_rpc_backup or len(
+                traffic_source) != 0
         except ValueError as e:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32602, message=f'Invalid arguments: {e}')
@@ -698,11 +731,10 @@ class NeardRunner:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32602, message=f'Invalid index: {e}')
             self.set_current_neard_path(new_path)
-            self.save_data()
 
             if batch_interval_millis is not None and not self.is_traffic_generator(
             ):
-                logging.warn(
+                logging.warning(
                     f'got batch_interval_millis = {batch_interval_millis} on non traffic generator node. Ignoring it.'
                 )
                 batch_interval_millis = None
@@ -711,6 +743,16 @@ class NeardRunner:
             should_restart = force_restart
             if current_path != new_path:
                 should_restart = True
+
+            if set_traffic_source:
+                if not self.is_traffic_generator():
+                    logging.warning(
+                        f'got traffic source params {traffic_source} on non traffic generator node. Ignoring them.'
+                    )
+                elif traffic_source != (self.data.get('traffic_source') or {}):
+                    self.data['traffic_source'] = traffic_source
+                    should_restart = True
+            self.save_data()
 
             state = self.get_state()
             if state == TestState.STOPPED:
@@ -1062,17 +1104,24 @@ class NeardRunner:
 
         return cmd
 
-    # Get the command to start neard for traffic generator node.
+    # Get the command to start neard for traffic generator node. The source chain
+    # comes from the source near home (the RPC backup) unless a start gave
+    # traffic source params, which then stay in data.json for later starts.
     def get_start_traffic_generator_cmd(self, batch_interval_millis):
+        traffic_source = self.data.get('traffic_source') or {}
         cmd = [
             self.data['current_neard_path'],
             'mirror',
             'run',
             '--source-home',
-            self.source_near_home_path(),
+            traffic_source.get('source_home') or self.source_near_home_path(),
             '--target-home',
             self.target_near_home_path(),
         ]
+        if traffic_source.get('source_cloud_archive'):
+            cmd.append('--source-cloud-archive')
+        if traffic_source.get('source_skip_state'):
+            cmd.append('--source-skip-state')
         if os.path.exists(self.setup_path('mirror-secret.json')):
             cmd.append('--secret-file')
             cmd.append(self.setup_path('mirror-secret.json'))
