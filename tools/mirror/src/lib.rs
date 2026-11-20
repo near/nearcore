@@ -43,6 +43,7 @@ use tokio_util::sync::CancellationToken;
 
 mod chain_tracker;
 pub mod cli;
+mod cloud_archive;
 pub mod genesis;
 pub mod key_mapping;
 mod key_util;
@@ -421,8 +422,9 @@ impl From<RuntimeQueryError> for ChainError {
 trait ChainAccess {
     // this should return the first `num_initial_blocks` valid block heights in the
     // chain after last_height. It should only return fewer than that if there are no
-    // more, which only happens if we're not starting a source node (--online-source is
-    // not given), and the last height we sent txs for is close to the HEAD of the chain
+    // more, which only happens when the source store is static (neither --online-source
+    // nor --source-cloud-archive is given), and the last height we sent txs for is close
+    // to the HEAD of the chain
     async fn init(
         &self,
         last_height: BlockHeight,
@@ -436,6 +438,13 @@ trait ChainAccess {
     async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError>;
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError>;
+
+    /// True when another task keeps appending to the source store while the mirror runs
+    /// (`--source-cloud-archive`). The source then goes on past a stop height, so the
+    /// blocks before it still get the create-account lookahead.
+    fn source_grows(&self) -> bool {
+        false
+    }
 
     async fn get_outcome(
         &self,
@@ -530,6 +539,16 @@ fn resolve_mirror_db_path(
         .path()
         .join("mirror"),
     }
+}
+
+/// The last source height a mirror DB recorded, without creating the DB if it does not
+/// exist yet. The DB is closed again before this returns.
+fn read_last_source_height(mirror_db_path: &Path) -> anyhow::Result<Option<BlockHeight>> {
+    if !mirror_db_path.exists() {
+        return Ok(None);
+    }
+    let db = open_db(mirror_db_path).context("failed to open mirror DB")?;
+    get_last_source_height(&db)
 }
 
 fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
@@ -2334,6 +2353,9 @@ impl<T: ChainAccess> TxMirror<T> {
         shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         clear_finished_pending_outcomes(&self.db)?;
+        // With a stop height on a static source, the last blocks before it are sent without
+        // the create-account lookahead, since no blocks come after them.
+        let have_stop_height = stop_height.is_some() && !self.source_chain_access.source_grows();
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
 
@@ -2466,8 +2488,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 )?;
             }
         }
-        self.queue_txs(&tracker, &tx_block_queue, &target_view_client, stop_height.is_some())
-            .await?;
+        self.queue_txs(&tracker, &tx_block_queue, &target_view_client, have_stop_height).await?;
 
         let send_delay = Arc::new(Mutex::new(send_delay));
         let send_delay2 = send_delay.clone();
@@ -2496,7 +2517,7 @@ impl<T: ChainAccess> TxMirror<T> {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
-                source_hash, stop_height.is_some(), shutdown,
+                source_hash, have_stop_height, shutdown,
             ) => {
                 res
             }
@@ -2540,6 +2561,8 @@ async fn run<P: AsRef<Path>>(
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     stop_height: Option<BlockHeight>,
     online_source: bool,
+    source_cloud_archive: bool,
+    source_skip_state: bool,
     config_path: Option<P>,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
@@ -2558,7 +2581,23 @@ async fn run<P: AsRef<Path>>(
                 format!("Error loading target config from {:?}", target_home.as_ref())
             })?;
     let actor_system = near_async::ActorSystem::new();
-    if !online_source {
+    if source_cloud_archive {
+        // Boxed: the source's open and the mirror's run are large futures, and
+        // `run`'s frame holds the other source modes' already.
+        Box::pin(run_from_cloud_archive(
+            source_home.as_ref(),
+            target_home.as_ref(),
+            &target_config,
+            mirror_db_path.as_deref(),
+            secret,
+            stop_height,
+            source_skip_state,
+            config,
+            actor_system,
+            shutdown,
+        ))
+        .await
+    } else if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
@@ -2584,6 +2623,66 @@ async fn run<P: AsRef<Path>>(
         )?
         .run(stop_height, target_home.as_ref().to_path_buf(), actor_system, shutdown)
         .await
+    }
+}
+
+/// `run` with `--source-cloud-archive`: the source store is opened out of the bucket and
+/// followed by a reader loop for as long as the mirror runs.
+async fn run_from_cloud_archive(
+    source_home: &Path,
+    target_home: &Path,
+    target_config: &NearConfig,
+    mirror_db_path: Option<&Path>,
+    secret: Option<[u8; crate::secret::SECRET_LEN]>,
+    stop_height: Option<BlockHeight>,
+    source_skip_state: bool,
+    config: MirrorConfig,
+    actor_system: near_async::ActorSystem,
+    shutdown: CancellationToken,
+) -> anyhow::Result<()> {
+    // The source store opens where the mirror goes on from: the height after the last
+    // one it sent, or the target chain's genesis on a first run. The bootstrap moves it
+    // up to the first archived block if the bucket starts above it.
+    let genesis_height = target_config.genesis.config.genesis_height;
+    let last_source_height = read_last_source_height(&resolve_mirror_db_path(
+        target_home,
+        target_config,
+        mirror_db_path,
+    ))?;
+    let start_height = last_source_height.map_or(genesis_height, |height| height + 1);
+    let source = Box::pin(crate::cloud_archive::CloudArchiveSource::open(
+        source_home,
+        start_height.max(genesis_height),
+        source_skip_state,
+        shutdown.clone(),
+    ))
+    .await?;
+    let result = TxMirror::new(
+        source.chain_access,
+        target_home,
+        target_config,
+        mirror_db_path,
+        secret,
+        config,
+    )?
+    .run(stop_height, target_home.to_path_buf(), actor_system, shutdown)
+    .await;
+    // A reader failure cancels the shutdown token, and the mirror then either stops
+    // cleanly or, when it was waiting for source blocks, with a shutdown error of its
+    // own: the reader's error is the cause, so it is the one reported, and the mirror's
+    // goes to the log.
+    let reader_result = source.follower.stop().await;
+    match (result, reader_result) {
+        (Err(mirror_error), Err(reader_error)) => {
+            tracing::error!(
+                target: "mirror",
+                error = format!("{:#}", mirror_error),
+                "the mirror stopped with an error after the cloud archive reader loop failed"
+            );
+            Err(reader_error)
+        }
+        (Ok(()), Err(reader_error)) => Err(reader_error),
+        (result, Ok(())) => result,
     }
 }
 
