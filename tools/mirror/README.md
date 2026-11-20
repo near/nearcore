@@ -95,9 +95,8 @@ land without another process on the store:
   up 3200 blocks, or to the bucket's block head if that is lower. The reader loop
   then stays at most 3200 blocks above the heights the mirror asks for, so a fork
   far behind the bucket's head does not copy the whole bucket before the first
-  transaction. A bucket that starts above that height is opened
-  on its first archived block instead (the heights in between are not in the bucket,
-  and the mirror skips them); a bucket whose head has not reached that height
+  transaction. The bucket has to hold that height and a block below it,
+  or the mirror fails to start; a bucket whose head has not reached that height
   yet is polled until it has. Failed bucket reads are retried; a bootstrap that
   fails part way is taken on by the reader loop. The log says which range got
   bootstrapped. A home that already has a reader head, from a
