@@ -6,9 +6,7 @@ use crate::offline::{ChainAccess, Follow};
 use anyhow::Context;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::GenesisValidationMode;
-use near_client::archive::cloud_archival_utils::{
-    CloudArchivalReaderError, find_present_block_below,
-};
+use near_client::archive::cloud_archival_utils::CloudArchivalReaderError;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_client::archive::cloud_recent_reader::{CloudArchivalRecentReader, PullLimit};
 use near_epoch_manager::EpochManager;
@@ -16,7 +14,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
-use near_store::archive::cloud_storage::{CloudRetrievalError, CloudStorage};
+use near_store::archive::cloud_storage::CloudStorage;
 use near_store::genesis::initialize_genesis_state;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
@@ -38,12 +36,6 @@ const SOURCE_READ_AHEAD: BlockHeight = 3200;
 /// `open` gives up. The reads are retried a polling interval apart.
 const OPEN_MAX_ATTEMPTS: u32 = 5;
 
-/// How many times the binary search for the first archived block reads one window before
-/// it counts the window as missing: a missing blob and a failed read both come back as
-/// an error.
-const PROBE_ATTEMPTS: u32 = 3;
-const PROBE_RETRY_DELAY: Duration = Duration::milliseconds(500);
-
 /// What `mirror run --source-cloud-archive` reads the source chain through.
 pub(crate) struct CloudArchiveSource {
     pub(crate) chain_access: ChainAccess,
@@ -53,10 +45,10 @@ pub(crate) struct CloudArchiveSource {
 impl CloudArchiveSource {
     /// Opens the reader home at `home`, bootstraps its store out of the bucket when it
     /// holds no reader head yet, and starts following the bucket. `start_height` is the
-    /// first height the mirror wants; the bootstrap opens there, or at the first archived
-    /// block above it. The reader stays at most `SOURCE_READ_AHEAD` blocks above the
-    /// heights the mirror asks for. A store whose reader head is more than that below
-    /// `start_height` is refused: following it would copy everything in between.
+    /// first height the mirror wants; the bootstrap opens there, so the bucket has to
+    /// hold it and a block below it. The reader stays at most `SOURCE_READ_AHEAD` blocks
+    /// above the heights the mirror asks for. A store whose reader head is more than that
+    /// below `start_height` is refused: following it would copy everything in between.
     pub(crate) async fn open(
         home: &Path,
         start_height: BlockHeight,
@@ -161,31 +153,26 @@ impl CloudArchiveSource {
     }
 }
 
-/// Fills a fresh reader store out of the bucket, from `requested_start` (or the first
-/// archived block above it) up `SOURCE_READ_AHEAD` blocks, or to the bucket's block head
-/// if that is lower. Raises `pull_limit` to the same height, so the reader goes on from
-/// there.
+/// Fills a fresh reader store out of the bucket, from `start_height` up
+/// `SOURCE_READ_AHEAD` blocks, or to the bucket's block head if that is lower. Raises
+/// `pull_limit` to the same height, so the reader goes on from there. The bootstrap
+/// anchors on the block below `start_height`, so the bucket has to hold one.
 async fn bootstrap(
     store: &Store,
     cloud_storage: &CloudStorage,
     shard_tracker: &ShardTracker,
-    requested_start: BlockHeight,
+    start_height: BlockHeight,
     skip_state: bool,
     polling_interval: Duration,
     pull_limit: &PullLimit,
     shutdown: &CancellationToken,
 ) -> anyhow::Result<()> {
     let cloud_head =
-        wait_for_cloud_head(cloud_storage, requested_start, polling_interval, shutdown).await?;
-    let start_height = bootstrap_start_height(cloud_storage, requested_start, cloud_head).await?;
-    // The anchoring can land above the head the first wait saw.
-    let cloud_head =
         wait_for_cloud_head(cloud_storage, start_height, polling_interval, shutdown).await?;
     let end_height = cloud_head.min(start_height + SOURCE_READ_AHEAD);
     pull_limit.raise_to(end_height);
     tracing::info!(
         target: "mirror",
-        requested_start,
         start_height,
         end_height,
         cloud_head,
@@ -219,8 +206,13 @@ async fn bootstrap(
             return Ok(());
         }
         if attempt >= OPEN_MAX_ATTEMPTS {
-            return Err(error)
-                .context("bootstrapping the source store from the cloud archive failed");
+            return Err(error).with_context(|| {
+                format!(
+                    "bootstrapping the source store from the cloud archive failed; \
+                     the archive must cover the start height #{} and hold a block below it",
+                    start_height
+                )
+            });
         }
         tracing::warn!(
             target: "mirror",
@@ -293,98 +285,6 @@ async fn sleep_or_shutdown(duration: Duration, shutdown: &CancellationToken) -> 
         }
         _ = clock.sleep(duration) => Ok(()),
     }
-}
-
-/// Where the bootstrap opens: `requested` itself when the bucket holds a block below it
-/// for the walk to anchor on, else one above the first archived block at or above it. The
-/// mirror skips the heights between the two on its own.
-async fn bootstrap_start_height(
-    cloud_storage: &CloudStorage,
-    requested: BlockHeight,
-    cloud_head: BlockHeight,
-) -> anyhow::Result<BlockHeight> {
-    match find_present_block_below(cloud_storage, requested).await {
-        Ok(_) => return Ok(requested),
-        Err(error @ CloudRetrievalError::NoBlockData { .. }) => tracing::info!(
-            target: "mirror",
-            requested,
-            %error,
-            "the bucket holds no block below the requested start; opening on its first archived block instead"
-        ),
-        // A missing blob and a failed read (auth, network) look alike here: both are a
-        // `GetError`. Taken as a missing blob; the search below reads each window again
-        // before it counts it as missing.
-        Err(error) => tracing::warn!(
-            target: "mirror",
-            requested,
-            %error,
-            "reading the block below the requested start failed; taking the bucket to hold none and opening on its first archived block instead"
-        ),
-    }
-    let first_archived = first_archived_height(cloud_storage, requested, cloud_head).await?;
-    Ok(first_archived + 1)
-}
-
-/// The lowest archived height in `[from, cloud_head]`, by a binary search over the batch
-/// windows between the two: the archive is contiguous up to its head, so a window with no
-/// batch has none below it either. A missing blob and a failed read look alike, so a
-/// window counts as missing only after `PROBE_ATTEMPTS` failed reads: one failed read
-/// taken as a missing window would move the result up past blocks the bucket holds.
-async fn first_archived_height(
-    cloud_storage: &CloudStorage,
-    from: BlockHeight,
-    cloud_head: BlockHeight,
-) -> anyhow::Result<BlockHeight> {
-    let batch_size = cloud_storage.batch_size() as u64;
-    let head_window = cloud_head / batch_size;
-    // Every window but the head one is fetched by its last height, which a partial opening
-    // batch still covers; the head window can end before its last height.
-    let fetch_window = |window: u64| async move {
-        let height = if window == head_window { cloud_head } else { (window + 1) * batch_size - 1 };
-        for attempt in 1..=PROBE_ATTEMPTS {
-            match cloud_storage.get_block_batch_for_height(height).await {
-                Ok(batch) => return Some(batch),
-                Err(error @ CloudRetrievalError::NoBlockData { .. }) => {
-                    tracing::debug!(target: "mirror", window, %error, "no batch for the window");
-                    return None;
-                }
-                Err(error) => {
-                    tracing::debug!(
-                        target: "mirror",
-                        window,
-                        attempt,
-                        %error,
-                        "reading the window's batch failed"
-                    );
-                    if attempt < PROBE_ATTEMPTS {
-                        Clock::real().sleep(PROBE_RETRY_DELAY).await;
-                    }
-                }
-            }
-        }
-        None
-    };
-    let (mut lo, mut hi) = (from / batch_size, head_window);
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if fetch_window(mid).await.is_some() {
-            hi = mid;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    for window in lo..=head_window {
-        let Some(batch) = fetch_window(window).await else {
-            continue;
-        };
-        let first = batch.start_height().max(from);
-        if let Some(height) =
-            (first..=batch.end_height()).find(|height| batch.get_block_at_height(*height).is_some())
-        {
-            return Ok(height);
-        }
-    }
-    anyhow::bail!("the bucket holds no block between #{} and its head #{}", from, cloud_head)
 }
 
 /// The recent reader loop running next to the mirror on the shared store, with a monitor
@@ -479,5 +379,43 @@ async fn monitor(
             _ = shutdown.cancelled() => return,
             _ = clock.sleep(polling_interval) => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use near_chain::test_utils::setup;
+    use near_store::archive::cloud_storage::bucket_config::BucketConfig;
+    use near_store::archive::cloud_storage::config::create_test_cloud_storage;
+
+    /// A bucket whose head is above the start but which holds no block below it: the
+    /// bootstrap fails, and does not move the start.
+    #[tokio::test]
+    async fn test_bootstrap_fails_when_the_bucket_does_not_cover_the_start() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bucket = create_test_cloud_storage(
+            tmp.path().to_path_buf(),
+            "test".to_string(),
+            BucketConfig::canonical(),
+        );
+        bucket.update_cloud_block_head(2000).await.unwrap();
+        let (chain, epoch_manager, _, _) = setup(Clock::real());
+        let store = chain.chain_store().store();
+
+        let error = bootstrap(
+            &store,
+            &bucket,
+            &ShardTracker::new_empty(epoch_manager),
+            1000,
+            true,
+            Duration::milliseconds(1),
+            &PullLimit::new(1000),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("must cover the start height #1000"), "{error:#}");
+        assert!(store.cloud_archival_store().reader_head().is_none());
     }
 }

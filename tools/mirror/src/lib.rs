@@ -2649,8 +2649,8 @@ async fn run_from_cloud_archive(
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
     // The source store opens where the mirror goes on from: the height after the last
-    // one it sent, or the target chain's genesis on a first run. The bootstrap moves it
-    // up to the first archived block if the bucket starts above it.
+    // one it sent, or the target chain's genesis on a first run. The bucket has to
+    // hold that height and a block below it.
     let genesis_height = target_config.genesis.config.genesis_height;
     let last_source_height = read_last_source_height(&resolve_mirror_db_path(
         target_home,
