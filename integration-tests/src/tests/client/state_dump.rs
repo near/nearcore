@@ -7,16 +7,16 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue};
-use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
+use near_client::{Client, ProcessTxResponse};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::Tip;
+use near_primitives::block::{Block, Tip};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{Balance, BlockHeight, ShardId};
+use near_primitives::types::{Balance, BlockHeight, ShardId, StateRoot};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
@@ -27,8 +27,6 @@ use std::sync::Arc;
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_dump() {
     init_test_logger();
 
@@ -226,7 +224,7 @@ fn run_state_sync_with_dumped_parts(
         .runtime_adapter
         .query(
             shard_uid,
-            &head_block.chunks()[0].prev_state_root(),
+            &query_state_root(&env.clients[0], &head_block),
             head.height,
             0,
             &head.prev_block_hash,
@@ -343,7 +341,7 @@ fn run_state_sync_with_dumped_parts(
     let synced_block_tip = Tip::from_header(&synced_block_header);
     let response = env.clients[1].runtime_adapter.query(
         ShardUId::single_shard(),
-        &synced_block.chunks()[0].prev_state_root(),
+        &query_state_root(&env.clients[1], &synced_block),
         synced_block_tip.height,
         0,
         &synced_block_tip.prev_block_hash,
@@ -397,51 +395,50 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 8);
+}
+
+/// The state root a query at `block` reads. A spice chunk header carries no state root, so under
+/// spice it is the root the block's execution left behind, which is also the state a spice sync
+/// block's state sync hands out.
+fn query_state_root(client: &Client, block: &Block) -> StateRoot {
+    if block.header().is_spice() {
+        *client.chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap().state_root()
+    } else {
+        block.chunks()[0].prev_state_root()
+    }
 }
 
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
