@@ -48,7 +48,7 @@ use near_store::{StoreConfig, TrieConfig};
 use near_vm_runner::{
     ContractRuntimeCache, FilesystemContractRuntimeCache, NoContractRuntimeCache,
 };
-use nearcore::state_sync::StateSyncDumper;
+use nearcore::state_sync_dumper::StateSyncDumper;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;

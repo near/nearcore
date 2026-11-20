@@ -21,7 +21,7 @@ use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorS
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use nearcore::state_sync::StateSyncDumper;
+use nearcore::state_sync_dumper::StateSyncDumper;
 use std::sync::Arc;
 
 #[test]
