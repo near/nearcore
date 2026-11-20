@@ -29,6 +29,7 @@ use near_primitives::views::{
     FinalExecutionStatus,
 };
 use near_primitives_core::types::Balance;
+use near_runtime::initial_nonce_value;
 use near_store::trie::TrieNodesCount;
 use std::sync::Arc;
 use testlib::fees_utils::FeeHelper;
@@ -41,7 +42,7 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE.checked_div(10).unwra
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.
 const fn extra_refund_outcomes() -> usize {
-    if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 1 } else { 0 }
+    1
 }
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
@@ -542,7 +543,13 @@ pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKe
     let view_access_key = node_user.get_access_key(&receiver_id, &public_key);
     match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
-            assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
+            // The first receipt creates the account and its access key.
+            let height = node_user
+                .get_outcome_height(&transaction_result.receipts_outcome[0])
+                .expect("receipt outcome must have an execution height");
+            let mut access_key = AccessKey::full_access();
+            access_key.nonce = initial_nonce_value(height, PROTOCOL_VERSION);
+            assert_eq!(view_access_key.unwrap(), access_key.into());
         }
         AccountType::NearDeterministicAccount => {
             // A transfer to NEAR deterministic address does not create access key.
@@ -1203,11 +1210,12 @@ fn assert_access_key(
     result: &FinalExecutionOutcomeView,
     user: &dyn User,
 ) {
+    // The first receipt runs the `AddKey` action.
+    let height = user
+        .get_outcome_height(&result.receipts_outcome[0])
+        .expect("receipt outcome must have an execution height");
     let mut key = access_key.clone();
-    let block = user.get_block(result.transaction_outcome.block_hash);
-    if let Some(b) = block {
-        key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-    }
+    key.nonce = initial_nonce_value(height, PROTOCOL_VERSION);
     assert_eq!(access_key_view, key.into());
 }
 
@@ -1878,7 +1886,6 @@ fn check_trie_nodes_count(
     runtime_config: &RuntimeConfig,
     receipts: Vec<Receipt>,
     results: Vec<TrieNodesCount>,
-    use_flat_storage: bool,
 ) {
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
@@ -1886,7 +1893,7 @@ fn check_trie_nodes_count(
         receipts.iter().map(|receipt| *receipt.receipt_id()).collect();
 
     for i in 0..2 {
-        node_user.add_receipts(receipts.clone(), use_flat_storage).unwrap();
+        node_user.add_receipts(receipts.clone()).unwrap();
 
         if i == 1 {
             node_touches = receipt_hashes
@@ -1925,12 +1932,20 @@ pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: Runt
         })
         .collect();
 
-    let results = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }
 
 /// This test is similar to `test_accounting_cache_common_parent` but checks another trie structure:
@@ -1951,11 +1966,18 @@ pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: Runti
         })
         .collect();
 
-    let results = vec![
-        TrieNodesCount { db_reads: 5, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 5, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 5, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }
 
 /// This test is similar to `test_accounting_cache_common_parent` but checks another trie structure:
@@ -1985,21 +2007,27 @@ pub fn test_accounting_cache_mode(node: impl Node, runtime_config: RuntimeConfig
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),
     ];
 
-    let results = vec![
-        TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 6, mem_reads: 0 },
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }
 
 /// Checks costs for subsequent `storage_read` and `storage_write` for the same key.
 /// Depth for the storage key is 4.
-/// Without flat storage, cost for reading Value is skipped due to a bug, so we count
-/// 3 DB reads during read. During write, all nodes get cached, so we count 4 mem reads.
-/// With flat storage, neither DB nor memory reads should be counted, as we skip Trie
-/// node reads and don't charge for Value read due to the same bug. For write we go
-/// to Trie and count 3 DB node reads and 1 mem read for Value.
+/// Neither DB nor memory reads should be counted during read, as flat storage skips Trie
+/// node reads and we don't charge for Value read due to a bug. For write we go to Trie and
+/// count 3 DB node reads and 1 mem read for Value.
 pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(
@@ -2014,15 +2042,16 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![20])], bob_account()),
     ];
 
-    let results = vec![
-        TrieNodesCount { db_reads: 3, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 4 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts.clone(), results, false);
-
-    let results = vec![
-        TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 3, mem_reads: 1 },
-    ];
-    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    let results = if ProtocolFeature::ChargeAllTrieNodesAsTouched.enabled(PROTOCOL_VERSION) {
+        vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 4, mem_reads: 0 },
+        ]
+    } else {
+        vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 3, mem_reads: 1 },
+        ]
+    };
+    check_trie_nodes_count(&node, &runtime_config, receipts, results);
 }

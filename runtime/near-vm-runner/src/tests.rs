@@ -5,6 +5,8 @@ mod compile_errors;
 mod compiler_daemon;
 mod external_call_deposit;
 mod external_call_gas_limit;
+#[cfg(feature = "wasmtime_vm")]
+mod external_call_host_functions;
 #[cfg(feature = "prepare")]
 mod fuzzers;
 mod ml_dsa_verify_integration;
@@ -54,7 +56,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: CURRENT_ACCOUNT_ID.parse().unwrap(),
         signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
-        signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
+        signer_account_pk: Some(Vec::from(&SIGNER_ACCOUNT_PK[..])),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         refund_to_account_id: REFUND_TO_ACCOUNT_ID.parse().unwrap(),
         input: std::rc::Rc::from(input),

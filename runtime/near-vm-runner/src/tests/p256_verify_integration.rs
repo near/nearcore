@@ -94,7 +94,7 @@ fn sign_and_keys(message: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
     let signing_key = make_signing_key();
     let signature: Signature = signing_key.sign_prehash(message).unwrap();
     let signature_bytes = signature.to_vec();
-    let public_key = VerifyingKey::from(&signing_key).to_encoded_point(true).as_bytes().to_vec();
+    let public_key = VerifyingKey::from(&signing_key).to_sec1_point(true).as_bytes().to_vec();
     (signature_bytes, public_key)
 }
 

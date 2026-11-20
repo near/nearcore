@@ -1,6 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::BorshSerialize;
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::ExternalStorageLocation;
 use near_client::sync::external::{
@@ -420,8 +420,7 @@ async fn load_state_parts(
 }
 
 fn print_state_part(state_root: &StateRoot, _part_id: StatePartId, trie_nodes: PartialState) {
-    let trie =
-        Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
     trie.print_recursive(
         &mut std::io::stdout().lock(),
         &state_root,
@@ -454,9 +453,7 @@ async fn dump_state_parts(
             return;
         }
     };
-    let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
-    let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
-    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+    let snapshot_hash = snapshot_hash_for_sync_hash(chain.chain_store(), &sync_hash).unwrap();
 
     let state_header =
         chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
@@ -535,10 +532,9 @@ async fn dump_state_parts(
 
 /// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
 fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
-    let trie =
-        Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
-    for (key, value) in trie.disk_iter().unwrap().flatten() {
+    for (key, value) in trie.disk_iter().flatten() {
         if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
             return Some(sr);
         }

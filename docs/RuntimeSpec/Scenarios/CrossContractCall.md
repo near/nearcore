@@ -27,7 +27,7 @@ Transaction {
             method_name: "reserve_trip",
             args: "{\"city\": \"Venice\", \"date\": 20191201}",
             gas: 1000000,
-            tokens: 100,
+            deposit: 100,
         })
     ],
 }
@@ -40,8 +40,8 @@ the contract should be called. The `receiver_id` field in `Transaction` already 
 it is up to the contract developer what serialization format they choose for their arguments. In this example, the contract
 developer has chosen to use JSON and so the tool that Alice uses to compose this transaction is expected to use JSON too
 to pass the arguments. `gas` declares how much gas `alice_near` has prepaid for dynamically calculated fees of the smart
-contract executions and other actions that this transaction may spawn. The `tokens` is the amount of `alice_near` attaches
-to be deposited to whatever smart contract that it is calling to. Notice, `gas` and `tokens` are in different units of
+contract executions and other actions that this transaction may spawn. The `deposit` is the amount that `alice_near` attaches
+to be deposited to whatever smart contract that it is calling to. Notice, `gas` and `deposit` are in different units of
 measurement.
 
 Now, consider a slightly more complex scenario. In this scenario Alice uses a restricted access key to call the function.
@@ -50,7 +50,7 @@ where
 
 ```
 FunctionCallPermission {
-    allowance: Some(3000),
+    allowance: Some(250000000000000000000000),
     receiver_id: "travel_agency",
     method_names: [ "reserve_trip", "cancel_trip" ]
 }
@@ -58,16 +58,21 @@ FunctionCallPermission {
 
 This scenario might arise when someone Alice's parent has given them a restricted access to `alice_near` account by
 creating an access key that can be used strictly for trip management.
-This access key allows up to `3000` tokens to be spent (which includes token transfers and payments for gas), it can
-be only used to call `travel_agency` and it can be only used with the `reserve_trip` and `cancel_trip` methods.
-The way runtime treats this case is almost exactly the same as the previous one, with the only difference on how it verifies
-the signature of on the signed transaction, and that it also checks for allowance to not be exceeded.
+This access key allows up to 0.25 NEAR (`250000000000000000000000` yoctoNEAR) to be spent on gas. It cannot be used to
+transfer tokens or to attach a deposit. It can be only used to call `travel_agency` and it can be only used with the
+`reserve_trip` and `cancel_trip` methods. A transaction signed with this key must have exactly one `FunctionCall` action
+with zero deposit. The transaction above attaches 100 yoctoNEAR (`deposit: 100`), so with this key it would be rejected
+with `DepositWithFunctionCall`.
+The runtime verifies the signature the same way as for a full access key. After the nonce and balance checks, it checks
+that the allowance covers the cost of the transaction. This cost includes the gas and the attached deposit. If the
+allowance does not cover it, the transaction fails with `NotEnoughAllowance`. Then the runtime checks the zero deposit,
+the receiver and the method name.
 
 Finally, in the last scenario, Alice does not have an account (or the existence of `alice_near` is irrelevant). However,
 alice has full or restricted access key directly on `travel_agency` account. In that case `signer_id == receiver_id` in the
 `Transaction` object and runtime will convert transaction to the first receipt and apply that receipt in the same block.
 
-This section will focus on the first scenario, since the other two are the same with some minor differences.
+This section will focus on the first scenario. The third one differs only in minor ways. The second one works the same way for a call that attaches no deposit.
 
 ## Transaction to receipt
 
@@ -77,7 +82,10 @@ with several key points to note:
 - Since Alice attaches 100 tokens to the function call, we subtract them from `alice_near` upon converting transaction to receipt,
   similar to the regular financial transaction;
 - Since we are attaching 1000000 prepaid gas, we will not only subtract the gas costs of processing the receipt from `alice_near`, but
-  will also purchase 1000000 gas using the current gas price.
+  will also purchase 1000000 gas. The gas burnt for converting the transaction is charged at the current gas price. The prepaid gas
+  and the execution fees of the receipt are bought at the receipt gas price. From protocol version 85 (nearcore 2.13.0), this is the
+  higher of the current gas price and `min_gas_purchase_price`, which is 10^9 yoctoNEAR per gas. Unused gas is refunded later. The price difference for gas
+  that is burnt at a lower price is refunded too.
 
 ## Processing the `reserve_trip` receipt
 
@@ -92,14 +100,13 @@ section, with one difference that we will also call `action_function_call` which
   call the storage API. Specifically `"{\"city\": \"Venice\", \"date\": 20191201}"` arguments will be set in `VMContext`.
 - Calls `near_vm_runner::run` which does the following:
   - Inject gas, stack, and other kinds of metering;
-  - Verify that Wasm code does not use floats;
-  - Checks that bindings API functions that the smart contract is trying to call are actually those provided by `near_vm_logic`;
+  - Checks that bindings API functions that the smart contract is trying to call are actually those provided by the `logic` module of `near-vm-runner`;
   - Compiles Wasm code into the native binary;
   - Calls `reserve_trip` on the smart contract.
     - During the execution of the smart contract it will at some point call `promise_create` and `promise_then`, which will
       call method on `RuntimeExt` that will record that two promises were created and that the second one should
-      wait on the first one. Specifically, `promise_create` will call `RuntimeExt::create_receipt(vec![], "hotel_near")`
-      returning `0` and then `RuntimeExt::create_receipt(vec![0], "travel_agency")`;
+      wait on the first one. Specifically, `promise_create` will call `RuntimeExt::create_action_receipt(vec![], "hotel_near")`
+      returning `0` and then `RuntimeExt::create_action_receipt(vec![0], "travel_agency")`;
 - `action_function_call` then collects receipts from `VMContext` along with the execution result, logs, and information
   about used gas;
 - `apply_action_receipt` then goes over the collected receipts from each action and returns them at the end of `Runtime::apply` together with

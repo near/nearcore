@@ -56,7 +56,6 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
         let start = Instant::now();
         let num_items_read = trie
             .disk_iter()
-            .unwrap()
             .enumerate()
             .map(|(i, _)| {
                 if i % 500 == 0 {

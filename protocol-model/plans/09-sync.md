@@ -15,13 +15,20 @@ for shards to be tracked next epoch). The state-sync request/serve protocol.
 ## Code to read
 - `docs/architecture/how/sync.md` (READ FIRST per repo guidance; cross-check).
 - `chain/client/src/sync/{header,block,epoch}.rs`.
-- `chain/client/src/sync/state/{mod,shard,downloader,network,external}.rs`,
+- `chain/client/src/sync/state/{mod,shard,downloader,network}.rs`,
   `chain/client/src/sync/handler.rs`.
 - `chain/client/src/state_request_actor.rs` — serving state parts.
 - `chain/client/src/sync_jobs_actor.rs` — job coordination.
-- `nearcore/src/state_sync.rs` — orchestrator, external/cloud storage.
-- `docs/misc/state_sync_dump.md`, `state_sync_from_external_storage.md`,
+- `nearcore/src/state_sync.rs` — the state dump orchestrator (cloud archival only
+  since 2.14.0; it is no longer a state-sync path).
+- `docs/misc/state_sync_dump.md`,
   `docs/architecture/next/catchup_and_state_sync.md`.
+- NOTE: centralized (external-storage) state sync was removed in 2.14.0 —
+  `chain/client/src/sync/state/external.rs` and
+  `docs/misc/state_sync_from_external_storage.md` are gone, and `SyncConfig` has only a
+  `Peers` variant. Do not confuse the deleted file with the surviving
+  `chain/client/src/sync/external.rs`, which holds bucket-layout helpers for the dumper
+  and state-viewer.
 
 ## Questions the spec must answer
 - What is the ordering of the sync phases and what triggers entering each (how far
@@ -30,8 +37,8 @@ for shards to be tracked next epoch). The state-sync request/serve protocol.
 - Block sync: how are missing blocks fetched and applied up to head?
 - Epoch sync: what does it bootstrap and how does it avoid downloading all headers?
 - State sync: how is a shard's state at a sync hash downloaded by parts (request,
-  parallelism, validation against state root), and where do parts come from (peers vs
-  external/cloud storage)?
+  parallelism, validation against state root)? Parts come only from peers since 2.14.0 —
+  what are the consequences for a node peers cannot dial back?
 - Catchup: how/when does a node build state for shards it will track next epoch while
   staying live on current shards?
 - How does a node serve state-part requests to others?
@@ -41,4 +48,6 @@ for shards to be tracked next epoch). The state-sync request/serve protocol.
   for shard tracking; writes via state-storage. Link to each.
 
 ## Relevant ProtocolFeatures
-- Epoch sync data hash validation, external/cloud state sync. Verify against `version.rs`.
+- Epoch sync data hash validation, continuous epoch sync. Verify against `version.rs`.
+  Note that almost nothing in this component is protocol-gated; most of it is ungated
+  `neard` behavior.

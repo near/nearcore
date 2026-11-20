@@ -197,18 +197,15 @@ pub fn enqueue_promise_yield_timeout(
         .expect("Next available index for PromiseYield timeout queue exceeded the integer limit");
 }
 
-pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
-    match receipt.versioned_receipt() {
-        VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            assert!(action_receipt.input_data_ids().len() == 1);
-            let key = TrieKey::PromiseYieldReceipt {
-                receiver_id: receipt.receiver_id().clone(),
-                data_id: action_receipt.input_data_ids()[0],
-            };
-            set(state_update, key, receipt);
-        }
-        _ => unreachable!("Expected PromiseYield receipt"),
-    }
+/// Stores a `PromiseYield` receipt until it is resumed. `data_id` is the only input data id of
+/// the receipt.
+pub fn set_promise_yield_receipt(
+    state_update: &mut TrieUpdate,
+    receipt: &Receipt,
+    data_id: CryptoHash,
+) {
+    let key = TrieKey::PromiseYieldReceipt { receiver_id: receipt.receiver_id().clone(), data_id };
+    set(state_update, key, receipt);
 }
 
 pub fn remove_promise_yield_receipt(
@@ -537,13 +534,9 @@ pub fn remove_account(
         if let Some(index) = nonce_index {
             gas_key_nonce_count += 1;
             gas_key_nonce_total_key_bytes += raw_key.len();
-            keys_to_remove.push(TrieKey::gas_key_nonce(
-                account_id.clone(),
-                key_handle.clone(),
-                index,
-            ));
+            keys_to_remove.push(TrieKey::gas_key_nonce(account_id.clone(), key_handle, index));
         } else {
-            keys_to_remove.push(TrieKey::access_key(account_id.clone(), key_handle.clone()));
+            keys_to_remove.push(TrieKey::access_key(account_id.clone(), key_handle));
         }
     }
     drop(lock);

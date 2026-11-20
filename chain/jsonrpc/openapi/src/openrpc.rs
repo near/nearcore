@@ -49,7 +49,7 @@ use near_jsonrpc_primitives::types::split_storage::{
 };
 use near_jsonrpc_primitives::types::status::{RpcHealthResponse, RpcStatusResponse};
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
+    RpcSendTransactionEnvelopeRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
 };
 use near_jsonrpc_primitives::types::validator::{
     RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
@@ -707,7 +707,7 @@ fn collapse_cartesian_products(schemas: &mut serde_json::Map<String, serde_json:
                 if seen.get(comp.name).unwrap().contains(&signature) {
                     continue;
                 }
-                seen.get_mut(comp.name).unwrap().insert(signature.clone());
+                seen.get_mut(comp.name).unwrap().insert(signature);
 
                 // Extract only the properties relevant to this component
                 let mut comp_props = serde_json::Map::new();
@@ -870,7 +870,7 @@ fn extract_params_from_schema(
         // variant-specific constraints and keep just the type.
         for variant in one_of {
             for (name, prop_schema, _required) in collect_properties_from_variant(variant) {
-                seen.entry(name.clone())
+                seen.entry(name)
                     .and_modify(|(existing, _)| {
                         if *existing != prop_schema {
                             // Schemas differ across variants — generalize to just the type
@@ -1038,7 +1038,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["gas"],
     );
-    add_method::<RpcSendTransactionRequest, RpcTransactionResponse>(
+    add_method::<RpcSendTransactionEnvelopeRequest, RpcTransactionResponse>(
         &mut methods,
         &mut all_schemas,
         "send_tx",
@@ -1373,15 +1373,15 @@ pub fn generate_openrpc() -> serde_json::Value {
 
     // ==================== Deprecated Methods ====================
 
-    add_method::<RpcSendTransactionRequest, CryptoHash>(
+    add_method::<RpcSendTransactionEnvelopeRequest, Option<CryptoHash>>(
         &mut methods,
         &mut all_schemas,
         "broadcast_tx_async",
-        "Sends a transaction and immediately returns hash (deprecated: use send_tx)",
+        "Sends a transaction and immediately returns hash, or null for an external call (deprecated: use send_tx)",
         true,
         &["transaction", "deprecated"],
     );
-    add_method::<RpcSendTransactionRequest, RpcTransactionResponse>(
+    add_method::<RpcSendTransactionEnvelopeRequest, RpcTransactionResponse>(
         &mut methods,
         &mut all_schemas,
         "broadcast_tx_commit",
@@ -1455,7 +1455,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         "openrpc": "1.3.2",
         "info": {
             "title": "NEAR Protocol JSON-RPC API",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": "JSON-RPC API for interacting with the NEAR Protocol blockchain",
             "license": {
                 "name": "Apache-2.0",

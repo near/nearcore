@@ -43,6 +43,21 @@ pub enum Parameter {
     /// This parameter limits the sum of sizes of transactions from both of those chunks.
     CombinedTransactionsSizeLimit,
 
+    // External contract calls config
+    /// Max size of an external contract call, in bytes.
+    MaxExternalCallSize,
+    /// Max storage proof an external call's run may record, in bytes.
+    MaxExternalCallRecordedSize,
+    /// The share of the chunk's compute limit that its external calls may use.
+    ExternalCallsChunkComputeShare,
+    /// The share of `main_storage_proof_size_soft_limit` that a chunk's external calls may
+    /// record.
+    ExternalCallsChunkStorageProofShare,
+    /// The share of `combined_transactions_size_limit` that a chunk's external calls may take.
+    ExternalCallsChunkTransactionsSizeShare,
+    /// Max number of external contract calls in a chunk.
+    MaxExternalCallsPerChunk,
+
     // Account creation config
     MinAllowedTopLevelAccountLength,
     RegistrarAccountId,
@@ -224,6 +239,10 @@ pub enum Parameter {
     MaxUniversalStateInitKeys,
     /// Max number of storage entries the state-init actions in one receipt may carry, in total.
     MaxStateInitEntries,
+    /// Max number of gas key nonces the actions in one receipt may add, in total.
+    MaxGasKeyNoncesAddedPerReceipt,
+    /// Max number of gas key nonces the actions in one receipt may remove, in total.
+    MaxGasKeyNoncesRemovedPerReceipt,
     MaxFunctionsNumberPerContract,
     MaxLocalsPerContract,
     MinContractSizePerLocal,
@@ -246,9 +265,13 @@ pub enum Parameter {
     FixContractLoadingError,
     VmKind,
     // TODO(universal-accounts): delete this once MIN_SUPPORTED_PROTOCOL_VERSION is
-    // past protocol version 87, where the feature is enabled.
+    // past protocol version 88, where the feature is enabled.
     UniversalAccounts,
+    // Flag for the `CanonicalUniversalStateInit` protocol feature.
+    CanonicalUniversalStateInit,
     FixMlDsaCostCharging,
+    // Flag for the `FixRegisterInputCharging` protocol feature.
+    FixRegisterInputCharging,
 
     // Congestion Control
     MaxCongestionIncomingGas,
@@ -293,27 +316,12 @@ pub enum Parameter {
     ActionUseGlobalContract,
     ActionUseGlobalContractPerIdentifierByte,
 
-    // Flag to enable gas key host functions
-    GasKeyHostFns,
-
-    // Flag to allow 1 yoctoNEAR on promise function calls without balance
-    OneYoctoOnPromise,
-
-    // Flag to enable the P-256 verification host function
-    P256VerifyHostFn,
-
     // Flag to enable the ML-DSA-65 verification host function
     MlDsaVerifyHostFn,
 
     // Flag to enable the sha3_256, sha3_384 and sha3_512 host functions
     #[strum(serialize = "sha3_host_fns")]
     Sha3HostFns,
-
-    // Flag to enable yield_create_with_id and yield_resume_with_id host functions
-    YieldWithIdHostFns,
-
-    // Flag to enable chain_id host function (NEP-638)
-    ChainIdHostFn,
 
     // Fix the (0, ±2) corner case in BLS12-381 sum and decompress host
     // functions (NEP-488). These points lie on the curve but outside the G1/G2
@@ -400,6 +408,8 @@ impl Parameter {
             Parameter::MaxReceiptTotalInputSize,
             Parameter::MaxUniversalStateInitKeys,
             Parameter::MaxStateInitEntries,
+            Parameter::MaxGasKeyNoncesAddedPerReceipt,
+            Parameter::MaxGasKeyNoncesRemovedPerReceipt,
             Parameter::MaxFunctionsNumberPerContract,
             Parameter::MaxLocalsPerContract,
             Parameter::MinContractSizePerLocal,

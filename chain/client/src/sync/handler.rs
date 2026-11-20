@@ -10,6 +10,7 @@ use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{EpochSyncStatus, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_store::adapter::StoreAdapter;
@@ -48,12 +49,13 @@ impl SyncHandler {
         header_sync: HeaderSync,
         state_sync: StateSync,
         block_sync: BlockSync,
+        rng_seed: RngSeed,
     ) -> Self {
         Self {
             config,
             peer_selector: PeerSelector::new(
                 Duration::seconds(PEER_FAILURE_COOLDOWN_SECONDS),
-                StdRng::from_entropy(),
+                StdRng::from_seed(rng_seed),
             ),
             sync_status: SyncStatus::AwaitingPeers,
             epoch_sync,
@@ -85,7 +87,7 @@ impl SyncHandler {
         chain: &mut Chain,
         shard_tracker: &ShardTracker,
         peers: &SyncPeers,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) -> Result<Option<SyncHandlerRequest>, near_chain::Error> {
         let &SyncPeers { highest_height, ref peers_ahead, .. } = peers;
         if matches!(self.sync_status, SyncStatus::NoSync | SyncStatus::AwaitingPeers) {
@@ -124,13 +126,21 @@ impl SyncHandler {
 
                 // Once we have enough headers (within block_header_fetch_horizon of
                 // highest_height), look up the sync hash and transition to state sync.
+                // Under spice the state sync header is proven against the block that
+                // certifies the sync block's chunks, which has to be final in this node's
+                // header chain, and header sync stops once state sync starts - so keep
+                // syncing headers until it is.
                 let min_header_height =
                     highest_height.saturating_sub(self.config.block_header_fetch_horizon);
                 if header_head.height >= min_header_height {
                     if let Some(sync_hash) = chain.find_sync_hash()? {
-                        tracing::debug!(target: "sync", ?sync_hash, "sync: transition to state sync");
-                        self.sync_status
-                            .update(SyncStatus::StateSync(StateSyncStatus::new(sync_hash)));
+                        if chain.is_sync_block_certified_by_final_block(&sync_hash)? {
+                            tracing::debug!(target: "sync", ?sync_hash, "sync: transition to state sync");
+                            self.sync_status
+                                .update(SyncStatus::StateSync(StateSyncStatus::new(sync_hash)));
+                        } else {
+                            tracing::debug!(target: "sync", ?sync_hash, "sync: waiting for the sync block to be certified");
+                        }
                     }
                 }
             }

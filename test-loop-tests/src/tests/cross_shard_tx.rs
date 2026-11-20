@@ -13,7 +13,7 @@ use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{ProcessTxRequest, Query, QueryError};
 use near_network::types::NetworkRequests;
 use near_network::types::NetworkResponses;
-use near_o11y::testonly::init_test_logger;
+use near_o11y::testonly::init_test_logger_with_directives;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -35,7 +35,9 @@ struct Params {
 /// validator i/8 to validator i%8. It submits txs one at a time, and waits for their completion
 /// before sending the next.
 fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_chunks }: Params) {
-    init_test_logger();
+    // The per-event test loop trace is most of the output of these tests (gigabytes) and
+    // writing it takes most of their run time.
+    init_test_logger_with_directives("test_loop=warn");
 
     let seed: u64 = thread_rng().r#gen();
     println!("RNG seed: {seed}. If test fails use it to find the issue.");
@@ -200,7 +202,7 @@ fn test_cross_shard_tx_common(Params { num_transfers, rotate_validators, drop_ch
                 anchor_hash,
             );
             node_datas[0].rpc_handler_sender.send(ProcessTxRequest {
-                transaction: tx,
+                transaction: tx.into(),
                 is_forwarded: false,
                 check_only: false,
             });

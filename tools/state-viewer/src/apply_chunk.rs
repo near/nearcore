@@ -19,10 +19,10 @@ use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
+use near_runtime::SignedValidPeriodTransactions;
 use near_store::DBCol;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
-use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -190,6 +190,8 @@ pub fn apply_chunk(
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 prev_block_hash: *prev_block_hash,
+                prev_block_height: prev_block.header().height(),
+                prev_block_timestamp: prev_timestamp,
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
                 congestion_info: block_congestion_info,
@@ -254,7 +256,7 @@ fn apply_tx_in_block(
             HashType::Tx => {
                 println!(
                     "Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
-                    &block_hash,
+                    block_hash,
                     shard_id,
                     chain_store.get_block_header(&block_hash)?.height(),
                     shard_id
@@ -342,7 +344,7 @@ fn apply_tx_in_chunk(
     for chunk_hash in chunk_hashes {
         println!(
             "found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n",
-            &chunk_hash.0, &chunk_hash.0
+            chunk_hash.0, chunk_hash.0
         );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, &chunk_hash, None, None, storage)?;
@@ -396,7 +398,7 @@ fn apply_receipt_in_block(
             HashType::Receipt => {
                 println!(
                     "Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
-                    &block_hash,
+                    block_hash,
                     shard_id,
                     chain_store.get_block_header(&block_hash)?.height(),
                     shard_id
@@ -466,7 +468,7 @@ fn apply_receipt_in_chunk(
                         to_apply.insert((height, to_shard));
                         println!(
                             "found receipt in chunk {}. Receiver is in shard {}",
-                            &chunk_hash.0, to_shard
+                            chunk_hash.0, to_shard
                         );
                         break;
                     }

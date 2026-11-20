@@ -17,7 +17,6 @@ use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, Balance, BlockHeightDelta};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -263,8 +262,7 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     let proof = env.derive_epoch_sync_proof(0);
     let final_head_height = env.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &env.shared_state.genesis.config, 2);
-    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
-    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
+    env.assert_epoch_sync_proof_existence_on_disk(0, true);
 }
 
 #[test]
@@ -289,9 +287,8 @@ fn slow_test_epoch_sync_proof_sanity_from_epoch_synced_node() {
     assert_eq!(final_head_height_old, final_head_height_new);
     assert_eq!(old_proof, new_proof);
 
-    // On the original node, proof exists on disk only when ContinuousEpochSync is enabled.
-    let proof_exists = ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION);
-    env.assert_epoch_sync_proof_existence_on_disk(0, proof_exists);
+    // On the original node, proof exists on disk.
+    env.assert_epoch_sync_proof_existence_on_disk(0, true);
     env.assert_header_existence(0, env.shared_state.genesis.config.genesis_height + 1, true);
 
     // On the new node we should have a proof but missing headers for the old epochs.

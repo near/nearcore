@@ -24,6 +24,7 @@ use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::net::IpAddr;
 
 /// Per-peer routing metadata. Populated by register
 /// (`on_peer_connected`), updated incrementally by message handlers
@@ -46,6 +47,9 @@ pub(crate) struct ConnectedPeerState {
     pub owned_account_key: Option<PublicKey>,
     pub peer_type: PeerType,
     pub established_time: time::Instant,
+    /// IP at which this peer sees us, from its latest PeersResponse
+    /// (TIER2 only). Feeds the vote on our public address.
+    pub my_reported_ip: Option<IpAddr>,
 }
 
 /// Canonical record of connected peers, split per tier.
@@ -152,6 +156,14 @@ impl ConnectedPeers {
         }
     }
 
+    /// Records the IP at which a TIER2 peer sees us. No-op if the peer
+    /// isn't connected on TIER2, the only tier carrying PeersResponse.
+    pub fn update_my_reported_ip(&self, peer_id: &PeerId, ip: IpAddr) {
+        if let Some(s) = self.tier2_peers.lock().get_mut(peer_id) {
+            s.my_reported_ip = Some(ip);
+        }
+    }
+
     /// Is `peer_id` in our connected set on any tier?
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
         self.tier1_peers.lock().contains_key(peer_id)
@@ -227,6 +239,7 @@ mod tests {
             owned_account_key,
             peer_type,
             established_time: near_async::time::Clock::real().now(),
+            my_reported_ip: None,
         }
     }
 

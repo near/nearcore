@@ -11,8 +11,8 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, BlockHeight, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_runtime::config::Rational32;
 use near_vm_runner::logic::ProtocolVersion;
-use node_runtime::config::Rational32;
 use std::sync::Arc;
 
 pub fn set_block_protocol_version(

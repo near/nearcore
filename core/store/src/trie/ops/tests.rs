@@ -112,7 +112,7 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
     let proof = trie_recorder.recorded_storage();
 
     // Use proof to verify split
-    let partial_trie = Trie::from_recorded_storage(proof, initial_state_root, false);
+    let partial_trie = Trie::from_recorded_storage(proof, initial_state_root);
     let expected_proof_based_state_root =
         retain_split_shard_custom_ranges_for_trie(&partial_trie, &retain_multi_ranges);
 
@@ -120,7 +120,6 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
         let trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::<false>::default()), mem_state_root, None);
         STMemTrieIterator::new(MemTrieIteratorInner::new(&memtries, &trie), None)
-            .unwrap()
             .map(|e| e.unwrap())
             .collect_vec()
     } else {

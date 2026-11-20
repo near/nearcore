@@ -19,7 +19,7 @@ use near_async::time;
 use near_async::tokio::TokioRuntimeHandle;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::cmp::max;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use tokio::sync::oneshot;
@@ -94,12 +94,14 @@ impl TcpTransport {
         tier: tcp::Tier,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
-        let pool = match tier {
-            tcp::Tier::T1 => &self.tier1,
-            tcp::Tier::T2 => &self.tier2,
-            tcp::Tier::T3 => &self.tier3,
+        let (pool, max_tier3_requesters) = match tier {
+            tcp::Tier::T1 => (&self.tier1, None),
+            tcp::Tier::T2 => (&self.tier2, None),
+            tcp::Tier::T3 => {
+                (&self.tier3, Some(self.state.config.max_inbound_tier3_connections as usize))
+            }
         };
-        pool.insert_ready(conn).map_err(RegisterPeerError::PoolError)
+        pool.insert_ready(conn, max_tier3_requesters).map_err(RegisterPeerError::PoolError)
     }
 
     /// Remove a connection from the tier's Pool.
@@ -260,15 +262,33 @@ impl NetworkTransport for TcpTransport {
         ConnectHandle::new(rx)
     }
 
-    fn disconnect_peer(&self, peer_id: &PeerId, ban_reason: Option<ReasonForBan>) {
-        // A peer may be connected on multiple tiers simultaneously
-        // (e.g. T1 + T2 for a validator). Stop the connection on every
-        // tier we find it on — partial disconnect would leave a stale
-        // entry on the other tier.
+    fn disconnect_peer(&self, tier: tcp::Tier, peer_id: &PeerId) {
+        let pool = match tier {
+            tcp::Tier::T1 => &self.tier1,
+            tcp::Tier::T2 => &self.tier2,
+            tcp::Tier::T3 => &self.tier3,
+        };
+        let snapshot = pool.load();
+        if let Some(conn) = snapshot.ready.get(peer_id) {
+            conn.stop(None);
+        }
+    }
+
+    fn ban_peer(&self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         for pool in [&self.tier1, &self.tier2, &self.tier3] {
             let snapshot = pool.load();
             if let Some(conn) = snapshot.ready.get(peer_id) {
-                conn.stop(ban_reason);
+                conn.stop(Some(ban_reason));
+            }
+        }
+    }
+
+    fn stop_idle_tier3_connections(&self, now: time::Instant, idle_timeout: time::Duration) {
+        for conn in self.tier3.load().ready.values() {
+            let last_active =
+                max(conn.last_time_received_message.load(), conn.last_time_sent_message.load());
+            if now - last_active > idle_timeout {
+                conn.stop(None);
             }
         }
     }
@@ -280,30 +300,24 @@ impl NetworkTransport for TcpTransport {
 
     fn transport_info(&self) -> TransportInfo {
         let tier2 = self.tier2.load();
-        // Include T3 peer stats so PMA's idle-connection cleanup can read
-        // last_time_received_message via transport_info instead of touching
-        // the Pool directly.
-        let tier3 = self.tier3.load();
-
-        let mut peer_stats: HashMap<PeerId, PeerTransportStats> = HashMap::new();
-        // T2 comes first; if the same peer_id appears in T3, the T2 entry
-        // is kept (via `or_insert_with`). Keying by peer_id collapses
-        // duplicates naturally.
-        for (peer_id, conn) in tier2.ready.iter().chain(tier3.ready.iter()) {
-            peer_stats.entry(peer_id.clone()).or_insert_with(|| {
+        let tier2_peer_stats = tier2
+            .ready
+            .iter()
+            .map(|(peer_id, conn)| {
                 let s = &conn.stats;
-                PeerTransportStats {
+                let stats = PeerTransportStats {
                     last_time_received_message: conn.last_time_received_message.load(),
                     last_time_peer_requested: conn.last_time_peer_requested.load(),
                     received_bytes_per_sec: s.received_bytes_per_sec.load(Ordering::Relaxed),
                     received_messages_per_sec: s.received_messages_per_sec.load(Ordering::Relaxed),
                     sent_bytes_per_sec: s.sent_bytes_per_sec.load(Ordering::Relaxed),
-                }
-            });
-        }
+                };
+                (peer_id.clone(), stats)
+            })
+            .collect();
         TransportInfo {
             pending_outbound: tier2.outbound_handshakes.iter().cloned().collect(),
-            peer_stats,
+            tier2_peer_stats,
         }
     }
 }

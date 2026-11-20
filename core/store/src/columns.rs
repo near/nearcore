@@ -1,4 +1,3 @@
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::fmt;
 
 /// This enum holds the information about the columns that we use within the
@@ -420,6 +419,11 @@ pub enum DBCol {
     /// - *Rows*: BlockHash || ShardId (anchor_block_hash, shard_id) — 40 bytes
     /// - *Content type*: [near_primitives::types::validator_stake::ValidatorStake]
     ChunkProducers,
+    /// The hash of the external call a copy ran, by the copy's unique id and the block that
+    /// includes it, keyed like [`DBCol::TransactionResultForBlock`].
+    /// - *Rows*: OutcomeId (CryptoHash) || BlockHash (CryptoHash)
+    /// - *Content type*: [near_primitives::hash::CryptoHash], a key of [`DBCol::Transactions`]
+    ExternalCallTransactions,
 }
 
 /// Defines different logical parts of a db key.
@@ -500,6 +504,7 @@ impl DBCol {
             | DBCol::InvalidChunks
             | DBCol::PartialChunks
             | DBCol::TransactionResultForBlock
+            | DBCol::ExternalCallTransactions
             | DBCol::ReceiptToTx => true,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::UncertifiedChunks
@@ -523,7 +528,8 @@ impl DBCol {
     /// Under the hood, we’re using custom merge operator (see
     /// [`crate::db::RocksDB::refcount_merge`]) to properly ‘join’ the
     /// refcounted cells.  This means that the 'value' for a given key must
-    /// never change.
+    /// never change.  The exception is `Receipts`, where the keys are chosen
+    /// by chunk producers and the first value is kept.
     ///
     /// Example:
     ///
@@ -590,6 +596,7 @@ impl DBCol {
             | DBCol::StateChangesForSplitStates
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
+            | DBCol::ExternalCallTransactions
             | DBCol::Transactions
             | DBCol::StateShardUIdMapping
             | DBCol::ChunkApplyStats
@@ -651,8 +658,7 @@ impl DBCol {
             // TODO(#15465): the indexer reads this column too, so a split-storage
             // archival node loses it to gc and cannot serve it past the horizon.
             DBCol::ProcessedReceiptIds => false,
-            // BlockHeader is considered cold once ContinuousEpochSync is enabled. Before that, it is false
-            DBCol::BlockHeader => ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION),
+            DBCol::BlockHeader => true,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::_BlockExtra
@@ -722,6 +728,7 @@ impl DBCol {
             | DBCol::StateSyncNewChunks
             | DBCol::StateTransitionData
             | DBCol::TransactionResultForBlock
+            | DBCol::ExternalCallTransactions
             | DBCol::TrieChanges => GcPolicy::Delete,
             #[cfg(feature = "protocol_feature_spice")]
             DBCol::AllNextBlockHashes
@@ -846,7 +853,9 @@ impl DBCol {
             DBCol::EpochValidatorInfo => &[DBKeyType::EpochId],
             DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
-            DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
+            DBCol::TransactionResultForBlock | DBCol::ExternalCallTransactions => {
+                &[DBKeyType::OutcomeId, DBKeyType::BlockHash]
+            }
             DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],

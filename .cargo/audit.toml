@@ -81,6 +81,36 @@ ignore = [
     # Nearcore builds Wasmtime without the component model, so the handle-table
     # code path isn't compiled in.
     "RUSTSEC-2026-0363",
+    # RUSTSEC-2026-0424: unchecked memory use when borrowed resources move
+    # between components. Nearcore builds Wasmtime without the component model.
+    "RUSTSEC-2026-0424",
+    # RUSTSEC-2026-0379: Bug in cranelift backend on aarch64, we only use this
+    # for development, never on real nodes.
+    "RUSTSEC-2026-0379",
+    # RUSTSEC-2026-0566: unbounded host memory growth in wasmtime-wasi's
+    # `AsyncWriteStream`. Nearcore does not enable or link Wasmtime's WASI
+    # support.
+    "RUSTSEC-2026-0566",
+    # RUSTSEC-2026-0571: unbounded heap usage in wasmtime-wasi-http. Nearcore
+    # does not enable or link Wasmtime's WASI support.
+    "RUSTSEC-2026-0571",
+    # RUSTSEC-2026-0567: process abort on `memory.atomic.*` instructions in
+    # builds without the `threads` cargo feature. It needs the embedder to turn
+    # the threads proposal back on through `Config::wasm_features`. Nearcore
+    # builds without the `threads` feature but uses `Config::default()` (see
+    # `runtime/near-vm-runner/src/features.rs`), which leaves threads disabled,
+    # and contract validation rejects the threads proposal (`THREADS = false`).
+    "RUSTSEC-2026-0567",
+    # RUSTSEC-2026-0569: `Caller::get_module_export` panics when the host
+    # function was called by the embedder instead of by wasm, e.g. a contract
+    # method that is a re-export of an imported host function. Nearcore does
+    # call `Caller::get_module_export` (`get_memory` in
+    # `runtime/near-vm-runner/src/wasmtime_runner/mod.rs`), but only while the
+    # memory export is still unresolved, and it is resolved on the real instance
+    # right after instantiation, before any contract method is called. The
+    # preparation step guarantees that the `memory` export is a memory. Covered
+    # by `test_panic_re_export` and `test_trampoline_only_*`.
+    "RUSTSEC-2026-0569",
 
     # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained. Reached only through
     # serde_yaml (itself marked deprecated upstream; latest is 0.9.34+deprecated),
@@ -88,17 +118,24 @@ ignore = [
     # untrusted input. Remove once near-parameters moves off serde_yaml (#16566).
     "RUSTSEC-2024-0449",
 
-    # RUSTSEC-2026-0367 / RUSTSEC-2026-0368 / RUSTSEC-2026-0369: `zip` crate
-    # ZipArchive::extract vulnerabilities (SUID/SGID preservation, symlink
-    # target escape, Unix permissions applied through symlinks). Fixed in
-    # zip >= 9.0.0. Reached only via utoipa-swagger-ui 9.0.2 (used by
-    # near-rosetta-rpc to serve the Swagger UI at /swagger-ui). The `vendored`
-    # feature uses `zip` only at build time to unpack a trusted Swagger-UI
-    # release archive shipped with the crate into OUT_DIR -- no runtime
-    # extraction of attacker-controlled zips. Latest published
-    # utoipa-swagger-ui 10.0.1 still pins zip = "8.6"; remove these once
-    # upstream releases a version with zip >= 9.0.
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
+    # RUSTSEC-2026-0543: chrono is unmaintained (soft-deprecated upstream in
+    # favor of jiff, see chronotope/chrono#1768). No patched version exists.
+    # It is used directly by many workspace crates and transitively by
+    # object_store and axum-test, so it can't be dropped quickly.
+    # TODO: remove once the workspace has migrated off chrono and the
+    # transitive users have done the same.
+    "RUSTSEC-2026-0543",
+    # RUSTSEC-2026-0542: humantime is unmaintained, no patched version exists.
+    # Pulled in only by object_store (near-external-storage); the latest
+    # object_store (0.14.2) still depends on it. Remove once object_store
+    # drops it.
+    "RUSTSEC-2026-0542",
+
+    # RUSTSEC-2026-0441: pin-utils is unmaintained. Reached only through
+    # nix 0.26 <- webrtc-util <- stun/turn (near-network STUN client and test
+    # server).
+    # TODO: remove this entry after removing nix 0.26. The latest webrtc-util
+    # (0.17.3) still depends on it, so either wait for a stun/turn release
+    # that drops it, or replace stun/turn in near-network.
+    "RUSTSEC-2026-0441",
 ]

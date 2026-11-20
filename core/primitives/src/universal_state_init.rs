@@ -9,14 +9,22 @@
 //! "kind": which fields are populated decides the kind (a key-only account has no
 //! `code`; a contract account has `code`).
 //!
-//! The id commits to the exact bytes hashed. The typed API always produces the
-//! canonical borsh (sorted `BTree*` containers, one struct per version), so ids
-//! minted through it are stable. Decoding, however, does not reject a
-//! non-canonical encoding of the same logical value: such an encoding simply
-//! hashes to a different id, and canonicalization cannot be enforced end to end
-//! anyway (contracts re-serialize their own nested `BTree*` state inside opaque
-//! storage values, out of the protocol's view). Producers are responsible for
-//! serializing consistently.
+//! The id commits to the exact bytes hashed. From the `CanonicalUniversalStateInit`
+//! protocol feature on, only the canonical borsh (sorted `BTree*` containers without
+//! duplicates, one struct per version) is accepted: [`UniversalStateInit::from_raw_strict`]
+//! rejects any encoding that is not byte for byte what [`UniversalStateInit::to_raw`]
+//! produces. So each logical state init has exactly one valid encoding and therefore
+//! one account id. Only the outer structure is checked: contracts serialize their
+//! own nested state inside the opaque storage values, out of the protocol's view.
+//!
+//! Before the feature, any well-formed borsh encoding was accepted, and a
+//! non-canonical one simply hashed to a different id. That is
+//! [`UniversalStateInit::from_raw_lenient`]. Which of the two applies is a protocol
+//! decision, so callers on the validity or state path pick one through
+//! [`UniversalStateInit::from_raw`] and a [`DecodeMode`]. Pricing an action that exists
+//! does not: what it is priced on is the same under both, see [`state_init_counts`]. Only
+//! what a contract is charged for bytes it has not had validated yet depends on the mode,
+//! see [`state_init_send_counts`].
 //!
 //! This is host-only (it embeds `near-crypto` key handles). The crypto-free wire
 //! form [`RawStateInit`] lives in `near-primitives-core` and is re-exported here.
@@ -24,12 +32,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKeyHandle;
 use near_primitives_core::global_contract::GlobalContractIdentifier;
-pub use near_primitives_core::universal_state_init::{RawStateInit, UniversalStateInitCounts};
+pub use near_primitives_core::universal_state_init::{
+    DecodeMode, RawStateInit, StateInitError, UniversalStateInitCounts,
+};
 use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io;
 
 /// Versioned initial state of a `0u` universal account. New fields or semantics
 /// arrive as a new variant (`V2`, ...); the discriminant is the only version marker.
@@ -110,39 +119,105 @@ impl UniversalStateInit {
         RawStateInit(borsh::to_vec(self).expect("borsh must not fail"))
     }
 
-    /// Decode `raw` into a typed value. Accepts any well-formed borsh encoding,
-    /// rejecting only trailing or malformed bytes; a non-canonical encoding of
-    /// the same logical value is accepted (it hashes to a different id).
-    pub fn from_raw(raw: &RawStateInit) -> Result<Self, io::Error> {
-        Self::try_from_slice(&raw.0)
+    /// Decode `raw` into a typed value as `mode` says: [`Self::from_raw_strict`] or
+    /// [`Self::from_raw_lenient`].
+    pub fn from_raw(raw: &RawStateInit, mode: DecodeMode) -> Result<Self, StateInitError> {
+        match mode {
+            DecodeMode::Lenient => Self::from_raw_lenient(raw),
+            DecodeMode::Strict => Self::from_raw_strict(raw),
+        }
+    }
+
+    /// Decode `raw` into a typed value, accepting only the canonical encoding.
+    ///
+    /// Rejects malformed or trailing bytes, and any encoding that differs from [`Self::to_raw`]
+    /// of the decoded value (unsorted or duplicate map keys and set elements).
+    pub fn from_raw_strict(raw: &RawStateInit) -> Result<Self, StateInitError> {
+        let decoded = Self::from_raw_lenient(raw)?;
+        // Borsh's `de_strict_order` would probably catch this, but it is a crate-wide feature
+        // that would also change how every other `BTreeMap` and `BTreeSet` in the node decodes.
+        if decoded.to_raw() != *raw {
+            return Err(StateInitError::NonCanonical);
+        }
+        Ok(decoded)
+    }
+
+    /// Decode `raw` into a typed value, accepting any well-formed borsh encoding.
+    ///
+    /// Rejects only malformed or trailing bytes. A non-canonical encoding of the same logical
+    /// value is accepted and hashes to a different id. This is what the protocol did before
+    /// `CanonicalUniversalStateInit`, so it stays for everything that has to behave as it did
+    /// then, for pricing (see [`state_init_counts`]), and for callers that are not part of
+    /// consensus.
+    pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, StateInitError> {
+        Self::try_from_slice(&raw.0).map_err(|_| StateInitError::Malformed)
     }
 }
 
-/// The counts a `UniversalStateInit` action is priced on.
+/// The counts for which an *existing* `UniversalStateInit` is priced: the payload's own
+/// length, and the entries and keys it decodes to. Bytes that do not decode count as zero keys
+/// and entries, since validation rejects them.
 ///
-/// The byte count is the payload's own length, not that of the state it decodes
-/// to: borsh drops duplicate storage keys on decode, so pricing the decoded form
-/// would let a large payload that collapses to nothing ride along for free.
+/// Receipts created under earlier protocol versions are re-priced from this (for refunds,
+/// among other things), so it must give the same answer on every version. This is why it
+/// does not accept [`DecodeMode`] parameter, always using lenient decoding. For the charge
+/// at send time see [`state_init_send_counts`].
 ///
-/// The entry and key counts do come from decoding, and bytes that do not decode
-/// describe no entries and no keys. That arm is reachable and priced: a contract
-/// can hand `promise_batch_action_universal_state_init` anything at all, and it
-/// pays for the bytes it made the host read before new-receipt validation turns
-/// them into `MalformedUniversalStateInit`. Base and per-byte is what that work
-/// amounts to.
-///
-/// Gas therefore depends on what decodes, so a new [`UniversalStateInit`] variant
-/// has to arrive behind a protocol feature: two nodes on one protocol version
-/// that disagree about whether a payload decodes would charge different gas for
-/// it. Validity already carried that requirement, since
-/// `validate_universal_state_init` rejects what does not decode; gas now shares
-/// it.
+/// Gas depends on what decodes, so a new [`UniversalStateInit`] variant needs a protocol
+/// feature, as validity already does.
 pub fn state_init_counts(raw: &RawStateInit) -> UniversalStateInitCounts {
-    let (num_entries, num_keys) = match UniversalStateInit::from_raw(raw) {
-        Ok(state_init) => (state_init.data().len() as u64, state_init.access_keys().len() as u64),
-        Err(_) => (0, 0),
-    };
-    UniversalStateInitCounts { num_bytes: raw.0.len() as u64, num_entries, num_keys }
+    match UniversalStateInit::from_raw_lenient(raw) {
+        Ok(state_init) => decoded_counts(raw, &state_init),
+        Err(_) => UniversalStateInitCounts { num_bytes: raw.0.len() as u64, ..Default::default() },
+    }
+}
+
+/// The counts a contract is charged for a payload it passes to
+/// `promise_batch_action_universal_state_init`, before validation.
+///
+/// In `Lenient` mode this is the same as [`state_init_counts`]. In `Strict` mode, any payload
+/// that does not decode or is non-canonical, is charged for as many entries and keys as its
+/// length could hold. That is because in pessimistic case the decoder needs to parse all the
+/// bytes, even when the input is rejected.
+///
+/// Only for the charge at *send time*. For other uses, see [`state_init_counts`].
+pub fn state_init_send_counts(raw: &RawStateInit, mode: DecodeMode) -> UniversalStateInitCounts {
+    // Technically, upper-bound charging it is independent form the decode mode, but it is
+    // introduced with `CanonicalUniversalStateInit` protocol feature, the same which enables
+    // strict mode.
+    match mode {
+        DecodeMode::Lenient => state_init_counts(raw),
+        DecodeMode::Strict => match UniversalStateInit::from_raw_strict(raw) {
+            Ok(state_init) => decoded_counts(raw, &state_init),
+            Err(_) => upper_bound_counts(raw.0.len() as u64),
+        },
+    }
+}
+
+fn decoded_counts(raw: &RawStateInit, state_init: &UniversalStateInit) -> UniversalStateInitCounts {
+    UniversalStateInitCounts {
+        num_bytes: raw.0.len() as u64,
+        num_entries: state_init.data().len() as u64,
+        num_keys: state_init.access_keys().len() as u64,
+    }
+}
+
+/// The most entries and keys a payload of `num_bytes` can hold, from the smallest encoding
+/// of each. The two are not reachable together, which only makes this more pessimistic.
+fn upper_bound_counts(num_bytes: u64) -> UniversalStateInitCounts {
+    // A data entry is an empty key and an empty value: two `u32` lengths.
+    const MIN_ENTRY_BYTES: u64 = 8;
+    // An access key is a one byte tag and a 32 byte key or key hash.
+    const MIN_KEY_BYTES: u64 = 33;
+    // Before the entries: the variant, `code: None` and the map length.
+    const BYTES_BEFORE_ENTRIES: u64 = 1 + 1 + 4;
+    // Before the keys, as well: the set length.
+    const BYTES_BEFORE_KEYS: u64 = BYTES_BEFORE_ENTRIES + 4;
+    UniversalStateInitCounts {
+        num_bytes,
+        num_entries: num_bytes.saturating_sub(BYTES_BEFORE_ENTRIES).div_ceil(MIN_ENTRY_BYTES),
+        num_keys: num_bytes.saturating_sub(BYTES_BEFORE_KEYS).div_ceil(MIN_KEY_BYTES),
+    }
 }
 
 #[cfg(test)]
@@ -183,7 +258,7 @@ mod tests {
         for si in [contract_init(), key_only_init()] {
             let raw = si.to_raw();
             assert_eq!(UniversalStateInit::try_from_slice(&raw.0).unwrap(), si);
-            assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), si);
+            assert_eq!(UniversalStateInit::from_raw_strict(&raw).unwrap(), si);
         }
     }
 
@@ -234,73 +309,209 @@ mod tests {
     }
 
     #[test]
-    fn from_raw_rejects_trailing_bytes() {
+    fn from_raw_strict_rejects_trailing_bytes() {
         let mut bytes = contract_init().to_raw().0;
         bytes.push(0);
-        assert!(UniversalStateInit::from_raw(&RawStateInit(bytes)).is_err());
+        assert_eq!(
+            UniversalStateInit::from_raw_strict(&RawStateInit(bytes)),
+            Err(StateInitError::Malformed)
+        );
     }
 
     #[test]
-    fn from_raw_rejects_malformed() {
+    fn from_raw_strict_rejects_malformed() {
         // Empty input and a truncated body (discriminant only) fail borsh decoding.
         for bytes in [vec![], vec![0u8]] {
-            assert!(UniversalStateInit::from_raw(&RawStateInit(bytes)).is_err());
+            assert_eq!(
+                UniversalStateInit::from_raw_strict(&RawStateInit(bytes)),
+                Err(StateInitError::Malformed)
+            );
+        }
+    }
+
+    /// Borsh bytes of `V1{code: None, data: <entries as given>, access_keys: <keys as given>}`.
+    fn v1_bytes(data: &[(&[u8], &[u8])], access_keys: &[PublicKeyHandle]) -> RawStateInit {
+        let mut bytes = vec![0u8, 0u8]; // V1 discriminant, code: None
+        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        for (key, value) in data {
+            bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(key);
+            bytes.extend_from_slice(&(value.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(value);
+        }
+        bytes.extend_from_slice(&(access_keys.len() as u32).to_le_bytes());
+        for handle in access_keys {
+            bytes.extend(borsh::to_vec(handle).unwrap());
+        }
+        RawStateInit(bytes)
+    }
+
+    #[test]
+    fn from_raw_strict_accepts_hand_built_canonical() {
+        let raw = v1_bytes(&[(b"a", b"1"), (b"b", b"2")], &[ed_handle(1), ed_handle(2)]);
+        let decoded = UniversalStateInit::from_raw_strict(&raw).unwrap();
+        assert_eq!(decoded.to_raw(), raw);
+    }
+
+    #[test]
+    fn from_raw_strict_rejects_unsorted_data() {
+        let raw = v1_bytes(&[(b"b", b""), (b"a", b"")], &[]);
+        assert_eq!(UniversalStateInit::from_raw_strict(&raw), Err(StateInitError::NonCanonical));
+    }
+
+    #[test]
+    fn from_raw_strict_rejects_unsorted_access_keys() {
+        let raw = v1_bytes(&[], &[ed_handle(2), ed_handle(1)]);
+        assert_eq!(UniversalStateInit::from_raw_strict(&raw), Err(StateInitError::NonCanonical));
+    }
+
+    #[test]
+    fn from_raw_strict_rejects_duplicates() {
+        let raw = v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]);
+        assert_eq!(UniversalStateInit::from_raw_strict(&raw), Err(StateInitError::NonCanonical));
+        let raw = v1_bytes(&[], &[ed_handle(1), ed_handle(1)]);
+        assert_eq!(UniversalStateInit::from_raw_strict(&raw), Err(StateInitError::NonCanonical));
+    }
+
+    /// Non-canonical encodings of one logical value: unsorted, and with a duplicate.
+    fn non_canonical_encodings() -> [RawStateInit; 3] {
+        [
+            v1_bytes(&[(b"b", b""), (b"a", b"")], &[]),
+            v1_bytes(&[], &[ed_handle(2), ed_handle(1)]),
+            v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]),
+        ]
+    }
+
+    #[test]
+    fn from_raw_lenient_accepts_non_canonical() {
+        for raw in non_canonical_encodings() {
+            let decoded = UniversalStateInit::from_raw_lenient(&raw).unwrap();
+            assert_ne!(decoded.to_raw(), raw, "the encoding must not be canonical");
         }
     }
 
     #[test]
-    fn from_raw_accepts_non_canonical_order() {
-        // Hand-build V1{code: None, data: {"b","a"} out of order, access_keys: {}}.
-        // borsh writes map keys sorted, so this is a non-canonical encoding. It is
-        // now accepted: borsh silently re-sorts on read (`de_strict_order` is off)
-        // and we no longer reject non-canonical encodings. Re-serializing yields
-        // the canonical bytes, which differ, so this input hashes to a different id.
-        let mut bytes = vec![0u8]; // V1 discriminant
-        bytes.push(0u8); // code: None
-        bytes.extend_from_slice(&2u32.to_le_bytes()); // data: 2 entries
-        for key in [b'b', b'a'] {
-            bytes.extend_from_slice(&1u32.to_le_bytes()); // key len
-            bytes.push(key);
-            bytes.extend_from_slice(&0u32.to_le_bytes()); // value len 0
+    fn from_raw_lenient_still_rejects_malformed() {
+        let mut bytes = contract_init().to_raw().0;
+        bytes.push(0);
+        for bytes in [vec![], vec![0u8], bytes] {
+            assert_eq!(
+                UniversalStateInit::from_raw_lenient(&RawStateInit(bytes)),
+                Err(StateInitError::Malformed)
+            );
         }
-        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
+    }
 
-        let decoded = UniversalStateInit::from_raw(&RawStateInit(bytes.clone())).unwrap();
+    #[test]
+    fn from_raw_follows_the_mode() {
+        let canonical = contract_init().to_raw();
+        for mode in [DecodeMode::Lenient, DecodeMode::Strict] {
+            assert!(UniversalStateInit::from_raw(&canonical, mode).is_ok());
+        }
+        for raw in non_canonical_encodings() {
+            assert!(UniversalStateInit::from_raw(&raw, DecodeMode::Lenient).is_ok());
+            assert_eq!(
+                UniversalStateInit::from_raw(&raw, DecodeMode::Strict),
+                Err(StateInitError::NonCanonical)
+            );
+        }
+    }
+
+    #[test]
+    fn decode_mode_strict_if() {
+        assert_eq!(DecodeMode::strict_if(true), DecodeMode::Strict);
+        assert_eq!(DecodeMode::strict_if(false), DecodeMode::Lenient);
+    }
+
+    /// A payload is priced on what it decodes to, canonical or not. Only bytes that do not
+    /// decode describe nothing.
+    #[test]
+    fn state_init_counts_count_what_decodes() {
+        let raw = v1_bytes(&[(b"b", b""), (b"a", b"")], &[ed_handle(2), ed_handle(1)]);
+        assert_eq!(UniversalStateInit::from_raw_strict(&raw), Err(StateInitError::NonCanonical));
         assert_eq!(
-            decoded.data().keys().cloned().collect::<Vec<_>>(),
-            vec![b"a".to_vec(), b"b".to_vec()],
+            state_init_counts(&raw),
+            UniversalStateInitCounts { num_bytes: raw.0.len() as u64, num_entries: 2, num_keys: 2 }
         );
-        assert_ne!(decoded.to_raw().0, bytes, "canonical re-encoding must differ from the input");
+        // Duplicates collapse on decode, so they count once.
+        let duplicated = v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]);
+        assert_eq!(state_init_counts(&duplicated).num_entries, 1);
+        // The bytes are priced whether or not they decode.
+        let garbage = RawStateInit(vec![9; 5]);
+        assert_eq!(
+            state_init_counts(&garbage),
+            UniversalStateInitCounts { num_bytes: 5, num_entries: 0, num_keys: 0 }
+        );
     }
 
+    /// Before the canonical feature the charge at send is the same as for any other action.
     #[test]
-    fn from_raw_accepts_unsorted_access_keys() {
-        // Two access keys serialized in reverse `Ord` order; borsh re-sorts the set
-        // on read. Accepted, no longer rejected.
-        let lo = borsh::to_vec(&ed_handle(1)).unwrap();
-        let hi = borsh::to_vec(&ed_handle(2)).unwrap();
-        let mut bytes = vec![0u8, 0u8]; // V1, code: None
-        bytes.extend_from_slice(&0u32.to_le_bytes()); // data: empty
-        bytes.extend_from_slice(&2u32.to_le_bytes()); // access_keys: 2 entries
-        bytes.extend_from_slice(&hi); // reversed: handle(2) before handle(1)
-        bytes.extend_from_slice(&lo);
-        let decoded = UniversalStateInit::from_raw(&RawStateInit(bytes)).unwrap();
-        assert_eq!(decoded.access_keys().len(), 2);
-    }
-
-    #[test]
-    fn from_raw_accepts_duplicate_keys() {
-        // A data map that declares 2 entries but repeats one key; borsh deduplicates
-        // on read. Accepted; the decoded map has a single entry.
-        let mut bytes = vec![0u8, 0u8]; // V1, code: None
-        bytes.extend_from_slice(&2u32.to_le_bytes()); // data: 2 entries
-        for _ in 0..2 {
-            bytes.extend_from_slice(&1u32.to_le_bytes());
-            bytes.push(b'a');
-            bytes.extend_from_slice(&0u32.to_le_bytes());
+    fn state_init_send_counts_lenient_matches_state_init_counts() {
+        let payloads = [
+            contract_init().to_raw(),
+            v1_bytes(&[(b"b", b""), (b"a", b"")], &[ed_handle(2), ed_handle(1)]),
+            v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]),
+            RawStateInit(vec![9; 5]),
+        ];
+        for raw in payloads {
+            assert_eq!(
+                state_init_send_counts(&raw, DecodeMode::Lenient),
+                state_init_counts(&raw),
+                "{raw:?}"
+            );
         }
-        bytes.extend_from_slice(&0u32.to_le_bytes()); // access_keys: empty
-        let decoded = UniversalStateInit::from_raw(&RawStateInit(bytes)).unwrap();
-        assert_eq!(decoded.data().len(), 1);
+    }
+
+    /// What is accepted is charged for what it is, so a contract prepays what the action is
+    /// charged when it runs.
+    #[test]
+    fn state_init_send_counts_strict_matches_state_init_counts_when_canonical() {
+        for state_init in [contract_init(), key_only_init()] {
+            let raw = state_init.to_raw();
+            assert_eq!(
+                state_init_send_counts(&raw, DecodeMode::Strict),
+                state_init_counts(&raw),
+                "{state_init:?}"
+            );
+        }
+    }
+
+    /// What will be rejected has been decoded all the same, so it is charged for the most it
+    /// could have held.
+    #[test]
+    fn state_init_send_counts_strict_charges_the_bound_for_what_is_rejected() {
+        let empty_entry: (&[u8], &[u8]) = (b"", b"");
+        // Many copies of one entry and of one key: they collapse to one each on decode.
+        let duplicated =
+            v1_bytes(&[empty_entry; 1_000], &[ed_handle(1), ed_handle(1), ed_handle(1)]);
+        let unsorted = v1_bytes(&[(b"b", b""), (b"a", b"")], &[ed_handle(2), ed_handle(1)]);
+        let mut trailing = contract_init().to_raw();
+        trailing.0.push(0);
+        let garbage = RawStateInit(vec![9; 5_000]);
+
+        let wire_counts = [(&duplicated, 1_000, 3), (&unsorted, 2, 2), (&trailing, 2, 2)];
+        for (raw, entries, keys) in wire_counts {
+            let counts = state_init_send_counts(raw, DecodeMode::Strict);
+            assert_eq!(counts.num_bytes, raw.0.len() as u64);
+            assert!(counts.num_entries >= entries, "entries of {raw:?}: {counts:?}");
+            assert!(counts.num_keys >= keys, "keys of {raw:?}: {counts:?}");
+        }
+        // Duplicates are the case where `state_init_counts` counts too little.
+        assert_eq!(state_init_counts(&duplicated).num_entries, 1);
+        assert_eq!(
+            state_init_send_counts(&garbage, DecodeMode::Strict),
+            // (5_000 - 6) / 8 entries and (5_000 - 10) / 33 keys, each rounded up.
+            UniversalStateInitCounts { num_bytes: 5_000, num_entries: 625, num_keys: 152 }
+        );
+    }
+
+    #[test]
+    fn upper_bound_counts_does_not_underflow() {
+        for num_bytes in [0, 1, 6, 9, 10] {
+            let counts = upper_bound_counts(num_bytes);
+            assert_eq!(counts.num_bytes, num_bytes);
+            assert!(counts.num_entries <= 1 && counts.num_keys <= 1, "{counts:?}");
+        }
+        assert_eq!(upper_bound_counts(u64::MAX).num_bytes, u64::MAX);
     }
 }

@@ -802,7 +802,7 @@ fn make_send_receipt_transaction(
     )
 }
 
-/// When a new access key is added, its nonce is set to `height * ACCESS_KEY_NONCE_RANGE_MULTIPLIER`.
+/// When a new access key is added, its nonce is set to `height * ACCESS_KEY_NONCE_RANGE_MULTIPLIER - 1`.
 /// This makes it hard to predict what nonce should be used for transactions that use this key,
 /// as it depends on the height at which the key was added. We could query the nonce, but it's
 /// easier to use a value which is guaranteed to be higher than the nonce of the key.

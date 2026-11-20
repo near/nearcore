@@ -1,5 +1,7 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
+use crate::config::{
+    BandwidthSchedulerConfig, CongestionControlConfig, ExternalCallsConfig, WitnessConfig,
+};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, SignatureKind,
     StorageUsageConfig,
@@ -99,7 +101,20 @@ macro_rules! implement_conversion_to {
     }
 }
 
-implement_conversion_to!(u64, u32, u16, u8, i64, i32, i16, i8, usize, isize);
+implement_conversion_to!(u32, u16, u8, i64, i32, i16, i8, usize, isize);
+
+// Not part of `implement_conversion_to!`: its `TryFromInt` branch is unreachable
+// for `u64`, because the conversion from `u64` to `u64` cannot fail.
+impl TryFrom<&ParameterValue> for u64 {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::U64(v) => Ok(*v),
+            _ => Err(ValueConversionError::ParseType(std::any::type_name::<u64>(), value.clone())),
+        }
+    }
+}
 
 impl TryFrom<&ParameterValue> for u128 {
     type Error = ValueConversionError;
@@ -456,14 +471,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
                 fix_contract_loading_error: params.get(Parameter::FixContractLoadingError)?,
                 universal_accounts: params.get(Parameter::UniversalAccounts)?,
-                gas_key_host_fns: params.get(Parameter::GasKeyHostFns)?,
+                canonical_universal_state_init: params
+                    .get(Parameter::CanonicalUniversalStateInit)?,
                 fix_ml_dsa_cost_charging: params.get(Parameter::FixMlDsaCostCharging)?,
-                one_yocto_on_promise: params.get(Parameter::OneYoctoOnPromise)?,
-                p256_verify_host_fn: params.get(Parameter::P256VerifyHostFn)?,
+                fix_register_input_charging: params.get(Parameter::FixRegisterInputCharging)?,
                 ml_dsa_verify_host_fn: params.get(Parameter::MlDsaVerifyHostFn)?,
                 sha3_host_fns: params.get(Parameter::Sha3HostFns)?,
-                yield_with_id_host_fns: params.get(Parameter::YieldWithIdHostFns)?,
-                chain_id_host_fn: params.get(Parameter::ChainIdHostFn)?,
                 bls12381_not_in_group_fix: params.get(Parameter::Bls12381NotInGroupFix)?,
             }),
             account_creation_config: AccountCreationConfig {
@@ -479,6 +492,16 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
+            external_calls_config: ExternalCallsConfig {
+                max_call_size: params.get(Parameter::MaxExternalCallSize)?,
+                max_call_recorded_size: params.get(Parameter::MaxExternalCallRecordedSize)?,
+                chunk_compute_share: params.get(Parameter::ExternalCallsChunkComputeShare)?,
+                chunk_storage_proof_share: params
+                    .get(Parameter::ExternalCallsChunkStorageProofShare)?,
+                chunk_transactions_size_share: params
+                    .get(Parameter::ExternalCallsChunkTransactionsSizeShare)?,
+                max_calls_per_chunk: params.get(Parameter::MaxExternalCallsPerChunk)?,
             },
             bandwidth_scheduler_config: BandwidthSchedulerConfig {
                 max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,

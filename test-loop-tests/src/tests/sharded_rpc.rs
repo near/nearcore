@@ -1,7 +1,8 @@
 use crate::utils::sharded_rpc::{TwoShardHarness, assert_rpc_error};
 use near_async::time::Duration;
+use near_crypto::{KeyType, PublicKeyHandle, SecretKey};
 use near_jsonrpc::client::ChunkId;
-use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::Message;
 use near_jsonrpc_primitives::types::call_function::RpcCallFunctionRequest;
 use near_jsonrpc_primitives::types::changes::{
@@ -24,14 +25,19 @@ use near_jsonrpc_primitives::types::view_code::RpcViewCodeRequest;
 use near_jsonrpc_primitives::types::view_gas_key_nonces::RpcViewGasKeyNoncesRequest;
 use near_jsonrpc_primitives::types::view_state::RpcViewStateRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
+use near_primitives::errors::ActionsValidationError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
     AccountId, Balance, BlockId, BlockReference, Finality, FunctionArgs, Gas, StoreKey,
     TransactionOrReceiptId,
 };
-use near_primitives::views::{QueryRequest, StateChangesRequestView};
+use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
+use near_primitives::views::{QueryRequest, StateChangesRequestView, StateInitView};
 use near_store::ShardUId;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// EXPERIMENTAL_view_account queries should be forwarded to the right shard.
 #[test]
@@ -227,6 +233,295 @@ fn test_rpc_query_unknown_account_error_format() {
     }
 }
 
+/// The handler error `method` returns on `node`.
+fn handler_error(h: &mut TwoShardHarness, node: &AccountId, method: &str, params: &Value) -> Value {
+    let response = h
+        .env
+        .runner_for_account(node)
+        .run_with_jsonrpc_client(
+            |client| {
+                let request = Message::request(method.to_string(), params.clone());
+                client.transport.send_jsonrpc_request(request, false)
+            },
+            Duration::seconds(5),
+        )
+        .unwrap();
+    let Message::Response(response) = response else {
+        panic!("{method} on {node}: expected a response, got {response:?}");
+    };
+    let err = match response.result {
+        Ok(value) => panic!("{method} on {node}: expected an error, got {value}"),
+        Err(err) => err,
+    };
+    let Some(RpcErrorKind::HandlerError(cause)) = err.error_struct.as_ref() else {
+        panic!("{method} on {node}: expected a handler error, got {err:?}");
+    };
+    cause.as_ref().clone()
+}
+
+/// All six queries give a structured `UNINITIALIZED_ACCOUNT` for an uninitialized `0u`
+/// account, via `query` and `EXPERIMENTAL_*`.
+#[test]
+fn test_rpc_uninitialized_account_error_format() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+
+    // Funding a `0u` id leaves it uninitialized.
+    let public_key = SecretKey::from_seed(KeyType::ED25519, "uninitialized").public_key();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::from([PublicKeyHandle::from(public_key.clone())]),
+    });
+    let account = state_init.derive_account_id();
+    let tx = h.env.node_for_account(&h.alice_node).tx_send_money(
+        &h.alice,
+        &account,
+        Balance::from_near(1),
+    );
+    h.env.runner_for_account(&h.alice_node).run_tx(tx, Duration::seconds(5));
+    h.env.runner_for_account(&h.alice_node).run_for_number_of_blocks(1);
+
+    let block_reference = BlockReference::Finality(Finality::None);
+    let queries = [
+        QueryRequest::CallFunction {
+            account_id: account.clone(),
+            method_name: "log_something".to_string(),
+            args: FunctionArgs::from(vec![]),
+            state_init: None,
+        },
+        QueryRequest::ViewCode { account_id: account.clone() },
+        QueryRequest::ViewState {
+            account_id: account.clone(),
+            prefix: StoreKey::from(vec![]),
+            after_key: None,
+            limit: None,
+            include_proof: false,
+        },
+        QueryRequest::ViewAccessKey { account_id: account.clone(), public_key: public_key.clone() },
+        QueryRequest::ViewAccessKeyList {
+            account_id: account.clone(),
+            after_key: None,
+            limit: None,
+        },
+        QueryRequest::ViewGasKeyNonces {
+            account_id: account.clone(),
+            public_key: public_key.clone(),
+        },
+    ];
+    let mut requests: Vec<_> = queries
+        .into_iter()
+        .map(|request| {
+            let params = RpcQueryRequest { block_reference: block_reference.clone(), request };
+            ("query", serde_json::to_value(params).unwrap())
+        })
+        .collect();
+    requests.extend([
+        (
+            "EXPERIMENTAL_call_function",
+            serde_json::to_value(RpcCallFunctionRequest {
+                block_reference: block_reference.clone(),
+                account_id: account.clone(),
+                method_name: "log_something".to_string(),
+                args: FunctionArgs::from(vec![]),
+                state_init: None,
+            })
+            .unwrap(),
+        ),
+        (
+            "EXPERIMENTAL_view_code",
+            serde_json::to_value(RpcViewCodeRequest {
+                block_reference: block_reference.clone(),
+                account_id: account.clone(),
+            })
+            .unwrap(),
+        ),
+        (
+            "EXPERIMENTAL_view_state",
+            serde_json::to_value(RpcViewStateRequest {
+                block_reference: block_reference.clone(),
+                account_id: account.clone(),
+                prefix: StoreKey::from(vec![]),
+                after_key: None,
+                limit: None,
+                include_proof: false,
+            })
+            .unwrap(),
+        ),
+        (
+            "EXPERIMENTAL_view_access_key",
+            serde_json::to_value(RpcViewAccessKeyRequest {
+                block_reference: block_reference.clone(),
+                account_id: account.clone(),
+                public_key: public_key.clone(),
+            })
+            .unwrap(),
+        ),
+        (
+            "EXPERIMENTAL_view_access_key_list",
+            serde_json::to_value(RpcViewAccessKeyListRequest {
+                block_reference: block_reference.clone(),
+                account_id: account.clone(),
+                after_key: None,
+                limit: None,
+            })
+            .unwrap(),
+        ),
+        (
+            "EXPERIMENTAL_view_gas_key_nonces",
+            serde_json::to_value(RpcViewGasKeyNoncesRequest {
+                block_reference: block_reference.clone(),
+                account_id: account.clone(),
+                public_key,
+            })
+            .unwrap(),
+        ),
+    ]);
+
+    // Locally and forwarded.
+    for node in [h.alice_node.clone(), h.zoe_node.clone()] {
+        for (method, params) in &requests {
+            let cause = handler_error(&mut h, &node, method, params);
+            assert_eq!(cause["name"], "UNINITIALIZED_ACCOUNT", "{method} on {node}");
+            assert_eq!(
+                cause["info"]["requested_account_id"],
+                account.as_str(),
+                "{method} on {node}"
+            );
+        }
+    }
+}
+
+/// `state_init` through `query` and `EXPERIMENTAL_call_function` on both nodes, errors included.
+#[test]
+fn test_rpc_call_function_with_state_init() {
+    init_test_logger();
+    let mut h = TwoShardHarness::new();
+    let deploy = h.env.node_for_account(&h.alice_node).tx_deploy_global_contract(
+        &h.alice,
+        near_test_contracts::rs_contract().to_vec(),
+        GlobalContractDeployMode::AccountId,
+    );
+    h.env.runner_for_account(&h.alice_node).run_tx(deploy, Duration::seconds(5));
+    // `run_tx` doesn't wait for the code's distribution.
+    h.env.runner_for_account(&h.alice_node).run_for_number_of_blocks(1);
+
+    let key = 7u64.to_le_bytes().to_vec();
+    let value = 42u64.to_le_bytes().to_vec();
+    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(GlobalContractIdentifier::AccountId(h.alice.clone())),
+        data: BTreeMap::from([(key.clone(), value.clone())]),
+        access_keys: BTreeSet::new(),
+    });
+    let account = state_init.derive_account_id();
+    let state_init = StateInitView::Universal(state_init.to_raw());
+
+    // Locally and forwarded.
+    for node in [h.alice_node.clone(), h.zoe_node.clone()] {
+        let response = h
+            .env
+            .runner_for_account(&node)
+            .run_jsonrpc_query(
+                RpcQueryRequest {
+                    block_reference: BlockReference::Finality(Finality::None),
+                    request: QueryRequest::CallFunction {
+                        account_id: account.clone(),
+                        method_name: "read_value".to_string(),
+                        args: FunctionArgs::from(key.clone()),
+                        state_init: Some(state_init.clone()),
+                    },
+                },
+                Duration::seconds(5),
+            )
+            .unwrap();
+        let QueryResponseKind::CallResult(call) = response.kind else {
+            panic!("query on {node}: unexpected response {:?}", response.kind);
+        };
+        assert_eq!(call.result, value, "query on {node}");
+
+        let response = h
+            .env
+            .runner_for_account(&node)
+            .run_with_jsonrpc_client(
+                |client| {
+                    client.EXPERIMENTAL_call_function(RpcCallFunctionRequest {
+                        block_reference: BlockReference::Finality(Finality::None),
+                        account_id: account.clone(),
+                        method_name: "read_value".to_string(),
+                        args: FunctionArgs::from(key.clone()),
+                        state_init: Some(state_init.clone()),
+                    })
+                },
+                Duration::seconds(5),
+            )
+            .unwrap();
+        assert_eq!(response.result.result, value, "EXPERIMENTAL_call_function on {node}");
+    }
+
+    // Errors: an init for another account, and one with missing code.
+    let other = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: None,
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    let missing_code = GlobalContractIdentifier::CodeHash(CryptoHash::hash_bytes(b"missing"));
+    let missing = UniversalStateInit::V1(UniversalStateInitV1 {
+        code: Some(missing_code.clone()),
+        data: BTreeMap::new(),
+        access_keys: BTreeSet::new(),
+    });
+    let invalid_receiver = ActionsValidationError::InvalidUniversalStateInitReceiver {
+        derived_id: other.derive_account_id(),
+        receiver_id: account.clone(),
+    };
+    let cases = [
+        (
+            account,
+            other.to_raw(),
+            "INVALID_STATE_INIT",
+            "error",
+            serde_json::to_value(invalid_receiver).unwrap(),
+        ),
+        (
+            missing.derive_account_id(),
+            missing.to_raw(),
+            "NO_GLOBAL_CONTRACT_CODE",
+            "identifier",
+            serde_json::to_value(missing_code).unwrap(),
+        ),
+    ];
+    for node in [h.alice_node.clone(), h.zoe_node.clone()] {
+        for (account_id, raw, name, field, expected) in &cases {
+            let state_init = Some(StateInitView::Universal(raw.clone()));
+            let query = RpcQueryRequest {
+                block_reference: BlockReference::Finality(Finality::None),
+                request: QueryRequest::CallFunction {
+                    account_id: account_id.clone(),
+                    method_name: "read_value".to_string(),
+                    args: FunctionArgs::from(key.clone()),
+                    state_init: state_init.clone(),
+                },
+            };
+            let call = RpcCallFunctionRequest {
+                block_reference: BlockReference::Finality(Finality::None),
+                account_id: account_id.clone(),
+                method_name: "read_value".to_string(),
+                args: FunctionArgs::from(key.clone()),
+                state_init,
+            };
+            let requests = [
+                ("query", serde_json::to_value(query).unwrap()),
+                ("EXPERIMENTAL_call_function", serde_json::to_value(call).unwrap()),
+            ];
+            for (method, params) in &requests {
+                let cause = handler_error(&mut h, &node, method, params);
+                assert_eq!(cause["name"], *name, "{method} on {node}");
+                assert_eq!(cause["info"][*field], *expected, "{method} on {node}");
+            }
+        }
+    }
+}
+
 /// Standard `query` ViewCode should be forwarded to the right shard.
 #[test]
 fn test_rpc_query_view_code_forwarding() {
@@ -362,6 +657,7 @@ fn test_rpc_query_call_function_forwarding() {
                         account_id: account.clone(),
                         method_name: "log_something".to_string(),
                         args: FunctionArgs::from(vec![]),
+                        state_init: None,
                     },
                 },
                 Duration::seconds(5),
@@ -498,6 +794,7 @@ fn test_rpc_query_call_function_error_format() {
                             account_id: alice.clone(),
                             method_name: "nonexistent_method".to_string(),
                             args: FunctionArgs::from(vec![]),
+                            state_init: None,
                         },
                     })
                     .unwrap(),
@@ -776,6 +1073,7 @@ fn test_rpc_experimental_call_function_forwarding() {
                         account_id: account.clone(),
                         method_name: "log_something".to_string(),
                         args: FunctionArgs::from(vec![]),
+                        state_init: None,
                     })
                 },
                 Duration::seconds(5),
@@ -996,6 +1294,7 @@ fn test_rpc_experimental_call_function_error_format() {
                     account_id: h.alice.clone(),
                     method_name: "nonexistent_method".to_string(),
                     args: FunctionArgs::from(vec![]),
+                    state_init: None,
                 })
             },
             Duration::seconds(5),
@@ -1129,6 +1428,7 @@ fn test_rpc_call_function_finality_final() {
                         account_id: account.clone(),
                         method_name: "log_something".to_string(),
                         args: FunctionArgs::from(vec![]),
+                        state_init: None,
                     },
                 },
                 Duration::seconds(5),

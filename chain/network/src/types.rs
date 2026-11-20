@@ -1,4 +1,4 @@
-use crate::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use crate::client::{StateRequestHeader, StateRequestPart, StateRequestResponse};
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
@@ -36,7 +36,7 @@ use near_primitives::stateless_validation::contract_distribution::{
 };
 use near_primitives::stateless_validation::partial_witness::VersionedPartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::TransactionEnvelope;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -225,7 +225,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 
 #[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 pub enum SnapshotHostEvent {
-    /// Triggered when the chain head progresses. Updates the epoch height threshold for discarding old snapshot infos.
+    /// Epoch of the latest block header, sent once header sync has caught up with the network
+    /// and again whenever it changes. Bounds the epochs of the snapshot infos the network keeps.
     ChainProgressed { epoch_height: EpochHeight },
     /// Triggers the network to broadcast the snapshot host info to all peers.
     SnapshotCreated { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
@@ -283,7 +284,7 @@ pub enum NetworkRequests {
     /// Forwarding a chunk part to a validator tracking the shard
     PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
     /// Valid transaction but since we are not validators we send this transaction to current validators.
-    ForwardTx(AccountId, SignedTransaction),
+    ForwardTx(AccountId, TransactionEnvelope),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
@@ -431,8 +432,8 @@ pub struct PeerManagerSenderForNetwork {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct StateRequestSenderForNetwork {
-    pub state_request_header: AsyncSender<StateRequestHeader, Option<StatePartOrHeader>>,
-    pub state_request_part: AsyncSender<StateRequestPart, Option<StatePartOrHeader>>,
+    pub state_request_header: AsyncSender<StateRequestHeader, StateRequestResponse>,
+    pub state_request_part: AsyncSender<StateRequestPart, StateRequestResponse>,
 }
 
 #[cfg(test)]
@@ -541,6 +542,10 @@ pub struct AccountIdOrPeerTrackingShard {
 pub struct Tier3Request {
     /// Target peer to send the response to
     pub peer_info: PeerInfo,
+    /// Requests routed over Tier2 are acknowledged over Tier2, and the response is sent over a
+    /// Tier3 connection to `peer_info.addr`. Requests received directly over a Tier3 connection
+    /// opened by the requester are answered over that connection.
+    pub is_direct: bool,
     /// Contents of the request
     pub body: Tier3RequestBody,
     pub recv_permit: RecvMessagePermit,

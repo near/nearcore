@@ -2,28 +2,35 @@
 
 Accounts own certain balance; and each transaction and each receipt have certain amount of balance and prepaid gas
 attached to them.
-During the contract execution, the contract has access to the following `u128` values:
+During the contract execution, the contract has access to the following values (balances are `u128`, gas is `u64`):
 
 - `account_balance` -- the balance attached to the given account. This includes the `attached_deposit` that was attached
-  to the transaction;
+  to the transaction. It decreases by each deposit the call attaches to a promise, except 1 yoctoNEAR attached to a
+  function call when the balance is zero;
 - `attached_deposit` -- the balance that was attached to the call that will be immediately deposited before
   the contract execution starts;
-- `prepaid_gas` -- the tokens attached to the call that can be used to pay for the gas;
+- `prepaid_gas` -- the gas attached to the call;
 - `used_gas` -- the gas that was already burnt during the contract execution and attached to promises (cannot exceed `prepaid_gas`);
 
-If contract execution fails `prepaid_gas - used_gas` is refunded back to `signer_account_id` and `attached_deposit`
-is refunded back to `predecessor_account_id`.
+If contract execution fails, the unused gas is refunded back to `signer_account_id` (see [Refunds](../../Refunds.md))
+and `attached_deposit` is refunded back to `refund_to_account_id`, which is `predecessor_account_id` unless the
+predecessor set another account.
 
 An external call (see [Context API](ContextAPI.md)) has no prepaid gas. Instead, the contract pays for all the gas
-the call uses from its own balance, at the gas price of the call: the gas it burns, the gas attached to function
-calls, and the execution fees of all actions and receipts. The balance acts as the prepaid gas, so `used_gas` can be
-at most what the balance pays for, and using more panics with `GasExceeded`. Two limits also apply: the gas burnt is
-limited by `max_gas_burnt_external`, and the gas burnt plus the gas attached to promises is limited by
-`max_total_prepaid_gas`.
+the call uses from its own balance. It pays for the gas it burns at the gas price of the block, and for the gas
+attached to function calls and the execution fees of actions and receipts at the price its receipts carry, the
+larger of the gas price and `min_gas_purchase_price`. The gas is limited by fixed limits, not by the balance: the
+gas burnt is limited by `max_gas_burnt_external`, and the gas burnt plus the gas attached to promises is limited by
+`max_total_prepaid_gas`. The contract is charged after the call, and the call is rejected if the balance can't pay.
 
-The cost is taken as soon as the gas is used, and `account_balance` returns the balance left after it. A deposit or
-transfer cannot spend the balance needed to pay for the gas used so far, and panics with `BalanceExceeded`
-instead.
+While the call runs, `account_balance` returns the real balance of the contract, which includes the money the call
+will owe for its gas. Deposits and transfers can spend all of it, but the call must leave enough to pay for its fees
+and its gas, or it is rejected.
+
+The call also pays fees for its input, and for installing its state init if it carries one, before the method runs (see
+[Gas in External Contract Calls](../../../architecture/how/gas.md#gas-in-external-contract-calls)). They are charged
+with the gas after the call. `used_gas` does not include them, and the fees lower the `max_gas_burnt_external` limit
+on the gas burnt.
 
 An external call has no deposit. If one is called with a nonzero `attached_deposit`, it fails with
 `DepositInExternalCall` before any contract code runs.
@@ -36,12 +43,11 @@ attached_deposit(balance_ptr: u64)
 
 ```
 
--- writes the value into the `u128` variable pointed by `balance_ptr`.
+-- writes the value into the `u128` variable pointed by `balance_ptr`. Both functions can be called in view functions.
 
 ###### Panics
 
-- If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`;
-- If called in a view function panics with `ProhibitedInView`.
+- If `balance_ptr + 16` points outside the memory of the guest with `MemoryAccessViolation`.
 
 ###### Current bugs
 

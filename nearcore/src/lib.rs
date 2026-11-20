@@ -41,6 +41,7 @@ use near_client::{
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+#[cfg(feature = "json_rpc")]
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;
 use near_network::types::PeerManagerAdapter;
@@ -53,6 +54,7 @@ use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
+#[cfg(feature = "json_rpc")]
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -60,13 +62,14 @@ use std::sync::atomic::AtomicBool;
 use tokio::sync::broadcast;
 
 pub mod config;
-#[cfg(test)]
+#[cfg(all(test, feature = "json_rpc", feature = "rosetta_rpc"))]
 mod config_duration_test;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
 #[cfg(feature = "json_rpc")]
 pub mod entity_debug;
+#[cfg(feature = "json_rpc")]
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
@@ -200,30 +203,30 @@ pub fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result
 }
 
 // Safely get the split store while checking that all conditions to use it are met.
-fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result<Option<Store>> {
+fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> Option<Store> {
     // SplitStore should only be used on archival nodes.
     if !config.config.archive {
-        return Ok(None);
+        return None;
     }
 
     // SplitStore should only be used if cold store is configured.
     if config.config.cold_store.is_none() {
-        return Ok(None);
+        return None;
     }
 
     // SplitStore should only be used in the view client if it is enabled.
     if !config.config.split_storage.as_ref().is_some_and(|c| c.enable_split_storage_view_client) {
-        return Ok(None);
+        return None;
     }
 
     // SplitStore should only be used if the migration is finished. The
     // migration to cold store is finished when the db kind of the hot store is
     // changed from Archive to Hot.
     if storage.get_hot_store().get_db_kind() != Some(DbKind::Hot) {
-        return Ok(None);
+        return None;
     }
 
-    Ok(storage.get_split_store())
+    storage.get_split_store()
 }
 
 fn new_spice_client_config(
@@ -263,6 +266,7 @@ fn spawn_spice_actors(
     runtime: Arc<NightshadeRuntime>,
     network_adapter: PeerManagerAdapter,
     chunk_persistence_config: ChunkPersistenceConfig,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
     chunk_executor_adapter: &Arc<LateBoundSender<TokioRuntimeHandle<ChunkExecutorActor>>>,
     spice_chunk_validator_adapter: &Arc<
         LateBoundSender<TokioRuntimeHandle<SpiceChunkValidatorActor>>,
@@ -321,6 +325,7 @@ fn spawn_spice_actors(
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),
         chunk_persistence_config,
+        snapshot_callbacks,
     );
     let chunk_executor_addr = actor_system.spawn_tokio_actor(chunk_executor_actor);
     chunk_executor_adapter.bind(chunk_executor_addr);
@@ -388,6 +393,8 @@ pub fn start_with_config_and_synchronization(
     ))
 }
 
+// Without `json_rpc` there is no RPC server to await or to hand the clones to.
+#[cfg_attr(not(feature = "json_rpc"), allow(clippy::unused_async, clippy::redundant_clone))]
 pub async fn start_with_config_and_synchronization_impl(
     home_dir: &Path,
     config: NearConfig,
@@ -467,7 +474,7 @@ pub async fn start_with_config_and_synchronization_impl(
 
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
-    let split_store = get_split_store(&config, &storage)?;
+    let split_store = get_split_store(&config, &storage);
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
             let view_epoch_manager = EpochManager::new_arc_handle(
@@ -480,11 +487,13 @@ pub async fn start_with_config_and_synchronization_impl(
                 epoch_manager.clone(),
                 config.validator_signer.clone(),
             );
-            let view_runtime = NightshadeRuntime::from_config(
+            // The view client finds the external calls the main runtime applies.
+            let view_runtime = NightshadeRuntime::from_config_with_external_call_cache(
                 home_dir,
                 split_store.clone(),
                 &config,
                 view_epoch_manager.clone(),
+                Some(runtime.external_call_cache().clone()),
             )
             .context("could not create the transaction runtime")?;
             (view_epoch_manager, view_shard_tracker, view_runtime)
@@ -516,12 +525,11 @@ pub async fn start_with_config_and_synchronization_impl(
         actor_system.new_future_spawner("cloud archival").into(),
         config.client_config.cloud_archival_writer.clone(),
         config.genesis.config.genesis_height,
-        runtime.clone(),
         storage.get_hot_store(),
         storage.get_cloud_storage(),
         shard_tracker.clone(),
         epoch_manager.clone(),
-    )?;
+    );
 
     let telemetry =
         TelemetryActor::spawn_tokio_actor(actor_system.clone(), config.telemetry_config.clone());
@@ -594,6 +602,7 @@ pub async fn start_with_config_and_synchronization_impl(
         runtime.get_flat_storage_manager(),
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
+    let snapshot_callbacks_for_spice = snapshot_callbacks.clone();
 
     let partial_witness_actor = actor_system.spawn_tokio_actor(PartialWitnessActor::new(
         Clock::real(),
@@ -607,16 +616,6 @@ pub async fn start_with_config_and_synchronization_impl(
         Arc::new(WitnessCreationThreadPool::new()),
     ));
 
-    let _gc_actor = actor_system.spawn_tokio_actor(GCActor::new(
-        runtime.store().clone(),
-        &chain_genesis,
-        runtime.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        config.client_config.gc.clone(),
-        storage.is_local_archive(),
-    ));
-
     let resharding_handle = ReshardingHandle::new();
     let resharding_sender = actor_system.spawn_tokio_actor(ReshardingActor::new(
         epoch_manager.clone(),
@@ -628,8 +627,9 @@ pub async fn start_with_config_and_synchronization_impl(
     let state_sync_spawner: Arc<dyn FutureSpawner> =
         actor_system.new_multi_threaded_future_spawner("state sync").into();
 
-    let (block_notification_watch_sender, block_notification_watch_receiver) =
-        tokio::sync::watch::channel(None);
+    let block_notification_watch_sender = tokio::sync::watch::Sender::new(None);
+    #[cfg(feature = "json_rpc")]
+    let block_notification_watch_receiver = block_notification_watch_sender.subscribe();
 
     let chunk_executor_adapter = LateBoundSender::new();
     let spice_chunk_validator_adapter = LateBoundSender::new();
@@ -695,6 +695,16 @@ pub async fn start_with_config_and_synchronization_impl(
         config.client_config.log_summary_period,
         epoch_manager.clone(),
     );
+    // Spawn after start_client so that Chain::new has initialized head in the store.
+    let _gc_actor = actor_system.spawn_tokio_actor(GCActor::new(
+        runtime.store().clone(),
+        &chain_genesis,
+        runtime.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        config.client_config.gc.clone(),
+        storage.is_local_archive(),
+    ));
 
     client_adapter_for_shards_manager.bind(client_actor.clone());
     client_adapter_for_partial_witness_actor.bind(ChunkValidationSenderForPartialWitness {
@@ -716,6 +726,7 @@ pub async fn start_with_config_and_synchronization_impl(
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
                 save_state_changes: config.client_config.save_state_changes,
             },
+            Some(snapshot_callbacks_for_spice),
             &chunk_executor_adapter,
             &spice_chunk_validator_adapter,
             &spice_data_distributor_adapter,
@@ -747,6 +758,7 @@ pub async fn start_with_config_and_synchronization_impl(
             .client_config
             .spice_pending_transaction_queue_enabled(),
     };
+    #[cfg(feature = "json_rpc")]
     let rpc_shard_tracker = view_shard_tracker.clone();
     let rpc_handler = spawn_rpc_handler_actor(
         actor_system.clone(),
@@ -774,8 +786,8 @@ pub async fn start_with_config_and_synchronization_impl(
     };
     state_sync_dumper.start();
 
-    let hot_store = storage.get_hot_store();
-    let cold_store = storage.get_cold_store();
+    #[cfg(feature = "json_rpc")]
+    let (hot_store, cold_store) = (storage.get_hot_store(), storage.get_cold_store());
 
     let (network_actor, _tcp) = PeerManagerActor::spawn(
         Clock::real(),

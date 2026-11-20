@@ -1,5 +1,5 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::setup::setup_mock;
+use crate::env::setup::{setup_mock, setup_no_network};
 use crate::env::test_env::TestEnv;
 use crate::env::test_env_builder::TestEnvBuilder;
 use crate::utils::process_blocks::{
@@ -8,19 +8,20 @@ use crate::utils::process_blocks::{
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::ActorSystem;
-use near_async::messaging::{CanSend, CanSendAsync};
+use near_async::messaging::{CanSend, CanSendAsync, IntoSender, noop};
 use near_async::time::{Clock, Duration};
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, ProtocolVersionCheckConfig};
+use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_client::test_utils::{create_chunk, create_chunk_on_height};
 use near_client::{GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult};
 use near_client_primitives::types::{EpochSyncStatus, SyncStatus};
 use near_crypto::{InMemorySigner, KeyType, Signature};
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::client::{BlockApproval, BlockResponse, SetNetworkInfo};
+use near_network::client::{BlockApproval, BlockHeadersResponse, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, NetworkInfo, PeerChainInfo, PeerManagerMessageRequest,
@@ -32,8 +33,9 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_pool::types::TransactionGroupIterator;
+use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::block::Approval;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{CryptoHash, hash};
@@ -487,6 +489,54 @@ async fn client_sync_headers() {
     }
 }
 
+/// A header response may carry at most MAX_BLOCK_HEADERS headers. A peer that sends more is
+/// rejected as abusive instead of having its headers processed.
+#[tokio::test]
+async fn client_rejects_oversized_block_headers_response() {
+    init_test_logger();
+    let actor_system = ActorSystem::new();
+    let actor_handles = setup_no_network(
+        Clock::real(),
+        actor_system.clone(),
+        vec!["test".parse().unwrap()],
+        "other".parse().unwrap(),
+        true,
+        false,
+    );
+
+    // The limit is checked on the length alone, so any header works here. Genesis is already
+    // known, which makes a response at the limit a no-op for the chain.
+    let (genesis_block, _) = actor_handles
+        .view_client_actor
+        .send_async(GetBlockWithMerkleTree::latest())
+        .await
+        .unwrap()
+        .unwrap();
+    let header: Arc<BlockHeader> = Arc::new(genesis_block.header.into());
+    let peer_id = PeerInfo::random().id;
+
+    let res = actor_handles
+        .client_actor
+        .send_async(
+            BlockHeadersResponse(vec![header.clone(); MAX_BLOCK_HEADERS as usize], peer_id.clone())
+                .span_wrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res, Ok(()));
+
+    let res = actor_handles
+        .client_actor
+        .send_async(
+            BlockHeadersResponse(vec![header; MAX_BLOCK_HEADERS as usize + 1], peer_id).span_wrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res, Err(ReasonForBan::Abusive));
+
+    actor_system.stop();
+}
+
 #[test]
 fn test_process_invalid_tx() {
     init_test_logger();
@@ -701,6 +751,29 @@ fn test_bad_orphan() {
         assert_matches!(res.unwrap_err(), Error::InvalidSignature);
     }
     {
+        let mut block = env.clients[0].produce_block(11).unwrap().unwrap();
+        let mut_block = Arc::make_mut(&mut block);
+        {
+            let chunk = mut_block.mut_chunks()[0].get_mut();
+            match &mut chunk.inner {
+                ShardChunkHeaderInner::V1(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V2(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V3(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V4(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V5(inner) => inner.height_created = u64::MAX,
+                ShardChunkHeaderInner::V6(inner) => inner.height_created = u64::MAX,
+            }
+            chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
+        }
+        mut_block.recompute_fields_derived_from_chunks();
+        mut_block.mut_header().set_prev_hash(CryptoHash([5; 32]));
+        mut_block.mut_header().resign(&*signer);
+        let orphans_len = env.clients[0].chain.orphans_len();
+        let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
+        assert_matches!(res.unwrap_err(), Error::InvalidChunk(_));
+        assert_eq!(env.clients[0].chain.orphans_len(), orphans_len);
+    }
+    {
         // Orphan block that's too far ahead: 20 * epoch_length
         let mut block = block.clone();
         let mut_block = Arc::make_mut(&mut block);
@@ -790,7 +863,7 @@ fn test_bad_chunk_mask() {
             }
             mut_block
                 .mut_header()
-                .resign(&*env.client(&block_producer).validator_signer.get().unwrap().clone());
+                .resign(&*env.client(&block_producer).validator_signer.get().unwrap());
 
             for client in &mut env.clients {
                 let res = client
@@ -1203,8 +1276,8 @@ fn slow_test_process_block_after_state_sync() {
         .compute_state_response_header(shard_id, sync_hash)
         .unwrap();
     let state_root = header.synced_state_root();
-    let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-    let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+    let snapshot_hash =
+        snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
 
     let state_part = env.clients[0]
         .runtime_adapter
@@ -1444,7 +1517,7 @@ fn test_gc_tail_update() {
         .reset_heads_post_state_sync(
             *sync_block.hash(),
             &mut BlockProcessingArtifact::default(),
-            None,
+            noop().into_sender(),
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
@@ -1674,9 +1747,15 @@ fn test_sync_hash_validity() {
             height += 1;
         }
 
-        // This assumes that all shards have new chunks in every block, which should be true
-        // with TestEnv::produce_block()
-        let expected_sync_height = epoch_start + 3;
+        // Spice syncs to the epoch's first block. Otherwise the sync block follows the first
+        // block with two new chunks in every shard, which with a chunk in every shard of every
+        // block, as TestEnv::produce_block() makes, is the epoch's fourth.
+        let expected_sync_height =
+            if ProtocolFeature::Spice.enabled(genesis.config.protocol_version) {
+                epoch_start
+            } else {
+                epoch_start + 3
+            };
 
         for h in epoch_start..height {
             let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
@@ -1795,7 +1874,7 @@ fn test_validate_chunk_extra() {
         *chunk_header.height_included_mut() = i as BlockHeight + next_height;
         let chunk_headers = vec![chunk_header.clone()];
         let mut_block = Arc::make_mut(block);
-        mut_block.set_chunks(chunk_headers.clone());
+        mut_block.set_chunks(chunk_headers);
         mut_block.recompute_fields_derived_from_chunks();
 
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
@@ -1834,7 +1913,7 @@ fn test_validate_chunk_extra() {
         .distribute_and_persist_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
-    env.clients[0].process_blocks_with_missing_chunks(None);
+    env.clients[0].process_blocks_with_missing_chunks();
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
     env.clients[0].chain.test_paused_blocks.resume(block2.hash());
@@ -2000,7 +2079,6 @@ fn slow_test_catchup_gas_price_change() {
                     ShardUId::single_shard(),
                     &mut store_update.flat_store_update()
                 )
-                .unwrap()
         );
         store_update.commit();
         for part_id in 0..num_parts {
@@ -2103,12 +2181,9 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     let shard_id = next_chunk.shard_id();
     assert!(next_chunk.to_transactions().is_empty());
-    // Under AccountCostIncrease the two action receipts processed in block 2 each emit a
-    // price_surplus gas-refund receipt, which then becomes `prev_outgoing_receipts` of
-    // block 3. Pre-feature no refund is produced because the unused-gas refund evaluates to
-    // zero with the test's gas_price.
-    let expected_refund_receipts_in_chunk =
-        if ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) { 2 } else { 0 };
+    // The two action receipts processed in block 2 each emit a price_surplus gas-refund
+    // receipt, which then becomes `prev_outgoing_receipts` of block 3.
+    let expected_refund_receipts_in_chunk = 2;
     // The refund receipts are produced by executing block 2's chunk. Without spice they ride in
     // block 3's chunk as `prev_outgoing_receipts`; with spice chunks carry no outgoing receipts
     // (that field is always empty) and the produced receipts are stored keyed by the block whose
@@ -2249,8 +2324,7 @@ fn test_refund_receipts_processing() {
             let chunk_extra = env.clients[0]
                 .chain
                 .get_chunk_extra(&receipt_outcome.block_hash, &test_shard_uid)
-                .unwrap()
-                .clone();
+                .unwrap();
             assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
         } else {
             unreachable!("Transaction must succeed");
@@ -2394,7 +2468,7 @@ fn test_epoch_protocol_version_change() {
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
-            set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION);
+            set_block_protocol_version(&mut block, block_producer, PROTOCOL_VERSION);
         }
         for j in 0..2 {
             env.clients[j].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
@@ -2703,7 +2777,7 @@ fn test_query_final_state() {
     for i in 1..5 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(0, block, Provenance::PRODUCED);
     }
 
     let query_final_state =
@@ -2782,7 +2856,7 @@ fn test_fork_receipt_ids() {
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
-        mut_block.set_chunks(chunk_headers.clone());
+        mut_block.set_chunks(chunk_headers);
         mut_block.recompute_fields_derived_from_chunks();
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block.mut_header().resign(&validator_signer);
@@ -2835,7 +2909,7 @@ fn test_fork_execution_outcome() {
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         let mut_block = Arc::make_mut(block);
-        mut_block.set_chunks(chunk_headers.clone());
+        mut_block.set_chunks(chunk_headers);
         mut_block.recompute_fields_derived_from_chunks();
         assert_eq!(mut_block.header().chunk_mask(), vec![true]);
         mut_block.mut_header().resign(&validator_signer);
@@ -3036,6 +3110,7 @@ fn pool_tx_hashes(env: &TestEnv, shard_uid: ShardUId) -> HashSet<CryptoHash> {
     let mut pool = env.clients[0].chunk_producer.sharded_tx_pool.lock();
     let Some(mut iter) = pool.get_pool_iterator(shard_uid) else { return hashes };
     while let Some(group) = iter.next() {
+        let PooledGroup::Signed(group) = group else { continue };
         while let Some(tx) = group.next() {
             hashes.insert(tx.get_hash());
         }
@@ -3415,10 +3490,10 @@ mod contract_precompilation_tests {
     use super::*;
     use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_runtime::state_viewer::TrieViewer;
+    use near_runtime::state_viewer::ViewApplyState;
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
-    use node_runtime::state_viewer::TrieViewer;
-    use node_runtime::state_viewer::ViewApplyState;
 
     const EPOCH_LENGTH: u64 = 25;
 
@@ -3434,9 +3509,8 @@ mod contract_precompilation_tests {
             .get_state_response_header(shard_id, sync_hash)
             .unwrap();
         let state_root = state_sync_header.synced_state_root();
-        let sync_prev_header =
-            env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
-        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+        let snapshot_hash =
+            snapshot_hash_for_sync_hash(env.clients[0].chain.chain_store(), &sync_hash).unwrap();
         let state_part = env.clients[0]
             .runtime_adapter
             .obtain_state_part(shard_id, &snapshot_hash, &state_root, StatePartId::new(0, 1))
@@ -3537,6 +3611,7 @@ mod contract_precompilation_tests {
                 &"test0".parse().unwrap(),
                 "log_something",
                 &[],
+                None,
                 &mut logs,
                 &MockEpochInfoProvider::default(),
             )

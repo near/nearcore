@@ -26,10 +26,10 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ShardId};
+use near_runtime::SignedValidPeriodTransactions;
 use near_state_viewer::progress_reporter::ProgressReporter;
 use near_store::{ShardUId, Store, get_genesis_state_roots};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
-use node_runtime::SignedValidPeriodTransactions;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -296,7 +296,7 @@ impl ReplayController {
         )?;
 
         let shard_id = shard_uid.shard_id();
-        let shard_context = self.get_shard_context(shard_uid)?;
+        let shard_context = self.get_shard_context(shard_uid);
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -434,11 +434,11 @@ impl ReplayController {
             self.chain_store.get_block_height(block.header().last_final_block())?;
         let current_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let store_update = self.epoch_manager.add_validator_proposals(
+        let epoch_manager_update = self.epoch_manager.record_block_info(
             BlockInfo::from_header(block.header(), last_finalized_height, current_protocol_version),
             *block.header().random_value(),
         )?;
-        store_update.commit();
+        epoch_manager_update.store_update.commit();
         Ok(())
     }
 
@@ -476,9 +476,9 @@ impl ReplayController {
 
     /// Generates a ShardContext specific to replaying the blocks, which indicates that
     /// we care about all the shards and should always apply chunk.
-    fn get_shard_context(&self, shard_uid: ShardUId) -> Result<ShardContext> {
+    fn get_shard_context(&self, shard_uid: ShardUId) -> ShardContext {
         let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
-        Ok(shard_context)
+        shard_context
     }
 
     /// Saves the ChunkExtras for the shards in the genesis block.

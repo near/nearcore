@@ -1,4 +1,5 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
+use crate::trie::TrieChanges;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::{MissingTrieValue, MissingTrieValueContext, PrefetchApi, StorageError, metrics};
@@ -358,6 +359,56 @@ impl TrieMemoryPartialStorage<true> {
             .collect();
         nodes.sort();
         PartialState::TrieValues(nodes)
+    }
+}
+
+/// The trie nodes and values that applying a chunk added, by hash. A trie at the chunk's new state
+/// root finds them here, and everything else in the storage the chunk was applied on.
+pub struct NewTrieNodes {
+    nodes: HashMap<CryptoHash, Arc<[u8]>>,
+}
+
+impl std::fmt::Debug for NewTrieNodes {
+    /// Prints how many nodes there are, not the nodes.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NewTrieNodes {{ len: {} }}", self.nodes.len())
+    }
+}
+
+impl NewTrieNodes {
+    /// The nodes and values that `changes` add.
+    pub fn from_changes(changes: &TrieChanges) -> Self {
+        let nodes = changes
+            .insertions()
+            .iter()
+            .map(|insertion| (*insertion.hash(), Arc::from(insertion.payload())))
+            .collect();
+        Self { nodes }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+}
+
+/// Serves the nodes of `new_nodes` from memory and everything else from `storage`.
+pub(crate) struct TrieStorageWithNewNodes {
+    new_nodes: NewTrieNodes,
+    storage: Arc<dyn TrieStorage>,
+}
+
+impl TrieStorageWithNewNodes {
+    pub(crate) fn new(new_nodes: NewTrieNodes, storage: Arc<dyn TrieStorage>) -> Self {
+        Self { new_nodes, storage }
+    }
+}
+
+impl TrieStorage for TrieStorageWithNewNodes {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        match self.new_nodes.nodes.get(hash) {
+            Some(bytes) => Ok(Arc::clone(bytes)),
+            None => self.storage.retrieve_raw_bytes(hash),
+        }
     }
 }
 

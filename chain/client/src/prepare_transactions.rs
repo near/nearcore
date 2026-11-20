@@ -1,7 +1,6 @@
-use near_async::time::Duration;
 use near_chain::types::{
-    PendingTxCheckResult, PrepareTransactionsBlockContext, PrepareTransactionsLimit,
-    PreparedTransactions, RuntimeAdapter,
+    ParentPostStateNodes, PendingTxCheckResult, PrepareTransactionsBlockContext,
+    PrepareTransactionsLimit, PrepareTransactionsTimeLimits, PreparedTransactions, RuntimeAdapter,
 };
 use near_chunks::client::ShardedTransactionPool;
 use near_client_primitives::types::Error;
@@ -21,13 +20,16 @@ use std::sync::atomic::AtomicBool;
 pub struct PrepareTransactionsJobInputs {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub state: TrieUpdate,
+    /// The trie nodes that the apply of the parent chunk adds, which ECCs run on. `state` is the
+    /// parent's post state before they are in a trie.
+    pub post_state_nodes: Option<ParentPostStateNodes>,
     pub shard_uid: ShardUId,
     pub prev_block_context: PrepareTransactionsBlockContext,
     pub tx_pool: Arc<Mutex<ShardedTransactionPool>>,
     pub tx_validity_period_check: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub validate_tx_ttl: Box<dyn Fn(&SignedTransaction) -> bool + Send + 'static>,
     pub prev_chunk_tx_hashes: HashSet<CryptoHash>,
-    pub time_limit: Option<Duration>,
+    pub time_limits: PrepareTransactionsTimeLimits,
 }
 
 impl PrepareTransactionsJobInputs {
@@ -41,20 +43,26 @@ impl PrepareTransactionsJobInputs {
         let prev_block_context = PrepareTransactionsBlockContext {
             next_gas_price: Default::default(),
             height: 0,
+            timestamp: 0,
+            epoch_id: Default::default(),
+            epoch_height: 0,
             next_epoch_id: Default::default(),
+            starts_new_epoch: false,
             congestion_info: Default::default(),
+            gas_limit: Default::default(),
         };
 
         Self {
             runtime_adapter: runtime,
             state,
+            post_state_nodes: None,
             shard_uid,
             prev_block_context,
             tx_pool,
             tx_validity_period_check: Box::new(|_| true),
             validate_tx_ttl: Box::new(|_| true),
             prev_chunk_tx_hashes: HashSet::new(),
-            time_limit: None,
+            time_limits: PrepareTransactionsTimeLimits::unlimited_without_eccs(),
         }
     }
 }
@@ -143,8 +151,9 @@ impl PrepareTransactionsJob {
             &inputs.validate_tx_ttl,
             inputs.prev_chunk_tx_hashes,
             &mut PendingTxCheckResult::always_admit(),
-            inputs.time_limit,
+            inputs.time_limits,
             Some((&self).cancel.clone()),
+            inputs.post_state_nodes,
         );
         drop(iter);
         match result {
@@ -158,8 +167,11 @@ impl PrepareTransactionsJob {
                 // Allow `take_result` to proceed before we reintroduce transactions. The
                 // transaction pools are still locked so there is no risk of inconsistent data.
                 drop(state);
-                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, prepared.transactions);
-                tx_pool_guard.reintroduce_transactions(inputs.shard_uid, skipped.0);
+                tx_pool_guard.reintroduce_prepared(
+                    inputs.shard_uid,
+                    prepared.transactions,
+                    skipped.0,
+                );
             }
             Err(e) => {
                 *state = PrepareTransactionsJobState::Finished(Err(e.into()));
@@ -393,8 +405,13 @@ mod tests {
         let prev_block_context = PrepareTransactionsBlockContext {
             next_gas_price: Default::default(),
             height,
+            timestamp: 0,
+            epoch_id: Default::default(),
+            epoch_height: 0,
             next_epoch_id: Default::default(),
+            starts_new_epoch: false,
             congestion_info: Default::default(),
+            gas_limit: Default::default(),
         };
         PrepareTransactionsJobKey {
             shard_uid,

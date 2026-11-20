@@ -47,7 +47,6 @@ fn main() {
     GenesisBuilder::from_config_and_store(home_dir, near_config, store)
         .add_additional_accounts(additional_accounts_num)
         .add_additional_accounts_contract(near_test_contracts::trivial_contract().to_vec())
-        .print_progress()
         .build()
         .unwrap()
         .dump_state()

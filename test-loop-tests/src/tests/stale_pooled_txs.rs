@@ -87,7 +87,7 @@ fn run_stale_signer_scenario(removal: RemovalKind) {
         attack_head.last_block_hash,
     );
     env.node_for_account(&target_producer).node_data.rpc_handler_sender.send(ProcessTxRequest {
-        transaction: stale_tx,
+        transaction: stale_tx.into(),
         is_forwarded: true,
         check_only: false,
     });

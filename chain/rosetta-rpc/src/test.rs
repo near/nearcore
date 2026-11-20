@@ -4,8 +4,9 @@ use near_client::ViewClientActor;
 use near_crypto::SecretKey;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::AccountId;
 use near_primitives::types::{Balance, BlockReference};
-use near_primitives::views::{ActionView, SignedTransactionView};
+use near_primitives::views::{AccountView, ActionView, SignedTransactionView};
 use std::collections::HashMap;
 
 pub async fn test_convert_block_changes_to_transactions(
@@ -682,6 +683,59 @@ pub async fn test_function_call_deposit_separation(
         Some(crate::models::OperationMetadataTransferFeeType::GasPrepayment),
         "gas charge op must have GasPrepayment metadata"
     );
+}
+
+/// Tests that an external call's whole change to its contract's balance, its payment and the
+/// deposits of its receipts together, is one transfer with no fee type, as for a receipt's run.
+pub async fn test_external_call_operations(
+    view_client_addr: &MultithreadRuntimeHandle<ViewClientActor>,
+    runtime_config: &RuntimeConfigView,
+) {
+    let transaction_id = CryptoHash([12u8; 32]);
+    let contract_id: AccountId = "contract.near".parse().unwrap();
+    let exec_to_rx = ExecutionToReceipts::empty()
+        .with_external_calls(HashMap::from([(transaction_id, contract_id.clone())]));
+    let account = |amount| AccountView {
+        amount,
+        code_hash: CryptoHash::default(),
+        locked: Balance::ZERO,
+        storage_paid_at: 0,
+        storage_usage: 0,
+        global_contract_hash: None,
+        global_contract_account_id: None,
+        state: Default::default(),
+        bootstrap_nonce: None,
+    };
+    let previous_amount = Balance::from_near(20);
+    let spent = Balance::from_near(5);
+    let accounts_changes = vec![near_primitives::views::StateChangeWithCauseView {
+        cause: near_primitives::views::StateChangeCauseView::ExternalCallProcessing {
+            transaction_id,
+        },
+        value: near_primitives::views::StateChangeValueView::AccountUpdate {
+            account_id: contract_id.clone(),
+            account: account(previous_amount.checked_sub(spent).unwrap()),
+        },
+    }];
+    let accounts_previous_state = HashMap::from([(contract_id, account(previous_amount))]);
+
+    let mut transactions = convert_block_changes_to_transactions(
+        view_client_addr,
+        runtime_config,
+        &CryptoHash::default(),
+        accounts_changes,
+        accounts_previous_state,
+        exec_to_rx,
+        crate::gas_key_utils::GasKeyInfo::empty(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    let ops = transactions.remove(&format!("tx:{}", transaction_id)).unwrap().operations;
+    let [op] = ops.as_slice() else { panic!("expected one op, got {ops:?}") };
+    assert_eq!(op.type_, crate::models::OperationType::Transfer);
+    assert_eq!(op.amount, Some(-crate::models::Amount::from_balance(spent)));
+    assert_eq!(op.metadata.as_ref().and_then(|m| m.transfer_fee_type), None);
 }
 
 /// Tests that execution_status propagates from ExecutionToReceipts statuses

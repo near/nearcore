@@ -173,7 +173,7 @@ impl FlatStorageResharder {
     ///
     /// # Args:
     /// * `shard_uid`: UId of the shard
-    pub fn resume(&self, shard_uid: ShardUId) -> Result<(), Error> {
+    pub fn resume(&self, shard_uid: ShardUId) {
         let status = self.runtime.get_flat_storage_manager().get_flat_storage_status(shard_uid);
         let resharding_status = match status {
             FlatStorageStatus::Disabled
@@ -181,7 +181,7 @@ impl FlatStorageResharder {
             | FlatStorageStatus::Creation(_)
             | FlatStorageStatus::Ready(_) => {
                 tracing::info!(target: "resharding", ?shard_uid, ?status, "did not resume resharding");
-                return Ok(());
+                return;
             }
             // We only need to resume resharding if the status is `Resharding`.
             FlatStorageStatus::Resharding(status) => status,
@@ -209,7 +209,7 @@ impl FlatStorageResharder {
 
                 if all_children_done {
                     tracing::info!(target: "resharding", ?parent_shard_uid, ?status, "all children shards are ready, skipping resharding");
-                    return Ok(());
+                    return;
                 } else {
                     tracing::info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
                     // On resume, flat storage status is already set correctly and read from DB.
@@ -235,7 +235,6 @@ impl FlatStorageResharder {
                 }
             }
         }
-        Ok(())
     }
 
     /// The preprocessing step sets the appropriate flat storage status for the parent and children shards.
@@ -667,7 +666,7 @@ impl FlatStorageResharder {
         else {
             return Err(Error::Other(format!(
                 "unexpected resharding catchup flat storage status for {}: {:?}",
-                shard_uid, &status
+                shard_uid, status
             )));
         };
 
@@ -696,7 +695,7 @@ impl FlatStorageResharder {
             debug_assert!(
                 flat_head.height <= chain_final_head.height,
                 "flat head: {:?}",
-                &flat_head,
+                flat_head,
             );
 
             if is_flat_head_on_par_with_chain(&flat_head.hash, &chain_final_head) {
@@ -881,7 +880,8 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_TIMEOUT
         | col::BANDWIDTH_SCHEDULER_STATE
         | col::GLOBAL_CONTRACT_CODE
-        | col::GLOBAL_CONTRACT_NONCE => {
+        | col::GLOBAL_CONTRACT_NONCE
+        | col::CONTRACT_COMPILATION_STATUS => {
             copy_kv_to_all_children(&split_params, key, value, store_update)
         }
         col::BUFFERED_RECEIPT_INDICES
@@ -1003,6 +1003,7 @@ mod tests {
     use crate::types::{ChainConfig, RuntimeAdapter};
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
     use assert_matches::assert_matches;
+    use borsh::to_vec;
     use near_async::messaging::{IntoMultiSender, noop};
     use near_async::time::Clock;
     use near_chain_configs::{Genesis, MutableConfigValue, ReshardingHandle, TrackedShardsConfig};
@@ -1013,7 +1014,7 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{AccountId, ShardId};
+    use near_primitives::types::{AccountId, ContractCompilationStatus, ShardId, VmGeneration};
     use near_store::ShardUId;
     use near_store::adapter::StoreAdapter;
     use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -1173,7 +1174,7 @@ mod tests {
         store_update.commit();
 
         // Resume resharding
-        assert!(flat_storage_resharder.resume(parent_shard).is_ok(), "Resume should succeed");
+        flat_storage_resharder.resume(parent_shard);
 
         // Verify all dirty values are cleaned up from both children
         let store = flat_storage_resharder.runtime.store().flat_store();
@@ -1510,6 +1511,15 @@ mod tests {
             insert_promise_yield(&store, parent_shard),
             insert_buffered_receipts(&store, parent_shard),
         ];
+        let status_key =
+            TrieKey::ContractCompilationStatus { code_hash: CryptoHash::default() }.to_vec();
+        let status_value = Some(FlatStateValue::Inlined(
+            to_vec(&ContractCompilationStatus::Cached { vm_generation: VmGeneration(158) })
+                .unwrap(),
+        ));
+        let mut update = store.store_update();
+        update.set(parent_shard, status_key.clone(), status_value.clone());
+        update.commit();
 
         // Do the resharding.
         flat_storage_resharder.start_resharding_blocking_impl(parent_shard, split_params.clone());
@@ -1527,6 +1537,7 @@ mod tests {
                 store.get_flat_storage_status(child_shard),
                 FlatStorageStatus::Ready(_)
             );
+            assert_eq!(store.get(child_shard, &status_key), status_value);
         }
 
         for validate_fn in validate_fns {

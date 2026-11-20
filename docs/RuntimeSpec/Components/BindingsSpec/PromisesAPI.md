@@ -124,7 +124,7 @@ caused the callback. This function returns the result in blob format and places 
 
 ###### Panics
 
-- If `result_idx` does not correspond to an existing result panics with `InvalidResultIndex`.
+- If `result_idx` does not correspond to an existing result panics with `InvalidPromiseResultIndex`.
 - If copying the blob exhausts the memory limit it panics with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
 
@@ -145,6 +145,9 @@ When promise `promise_idx` finishes executing its result is considered to be the
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotReturnJointPromise`.
+- If called in a view function panics with `ProhibitedInView`.
 
 ###### Current bugs
 
@@ -201,7 +204,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If called in a view function panics with `ProhibitedInView`.
 
 ---
@@ -218,7 +222,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If `code_len + code_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
 
@@ -244,8 +249,9 @@ _NOTE: Calling `promise_batch_create` and then `promise_batch_action_function_ca
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
-- If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr`
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
+- If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr`
   or `amount_ptr + 16` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
 
@@ -263,7 +269,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If `amount_ptr + 16` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
 
@@ -274,19 +281,24 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 ```rust
 promise_batch_action_stake(promise_idx: u64,
                            amount_ptr: u64,
-                           bls_public_key_len: u64,
-                           bls_public_key_ptr: u64)
+                           public_key_len: u64,
+                           public_key_ptr: u64)
 ```
 
 Appends `Stake` action to the batch of actions for the given promise pointed by `promise_idx`.
 Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-15b6752ec7d78e7b85b8c7de4a19cbd4R52
 
+The staking key must be an ED25519 public key whose bytes decode to a valid, torsion-free curve point.
+Normally generated ED25519 keys meet this rule. If any other key is used, the host call still succeeds.
+The function call then fails with `NewReceiptValidationError` (`UnsuitableStakingKey`) after the method returns.
+
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
-- If the given BLS public key is not a valid BLS public key (e.g. wrong length) `InvalidPublicKey`.
-- If `amount_ptr + 16` or `bls_public_key_len + bls_public_key_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
+- If the given public key is not a valid borsh-serialized NEAR public key (e.g. wrong length or unknown key type) panics with `InvalidPublicKey`.
+- If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
 
 ---
@@ -307,7 +319,8 @@ The access key will have `FullAccess` permission, details: [click here](../../..
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If the given public key is not a valid public key (e.g. wrong length) `InvalidPublicKey`.
 - If `public_key_len + public_key_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
@@ -338,9 +351,10 @@ The access key will have `FunctionCall` permission, details: [click here](../../
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If the given public key is not a valid public key (e.g. wrong length) `InvalidPublicKey`.
-- if `method_names` is not a valid `utf-8` string, fails with `BadUTF8`.
+- if `method_names` is not a valid `utf-8` string, fails with `InvalidMethodName`.
 - If `public_key_len + public_key_ptr`, `allowance_ptr + 16`, `receiver_id_len + receiver_id_ptr` or
   `method_names_len + method_names_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
@@ -361,7 +375,8 @@ Details for the action: https://github.com/nearprotocol/NEPs/pull/8/files#diff-1
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If the given public key is not a valid public key (e.g. wrong length) `InvalidPublicKey`.
 - If `public_key_len + public_key_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.
@@ -377,12 +392,12 @@ promise_batch_action_delete_account(promise_idx: u64,
 ```
 
 Appends `DeleteAccount` action to the batch of actions for the given promise pointed by `promise_idx`.
-Action is used to delete an account. It can be performed on a newly created account, on your own account or an account with
-insufficient funds to pay rent. Takes `beneficiary_id` to indicate where to send the remaining funds.
+Action is used to delete an account. It can be performed on a newly created account or on your own account. Takes `beneficiary_id` to indicate where to send the remaining funds.
 
 ###### Panics
 
 - If `promise_idx` does not correspond to an existing promise panics with `InvalidPromiseIndex`.
-- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and`.
+- If the promise pointed by the `promise_idx` is an ephemeral promise created by `promise_and` panics with
+  `CannotAppendActionToJointPromise`.
 - If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory of the guest or host, with `MemoryAccessViolation`.
 - If called in a view function panics with `ProhibitedInView`.

@@ -427,7 +427,7 @@ mod tests {
     use near_primitives::types::NumSeats;
     use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
     #[test]
@@ -1103,25 +1103,26 @@ mod tests {
         num_chunk_validator_seats: Option<NumSeats>,
         minimum_stake_ratio: Option<Ratio<i32>>,
     ) -> EpochConfig {
-        let mut config_builder = EpochConfig::minimal();
-        config_builder
-            .epoch_length(10)
-            .num_block_producer_seats(num_block_producer_seats)
-            .target_validator_mandates_per_shard(68)
-            .validator_max_kickout_stake_perc(100)
-            .shard_layout(shard_layout);
+        let mut config = EpochConfig {
+            epoch_length: 10,
+            num_block_producer_seats,
+            target_validator_mandates_per_shard: 68,
+            validator_max_kickout_stake_perc: 100,
+            ..EpochConfig::minimal()
+        }
+        .with_shard_layout(shard_layout);
 
         if let Some(num_chunk_producer_seats) = num_chunk_producer_seats {
-            config_builder.num_chunk_producer_seats(num_chunk_producer_seats);
+            config.num_chunk_producer_seats = num_chunk_producer_seats;
         }
         if let Some(num_chunk_validator_seats) = num_chunk_validator_seats {
-            config_builder.num_chunk_validator_seats(num_chunk_validator_seats);
+            config.num_chunk_validator_seats = num_chunk_validator_seats;
         }
         if let Some(minimum_stake_ratio) = minimum_stake_ratio {
-            config_builder.minimum_stake_ratio(minimum_stake_ratio);
+            config.minimum_stake_ratio = minimum_stake_ratio;
         }
 
-        config_builder.build().expect("config field missing")
+        config
     }
 
     fn create_prev_epoch_info<T: IntoValidatorStake + Copy>(
@@ -1214,11 +1215,6 @@ mod tests {
     /// holding by coincidence.
     #[test]
     fn test_validator_assignment_sticky_resharding() {
-        // Skip if the feature isn't active in this build.
-        if !ProtocolFeature::StickyReshardingValidatorAssignment.enabled(PROTOCOL_VERSION) {
-            return;
-        }
-
         // Two-shard prev layout split on "mid". Resharding will introduce a
         // new boundary "ttt" inside the right shard, splitting it.
         let prev_layout = ShardLayout::v2(

@@ -3,6 +3,7 @@ use crate::config::{Mode, RocksDbCfConfig, RocksDbConfig};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue, refcount};
 use crate::metrics::{ROCKS_CURRENT_ITERATORS, ROCKS_ITERATOR_TIME_HISTOGRAM};
 use crate::{DBCol, StoreConfig, StoreStatistics, Temperature, deserialized_column, metrics};
+use ::rocksdb::compaction_filter::Decision;
 use ::rocksdb::properties::{PropName, PropertyName};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, DB, Env, IteratorMode, Options, ReadOptions, WriteBatch,
@@ -783,7 +784,11 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
     if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        let merge =
+            move |key: &[u8], existing: Option<&[u8]>, operands: &::rocksdb::MergeOperands| {
+                RocksDB::refcount_merge(col, key, existing, operands)
+            };
+        opts.set_merge_operator("refcount merge", merge, merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
 
@@ -916,6 +921,28 @@ impl RocksDB {
                 .with_context(|| format!("failed to drop column family {:?}", col,))?;
         }
         Ok(())
+    }
+}
+
+impl RocksDB {
+    /// Merge adds refcounts, zero refcount becomes empty value.
+    /// Empty values get filtered by get methods, and removed by compaction.
+    pub(crate) fn refcount_merge(
+        col: DBCol,
+        _new_key: &[u8],
+        existing: Option<&[u8]>,
+        operands: &::rocksdb::MergeOperands,
+    ) -> Option<Vec<u8>> {
+        Some(refcount::refcount_merge(col, existing, operands))
+    }
+
+    /// Compaction filter for DBCol::State
+    pub(crate) fn empty_value_compaction_filter(
+        _level: u32,
+        _key: &[u8],
+        value: &[u8],
+    ) -> Decision {
+        if value.is_empty() { Decision::Remove } else { Decision::Keep }
     }
 }
 

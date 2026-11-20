@@ -1,7 +1,6 @@
 ---
 source: core/parameters/src/config_store.rs
 expression: config_view
-snapshot_kind: text
 ---
 {
   "storage_amount_per_byte": "10000000000000000000",
@@ -175,8 +174,6 @@ snapshot_kind: text
       "promise_return": 560152386,
       "validator_stake_base": 911834726400,
       "validator_total_stake_base": 911834726400,
-      "contract_compile_base": 0,
-      "contract_compile_bytes": 0,
       "alt_bn128_g1_multiexp_base": 713000000000,
       "alt_bn128_g1_multiexp_element": 320000000000,
       "alt_bn128_g1_sum_base": 3000000000,
@@ -214,22 +211,11 @@ snapshot_kind: text
     "linear_op_base_cost": 26328192,
     "linear_op_unit_cost": 822756,
     "vm_kind": "<REDACTED>",
-    "discard_custom_sections": true,
-    "global_contract_host_fns": true,
-    "reftypes_bulk_memory": true,
-    "gas_key_host_fns": true,
-    "one_yocto_on_promise": true,
-    "p256_verify_host_fn": true,
     "ml_dsa_verify_host_fn": true,
     "sha3_host_fns": true,
-    "yield_with_id_host_fns": true,
-    "chain_id_host_fn": true,
     "bls12381_not_in_group_fix": false,
-    "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
-    "implicit_account_creation": true,
-    "eth_implicit_accounts": true,
-    "universal_accounts": true,
+    "universal_accounts": false,
     "limit_config": {
       "max_gas_burnt": 1000000000000000,
       "max_gas_burnt_external": 0,
@@ -258,6 +244,8 @@ snapshot_kind: text
       "max_receipt_total_input_size": 4294967295,
       "max_universal_state_init_keys": 1024,
       "max_state_init_entries": 1500,
+      "max_gas_key_nonces_added_per_receipt": 4294967295,
+      "max_gas_key_nonces_removed_per_receipt": 4294967295,
       "max_functions_number_per_contract": 10000,
       "max_locals_per_contract": 1000000,
       "min_contract_size_per_local": 2,
@@ -271,7 +259,6 @@ snapshot_kind: text
       "max_blocks_per_function": 5000,
       "max_blocks_per_contract": 50000,
       "max_types_per_contract": 1024,
-      "account_id_validity_rules_version": 2,
       "yield_timeout_length_in_blocks": 200,
       "max_yield_payload_size": 1024,
       "per_receipt_storage_proof_size_limit": 4000000
@@ -297,6 +284,23 @@ snapshot_kind: text
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
     "new_transactions_validation_state_size_soft_limit": 572864
+  },
+  "external_calls_config": {
+    "max_call_size": 0,
+    "max_call_recorded_size": 0,
+    "chunk_compute_share": [
+      0,
+      1
+    ],
+    "chunk_storage_proof_share": [
+      0,
+      1
+    ],
+    "chunk_transactions_size_share": [
+      0,
+      1
+    ],
+    "max_calls_per_chunk": 0
   },
   "min_gas_purchase_price": "1000000000",
   "account_creation_charge": "7000000000000000000000"

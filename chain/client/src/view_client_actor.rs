@@ -18,7 +18,7 @@ use near_chain::{
     retrieve_headers,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
-use near_chain_primitives::error::EpochErrorResultToChainError;
+use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError as RuntimeQueryError};
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetChunkExtraExists, GetExecutionOutcome,
@@ -36,9 +36,7 @@ use near_client_primitives::types::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::client::{
-    BlockHeadersRequest, BlockRequest, GetCurrentEpochHeight, TxStatusRequest, TxStatusResponse,
-};
+use near_network::client::{BlockHeadersRequest, BlockRequest, TxStatusRequest, TxStatusResponse};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
@@ -51,11 +49,11 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochHeight, EpochId,
-    EpochReference, Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkExecutionRoots, EpochId, EpochReference,
+    Finality, MaybeBlockId, ShardId, SpiceChunkId, StoreValue, SyncCheckpoint,
     TransactionOrReceiptId, ValidatorInfoIdentifier, sorted_chunk_execution_roots,
 };
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkExecutionProofView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
@@ -423,18 +421,9 @@ impl ViewClientActor {
         let chunk_extra =
             self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                    // After ContinuousEpochSync is enabled, since block headers would be GC'd
-                    // there'll be no way for us to tell whether a block hash is GC'd or just unknown.
-                    if !ProtocolFeature::ContinuousEpochSync.enabled(PROTOCOL_VERSION)
-                        && self.is_block_gc(header.height())
-                    {
-                        QueryError::GarbageCollectedBlock {
-                            block_height: header.height(),
-                            block_hash: *header.hash(),
-                        }
-                    } else {
-                        QueryError::UnavailableShard { requested_shard_id: shard_id }
-                    }
+                    // Block headers may be GC'd, so there is no way to tell whether a block
+                    // hash is GC'd or just unknown.
+                    QueryError::UnavailableShard { requested_shard_id: shard_id }
                 }
                 near_chain::near_chain_primitives::Error::IOErr(error) => {
                     QueryError::InternalError { error_message: error.to_string() }
@@ -469,6 +458,18 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 } => QueryError::UnknownAccount { requested_account_id, block_height, block_hash },
+                RuntimeQueryError::UninitializedAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                } => QueryError::UninitializedAccount {
+                    requested_account_id,
+                    block_height,
+                    block_hash,
+                },
+                RuntimeQueryError::InvalidStateInit { error, block_height, block_hash } => {
+                    QueryError::InvalidStateInit { error, block_height, block_hash }
+                }
                 near_chain::near_chain_primitives::error::QueryError::NoContractCode {
                     contract_account_id,
                     block_height,
@@ -506,6 +507,12 @@ impl ViewClientActor {
                     block_height,
                     block_hash,
                 },
+                near_chain::near_chain_primitives::error::QueryError::ExternalCallRefused {
+                    error,
+                    logs,
+                    block_height,
+                    block_hash,
+                } => QueryError::ExternalCallRefused { error, logs, block_height, block_hash },
                 near_chain::near_chain_primitives::error::QueryError::TooLargeContractState {
                     requested_account_id,
                     block_height,
@@ -850,18 +857,24 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
 
-        let chunk = match msg {
+        let (chunk, height_included) = match msg {
             GetChunk::ChunkHash(chunk_hash) => {
-                let chunk = self.chain.get_chunk(&chunk_hash)?;
-                ShardChunk::clone(&chunk)
+                let chunk = ShardChunk::clone(&self.chain.get_chunk(&chunk_hash)?);
+                let height_included =
+                    self.chain.chain_store().get_external_call_height_included(&chunk)?;
+                (chunk, height_included)
             }
             GetChunk::BlockHash(block_hash, shard_id) => {
                 let block = self.chain.get_block(&block_hash)?;
-                get_chunk_from_block(&block, shard_id, &self.chain)?
+                let chunk = get_chunk_from_block(&block, shard_id, &self.chain)?;
+                let height_included = chunk.height_included();
+                (chunk, Some(height_included))
             }
             GetChunk::Height(height, shard_id) => {
                 let block = self.chain.get_block_by_height(height)?;
-                get_chunk_from_block(&block, shard_id, &self.chain)?
+                let chunk = get_chunk_from_block(&block, shard_id, &self.chain)?;
+                let height_included = chunk.height_included();
+                (chunk, Some(height_included))
             }
         };
 
@@ -875,7 +888,7 @@ impl Handler<GetChunk, Result<ChunkView, GetChunkError>> for ViewClientActor {
             .map(|info| info.take_account_id())
             .into_chain_error()?;
 
-        Ok(ChunkView::from_author_chunk(author, chunk))
+        Ok(ChunkView::from_author_chunk(author, chunk, height_included))
     }
 }
 
@@ -884,7 +897,17 @@ impl Handler<TxStatus, Result<TxStatusOutcome, TxStatusError>> for ViewClientAct
         tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
+        let TxStatus { tx_hash, signer_account_id, fetch_receipt, external_call_sent_at } = msg;
+        let Some(sent_at) = external_call_sent_at else {
+            return self.get_tx_status(tx_hash, signer_account_id, fetch_receipt);
+        };
+        // `tx_hash` is the call's hash without its state init. The cache maps it to the inclusion
+        // that answers this send, and the outcome is stored under that inclusion's unique id.
+        match self.runtime.external_call_cache().answer_to_send(&tx_hash, sent_at) {
+            Some(unique_id) => self.get_tx_status(unique_id, signer_account_id, fetch_receipt),
+            // No answer yet. On a node without the call's shard this answers that it has none.
+            None => self.get_tx_status(tx_hash, signer_account_id, fetch_receipt),
+        }
     }
 }
 
@@ -1911,7 +1934,6 @@ impl Handler<NetworkAdversarialMessage, Option<u64>> for ViewClientActor {
         match msg {
             NetworkAdversarialMessage::AdvDisableDoomslug => {
                 tracing::info!(target: "adversary", "turning doomslug off");
-                self.adv.set_disable_doomslug(true);
             }
             NetworkAdversarialMessage::AdvDisableHeaderSync => {
                 tracing::info!(target: "adversary", "blocking header sync");
@@ -1954,7 +1976,7 @@ impl Handler<TxStatusResponse> for ViewClientActor {
         let TxStatusResponse(tx_result) = msg;
         tracing::debug!(
             target: "client",
-            tx_hash = %tx_result.transaction.hash, status = ?tx_result.status,
+            tx_hash = %tx_result.transaction.id(), status = ?tx_result.status,
             tx_outcome_status = ?tx_result.transaction_outcome.outcome.status,
             num_receipt_outcomes = tx_result.receipts_outcome.len(),
             "receive tx status response"
@@ -2043,15 +2065,6 @@ impl Handler<GetSplitStorageInfo, Result<SplitStorageInfoView, GetSplitStorageIn
             cold_head_height: cold_head.map(|tip| tip.height),
             hot_db_kind,
         })
-    }
-}
-
-impl Handler<GetCurrentEpochHeight, Option<EpochHeight>> for ViewClientActor {
-    fn handle(&mut self, _: GetCurrentEpochHeight) -> Option<EpochHeight> {
-        let Ok(tip) = self.chain.head() else {
-            return None;
-        };
-        self.epoch_manager.get_epoch_info(&tip.epoch_id).map(|info| info.epoch_height()).ok()
     }
 }
 

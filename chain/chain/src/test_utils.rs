@@ -6,12 +6,12 @@ use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::{ApplyChunksSpawner, DoomslugThresholdMode};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::futures::RayonAsyncComputationSpawner;
-use near_async::messaging::{IntoMultiSender, noop};
+use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
-use near_chain_configs::{Genesis, MutableConfigValue};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue};
 use near_chain_primitives::Error;
 use near_crypto::KeyType;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -74,13 +74,19 @@ pub fn get_chain_with_epoch_length_and_num_shards(
 
 pub fn get_chain_with_genesis(clock: Clock, genesis: Genesis) -> Chain {
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    get_chain_with_genesis_and_epoch_config_store(clock, genesis, epoch_config_store)
+    get_chain_with_genesis_and_epoch_config_store(
+        clock,
+        genesis,
+        epoch_config_store,
+        DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    )
 }
 
 pub fn get_chain_with_genesis_and_epoch_config_store(
     clock: Clock,
     genesis: Genesis,
     epoch_config_store: EpochConfigStore,
+    gc_num_epochs_to_keep: u64,
 ) -> Chain {
     let store = create_test_store();
     let tempdir = tempfile::tempdir().unwrap();
@@ -92,8 +98,13 @@ pub fn get_chain_with_genesis_and_epoch_config_store(
         epoch_config_store,
     );
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test_with_gc_num_epochs_to_keep(
+        tempdir.path(),
+        store,
+        &genesis.config,
+        epoch_manager.clone(),
+        gc_num_epochs_to_keep,
+    );
     Chain::new(
         clock,
         epoch_manager,
@@ -142,10 +153,15 @@ pub fn process_block_sync(
     block_processing_artifacts: &mut BlockProcessingArtifact,
 ) -> Result<Vec<AcceptedBlock>, Error> {
     let block_hash = *block.hash();
-    chain.start_process_block_async(block, provenance, block_processing_artifacts, None)?;
+    chain.start_process_block_async(
+        block,
+        provenance,
+        block_processing_artifacts,
+        noop().into_sender(),
+    )?;
     wait_for_block_in_processing(chain, &block_hash).unwrap();
     let (accepted_blocks, errors) =
-        chain.postprocess_ready_blocks(block_processing_artifacts, None);
+        chain.postprocess_ready_blocks(block_processing_artifacts, noop().into_sender());
     // This is in test, we should never get errors when postprocessing blocks
     debug_assert!(errors.is_empty());
     Ok(accepted_blocks)
@@ -239,10 +255,8 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     );
     let mut headers = vec![];
     for (key, _) in chain_store.store().iter(DBCol::BlockHeader) {
-        let header = chain_store
-            .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
-            .unwrap()
-            .clone();
+        let header =
+            chain_store.get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap()).unwrap();
         if !tail || header.height() + 10 > head.height {
             headers.push(header);
         }
@@ -255,7 +269,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             // Genesis block.
             tracing::debug!(height = %header.height(), hash = %format_hash(*header.hash()));
         } else {
-            let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
+            let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
             let maybe_block = chain_store.get_block(header.hash()).ok();
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =
@@ -329,7 +343,8 @@ pub struct SpiceKeyRotationSetup {
 }
 
 /// Builds a spice chain where the producer proposes a new key in the first epoch, which takes
-/// effect two epochs later. Every block certifies the chunks of its parent, so each epoch can end.
+/// effect two epochs later. Every block certifies the chunks of its parent. A spice chain stays in
+/// epoch E until some block of E is certified.
 pub fn setup_spice_key_rotation() -> SpiceKeyRotationSetup {
     let producer: AccountId = "test-producer".parse().unwrap();
     let epoch_length = 5;
@@ -398,6 +413,31 @@ pub fn setup_spice_key_rotation() -> SpiceKeyRotationSetup {
         .unwrap();
         head = block;
     }
+}
+
+/// Builds and processes a spice block on top of `prev_block` that certifies `prev_block`'s chunks,
+/// or certifies nothing on top of genesis. A spice chain stays in epoch E until some block of E is
+/// certified. Certifying each parent lets every epoch end at its nominal length.
+pub fn produce_spice_block_certifying_parent(chain: &mut Chain, prev_block: &Block) -> Arc<Block> {
+    let statements = if prev_block.header().is_genesis() {
+        vec![]
+    } else {
+        spice_core_statements_certifying_block(
+            chain.epoch_manager.as_ref(),
+            prev_block,
+            vec![],
+            &[],
+        )
+    };
+    let block = build_spice_test_block(chain, prev_block, statements, &[]);
+    process_block_sync(
+        chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    block
 }
 
 /// Returns the signer from `signers` holding `validator`'s key, or `create_test_signer` for it.
@@ -577,7 +617,6 @@ pub fn get_fake_next_block_chunk_headers(
                 BandwidthRequests::empty(),
                 None,
                 signer,
-                PROTOCOL_VERSION,
             ))
         }
     }
@@ -611,6 +650,7 @@ mod test {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::{AccountId, Balance, NumShards};
+    use near_primitives::version::PROTOCOL_VERSION;
     use rand::Rng;
     use std::convert::TryFrom;
 
@@ -632,8 +672,9 @@ mod test {
 
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::multi_shard(num_shards, 0);
-        let create_receipt_from_receiver_id =
-            |receiver_id| Receipt::new_balance_refund(&receiver_id, Balance::ZERO);
+        let create_receipt_from_receiver_id = |receiver_id| {
+            Receipt::new_balance_refund(&receiver_id, Balance::ZERO, PROTOCOL_VERSION)
+        };
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

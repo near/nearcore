@@ -96,7 +96,7 @@ fn test_max_core_instance_size_breached() {
     });
 }
 
-const FIX_CONTRACT_LOADING_COST: u32 = 129;
+const FIX_CONTRACT_LOADING_COST: u32 = 89;
 
 static INFINITE_INITIALIZER_CONTRACT: &str = r#"
 (module

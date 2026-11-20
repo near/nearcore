@@ -6,15 +6,19 @@ use near_async::messaging::CanSend;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
+use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
 use near_chain::{Block, BlockHeader};
 use near_client::client_actor::ClientActor;
-use near_client::{Client, ProcessTxRequest, Query, QueryError, ViewClientActor};
+use near_client::{
+    Client, ProcessTxRequest, ProcessTxResponse, Query, QueryError, ViewClientActor,
+};
 use near_crypto::PublicKey;
 use near_jsonrpc::client::JsonRpcClient;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
+use near_pool::InsertTransactionResult;
 use near_primitives::action::{Action, GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::gas::Gas;
@@ -23,11 +27,12 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction, TransactionEnvelope,
+    ValidatedTransaction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockId, BlockReference, Finality, Nonce, ProtocolVersion,
-    ShardId,
+    ShardId, SpiceChunkId,
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
@@ -37,6 +42,7 @@ use near_primitives::views::{
 use near_store::Store;
 use near_store::adapter::StoreAdapter as _;
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -104,6 +110,53 @@ impl<'a> TestLoopNode<'a> {
         let chain_store = &self.client().chain.chain_store;
         let head_hash = self.head().last_block_hash;
         get_last_certified_block_header(chain_store, &head_hash).unwrap()
+    }
+
+    /// The height of the block carrying `chunk_id`'s execution result, with every account
+    /// that endorsed the chunk on chain up to and including it. `None` while the chunk is
+    /// uncertified on this node's chain.
+    pub fn certifying_height_and_endorsers(
+        &self,
+        chunk_id: &SpiceChunkId,
+    ) -> Option<(BlockHeight, HashSet<AccountId>)> {
+        let chain_store = self.client().chain.chain_store();
+        let chunk_height = chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
+        let mut endorsers = HashSet::new();
+        for height in chunk_height..=self.head().height {
+            let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+                continue;
+            };
+            let block = self.block(block_hash);
+            endorsers.extend(
+                block
+                    .spice_core_statements()
+                    .iter_endorsements()
+                    .filter(|endorsement| endorsement.chunk_id() == chunk_id)
+                    .map(|endorsement| endorsement.account_id().clone()),
+            );
+            if block.spice_core_statements().iter_execution_results().any(|(id, _)| id == chunk_id)
+            {
+                return Some((height, endorsers));
+            }
+        }
+        None
+    }
+
+    /// The last pre-spice block on this node's chain, found by walking down from the
+    /// head. The head must have reached the activation boundary: it is either the last
+    /// pre-spice block itself or a spice block above it.
+    pub fn last_pre_spice_block_header(&self) -> Arc<BlockHeader> {
+        let chain = &self.client().chain;
+        let mut header = chain.get_block_header(&self.head().last_block_hash).unwrap();
+        while header.is_spice() {
+            header = chain.get_block_header(header.prev_hash()).unwrap();
+        }
+        assert!(
+            is_last_pre_spice_block(chain.epoch_manager.as_ref(), header.hash()).unwrap(),
+            "head at height {} has not reached the spice activation boundary",
+            self.head().height,
+        );
+        header
     }
 
     pub fn block(&self, block_hash: CryptoHash) -> Arc<Block> {
@@ -243,13 +296,54 @@ impl<'a> TestLoopNode<'a> {
             .collect()
     }
 
-    /// Submit a signed transaction to this node's RPC handler. Returns the transaction hash.
-    pub fn submit_tx(&self, tx: SignedTransaction) -> CryptoHash {
+    /// Submit a signed transaction or an ECC to this node's RPC handler. Returns the transaction
+    /// hash.
+    pub fn submit_tx(&self, tx: impl Into<TransactionEnvelope>) -> CryptoHash {
+        let tx = tx.into();
         let tx_hash = tx.get_hash();
         let process_tx_request =
             ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false };
         self.node_data.rpc_handler_sender.send(process_tx_request);
         tx_hash
+    }
+
+    /// Insert a signed transaction directly into this node's chunk producer pool,
+    /// bypassing RPC validation. The shard is resolved from the signer account
+    /// using the shard layout for the *next* block's epoch (matching the chunk
+    /// producer's view), so the tx lands in the pool a chunk at `head+1` will
+    /// draw from even across an epoch boundary with a shard-layout change.
+    ///
+    /// Intended for adversarial / malicious chunk producer tests that need
+    /// to bypass the normal admission checks (e.g. to include a transaction
+    /// that would be rejected by `check_valid_for_config`). Panics if the pool
+    /// rejects the transaction so a silent `NoSpaceLeft`/`Duplicate` can't
+    /// let a regression test pass vacuously (producer ships an empty chunk).
+    pub fn submit_tx_pool(&self, tx: SignedTransaction) -> CryptoHash {
+        let tx_hash = tx.get_hash();
+        let client = self.client();
+        let head = client.chain.head().unwrap();
+        let next_epoch_id =
+            client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+        let shard_uid = shard_layout.account_id_to_shard_uid(tx.transaction.signer_id());
+        let result = client
+            .chunk_producer
+            .sharded_tx_pool
+            .lock()
+            .insert_transaction(shard_uid, ValidatedTransaction::new_for_test(tx));
+        assert_eq!(result, InsertTransactionResult::Success, "tx pool rejected submission");
+        tx_hash
+    }
+
+    /// Hand a signed transaction or an ECC to this node's RPC handler and return its response
+    /// right away, without running the loop.
+    pub fn process_tx(
+        &self,
+        tx: impl Into<TransactionEnvelope>,
+        is_forwarded: bool,
+    ) -> ProcessTxResponse {
+        let handle = self.node_data.rpc_handler_sender.actor_handle();
+        self.data.get(&handle).process_tx(tx, is_forwarded, false)
     }
 
     /// Build a signed transaction from raw actions, auto-determining nonce,
@@ -532,7 +626,7 @@ impl<'a> NodeRunner<'a> {
             |node| {
                 let head = node.head();
                 let block = node.client().chain.get_block(&head.last_block_hash).unwrap();
-                let mut included = std::collections::HashSet::new();
+                let mut included = HashSet::new();
                 for chunk_header in block.chunks().iter() {
                     let chunk = node.client().chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                     for tx in chunk.to_transactions() {

@@ -3,7 +3,7 @@ use crate::user::User;
 use itertools::Itertools;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -13,18 +13,20 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockHeightDelta, MerkleHash, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, MerkleHash, ShardId, VmGeneration,
+};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionStatus, ViewStateResult,
+    FinalExecutionOutcomeView, FinalExecutionStatus, TransactionEnvelopeView, ViewStateResult,
 };
+use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::state_viewer::TrieViewer;
+use near_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
-use node_runtime::SignedValidPeriodTransactions;
-use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -39,6 +41,8 @@ pub struct MockClient {
     pub epoch_length: BlockHeightDelta,
     pub runtime_config: RuntimeConfig,
     pub cumulative_subsidized: Balance,
+    /// Height of the last applied chunk. Each apply runs at the next height.
+    pub block_height: BlockHeight,
 }
 
 impl MockClient {
@@ -57,6 +61,8 @@ pub struct RuntimeUser {
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
     pub transactions: RefCell<HashSet<SignedTransaction>>,
+    // Height of the chunk in which each transaction or receipt was executed
+    pub outcome_heights: RefCell<HashMap<CryptoHash, BlockHeight>>,
     pub epoch_info_provider: MockEpochInfoProvider,
     pub runtime_config: Arc<RuntimeConfig>,
     pub gas_price: Balance,
@@ -78,6 +84,7 @@ impl RuntimeUser {
             transaction_results: Default::default(),
             receipts: Default::default(),
             transactions: RefCell::new(Default::default()),
+            outcome_heights: Default::default(),
             epoch_info_provider: MockEpochInfoProvider::default(),
             runtime_config,
             gas_price,
@@ -89,7 +96,6 @@ impl RuntimeUser {
         mut apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
-        use_flat_storage: bool,
     ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
         for transaction in &transactions {
@@ -98,19 +104,12 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write();
-            let trie = if use_flat_storage {
-                client.tries.get_trie_with_block_hash_for_shard(
-                    ShardUId::single_shard(),
-                    client.state_root,
-                    &CryptoHash::default(),
-                    false,
-                )
-            } else {
-                let shard_uid = ShardUId::single_shard();
-                let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
-                trie.set_use_trie_accounting_cache(true);
-                trie
-            };
+            let trie = client.tries.get_trie_with_block_hash_for_shard(
+                ShardUId::single_shard(),
+                client.state_root,
+                &CryptoHash::default(),
+                false,
+            );
             let validity_check_results = vec![true; txs.len()];
             let apply_result = client
                 .runtime
@@ -132,13 +131,22 @@ impl RuntimeUser {
                         panic!("UnexpectedIntegerOverflow error {reason}")
                     }
                     RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
+                    RuntimeError::ExecutionInvariantBroken(reason) => {
+                        panic!("ExecutionInvariantBroken error {reason}")
+                    }
                     RuntimeError::ValidatorError(e) => panic!("{}", e),
+                    RuntimeError::ExternalCallWithoutRecorder => {
+                        panic!("external call run on a trie that doesn't record")
+                    }
                 })?;
             client.cumulative_subsidized = client
                 .cumulative_subsidized
                 .checked_add(apply_result.stats.balance.subsidized_amount)
                 .expect("cumulative_subsidized overflow");
             for outcome_with_id in apply_result.outcomes {
+                self.outcome_heights
+                    .borrow_mut()
+                    .insert(outcome_with_id.id, apply_state.block_height);
                 self.transaction_results
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
@@ -149,12 +157,12 @@ impl RuntimeUser {
                 ShardUId::single_shard(),
                 &mut update,
             );
-            if use_flat_storage {
-                near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-                    .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
-            }
+            near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
+                .apply_to_flat_state(&mut update.flat_store_update(), ShardUId::single_shard());
             update.commit();
             client.state_root = apply_result.state_root;
+            client.block_height = apply_state.block_height;
+            apply_state.block_height += 1;
             for receipt in &apply_result.outgoing_receipts {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
@@ -196,18 +204,22 @@ impl RuntimeUser {
 
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
-            block_height: 1,
-            prev_block_hash: Default::default(),
+            block_height: self.client.read().block_height + 1,
             block_timestamp: 0,
             shard_id,
             epoch_height: 0,
             gas_price: self.gas_price,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             epoch_id: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
+            config_store: Arc::new(RuntimeConfigStore::with_one_config(
+                self.runtime_config.as_ref().clone(),
+            )),
             next_wasm_config: None,
+            vm_generation: VmGeneration(0),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -274,7 +286,9 @@ impl RuntimeUser {
         // entire chunk.)
         let status = status?;
         let receipts = outcomes.split_off(1);
-        let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
+        let transaction = TransactionEnvelopeView::Signed(
+            self.transactions.borrow().get(hash).unwrap().clone().into(),
+        );
         Some(FinalExecutionOutcomeView {
             status,
             transaction,
@@ -338,8 +352,9 @@ impl User for RuntimeUser {
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
-            block_height: apply_state.block_height,
-            prev_block_hash: apply_state.prev_block_hash,
+            // The view reads the state of the last applied chunk.
+            block_height: client.block_height,
+            prev_block_hash: apply_state.prev_block.hash,
             shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
@@ -355,6 +370,7 @@ impl User for RuntimeUser {
                 account_id,
                 method_name,
                 args,
+                None,
                 &mut result.logs,
                 &self.epoch_info_provider,
             )
@@ -363,7 +379,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction], true)?;
+        self.apply_all(self.apply_state(), vec![], vec![transaction])?;
         Ok(())
     }
 
@@ -371,7 +387,7 @@ impl User for RuntimeUser {
         &self,
         signed_transactions: Vec<SignedTransaction>,
     ) -> Result<Vec<Result<FinalExecutionOutcomeView, CommitError>>, ServerError> {
-        self.apply_all(self.apply_state(), vec![], signed_transactions.clone(), true)?;
+        self.apply_all(self.apply_state(), vec![], signed_transactions.clone())?;
         Ok(signed_transactions
             .into_iter()
             .map(|t| {
@@ -385,18 +401,14 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, super::CommitError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()])
             .map_err(super::CommitError::Server)?;
         self.get_transaction_final_result(&transaction.get_hash())
             .ok_or(super::CommitError::OutcomeNotFound)
     }
 
-    fn add_receipts(
-        &self,
-        receipts: Vec<Receipt>,
-        use_flat_storage: bool,
-    ) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), receipts, vec![], use_flat_storage)?;
+    fn add_receipts(&self, receipts: Vec<Receipt>) -> Result<(), ServerError> {
+        self.apply_all(self.apply_state(), receipts, vec![])?;
         Ok(())
     }
 
@@ -415,6 +427,10 @@ impl User for RuntimeUser {
 
     fn get_block(&self, _block_hash: CryptoHash) -> Option<BlockView> {
         None
+    }
+
+    fn get_outcome_height(&self, outcome: &ExecutionOutcomeWithIdView) -> Option<BlockHeight> {
+        self.outcome_heights.borrow().get(&outcome.id).copied()
     }
 
     fn get_chunk_by_height(&self, _height: u64, _shard_id: ShardId) -> Option<ChunkView> {

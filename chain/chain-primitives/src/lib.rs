@@ -2,14 +2,15 @@ pub mod error;
 
 pub use error::Error;
 
-/// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
-/// When it is called through process_block, it is possible that the shard state for the next epoch
-/// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
-/// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
-/// shard states for the next epoch
+/// Which shards to apply, out of the ones the node tracks in this or the next epoch. A catch-up shard
+/// is one it tracks in the next epoch but in neither this epoch nor the one before
+/// (`ShardTracker::should_catch_up_shard`), so its state comes from catchup state sync.
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 pub enum ApplyChunksMode {
-    IsCaughtUp,
-    CatchingUp,
-    NotCaughtUp,
+    /// All of them: block processing, once the state of the catch-up shards is there.
+    IncludeCatchupShards,
+    /// All but the catch-up shards: block processing, before their state is there.
+    ExcludeCatchupShards,
+    /// Only the catch-up shards: `catchup_blocks`, applying the blocks held back for them.
+    OnlyCatchupShards,
 }

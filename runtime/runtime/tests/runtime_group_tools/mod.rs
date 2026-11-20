@@ -1,25 +1,25 @@
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, get_initial_supply};
 use near_crypto::{InMemorySigner, Signer};
-use near_parameters::ActionCosts;
 use near_parameters::parameter_table::FeeComponent;
+use near_parameters::{ActionCosts, RuntimeConfigStore};
 use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::Action;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::receipt::{ActionReceipt, ActionReceiptV2, Receipt, ReceiptEnum};
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
+use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use near_store::ShardTries;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
-use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use parking_lot::{Condvar, Mutex};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -105,7 +105,6 @@ impl StandaloneRuntime {
         let apply_state = ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height: 1,
-            prev_block_hash: Default::default(),
             shard_id: shard_uid.shard_id(),
             epoch_id: Default::default(),
             epoch_height: 0,
@@ -113,9 +112,12 @@ impl StandaloneRuntime {
             block_timestamp: 0,
             gas_limit: None,
             random_seed: Default::default(),
+            prev_block: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
+            config_store: Arc::new(RuntimeConfigStore::with_one_config(runtime_config.clone())),
             config: Arc::new(runtime_config),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: true,
             save_receipt_to_tx: false,
@@ -417,29 +419,22 @@ impl RuntimeGroup {
         unimplemented!()
     }
 
-    /// On stable: the list of refunds should be empty
-    /// With ProtocolFeature::AccountCostIncrease: assert that the list of receipts contains only gas refunds
+    /// Assert that the list of receipts contains only gas refunds.
     pub fn assert_gas_refunds(&self, receipt_ids: &[CryptoHash]) {
-        if !ProtocolFeature::AccountCostIncrease.enabled(PROTOCOL_VERSION) {
-            assert_eq!(receipt_ids, &[], "Expected zero refund receipts");
-        }
-
         for id in receipt_ids {
             let (_, receipt) = self.get_receipt_debug(id);
             assert!(
                 receipt.predecessor_id().is_system(),
                 "expected a system refund receipt, got {receipt:?}",
             );
-            match receipt.receipt() {
-                ReceiptEnum::Action(ActionReceipt { actions, .. })
-                | ReceiptEnum::ActionV2(ActionReceiptV2 { actions, .. }) => {
-                    assert!(
-                        matches!(actions.as_slice(), [Action::Transfer(_)]),
-                        "expected a single transfer refund, got {actions:?}",
-                    );
-                }
-                other => panic!("expected an action receipt refund, got {other:?}"),
-            }
+            let Some(action_receipt) = receipt.action_receipt() else {
+                panic!("expected an action receipt refund, got {receipt:?}");
+            };
+            let actions = action_receipt.actions();
+            assert!(
+                matches!(actions, [Action::Transfer(_)]),
+                "expected a single transfer refund, got {actions:?}",
+            );
         }
     }
 }
@@ -453,15 +448,15 @@ macro_rules! assert_receipts {
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
     $receipt_assert:block,
-    $actions_name:ident,
+    $actions:expr,
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+ ) => {{
         let r = $group.get_receipt($to, $receipt);
         assert_eq!(r.predecessor_id().clone(), $from);
         assert_eq!(r.receiver_id().clone(), $to);
-        match r.receipt() {
+        match r.action_receipt() {
             $receipt_pat => {
                 $receipt_assert
-                let [$($action_name),* ] = &$actions_name[..] else { panic!("Incorrect number of actions") };
+                let [$($action_name),* ] = &$actions[..] else { panic!("Incorrect number of actions") };
                 $(
                     match $action_name {
                         $action_pat => {
@@ -485,8 +480,8 @@ macro_rules! assert_receipts {
 /// expands into:
 /// ```
 /// assert_receipts!(group, "system" => ref1 @ "near_0",
-///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-///                  actions,
+///                  Some(action_receipt), {},
+///                  action_receipt.actions(),
 ///                  a0, Action::Transfer(TransferAction{..}), {}
 ///                  );
 /// ```
@@ -494,8 +489,8 @@ macro_rules! assert_receipts {
 macro_rules! assert_refund {
  ($group:ident, $receipt:ident @ $to:expr) => {
         assert_receipts!($group, "system" => $receipt @ $to,
-                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-                         actions,
+                         Some(action_receipt), {},
+                         action_receipt.actions(),
                          a0, Action::Transfer(TransferAction{..}), {}
                         );
  }

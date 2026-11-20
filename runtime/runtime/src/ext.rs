@@ -1,5 +1,6 @@
 use crate::contract_code::RuntimeContractIdentifier;
 use crate::receipt_manager::ReceiptManager;
+use bytesize::ByteSize;
 use near_primitives::account::Account;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::{CryptoHash, YieldId};
@@ -8,7 +9,8 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, PromiseYieldStatus,
 };
 use near_primitives::universal_state_init::{
-    RawStateInit, UniversalStateInitCounts, state_init_counts,
+    DecodeMode, RawStateInit, StateInitError, UniversalStateInit, UniversalStateInitCounts,
+    state_init_send_counts,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -19,6 +21,7 @@ use near_store::{
     has_promise_yield_receipt, has_promise_yield_status, has_yield_id_mapping,
     set_promise_yield_status, set_yield_id_mapping,
 };
+use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
@@ -43,6 +46,7 @@ pub struct RuntimeExt<'a> {
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
     trie_access_tracker: AccountingAccessTracker,
+    charge_all_as_touched: bool,
     storage_proof_size_before_receipt: Option<usize>,
 }
 
@@ -66,6 +70,7 @@ pub struct RuntimeExtValuePtr<'a, 'b> {
     value_ptr: TrieUpdateValuePtr<'a>,
     deref_options: AccessOptions<'b>,
     accounting_state: Arc<AccountingState>,
+    charge_all_as_touched: bool,
 }
 
 impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
@@ -79,7 +84,11 @@ impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
             TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
                 let start_ttn = self.accounting_state.get_counts();
                 let result = trie.deref_optimized(self.deref_options, &optimized_value_ref);
-                self.accounting_state.commit_counts_since(start_ttn, access_tracker)?;
+                self.accounting_state.commit_counts_since(
+                    start_ttn,
+                    access_tracker,
+                    self.charge_all_as_touched,
+                )?;
                 Ok(result.map_err(wrap_storage_error)?)
             }
         }
@@ -112,6 +121,8 @@ impl<'a> RuntimeExt<'a> {
             epoch_info_provider,
             current_protocol_version,
             trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
+            charge_all_as_touched: ProtocolFeature::ChargeAllTrieNodesAsTouched
+                .enabled(current_protocol_version),
             storage_proof_size_before_receipt,
         }
     }
@@ -136,8 +147,17 @@ impl<'a> RuntimeExt<'a> {
     }
 }
 
+/// A read past the recording budget of an external call fails the call, like a read past the
+/// per-receipt storage proof limit. Any other storage error stops applying the chunk.
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
-    VMLogicError::from(ExternalError::StorageError(error))
+    match error {
+        StorageError::RecordingBudgetExceeded { limit } => {
+            VMLogicError::HostError(HostError::RecordedStorageExceeded {
+                limit: ByteSize::b(limit),
+            })
+        }
+        error => VMLogicError::from(ExternalError::StorageError(error)),
+    }
 }
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
@@ -169,8 +189,11 @@ impl<'a> External for RuntimeExt<'a> {
                 Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
@@ -206,11 +229,15 @@ impl<'a> External for RuntimeExt<'a> {
                         value_ptr,
                         deref_options,
                         accounting_state: Arc::clone(&self.trie_access_tracker.state),
+                        charge_all_as_touched: self.charge_all_as_touched,
                     }) as Box<dyn ValuePtr>
                 })
             });
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         #[cfg(feature = "io_trace")]
         if let Ok(read) = &result {
             tracing::trace!(
@@ -252,8 +279,14 @@ impl<'a> External for RuntimeExt<'a> {
             }
         };
         self.trie_update.remove(storage_key);
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
+        // A removal grows the recorded storage proof without recording a node, so no read checks
+        // it against a recording budget.
+        self.trie_update.trie().check_recording_budget().map_err(wrap_storage_error)?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
@@ -280,8 +313,11 @@ impl<'a> External for RuntimeExt<'a> {
             .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
@@ -466,8 +502,16 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_deterministic_state_init(receipt_index, contract_id, amount)
     }
 
-    fn state_init_counts(&self, state_init: &RawStateInit) -> UniversalStateInitCounts {
-        state_init_counts(state_init)
+    fn check_state_init(&self, state_init: &RawStateInit) -> Result<(), StateInitError> {
+        UniversalStateInit::from_raw_strict(state_init).map(|_| ())
+    }
+
+    fn state_init_send_counts(
+        &self,
+        state_init: &RawStateInit,
+        mode: DecodeMode,
+    ) -> UniversalStateInitCounts {
+        state_init_send_counts(state_init, mode)
     }
 
     fn append_action_universal_state_init(
@@ -624,7 +668,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn post_quantum_keys_enabled(&self) -> bool {
-        ProtocolFeature::PostQuantumSignatures.enabled(self.protocol_version())
+        true
     }
 }
 
@@ -702,10 +746,13 @@ impl AccountingState {
         }
     }
 
+    /// From `ProtocolFeature::ChargeAllTrieNodesAsTouched`, both counts are charged as
+    /// `touching_trie_node`, in one charge.
     fn commit_counts_since(
         &self,
         snapshot: TrieNodesCount,
         into: &mut dyn StorageAccessTracker,
+        charge_all_as_touched: bool,
     ) -> Result<TrieNodesCount, VMLogicError> {
         let db_read_delta = self
             .db_reads
@@ -717,8 +764,15 @@ impl AccountingState {
             .load(Ordering::Relaxed)
             .checked_sub(snapshot.mem_reads)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
-        into.trie_node_touched(db_read_delta)?;
-        into.cached_trie_node_access(mem_read_delta)?;
+        if charge_all_as_touched {
+            let total = db_read_delta
+                .checked_add(mem_read_delta)
+                .ok_or(InconsistentStateError::IntegerOverflow)?;
+            into.trie_node_touched(total)?;
+        } else {
+            into.trie_node_touched(db_read_delta)?;
+            into.cached_trie_node_access(mem_read_delta)?;
+        }
         Ok(TrieNodesCount { db_reads: db_read_delta, mem_reads: mem_read_delta })
     }
 }

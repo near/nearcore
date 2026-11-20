@@ -115,7 +115,7 @@ impl FlatStorageManager {
             _ => {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Unexpected flat storage status: {:?}",
-                    &status
+                    status
                 )));
             }
         };
@@ -144,11 +144,7 @@ impl FlatStorageManager {
     /// `new_flat_head`;
     /// - update flat storage head to the new one;
     /// - remove info about unreachable blocks from memory.
-    pub fn update_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        new_flat_head: CryptoHash,
-    ) -> Result<(), StorageError> {
+    pub fn update_flat_storage_for_shard(&self, shard_uid: ShardUId, new_flat_head: CryptoHash) {
         if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
             // Try to update flat head.
             flat_storage.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
@@ -180,7 +176,6 @@ impl FlatStorageManager {
         } else {
             tracing::debug!(target: "store", ?shard_uid, ?new_flat_head, "no flat storage");
         }
-        Ok(())
     }
 
     pub fn save_flat_state_changes(
@@ -258,20 +253,20 @@ impl FlatStorageManager {
     }
 
     /// Removes FlatStorage object from FlatStorageManager.
-    /// If FlatStorageManager did have that object, then removes all information about Flat State and returns Ok(true).
-    /// Otherwise does nothing and returns Ok(false).
+    /// If FlatStorageManager did have that object, then removes all information about Flat State and returns true.
+    /// Otherwise does nothing and returns false.
     pub fn remove_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
         store_update: &mut FlatStoreUpdateAdapter,
-    ) -> Result<bool, StorageError> {
+    ) -> bool {
         let mut flat_storages = self.0.flat_storages.lock();
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
-            flat_store.clear_state(store_update)?;
+            flat_store.clear_state(store_update);
             tracing::info!(target: "store", ?shard_uid, "remove_flat_storage_for_shard successful");
-            Ok(true)
+            true
         } else {
-            Ok(false)
+            false
         }
     }
 
@@ -343,5 +338,9 @@ impl FlatStorageManager {
     pub fn snapshot_hash_wanted(&self) -> Option<CryptoHash> {
         let want_snapshot = self.0.pending_snapshot.lock();
         want_snapshot.as_ref().map(|s| s.block_hash)
+    }
+
+    pub fn max_flat_head_height(&self) -> Option<BlockHeight> {
+        self.0.flat_storages.lock().values().map(FlatStorage::get_head_height).max()
     }
 }

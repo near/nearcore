@@ -1,6 +1,5 @@
 use super::DataId;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_async::time::Instant;
 use near_primitives::hash::hash;
 use near_primitives::merkle::{MerklePath, verify_path_with_index};
 use near_primitives::reed_solomon::{
@@ -10,7 +9,7 @@ use near_primitives::reed_solomon::{
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::partial_data::SpiceDataCommitment;
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -25,23 +24,26 @@ impl ReedSolomonEncoderSerialize for SpiceData {}
 
 impl ReedSolomonEncoderDeserialize for SpiceData {}
 
+/// A producer of an item.
+#[derive(Debug)]
+pub(super) struct ItemProducer {
+    pub(super) account_id: AccountId,
+    /// The commitment of its first verified part; parts under any other are refused.
+    pub(super) commitment: Option<SpiceDataCommitment>,
+}
+
 /// An item produced by others and fetched by us.
 pub(crate) struct FetchItem {
     /// Height of the item's block.
     pub(crate) height: BlockHeight,
-    /// The item's producers, in the parts' encoding order, each with its state.
-    pub(super) producers: Vec<(AccountId, ProducerState)>,
+    /// Epoch of the item's block.
+    pub(super) epoch_id: EpochId,
+    /// Epoch after the block's. Producers may sign with their keys in either.
+    pub(super) next_epoch_id: EpochId,
+    /// The item's producers, in the parts' encoding order.
+    pub(super) producers: Vec<ItemProducer>,
     /// Tracks the state of commitments.
     pub(super) commitments: HashMap<SpiceDataCommitment, CommitmentState>,
-}
-
-/// One producer's part in fetching this item.
-#[derive(Debug, Default)]
-pub(super) struct ProducerState {
-    /// The commitment this producer backed, once one of its parts verified.
-    pub(super) commitment: Option<SpiceDataCommitment>,
-    /// When this node asked it, while that request is unanswered.
-    pub(super) requested_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -53,35 +55,55 @@ pub(super) enum CommitmentState {
 }
 
 impl FetchItem {
-    pub(crate) fn new(height: BlockHeight, producers: Vec<AccountId>) -> Self {
-        let producers =
-            producers.into_iter().map(|producer| (producer, ProducerState::default())).collect();
-        Self { height, producers, commitments: HashMap::new() }
+    pub(crate) fn new(
+        height: BlockHeight,
+        epoch_id: EpochId,
+        next_epoch_id: EpochId,
+        producers: Vec<AccountId>,
+    ) -> Self {
+        let producers = producers
+            .into_iter()
+            .map(|account_id| ItemProducer { account_id, commitment: None })
+            .collect();
+        Self { height, epoch_id, next_epoch_id, producers, commitments: HashMap::new() }
     }
 
-    /// The state of `account` if it is one of the item's producers.
-    pub(super) fn producer_state_mut(&mut self, account: &AccountId) -> Option<&mut ProducerState> {
-        self.producers.iter_mut().find(|(producer, _)| producer == account).map(|(_, state)| state)
+    /// Each commitment still collecting parts, with the producers bound to it and its tracker.
+    pub(super) fn live_pools(&self) -> impl Iterator<Item = (Vec<&AccountId>, &CodedTracker)> {
+        self.commitments.iter().filter_map(|(commitment, state)| match state {
+            CommitmentState::Tracking(tracker) => {
+                Some((self.contributors(commitment).into_iter().collect(), tracker))
+            }
+            CommitmentState::Settled => None,
+        })
     }
 
-    /// The tracker still collecting under `commitment`, if any.
-    pub(super) fn tracker_mut(
-        &mut self,
-        commitment: &SpiceDataCommitment,
-    ) -> Option<&mut CodedTracker> {
-        match self.commitments.get_mut(commitment) {
-            Some(CommitmentState::Tracking(tracker)) => Some(tracker),
-            Some(CommitmentState::Settled) | None => None,
-        }
+    /// Producers not bound to any commitment, each with its own ordinal.
+    pub(super) fn unbound_producers(&self) -> impl Iterator<Item = (u64, &AccountId)> {
+        self.producers
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.commitment.is_none())
+            .map(|(ordinal, slot)| (ordinal as u64, &slot.account_id))
     }
 
     /// Senders contributed to `commitment`.
     pub(super) fn contributors(&self, commitment: &SpiceDataCommitment) -> HashSet<&AccountId> {
         self.producers
             .iter()
-            .filter(|(_, state)| state.commitment.as_ref() == Some(commitment))
-            .map(|(producer, _)| producer)
+            .filter(|slot| slot.commitment.as_ref() == Some(commitment))
+            .map(|slot| &slot.account_id)
             .collect()
+    }
+
+    /// Whether `commitment` was decoded, to data or to garbage.
+    fn is_settled(&self, commitment: &SpiceDataCommitment) -> bool {
+        matches!(self.commitments.get(commitment), Some(CommitmentState::Settled))
+    }
+
+    /// Index of the producer with `account_id`; `None` if it is not a producer of the item.
+    pub(super) fn producer_index(&self, account_id: &AccountId) -> Option<usize> {
+        self.producers.iter().position(|slot| &slot.account_id == account_id)
     }
 
     /// Inserts a verified part sent by the producer at `producer_index`, under its commitment.
@@ -95,13 +117,13 @@ impl FetchItem {
         verified: VerifiedCodedPart,
     ) -> PartInsertResult {
         let VerifiedCodedPart { commitment, total_parts, ordinal, part } = verified;
-        let state = &mut self.producers[producer_index].1;
-        if state.commitment.as_ref().is_some_and(|bound| bound != &commitment) {
+        let bound = &mut self.producers[producer_index].commitment;
+        if bound.as_ref().is_some_and(|bound| bound != &commitment) {
             return PartInsertResult::ConflictingCommitment;
         }
-        state.commitment = Some(commitment.clone());
+        *bound = Some(commitment.clone());
 
-        if matches!(self.commitments.get(&commitment), Some(CommitmentState::Settled)) {
+        if self.is_settled(&commitment) {
             return PartInsertResult::AlreadySettled;
         }
         // TODO(spice-data-distribution): cap encoded_length against the max payload size;
@@ -186,9 +208,6 @@ impl VerifiedCodedPart {
 /// Accumulates parts toward decoding under one claimed commitment.
 pub(crate) struct CodedTracker {
     parts: ReedSolomonPartsTracker<SpiceData>,
-    /// Position in the pool's rotation; starts at random so requesters spread over the
-    /// pool, and moves past each member asked.
-    pub(super) rotation_cursor: u64,
 }
 
 impl fmt::Debug for CodedTracker {
@@ -203,10 +222,7 @@ impl fmt::Debug for CodedTracker {
 
 impl CodedTracker {
     fn new(encoder: Arc<ReedSolomonEncoder>, encoded_length: usize) -> Self {
-        Self {
-            parts: ReedSolomonPartsTracker::new(encoder, encoded_length),
-            rotation_cursor: rand::random(),
-        }
+        Self { parts: ReedSolomonPartsTracker::new(encoder, encoded_length) }
     }
 
     /// Ordinals not held yet.
@@ -261,7 +277,7 @@ pub(crate) enum PartInsertResult {
     Decoded(SpiceData),
     /// The commitment settled without data.
     Garbage(AssembledDataError),
-    /// The sender already backed another commitment. Part ignored.
+    /// The sender already sent parts under another commitment. Part ignored.
     ConflictingCommitment,
 }
 

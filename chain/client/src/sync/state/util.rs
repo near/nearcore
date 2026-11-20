@@ -14,9 +14,9 @@ pub fn get_state_header_if_exists_in_storage(
     store: &Store,
     sync_hash: CryptoHash,
     shard_id: ShardId,
-) -> Result<Option<ShardStateSyncResponseHeader>, near_chain::Error> {
-    Ok(store.get_ser::<ShardStateSyncResponseHeader>(
+) -> Option<ShardStateSyncResponseHeader> {
+    store.get_ser::<ShardStateSyncResponseHeader>(
         DBCol::StateHeaders,
         &borsh::to_vec(&StateHeaderKey(shard_id, sync_hash)).unwrap(),
-    ))
+    )
 }

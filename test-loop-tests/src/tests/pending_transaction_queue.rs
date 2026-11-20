@@ -17,7 +17,7 @@ use near_primitives::types::Nonce;
 use near_primitives::types::{AccountId, Balance, NonceIndex};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use node_runtime::config::tx_cost;
+use near_runtime::config::tx_cost;
 use std::collections::HashSet;
 
 const TEST_GAS_PRICE: Balance = Balance::from_yoctonear(1);

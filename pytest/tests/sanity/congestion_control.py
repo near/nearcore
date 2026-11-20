@@ -403,8 +403,7 @@ class CongestionControlTest(unittest.TestCase):
         return tx
 
     def __wait_for_txs(self, node: BaseNode, tx_list: list[AccountId, TxHash]):
-        (height, _) = wait_for_blocks(node, count=3)
-        self.nonce = ACCESS_KEY_NONCE_RANGE_MULTIPLIER * height + 1
+        wait_for_blocks(node, count=3)
 
         for (tx_sender, tx_hash) in tx_list:
             result = node.get_tx(tx_hash, tx_sender)
@@ -415,6 +414,11 @@ class CongestionControlTest(unittest.TestCase):
 
             status = result['result']['status']
             self.assertIn('SuccessValue', status)
+
+        # Read the height after all txs executed. Keys they added start at
+        # nonce `creation_height * 1e6 - 1`, which is below this nonce.
+        height = node.get_latest_block().height
+        self.nonce = ACCESS_KEY_NONCE_RANGE_MULTIPLIER * height + 1
 
     def __get_chunk(self, node: BaseNode, block_hash, shard_id):
         result = node.json_rpc("chunk", {

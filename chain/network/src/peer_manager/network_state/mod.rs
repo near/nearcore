@@ -3,7 +3,7 @@ use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
     ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
     EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
-    SpiceChunkEndorsementMessage, StateResponse, StateResponseReceived, TxStatusRequest,
+    SpiceChunkEndorsementMessage, StateRequestUpdate, StateRequestUpdateMessage, TxStatusRequest,
     TxStatusResponse,
 };
 use crate::concurrency::demux;
@@ -23,6 +23,7 @@ use crate::peer_manager::network_transport::NetworkTransport;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_messages::RegisterPeerError;
+use crate::public_addr;
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::route_back_cache::{ExpectedResponse, RouteBackCache};
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -48,6 +49,7 @@ use crate::types::{
 };
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use forwarded_txs::ForwardedTxCounters;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{new_owned_future_spawner, time};
@@ -55,15 +57,16 @@ use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::AccountId;
+use near_primitives::state_sync::PartOrHeader;
+use near_primitives::types::{AccountId, ShardId};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
 use tokio::sync::Semaphore;
 
+mod forwarded_txs;
 mod routing;
 mod tier1;
 
@@ -149,8 +152,10 @@ pub(crate) struct NetworkState {
 
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
-    /// The public IP of this node; available after connecting to any one peer.
-    pub my_public_addr: Arc<RwLock<Option<std::net::SocketAddr>>>,
+    /// The public address of this node, to which hosts connect to deliver state sync
+    /// responses. Either `tier3_public_addr` from the config, or the result of the vote
+    /// over the IPs reported by TIER2 peers, see `refresh_my_public_addr`.
+    pub my_public_addr: Arc<RwLock<Option<SocketAddr>>>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
     /// Information about state snapshots hosted by network peers.
@@ -173,14 +178,18 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
-    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
+    /// Shared counters across all PeerActors, which count the `RoutedMessageBody::ForwardTx`
     /// messages since last block.
-    pub txns_since_last_block: AtomicUsize,
+    pub(crate) forwarded_txs: ForwardedTxCounters,
 
     /// Peers from which we expect an inbound Tier3 connection, because we sent them a state
     /// sync request over Tier2. Maps peer_id to the time the request was sent. Entries are
     /// cleaned up after PENDING_TIER3_REQUEST_TIMEOUT.
     pub pending_tier3_requests: DashMap<PeerId, time::Instant>,
+
+    /// State requests to snapshot hosts which are waiting for a Tier3 connection to the host to
+    /// be opened, by host. They are sent once the connection is ready, or dropped if it fails.
+    pub queued_tier3_requests: Mutex<HashMap<PeerId, Vec<(ShardId, CryptoHash, PartOrHeader)>>>,
 
     // Semaphore which limits the total size of incoming messages being handled at the same time.
     // Before reading a message into memory, we acquire a number of permits that's equal to the
@@ -332,16 +341,17 @@ impl NetworkState {
             my_public_addr: Arc::new(RwLock::new(config.tier3_public_addr)),
             peer_store,
             snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
-            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
-            accounts_data: Arc::new(AccountDataCache::new()),
+            accounts_data: Arc::new(AccountDataCache::new(config.transition)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
-            txns_since_last_block: AtomicUsize::new(0),
+            forwarded_txs: ForwardedTxCounters::default(),
             pending_tier3_requests: DashMap::new(),
+            queued_tier3_requests: Mutex::new(HashMap::new()),
             outgoing_queue_limiter: OutgoingQueueLimiter::new(
                 config.outgoing_queue_limiter_capacity_bytes,
             ),
@@ -377,8 +387,8 @@ impl NetworkState {
         rx
     }
 
-    /// Stops peer instance if it is still connected,
-    /// and then mark peer as banned in the peer store.
+    /// Marks the peer as banned in the peer store and closes the peer's
+    /// connections on every tier.
     pub fn disconnect_and_ban(
         &self,
         clock: &time::Clock,
@@ -386,13 +396,8 @@ impl NetworkState {
         ban_reason: ReasonForBan,
         transport: &dyn NetworkTransport,
     ) {
-        if self.peers.is_connected_on_tier(peer_id, tcp::Tier::T2) {
-            transport.disconnect_peer(peer_id, Some(ban_reason));
-        } else {
-            if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
-                tracing::debug!(target: "network", ?err, "failed to save peer data");
-            }
-        }
+        self.peer_store.peer_ban(clock, peer_id, ban_reason);
+        transport.ban_peer(peer_id, ban_reason);
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
@@ -482,19 +487,6 @@ impl NetworkState {
                 if !edge.verify() {
                     return Err(RegisterPeerError::InvalidEdge);
                 }
-                if info.peer_type == PeerType::Inbound {
-                    // Reject inbound Tier3 connections that don't correspond to a
-                    // state sync request we sent. We check without removing so that
-                    // the entry remains valid for the full timeout window — the peer
-                    // may need to open additional T3 connections (e.g. if the first
-                    // was idle-closed before a later response is ready).
-                    //
-                    // Edge verification is done first so that a spoofed peer_id with
-                    // an invalid edge cannot influence the pending-request lookup.
-                    if !self.pending_tier3_requests.contains_key(&peer_info.id) {
-                        return Err(RegisterPeerError::UnexpectedTier3Connection);
-                    }
-                }
             }
         }
         Ok(())
@@ -526,6 +518,7 @@ impl NetworkState {
                 owned_account_key: account_key,
                 peer_type: info.peer_type,
                 established_time: info.established_time,
+                my_reported_ip: None,
             },
         );
         if tier == tcp::Tier::T2 {
@@ -573,6 +566,8 @@ impl NetworkState {
         if info.tier == tcp::Tier::T2 {
             self.accounts_data_demuxes.lock().remove(&info.peer_info.id);
             self.snapshot_hosts_demuxes.lock().remove(&info.peer_info.id);
+            // The IP reported by the peer no longer counts.
+            self.refresh_my_public_addr();
 
             let peer_id = info.peer_info.id.clone();
 
@@ -593,13 +588,7 @@ impl NetworkState {
             }
 
             // Save the fact that we are disconnecting to the PeerStore.
-            let res = match &reason {
-                ClosingReason::Ban(ban_reason) => {
-                    self.peer_store.peer_ban(clock, &info.peer_info.id, *ban_reason)
-                }
-                _ => self.peer_store.peer_disconnected(clock, &info.peer_info.id),
-            };
-            if let Err(err) = res {
+            if let Err(err) = self.peer_store.peer_disconnected(clock, &info.peer_info.id) {
                 tracing::debug!(target: "network", ?err, "failed to save peer data");
             }
 
@@ -1082,6 +1071,7 @@ impl NetworkState {
                             addr: Some(request.addr),
                             account_id: None,
                         },
+                        is_direct: false,
                         body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
@@ -1097,6 +1087,7 @@ impl NetworkState {
                             addr: Some(request.addr),
                             account_id: None,
                         },
+                        is_direct: false,
                         body: Tier3RequestBody::StatePart(StatePartRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
@@ -1114,9 +1105,9 @@ impl NetworkState {
                 T2MessageBody::StateRequestAck(ack) => {
                     self.client
                         .send_async(
-                            StateResponseReceived {
+                            StateRequestUpdateMessage {
                                 peer_id: msg_author,
-                                state_response: StateResponse::Ack(ack),
+                                update: StateRequestUpdate::Ack(ack),
                             }
                             .span_wrap(),
                         )
@@ -1258,7 +1249,7 @@ impl NetworkState {
             PeerMessage::Transaction(transaction) => {
                 self.client
                     .send_async(ProcessTxRequest {
-                        transaction,
+                        transaction: transaction.into(),
                         is_forwarded: false,
                         check_only: false,
                     })
@@ -1275,12 +1266,47 @@ impl NetworkState {
                 None
             }
             PeerMessage::Challenge(_) => None,
+            PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo { id: peer_id, addr: None, account_id: None },
+                    is_direct: true,
+                    body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
+                        shard_id,
+                        sync_hash,
+                    }),
+                    recv_permit,
+                });
+                None
+            }
+            PeerMessage::StateRequestPart(shard_id, sync_hash, part_idx) => {
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo { id: peer_id, addr: None, account_id: None },
+                    is_direct: true,
+                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                        shard_id,
+                        sync_hash,
+                        part_idx,
+                    }),
+                    recv_permit,
+                });
+                None
+            }
+            PeerMessage::StateRequestAck(ack) => {
+                self.client
+                    .send_async(
+                        StateRequestUpdateMessage { peer_id, update: StateRequestUpdate::Ack(ack) }
+                            .span_wrap(),
+                    )
+                    .await
+                    .ok();
+                None
+            }
             PeerMessage::VersionedStateResponse(info) => {
                 self.client
                     .send_async(
-                        StateResponseReceived {
+                        StateRequestUpdateMessage {
                             peer_id,
-                            state_response: StateResponse::State(info.into()),
+                            update: StateRequestUpdate::State(info.into()),
                         }
                         .span_wrap(),
                     )
@@ -1373,7 +1399,7 @@ impl NetworkState {
     }
 
     /// Broadcast snapshot hosts to a single peer via its gossip demux.
-    /// Deduplicates by peer_id, keeping the highest epoch_height.
+    /// Deduplicates by peer_id, keeping the freshest info.
     async fn gossip_snapshot_hosts_to_peer(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -1389,9 +1415,8 @@ impl NetworkState {
                     let res = ds.iter().map(|_| ()).collect();
                     let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
                     for d in ds.into_iter().flatten() {
-                        if sum.get(&d.peer_id).map_or(true, |old| old.epoch_height < d.epoch_height)
-                        {
-                            sum.insert(d.peer_id.clone(), d);
+                        if sum.get(d.peer_id()).is_none_or(|old| old.freshness() < d.freshness()) {
+                            sum.insert(d.peer_id().clone(), d);
                         }
                     }
                     let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
@@ -1461,8 +1486,10 @@ impl NetworkState {
     ) -> Option<SnapshotHostInfoError> {
         let this = self.clone();
         self.spawn("add_snapshot_hosts", async move {
+            let load_validators =
+                || this.accounts_data.load().data.values().map(|d| d.peer_id.clone()).collect();
             // Verify and add the new data to the internal state.
-            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
+            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts, load_validators).await;
             // Broadcast any valid new data, even if an err was returned.
             // The presence of one invalid entry doesn't invalidate the remaining ones.
             if new_data.is_empty() {
@@ -1547,7 +1574,7 @@ impl NetworkState {
                                 clock.sleep(timeout).await;
                                 match this.graph.load().local_edges.get(&other_peer) {
                                     Some(edge) if edge.edge_type() == EdgeState::Active => return,
-                                    _ => transport.disconnect_peer(&other_peer, None),
+                                    _ => transport.disconnect_peer(tcp::Tier::T2, &other_peer),
                                 }
                             }
                         }))
@@ -1607,6 +1634,49 @@ impl NetworkState {
     /// Collects and returns PeerInfos for all directly connected TIER2 peers.
     pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
         self.peers.tier2().into_values().map(|s| s.peer_info).collect()
+    }
+
+    /// Records the IP at which a TIER2 peer sees us, as reported in its
+    /// PeersResponse, and re-evaluates our public address.
+    pub fn record_my_reported_ip(&self, peer_id: &PeerId, ip: IpAddr) {
+        self.peers.update_my_reported_ip(peer_id, ip);
+        self.refresh_my_public_addr();
+    }
+
+    /// Re-evaluates our public address by a vote over the IPs reported by the connected
+    /// TIER2 peers (see `public_addr::vote`). A configured `tier3_public_addr` is kept.
+    pub fn refresh_my_public_addr(&self) {
+        if self.config.tier3_public_addr.is_some() {
+            return;
+        }
+        // The vote only decides the IP. The port always comes from the config.
+        let Some(node_addr) = &self.config.node_addr else {
+            return;
+        };
+        let port = node_addr.port();
+        let mut my_public_addr = self.my_public_addr.write();
+        let reports = self
+            .peers
+            .tier2()
+            .into_values()
+            .filter_map(|s| Some((s.peer_info.addr?.ip(), s.my_reported_ip?)));
+        let vote = public_addr::vote(
+            reports,
+            node_addr.ip(),
+            self.config.allow_private_ip_in_public_addrs,
+        );
+        metrics::TIER3_PUBLIC_ADDR_GROUPS.set(vote.groups as i64);
+        metrics::TIER3_PUBLIC_ADDR_RUNNER_UP_GROUPS.set(vote.runner_up_groups as i64);
+        let addr = vote.ip.map(|ip| SocketAddr::new(ip, port));
+        if *my_public_addr == addr {
+            return;
+        }
+        tracing::info!(target: "network", ?addr, "own public address for tier3 state sync changed");
+        metrics::TIER3_PUBLIC_ADDR.reset();
+        if let Some(addr) = addr {
+            metrics::TIER3_PUBLIC_ADDR.with_label_values(&[&addr.to_string()]).set(1);
+        }
+        *my_public_addr = addr;
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

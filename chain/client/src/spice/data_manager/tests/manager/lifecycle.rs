@@ -14,8 +14,6 @@ fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         .build();
     let mut chain = get_chain_with_genesis(Clock::real(), genesis);
     let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
-    let earlier = chain.chain_store.get_block(last_pre_spice.header().prev_hash()).unwrap();
-    assert_eq!(earlier.header().epoch_id(), last_pre_spice.header().epoch_id());
 
     // Shard 0 in the boundary epoch, shard 1 only in the next one: a three-entry
     // schedule keeps shard 1 out of the previous epoch too.
@@ -31,19 +29,13 @@ fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
         chain.epoch_manager.clone(),
         MutableConfigValue::new(None, "validator_signer"),
     );
-    let policies = Policies::new(
-        chain.chain_store.store().chain_store(),
-        chain.epoch_manager.clone(),
-        shard_tracker,
-    );
 
     let ids = |block: &Block, pairs: &[(u64, u64)]| -> HashSet<DataId> {
         pairs.iter().map(|&(from, to)| receipt_id(block, from, to)).collect()
     };
     // Destinations are the shards applied in the next block: 0 and 1 in both cases.
-    assert_eq!(needed_receipt_ids(&policies, &earlier), ids(&earlier, &[(2, 0), (2, 1)]),);
     assert_eq!(
-        needed_receipt_ids(&policies, &last_pre_spice),
+        needed_receipt_ids(&chain, &shard_tracker, &last_pre_spice),
         ids(&last_pre_spice, &[(1, 0), (1, 1), (2, 0), (2, 1)]),
     );
 }
@@ -162,6 +154,60 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     assert!(manager.manager.items_by_height.is_empty());
 }
 
+/// The fork at height 3 is certified by its own child, so it takes the only window slot
+/// until consensus finality passes it, however far execution lags.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_fork_item_at_or_below_the_final_head_is_dropped_and_frees_its_window_slot() {
+    let (mut chain, blocks) = chain_with_blocks(2);
+    let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
+    let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+    let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
+    let canonical_at_6 = process_block_at(&mut chain, &canonical_at_5, 6);
+    let pull_config =
+        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let mut manager = TestManager::with_pull_config(&chain, 1, pull_config);
+    manager.set_final_head(&blocks[1]);
+    manager.track_block(&canonical_at_4);
+    manager.track_block(&fork_at_3);
+    let canonical_id = receipt_id(&canonical_at_4, 0, 1);
+    let fork_id = receipt_id(&fork_at_3, 0, 1);
+    let fork_chunk = SpiceChunkId { block_hash: *fork_at_3.hash(), shard_id: ShardId::new(0) };
+    let fork_certifier = certifying_block(&fork_at_3, &[fork_chunk]);
+    save_and_record_block(&mut chain, &fork_certifier);
+    manager.track_block(&fork_certifier);
+    manager.certify_up_to(4);
+
+    // The fork is above the final head and holds the lowest pullable height.
+    assert_eq!(
+        wants_for(manager.on_block_processed(&canonical_at_5), &fork_id),
+        own_ordinal_pulls()
+    );
+
+    // The clock stands still: only the drop can have let the canonical item in.
+    manager.set_final_head(&canonical_at_4);
+    let requests = wants_for(manager.on_block_processed(&canonical_at_6), &canonical_id);
+    assert_eq!(requests, own_ordinal_pulls());
+    manager.assert_forgotten(&fork_id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_fork_block_at_or_below_the_final_head_is_not_tracked() {
+    let (mut chain, blocks) = chain_with_blocks(2);
+    let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
+    let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_head(&canonical_at_4);
+    manager.on_block_processed(&canonical_at_4);
+
+    manager.track_block(&fork_at_3);
+    manager.track_block(&blocks[1]);
+
+    assert!(!manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_certified_chunk_makes_its_own_items_pullable_and_not_a_fork_sibling_at_the_same_height() {
@@ -192,17 +238,27 @@ fn an_item_is_pulled_from_the_processed_block_that_certifies_its_chunk_and_not_b
     let id = manager.track_needed_proof(&blocks[0]);
     let certified = SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
     let certifier = certifying_block(&blocks[0], &[certified]);
-    save_block(&mut chain, &certifier);
+    save_and_record_block(&mut chain, &certifier);
 
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
 
     let requests = wants_for(manager.on_block_processed(&certifier), &id);
-    let own_ordinal_asks: BTreeMap<AccountId, BTreeSet<u64>> = producers()
-        .into_iter()
-        .enumerate()
-        .map(|(ordinal, producer)| (producer, ordinals(&[ordinal as u64])))
-        .collect();
-    assert_eq!(requests, own_ordinal_asks);
+    assert_eq!(requests, own_ordinal_pulls());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_certified_chunk_of_a_block_without_a_stored_header_is_skipped() {
+    let (mut chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+    let unknown = SpiceChunkId { block_hash: hash(b"before sync"), shard_id: ShardId::new(0) };
+    let certified = SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
+    let certifier = certifying_block(&blocks[0], &[unknown, certified]);
+    save_and_record_block(&mut chain, &certifier);
+
+    let requests = wants_for(manager.on_block_processed(&certifier), &id);
+    assert_eq!(requests, own_ordinal_pulls());
 }
 
 #[test]
@@ -216,7 +272,7 @@ fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
     let certifier = certifying_block(&blocks[0], &chunk_ids);
 
     let made_pullable: HashSet<DataId> =
-        manager.manager.policies.made_pullable_by(&certifier).unwrap().into_iter().collect();
+        manager.manager.made_pullable_by(&certifier).unwrap().into_iter().collect();
     assert_eq!(made_pullable, HashSet::from([receipt_id(&blocks[0], 0, 1)]));
 }
 
@@ -258,7 +314,7 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
     // The source chunk is not certified: neither the tracker nor the unbound
     // producers are asked, and nothing is recorded as asked.
     assert_eq!(manager.on_block_processed(&blocks[0]), vec![]);
-    assert!(manager.item(&id).outstanding_pulls().next().is_none());
+    assert!(manager.pulling_from(&id).is_empty());
 
     manager.certify_up_to(1);
     // Certified: the tracker asks its one backer for the gaps and every producer for its
@@ -277,40 +333,67 @@ fn pushed_item_is_not_pulled_before_source_chunk_is_certified() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_done_item_is_removed_at_the_processed_block_without_a_request() {
-    let (chain, blocks) = chain_with_blocks(2);
+fn a_done_item_is_not_pulled() {
+    let (chain, blocks) = chain_with_blocks(4);
+    let block = &blocks[1];
     let mut manager = TestManager::new(&chain);
-    let id = manager.track_needed_proof(&blocks[0]);
+    let id = manager.track_needed_proof(block);
     manager.deliver(&producers()[0], &id, &receipt_data(0, 1));
-    manager.certify_up_to(1);
-    // The consumer saved the delivered data before the block was processed.
-    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+    save_proof(&chain, block, &receipt_data(0, 1));
+    manager.on_block_processed(&blocks[2]);
 
-    let requests = manager.on_block_processed(&blocks[1]);
+    // Certified only after it is done: the trigger does not make it pullable.
+    manager.certify_up_to(2);
+    let requests = manager.on_block_processed(&blocks[3]);
 
     assert_eq!(requests, vec![]);
-    manager.assert_forgotten(&id);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn producers_are_resolved_when_the_item_is_tracked_and_never_at_the_trigger() {
+fn a_late_part_for_a_done_item_is_already_settled() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let block = &blocks[2];
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(block);
+    let data = receipt_data(0, 1);
+    let (commitment, parts) = encode_to_wire(&encoder(), &data);
+    let (other_commitment, other_parts) = encode_to_wire(&encoder(), &other_receipt_data(0, 1));
+    let producers = producers();
+    manager.deliver(&producers[0], &id, &data);
+    save_proof(&chain, block, &data);
+    manager.on_block_processed(block);
+
+    let late = parts_with_ordinals(&parts, &[4]);
+    let result = manager.manager.receive_from(&producers[4], &id, &commitment, late.clone());
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
+    let other = parts_with_ordinals(&other_parts, &[3]);
+    let result = manager.manager.receive_from(&producers[3], &id, &other_commitment, other);
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
+
+    manager.set_final_head(block);
+    manager.on_block_processed(block);
+    let result = manager.manager.receive_from(&producers[4], &id, &commitment, late.clone());
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
+
+    // Once its block is executed and final, the item is gone.
+    manager.set_final_execution_head(block);
+    manager.on_block_processed(block);
+    let result = manager.manager.receive_from(&producers[4], &id, &commitment, late);
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn each_item_is_pulled_from_the_chunk_producers_of_its_source_shard() {
     let (chain, blocks) = chain_with_shards_and_blocks(3, 2);
     let block = &blocks[0];
     let mut manager = TestManager::applying(&chain, 2);
-    let shard1_producers: Vec<AccountId> =
-        (0..TOTAL_PARTS).map(|i| account(&format!("shard1-producer{i}.near"))).collect();
-    manager.set_producers_for(1, shard1_producers.clone());
+    let shard1_producers = shard_producers(1);
     let from_shard0 = receipt_id(block, 0, 2);
     let from_shard1 = receipt_id(block, 1, 2);
 
     manager.track_block(&block);
-
-    // The producer sets change after tracking; the items keep the ones resolved then.
-    let swapped: Vec<AccountId> =
-        (0..TOTAL_PARTS).map(|i| account(&format!("swapped{i}.near"))).collect();
-    manager.set_producers_for(0, swapped.clone());
-    manager.set_producers_for(1, swapped);
     manager.certify_up_to(1);
 
     let requests = by_producer(manager.on_block_processed(&blocks[1]));
@@ -329,7 +412,7 @@ fn producers_are_resolved_when_the_item_is_tracked_and_never_at_the_trigger() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn an_item_is_removed_only_after_its_delivery_is_in_the_store() {
+fn an_item_stops_being_pulled_only_after_its_delivery_is_in_the_store() {
     let (chain, blocks) = chain_with_blocks(4);
     let mut manager = TestManager::new(&chain);
     for block in &blocks[..3] {
@@ -352,9 +435,9 @@ fn an_item_is_removed_only_after_its_delivery_is_in_the_store() {
     manager.deliver(&producers()[0], &ids[1], &receipt_data(0, 1));
     save_proof(&chain, &blocks[1], &receipt_data(0, 1));
     manager.on_block_processed(&blocks[3]);
-    assert!(!manager.is_tracking(&ids[1]));
-    assert!(manager.is_tracking(&ids[0]));
-    assert!(manager.is_tracking(&ids[2]));
+    assert!(!manager.is_pullable(&ids[1]));
+    assert!(manager.is_pullable(&ids[0]));
+    assert!(manager.is_pullable(&ids[2]));
 }
 
 #[test]
@@ -390,55 +473,121 @@ fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes
             (producers[4].clone(), ordinals(&[4])),
         ])
     );
-    let result = manager.manager.on_parts_received(
+    let result = manager.manager.receive_from(
         honest,
         &id,
         &honest_commitment,
         parts_with_ordinals(&honest_parts, &[0, 2, 3, 4]),
-        TOTAL_PARTS,
     );
     assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == honest_data);
     assert!(manager.is_tracking(&id));
 
-    // Saved: the next block removes it.
+    // Saved: the next block stops pulling it.
     save_proof(&chain, &blocks[0], &honest_data);
     assert_eq!(manager.on_block_processed(&blocks[1]), vec![]);
-    assert!(!manager.is_tracking(&id));
+    assert!(!manager.is_pullable(&id));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_failed_needed_items_on_the_processed_block_still_pulls_the_older_pullable_items() {
+fn a_pull_asks_each_producer_for_the_part_its_push_carries() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    manager.track_block(&blocks[0]);
-    let older = receipt_id(&blocks[0], 0, 1);
-    let failing = receipt_id(&blocks[1], 0, 1);
-    manager.manager.policies.failing_blocks.insert(*blocks[1].hash());
+    let id = manager.track_needed_proof(&blocks[0]);
     manager.certify_up_to(1);
+    let mut server = test_server(&chain);
 
     let requests = by_producer(manager.on_block_processed(&blocks[1]));
 
-    for (ordinal, producer) in producers().iter().enumerate() {
-        assert_eq!(requests[producer][&older], ordinals(&[ordinal as u64]));
+    for producer in producers() {
+        let push = server.build_push(&producer, &id, &receipt_data(0, 1)).unwrap();
+        assert_eq!(requests[&producer][&id], ordinals(&[push.part.part_ord]));
     }
-    assert!(!manager.is_tracking(&failing));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_failed_needed_items_on_the_processed_block_still_removes_the_done_items() {
+fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_stops_pulling_the_done_ones() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    manager.track_block(&blocks[0]);
-    let older = receipt_id(&blocks[0], 0, 1);
-    let failing = receipt_id(&blocks[1], 0, 1);
-    manager.manager.policies.failing_blocks.insert(*blocks[1].hash());
-    manager.deliver(&producers()[0], &older, &receipt_data(0, 1));
-    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+    let pullable = manager.track_needed_proof(&blocks[0]);
+    let done = manager.track_needed_proof(&blocks[1]);
+    manager.certify_up_to(2);
+    manager.deliver(&producers()[0], &done, &receipt_data(0, 1));
+    save_proof(&chain, &blocks[1], &receipt_data(0, 1));
 
-    manager.on_block_processed(&blocks[1]);
+    let requests = by_producer(
+        manager.manager.on_block_processed(&hash(b"unknown"), manager.clock.now()).pull_requests,
+    );
 
-    assert!(!manager.is_tracking(&older));
-    assert!(!manager.is_tracking(&failing));
+    for (ordinal, producer) in producers().iter().enumerate() {
+        assert_eq!(requests[producer][&pullable], ordinals(&[ordinal as u64]));
+        assert!(!requests[producer].contains_key(&done));
+    }
+    assert!(!manager.is_pullable(&done));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
+    const SHARD_0: u64 = 0;
+    const SHARD_1: u64 = 1;
+    const SHARD_2: u64 = 2;
+
+    let (mut chain, _) = chain_with_shards_and_blocks(3, 0);
+    let mut blocks = vec![chain.genesis_block()];
+    for height in 1..=(3 * chain.epoch_length - 1) {
+        let block = build_block_at(&chain, blocks.last().unwrap(), height);
+        save_and_record_block(&mut chain, &block);
+        blocks.push(block);
+    }
+
+    let schedule = vec![
+        vec![ShardId::new(SHARD_0)],
+        vec![ShardId::new(SHARD_0)],
+        vec![ShardId::new(SHARD_0), ShardId::new(SHARD_1)],
+    ];
+    let shard_tracker = ShardTracker::new(
+        TrackedShardsConfig::Schedule(schedule),
+        chain.epoch_manager.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+    );
+
+    // Shard 1 is tracked only in epoch height 2, so the epoch before it catches it up.
+    let epoch_height =
+        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
+
+    let catch_up_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
+        .take(2)
+        .collect();
+    assert_eq!(catch_up_blocks.len(), 2);
+    for block in catch_up_blocks {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            HashSet::from_iter([
+                receipt_id(&block, SHARD_1, SHARD_0),
+                receipt_id(&block, SHARD_1, SHARD_1),
+                receipt_id(&block, SHARD_2, SHARD_0),
+                receipt_id(&block, SHARD_2, SHARD_1),
+            ])
+        );
+    }
+
+    let tracked_blocks: Vec<_> = blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().epoch_id()) == 2)
+        .take(2)
+        .collect();
+    assert_eq!(tracked_blocks.len(), 2);
+    for block in tracked_blocks {
+        assert_eq!(
+            needed_receipt_ids(&chain, &shard_tracker, block),
+            HashSet::from_iter([
+                receipt_id(&block, SHARD_2, SHARD_0),
+                receipt_id(&block, SHARD_2, SHARD_1),
+            ])
+        );
+    }
 }

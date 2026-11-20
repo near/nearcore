@@ -13,7 +13,9 @@ pub use crate::trie::split::{FindSplitError, find_trie_split, total_mem_usage};
 pub use crate::trie::state_snapshot::{
     STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
-pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
+pub use crate::trie::trie_storage::{
+    NewTrieNodes, TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
 use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
@@ -28,8 +30,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::{SmallKeyVec, TrieKey};
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives_core::code::ContractCode;
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::ContractCode;
 use ops::insert_delete::GenericTrieUpdateInsertDelete;
 #[cfg(test)]
 use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
@@ -259,23 +261,6 @@ pub struct Trie {
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
     recorder: Option<TrieRecorder>,
-    /// If true, accesses to trie nodes are recorded with node access tracker, thus counting TTNs.
-    ///
-    /// NOTE that depending on the implementation of the tracker the lookups may get cached and
-    /// later served from the storage from memory.
-    ///
-    /// Further, NOTE that regardless of this variable, lookups with `KeyLookupMode::MemOrTrie`
-    /// will record node accesses with the access tracker regardless of this field's value. The
-    /// logic here is ultra-subtle: it is possible for lookups with
-    /// `KeyLookupMode::MemOrFlatOrTrie` to get served from either memtries, flat storage or
-    /// regular trie depending on which of the storage types are loaded at the time `Trie` is
-    /// constructed. However flat storage will only record accesses for dereference of a
-    /// non-inlined value (and will do so regardless of this setting.) So the exact count accesses
-    /// recorded will depend not only on this field, but also on which types of storage are loaded,
-    /// which `KeyLookupMode` is used and probably some other subtle factors.
-    // FIXME(nagisa): lets get rid of this field somehow? it seems to be utilized mostly for/in
-    // tests.
-    use_access_tracker: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -623,29 +608,12 @@ impl Trie {
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        // Technically the use_trie_accounting_cache should be set based on the flat storage
-        // protocol feature. When flat storage is enabled the trie node access should be free and
-        // the charge flag should be set to false.
-        let use_trie_accounting_cache = false;
-        Trie {
-            storage,
-            memtries,
-            children_memtries,
-            root,
-            use_access_tracker: use_trie_accounting_cache,
-            flat_storage_chunk_view,
-            recorder: None,
-        }
+        Trie { storage, memtries, children_memtries, root, flat_storage_chunk_view, recorder: None }
     }
 
     /// Returns `true` if this `Trie` is configured to use in memory tries.
     pub fn has_memtries(&self) -> bool {
         self.memtries.is_some()
-    }
-
-    /// Helper to simulate gas costs as if flat storage was present.
-    pub fn set_use_trie_accounting_cache(&mut self, value: bool) {
-        self.use_access_tracker = value;
     }
 
     /// Makes a new trie that has everything the same except that access
@@ -672,8 +640,15 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(recorder);
-        trie.use_access_tracker = self.use_access_tracker;
         trie
+    }
+
+    /// Adds what `other` recorded to what this trie records. Does nothing if either of them does
+    /// not record.
+    pub fn merge_recorded(&self, other: &Trie) {
+        if let (Some(recorder), Some(other)) = (&self.recorder, &other.recorder) {
+            recorder.merge(other);
+        }
     }
 
     /// Takes the recorded state proof out of the trie.
@@ -704,33 +679,65 @@ impl Trie {
         self.recorder.as_ref().is_some_and(|recorder| recorder.check_proof_size_limit_exceed())
     }
 
+    /// Caps what this trie may record from now on at `limit` more bytes, counted as the recorded
+    /// upper bound. A read that records a trie node past the cap fails with
+    /// `StorageError::RecordingBudgetExceeded` after recording it, so that a replay from the
+    /// proof stops at the same node. A value whose length would pass the cap is not fetched, so
+    /// it never enters the proof; a value already in the proof adds nothing, so it is always
+    /// read. Does nothing without a recorder.
+    ///
+    /// Set through `TrieUpdate::with_recording_budget`, which checks there is a recorder and
+    /// clears the budget when it goes out of scope.
+    pub(crate) fn set_recording_budget(&self, limit: usize) {
+        if let Some(recorder) = &self.recorder {
+            recorder.set_budget(limit);
+        }
+    }
+
+    pub(crate) fn clear_recording_budget(&self) {
+        if let Some(recorder) = &self.recorder {
+            recorder.clear_budget();
+        }
+    }
+
+    /// Fails if what was recorded since the recording budget was set is past it. For changes that
+    /// grow the recorded upper bound without recording a node, such as removals.
+    pub fn check_recording_budget(&self) -> Result<(), StorageError> {
+        self.recorder.as_ref().map_or(Ok(()), |recorder| recorder.check_budget())
+    }
+
+    /// Fails if recording the value with `hash`, of `len` bytes, would pass the recording budget.
+    /// Only when the value would be recorded.
+    fn check_value_fits_recording_budget(
+        &self,
+        access_options: AccessOptions,
+        hash: &CryptoHash,
+        len: usize,
+    ) -> Result<(), StorageError> {
+        match &self.recorder {
+            Some(recorder) if access_options.enable_state_witness_recording => {
+                recorder.check_value_fits(hash, len)
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Constructs a Trie from the partial storage (i.e. state proof) that
     /// was returned from recorded_storage(). If used to access the same trie
     /// nodes as when the partial storage was generated, this trie will behave
     /// identically.
-    ///
-    /// The flat_storage_used parameter should be true iff originally the trie
-    /// was accessed with flat storage present. It will be used to simulate the
-    /// same costs as if flat storage were present.
-    pub fn from_recorded_storage(
-        partial_storage: PartialStorage,
-        root: StateRoot,
-        flat_storage_used: bool,
-    ) -> Self {
-        Self::from_recorded_storage_with_storage::<false>(partial_storage, root, flat_storage_used)
-            .0
+    pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
+        Self::from_recorded_storage_with_storage::<false>(partial_storage, root).0
     }
 
     pub fn from_recorded_storage_with_storage<const TRACK_VISITED_NODES: bool>(
         partial_storage: PartialStorage,
         root: StateRoot,
-        flat_storage_used: bool,
     ) -> (Self, Arc<TrieMemoryPartialStorage<TRACK_VISITED_NODES>>) {
         let PartialState::TrieValues(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Arc::new(TrieMemoryPartialStorage::new(recorded_storage));
-        let mut trie = Self::new(Arc::clone(&storage) as _, root, None);
-        trie.use_access_tracker = !flat_storage_used;
+        let trie = Self::new(Arc::clone(&storage) as _, root, None);
         (trie, storage)
     }
 
@@ -797,6 +804,9 @@ impl Trie {
         if access_options.enable_state_witness_recording {
             if let Some(recorder) = &self.recorder {
                 recorder.record(hash, result.clone());
+                // The node that crosses the budget stays recorded, so that a replay from the
+                // proof reaches it and stops there too.
+                recorder.check_budget()?;
             }
         }
         Ok(result)
@@ -941,13 +951,7 @@ impl Trie {
             Self::should_prune_view_trie(&partial_key, record_type, &from.as_ref(), &to.as_ref())
         };
 
-        let iter = match self.disk_iter_with_prune_condition(Some(Box::new(prune_condition))) {
-            Ok(iter) => iter,
-            Err(err) => {
-                writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
-                return;
-            }
-        };
+        let iter = self.disk_iter_with_prune_condition(Some(Box::new(prune_condition)));
 
         for node in iter {
             if limit == 0 {
@@ -1377,6 +1381,9 @@ impl Trie {
                 if access_options.enable_state_witness_recording {
                     if let Some(recorder) = &self.recorder {
                         recorder.record_with(&node_hash, get_serialized_node);
+                        // Stop at the node that crosses the budget, as a walk of the trie on disk
+                        // does, so that the same nodes are recorded and tracked.
+                        recorder.check_budget()?;
                     }
                 }
             }
@@ -1485,7 +1492,7 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<bool, StorageError> {
-        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
+        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie;
         if self.memtries.is_some() {
             return Ok(self
                 .lookup_from_memory(key, use_trie_accounting_cache, opts, |_| ())?
@@ -1530,7 +1537,7 @@ impl Trie {
         mode: KeyLookupMode,
         opts: AccessOptions,
     ) -> Result<Option<OptimizedValueRef>, StorageError> {
-        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie || self.use_access_tracker;
+        let use_trie_accounting_cache = mode == KeyLookupMode::MemOrTrie;
         if self.memtries.is_some() {
             self.lookup_from_memory(key, use_trie_accounting_cache, opts, |v| {
                 v.to_optimized_value_ref()
@@ -1555,10 +1562,17 @@ impl Trie {
     ) -> Result<Vec<u8>, StorageError> {
         match optimized_value_ref {
             OptimizedValueRef::Ref(value_ref) => {
+                let len = value_ref.len();
+                self.check_value_fits_recording_budget(operation_options, &value_ref.hash, len)?;
                 self.retrieve_value(&value_ref.hash, operation_options)
             }
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
                 let value_hash = hash(value);
+                self.check_value_fits_recording_budget(
+                    operation_options,
+                    &value_hash,
+                    value.len(),
+                )?;
                 let arc_value: Arc<[u8]> = value.clone().into();
                 if operation_options.trie_access_tracker.track_mem_lookup(&value_hash).is_none() {
                     operation_options
@@ -1709,14 +1723,11 @@ impl Trie {
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
     #[inline]
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
+    pub fn disk_iter(&self) -> DiskTrieIterator<'_> {
         self.disk_iter_with_prune_condition(None)
     }
 
-    pub fn disk_iter_with_max_depth(
-        &self,
-        max_depth: usize,
-    ) -> Result<DiskTrieIterator<'_>, StorageError> {
+    pub fn disk_iter_with_max_depth(&self, max_depth: usize) -> DiskTrieIterator<'_> {
         let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
         self.disk_iter_with_prune_condition(Some(prune_condition))
     }
@@ -1725,7 +1736,7 @@ impl Trie {
     pub fn disk_iter_with_prune_condition(
         &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator<'_>, StorageError> {
+    ) -> DiskTrieIterator<'_> {
         DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 
@@ -1813,13 +1824,13 @@ impl<'a> TrieWithReadLock<'a> {
     /// Obtains an iterator that can be used to traverse the trie.
     /// If memtries are present, returns an iterator that traverses the memtrie.
     /// Otherwise, it falls back to an iterator that traverses the on-disk trie.
-    pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
+    pub fn iter(&self) -> TrieIterator<'_> {
         match &self.memtries {
-            Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie)?)),
-            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
+            Some(memtries) => TrieIterator::Memtrie(memtries.get_iter(self.trie)),
+            None => TrieIterator::Disk(DiskTrieIterator::new(
                 DiskTrieIteratorInner::new(&self.trie),
                 None,
-            )?)),
+            )),
         }
     }
 }
@@ -1950,7 +1961,7 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
         let new_root = test_clear_trie(&tries, &root, shard_uid, changes);
         assert_eq!(new_root, Trie::EMPTY_ROOT);
-        assert_eq!(trie.disk_iter().unwrap().fold(0, |acc, _| acc + 1), 0);
+        assert_eq!(trie.disk_iter().fold(0, |acc, _| acc + 1), 0);
     }
 
     #[test]
@@ -1968,7 +1979,7 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, pairs.clone());
         let trie = tries.get_trie_for_shard(shard_uid, root);
         let mut iter_pairs = vec![];
-        for pair in trie.disk_iter().unwrap() {
+        for pair in trie.disk_iter() {
             let (key, value) = pair.unwrap();
             iter_pairs.push((key, Some(value.to_vec())));
         }
@@ -1978,7 +1989,7 @@ mod tests {
             assert_eq!(Some(want), other_iter.next().map(|item| item.unwrap().0).as_deref());
         };
 
-        let mut other_iter = trie.disk_iter().unwrap();
+        let mut other_iter = trie.disk_iter();
         other_iter.seek_prefix(b"r").unwrap();
         assert_eq!(other_iter.next(), None);
         other_iter.seek_prefix(b"x").unwrap();
@@ -2039,7 +2050,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
-        let mut iter = trie.disk_iter().unwrap();
+        let mut iter = trie.disk_iter();
         iter.seek_prefix(&[0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
         for pair in iter {
@@ -2076,7 +2087,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &root, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
-        for r in trie.disk_iter().unwrap() {
+        for r in trie.disk_iter() {
             r.unwrap();
         }
     }
@@ -2156,19 +2167,15 @@ mod tests {
         ];
         let tries = TestTriesBuilder::new().build();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
-        tries.get_trie_for_shard(ShardUId::single_shard(), root).disk_iter().unwrap().for_each(
-            |result| {
-                result.unwrap();
-            },
-        );
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).disk_iter().for_each(|result| {
+            result.unwrap();
+        });
 
         let changes = vec![(vec![1, 2, 3], None)];
         let root = test_populate_trie(&tries, &root, ShardUId::single_shard(), changes);
-        tries.get_trie_for_shard(ShardUId::single_shard(), root).disk_iter().unwrap().for_each(
-            |result| {
-                result.unwrap();
-            },
-        );
+        tries.get_trie_for_shard(ShardUId::single_shard(), root).disk_iter().for_each(|result| {
+            result.unwrap();
+        });
     }
 
     #[test]
@@ -2214,7 +2221,7 @@ mod tests {
             for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
-                    let mut iterator = trie.disk_iter().unwrap();
+                    let mut iterator = trie.disk_iter();
                     iterator.seek_prefix(&key).unwrap();
                     assert_eq!(want, iterator.next(), "key: {key:x?}");
                 }
@@ -2223,7 +2230,7 @@ mod tests {
             // Test some more random keys.
             let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
             for query in queries {
-                let mut iterator = trie.disk_iter().unwrap();
+                let mut iterator = trie.disk_iter();
                 iterator.seek_prefix(&query).unwrap();
                 if let Some(Ok((key, _))) = iterator.next() {
                     assert!(key.starts_with(&query), "‘{key:x?}’ does not start with ‘{query:x?}’");
@@ -2255,7 +2262,6 @@ mod tests {
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
             let trie_changes = trie
                 .disk_iter()
-                .unwrap()
                 .map(|item| {
                     let (key, _) = item.unwrap();
                     (key, None)
@@ -2309,7 +2315,7 @@ mod tests {
         trie2.get(b"horse", AccessOptions::DEFAULT).unwrap();
         let partial_storage = trie2.recorded_storage();
 
-        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root, false);
+        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root);
 
         assert_eq!(trie3.get(b"dog", AccessOptions::DEFAULT), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse", AccessOptions::DEFAULT), Ok(Some(b"stallion".to_vec())));

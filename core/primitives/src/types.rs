@@ -222,6 +222,10 @@ pub enum StateChangeCause {
     _UnusedReshardingV2 = 10,
     /// Update persistent state kept by Bandwidth Scheduler after running the scheduling algorithm.
     BandwidthSchedulerStateUpdate = 11,
+    /// Persist compilation attempts independently of receipt success or cache eviction.
+    ContractCompilationStatusUpdate = 12,
+    /// Processing of an external contract call, by the unique id of its copy.
+    ExternalCallProcessing { transaction_id: CryptoHash } = 13,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -432,6 +436,7 @@ impl StateChanges {
                 TrieKey::GlobalContractCode { .. } => {}
                 // Global contract nonce is internal distribution state, not account data.
                 TrieKey::GlobalContractNonce { .. } => {}
+                TrieKey::ContractCompilationStatus { .. } => {}
                 TrieKey::PromiseYieldStatus { .. } => {}
                 TrieKey::YieldIdToDataId { .. } => {}
                 TrieKey::DataIdToYieldId { .. } => {}
@@ -1170,7 +1175,7 @@ impl ValidatorStats {
 
 /// Per-validator chunk endorsement stats accumulated over a spice epoch,
 /// indexed by the current epoch's validator id. Carried on the last block of
-/// the epoch (see `BlockHeaderInnerRestV7`) and consumed by reward and kickout.
+/// the epoch (see `BlockHeaderInnerRestV8`) and consumed by reward and kickout.
 #[derive(
     Default,
     BorshSerialize,
@@ -1357,7 +1362,8 @@ pub struct ChunkExecutionResult {
     pub outgoing_receipts_root: CryptoHash,
 }
 
-/// Merkle leaf committing to a single chunk's certified execution roots.
+/// Merkle leaf committing to a single chunk's certified execution result: its roots, and the
+/// hash of the whole result for the fields the roots do not cover.
 /// The `chunk_execution_root` in a spice block header is the merkle root over
 /// these leaves, sorted by `chunk_id`.
 #[derive(
@@ -1393,6 +1399,9 @@ pub struct ChunkExecutionRootsV1 {
     pub state_root: CryptoHash,
     pub outcome_root: CryptoHash,
     pub outgoing_receipts_root: CryptoHash,
+    /// `ChunkExecutionResult::compute_hash` of the result the roots above come from, so the
+    /// leaf also commits to the rest of it.
+    pub execution_result_hash: CryptoHash,
 }
 
 impl ChunkExecutionRoots {
@@ -1411,6 +1420,7 @@ impl ChunkExecutionRoots {
             state_root: *execution_result.chunk_extra.state_root(),
             outcome_root: *execution_result.chunk_extra.outcome_root(),
             outgoing_receipts_root: execution_result.outgoing_receipts_root,
+            execution_result_hash: execution_result.compute_hash().0,
         })
     }
 }
@@ -1491,6 +1501,16 @@ impl SpiceUncertifiedChunkInfo {
     ) -> impl Iterator<Item = &(AccountId, SpiceStoredVerifiedEndorsement)> {
         self.present_endorsements.iter().chain(&self.present_fallback_endorsements)
     }
+}
+
+/// Consensus compilation status for a code hash and VM generation, independent of local caches.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq, ProtocolSchema)]
+#[repr(u8)]
+#[borsh(use_discriminant = true)]
+pub enum ContractCompilationStatus {
+    /// The contract has reached deterministic compilation for this VM generation.
+    Cached { vm_generation: VmGeneration } = 0,
+    // TODO(async-compilation): add pending, accepted, and rejected attestation states.
 }
 
 /// Keeps the current status of a single yield/resume operation. Before yielding and after executing
@@ -1574,12 +1594,14 @@ mod tests {
                 state_root: *result_0.chunk_extra.state_root(),
                 outcome_root: *result_0.chunk_extra.outcome_root(),
                 outgoing_receipts_root: result_0.outgoing_receipts_root,
+                execution_result_hash: result_0.compute_hash().0,
             }),
             ChunkExecutionRoots::V1(ChunkExecutionRootsV1 {
                 chunk_id: chunk_id_1.clone(),
                 state_root: *result_1.chunk_extra.state_root(),
                 outcome_root: *result_1.chunk_extra.outcome_root(),
                 outgoing_receipts_root: result_1.outgoing_receipts_root,
+                execution_result_hash: result_1.compute_hash().0,
             }),
         ];
         let expected = merklize(&expected_leaves).0;

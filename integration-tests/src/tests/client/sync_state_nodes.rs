@@ -4,7 +4,9 @@ use near_async::messaging::CanSendAsync;
 use near_chain_configs::{Genesis, TrackedShardsConfig};
 use near_client::GetBlock;
 use near_client_primitives::types::GetValidatorInfo;
-use near_network::client::{StatePartOrHeader, StateRequestHeader, StateRequestPart};
+use near_network::client::{
+    StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestResponse,
+};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout};
 use near_o11y::testonly::init_test_logger;
@@ -95,7 +97,9 @@ async fn slow_test_state_sync_headers() {
                 .send_async(StateRequestHeader { shard_id, sync_hash })
                 .await
             {
-                Ok(Some(StatePartOrHeader(state_response_info))) => Some(state_response_info),
+                Ok(StateRequestResponse::Respond(StatePartOrHeader(state_response_info))) => {
+                    Some(state_response_info)
+                }
                 _ => None,
             };
             let state_response_info = match state_response_info {
@@ -117,7 +121,9 @@ async fn slow_test_state_sync_headers() {
                 .send_async(StateRequestPart { shard_id, sync_hash, part_idx: 0 })
                 .await
             {
-                Ok(Some(StatePartOrHeader(state_response_info))) => Some(state_response_info),
+                Ok(StateRequestResponse::Respond(StatePartOrHeader(state_response_info))) => {
+                    Some(state_response_info)
+                }
                 _ => None,
             };
             let state_response_info = match state_response_info {
@@ -252,39 +258,17 @@ async fn slow_test_state_sync_headers_no_tracked_shards() {
             tracing::info!(?sync_hash, ?shard_ids, "got sync_hash");
 
             for shard_id in shard_ids {
-                // Make StateRequestHeader and expect that the response contains a header.
-                let state_response_info = match state_request_client2
+                // Make StateRequestHeader and expect an error, as the node can't build the header.
+                let response = state_request_client2
                     .send_async(StateRequestHeader { shard_id, sync_hash })
-                    .await
-                {
-                    Ok(Some(StatePartOrHeader(state_response_info))) => Some(state_response_info),
-                    _ => None,
-                };
-                let state_response_info = match state_response_info {
-                    Some(x) => x,
-                    None => return ControlFlow::Continue(()),
-                };
-                tracing::info!(?state_response_info, "got header state response");
-                let state_response = state_response_info.take_state_response();
-                assert!(state_response.clone().take_header().is_none());
-                assert!(state_response.take_part().is_none());
+                    .await;
+                assert!(matches!(response, Ok(StateRequestResponse::Error)), "{response:?}");
 
-                // Make StateRequestPart and expect that the response contains a part and part_id = 0 and the node has all parts cached.
-                let state_response_info = match state_request_client2
+                // Make StateRequestPart and expect an error, as the node can't build the part.
+                let response = state_request_client2
                     .send_async(StateRequestPart { shard_id, sync_hash, part_idx: 0 })
-                    .await
-                {
-                    Ok(Some(StatePartOrHeader(state_response_info))) => Some(state_response_info),
-                    _ => None,
-                };
-                let state_response_info = match state_response_info {
-                    Some(x) => x,
-                    None => return ControlFlow::Continue(()),
-                };
-                tracing::info!(?state_response_info, "got state part response");
-                let state_response = state_response_info.take_state_response();
-                assert!(state_response.clone().take_header().is_none());
-                assert!(state_response.take_part().is_none());
+                    .await;
+                assert!(matches!(response, Ok(StateRequestResponse::Error)), "{response:?}");
             }
             return ControlFlow::Break(());
         })

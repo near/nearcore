@@ -485,6 +485,9 @@ impl Doomslug {
     /// # Returns
     /// A vector of approvals that need to be sent to other block producers as a result of processing
     /// the timers
+    ///
+    /// Note: when adding or changing the conditions under which this method does something,
+    /// make the same change in `next_timer_deadline`.
     #[must_use]
     pub fn process_timer(&mut self, signer: &Option<Arc<ValidatorSigner>>) -> Vec<Approval> {
         let now = self.clock.now();
@@ -560,6 +563,23 @@ impl Doomslug {
         }
 
         ret
+    }
+
+    /// Returns the earliest time at which `process_timer` sends an endorsement
+    /// or a skip message. Calling `process_timer` before that time has no
+    /// effect. Must be kept in sync with the conditions in `process_timer`.
+    #[cfg(test)]
+    pub(crate) fn next_timer_deadline(&self) -> Instant {
+        let largest_final_height = self.largest_final_height.get();
+        let heights_since_final = self.timer.height.saturating_sub(largest_final_height);
+        let skip_delay = self.timer.get_delay(heights_since_final);
+        let skip_deadline = self.timer.started + skip_delay;
+        if !self.endorsement_pending {
+            return skip_deadline;
+        }
+        let endorsement_delay = self.timer.endorsement_delay.get();
+        let endorsement_deadline = self.timer.last_endorsement_sent + endorsement_delay;
+        endorsement_deadline.min(skip_deadline)
     }
 
     fn create_approval(

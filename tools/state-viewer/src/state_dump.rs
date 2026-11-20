@@ -145,7 +145,7 @@ pub fn state_dump_redis(
         let trie = runtime
             .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
-        for item in trie.disk_iter().unwrap() {
+        for item in trie.disk_iter() {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
@@ -190,7 +190,7 @@ pub fn state_dump_redis(
                     )?;
                     let value_vec: &[u8] = code.as_ref();
                     let () = redis_connection.set(
-                        [redis_key.clone(), b":".to_vec(), block_hash.0.to_vec()].concat(),
+                        [redis_key, b":".to_vec(), block_hash.0.to_vec()].concat(),
                         value_vec,
                     )?;
                     println!("Contract written: {}", account_id);
@@ -272,7 +272,7 @@ fn iterate_over_records(
             .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         let mut indices = DelayedReceiptsTracker::new();
-        for item in trie.disk_iter().unwrap() {
+        for item in trie.disk_iter() {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(&key, value) {
                 if !should_include_record(&sr, &account_allowlist) {

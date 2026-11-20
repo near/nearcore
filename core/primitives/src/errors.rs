@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::{BlockHeight, NonceIndex, ProtocolVersion, ShardId};
+use near_primitives_core::types::{BlockHeight, Compute, NonceIndex, ProtocolVersion, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;
@@ -69,8 +69,16 @@ pub enum RuntimeError {
     StorageError(StorageError),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
+    /// An invariant of the execution was broken, e.g. by a receipt that honest execution never
+    /// produces. Unlike `StorageError::StorageInconsistentState`, it does not mean that the
+    /// storage is corrupted. The message is for debugging purposes only.
+    ExecutionInvariantBroken(String),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// An external contract call was run on a trie that doesn't record the storage proof, so
+    /// what the call records can't be capped. A bug in the node: a chunk is always applied on a
+    /// trie that records, by its producer and by the validators that replay it.
+    ExternalCallWithoutRecorder,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -172,6 +180,12 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String) = 4,
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String) = 5,
+    /// A read would record more of the trie than the recording budget set on it allows.
+    /// See `TrieUpdate::with_recording_budget`.
+    RecordingBudgetExceeded {
+        /// The budget, in bytes of recorded storage proof.
+        limit: u64,
+    } = 6,
 }
 
 impl std::fmt::Display for StorageError {
@@ -203,6 +217,31 @@ pub enum DepositCostFailureReason {
     LackBalanceForState = 1,
 }
 
+/// A share of a chunk's limits that its external calls used up, with what the chunk's earlier
+/// external calls used and the share.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+#[borsh(use_discriminant = true)]
+#[repr(u8)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum ExternalCallChunkLimit {
+    /// The compute used by the chunk's earlier external calls reached their share of the chunk's
+    /// compute limit.
+    Compute { used: Compute, limit: Compute } = 0,
+    /// The storage proof recorded by the chunk's earlier external calls reached their share of
+    /// the chunk's storage proof limit.
+    StorageProof { used: u64, limit: u64 } = 1,
+}
+
 /// An error happened during TX execution
 #[derive(
     BorshSerialize,
@@ -214,6 +253,7 @@ pub enum DepositCostFailureReason {
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
+    strum::IntoStaticStr,
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -314,6 +354,50 @@ pub enum InvalidTxError {
         cost: Balance,
         reason: DepositCostFailureReason,
     } = 20,
+    /// The target of an external contract call has no contract, or no account.
+    ContractNotFound {
+        contract_id: AccountId,
+    } = 21,
+    /// An external contract call didn't run because the chunk's external calls reached one of
+    /// their shares of the chunk's limits.
+    ExternalCallChunkShareReached {
+        /// The share that was reached: what the chunk's earlier external calls used, and the
+        /// share.
+        share: ExternalCallChunkLimit,
+    } = 22,
+}
+
+impl InvalidTxError {
+    /// Whether a transaction that fails with this error still uses its nonce. Only a gas key
+    /// transaction whose deposit fails does: it pays for its gas. Any other failure leaves the
+    /// state as it was.
+    pub fn uses_nonce(&self) -> bool {
+        match self {
+            InvalidTxError::NotEnoughBalanceForDeposit { .. } => true,
+            InvalidTxError::InvalidAccessKeyError(_)
+            | InvalidTxError::InvalidSignerId { .. }
+            | InvalidTxError::SignerDoesNotExist { .. }
+            | InvalidTxError::InvalidNonce { .. }
+            | InvalidTxError::NonceTooLarge { .. }
+            | InvalidTxError::InvalidReceiverId { .. }
+            | InvalidTxError::InvalidSignature
+            | InvalidTxError::NotEnoughBalance { .. }
+            | InvalidTxError::LackBalanceForState { .. }
+            | InvalidTxError::CostOverflow
+            | InvalidTxError::InvalidChain
+            | InvalidTxError::Expired
+            | InvalidTxError::ActionsValidation(_)
+            | InvalidTxError::TransactionSizeExceeded { .. }
+            | InvalidTxError::InvalidTransactionVersion
+            | InvalidTxError::StorageError(_)
+            | InvalidTxError::ShardCongested { .. }
+            | InvalidTxError::ShardStuck { .. }
+            | InvalidTxError::InvalidNonceIndex { .. }
+            | InvalidTxError::NotEnoughGasKeyBalance { .. }
+            | InvalidTxError::ContractNotFound { .. }
+            | InvalidTxError::ExternalCallChunkShareReached { .. } => false,
+        }
+    }
 }
 
 impl From<StorageError> for InvalidTxError {
@@ -486,7 +570,8 @@ pub enum ActionsValidationError {
         length: u64,
         limit: u64,
     } = 24,
-    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`.
+    /// The bytes in `RawStateInit` do not decode into `UniversalStateInit`, or they are not the
+    /// canonical representation of the struct.
     MalformedUniversalStateInit = 25,
     /// The transaction includes a feature that was removed at or before the
     /// current protocol version. The counterpart of
@@ -509,6 +594,16 @@ pub enum ActionsValidationError {
         number_of_entries: u64,
         limit: u64,
     } = 29,
+    /// A transfer to a universal account while transfers to them are banned.
+    TransferToUniversalAccountNotAllowed {
+        account_id: AccountId,
+    } = 30,
+    /// The `AddKey` actions in one receipt add more gas key nonces in total than
+    /// allowed.
+    TotalNumberOfGasKeyNoncesAddedExceeded {
+        number_of_nonces: u64,
+        limit: u64,
+    } = 31,
 }
 
 /// Describes the error for validating a receipt.
@@ -545,6 +640,10 @@ pub enum ReceiptValidationError {
     ReceiptSizeExceeded { size: u64, limit: u64 } = 7,
     /// The `refund_to` of an ActionReceipt is not valid.
     InvalidRefundTo { account_id: String } = 8,
+    /// A `PromiseYield` receipt must have exactly one input data dependency.
+    InvalidPromiseYieldInputDataCount { number_of_input_data_dependencies: u64 } = 9,
+    /// The same input data id is listed more than once in an ActionReceipt.
+    DuplicateInputDataId { data_id: CryptoHash } = 10,
 }
 
 impl Display for ReceiptValidationError {
@@ -583,6 +682,20 @@ impl Display for ReceiptValidationError {
             }
             ReceiptValidationError::InvalidRefundTo { account_id } => {
                 write!(f, "The refund_to `{}` of an ActionReceipt is not valid.", account_id)
+            }
+            ReceiptValidationError::InvalidPromiseYieldInputDataCount {
+                number_of_input_data_dependencies,
+            } => write!(
+                f,
+                "A PromiseYield receipt must have exactly one input data dependency, got {}",
+                number_of_input_data_dependencies
+            ),
+            ReceiptValidationError::DuplicateInputDataId { data_id } => {
+                write!(
+                    f,
+                    "The input data id {} is listed more than once in an ActionReceipt",
+                    data_id
+                )
             }
         }
     }
@@ -747,7 +860,10 @@ impl Display for ActionsValidationError {
                 )
             }
             ActionsValidationError::MalformedUniversalStateInit => {
-                write!(f, "RawStateInit bytes do not decode properly into UniversalStateInit")
+                write!(
+                    f,
+                    "RawStateInit bytes are not a canonical borsh encoding of UniversalStateInit"
+                )
             }
             ActionsValidationError::TotalNumberOfStateInitKeysExceeded {
                 number_of_keys,
@@ -765,6 +881,18 @@ impl Display for ActionsValidationError {
                 write!(
                     f,
                     "the state inits in this receipt carry {number_of_entries} storage entries in total but at most {limit} is allowed",
+                )
+            }
+            ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
+                write!(f, "transfers to the universal account {account_id} are not allowed yet")
+            }
+            ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded {
+                number_of_nonces,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "the actions in this receipt add {number_of_nonces} gas key nonces in total but at most {limit} is allowed",
                 )
             }
         }
@@ -806,6 +934,7 @@ impl std::error::Error for ActionError {}
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
+    strum::IntoStaticStr,
 )]
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
@@ -951,9 +1080,9 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     } = 28,
-    /// The bytes of a `UniversalStateInit` action do not decode into a state init.
-    /// Action validation rejects such an action before it runs, so this only fires
-    /// if that check was bypassed.
+    /// The bytes of a `UniversalStateInit` action are not the canonical borsh of a
+    /// state init. Action validation rejects such an action before it runs, so this
+    /// only fires if that check was bypassed.
     MalformedUniversalStateInit = 29,
     /// The action needs a set-up account, but the receiver is an uninitialized
     /// universal account. Distinct from `AccountDoesNotExist`: the account is
@@ -961,6 +1090,17 @@ pub enum ActionErrorKind {
     AccountNotInitialized {
         account_id: AccountId,
     } = 30,
+    /// A `FunctionCall` action called the method reserved for external contract calls.
+    /// That method only runs in an external call or a view call.
+    ReservedMethodName {
+        method_name: String,
+    } = 31,
+    /// The actions in the receipt removed more gas key nonces than
+    /// `max_gas_key_nonces_removed_per_receipt` allows.
+    TotalNumberOfGasKeyNoncesRemovedExceeded {
+        number_of_nonces: u64,
+        limit: u64,
+    } = 32,
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -1066,6 +1206,25 @@ impl Display for InvalidTxError {
                     ),
                 }
             }
+            InvalidTxError::ContractNotFound { contract_id } => {
+                write!(f, "account {:?} does not hold a contract", contract_id)
+            }
+            InvalidTxError::ExternalCallChunkShareReached {
+                share: ExternalCallChunkLimit::Compute { used, limit },
+            } => write!(
+                f,
+                "external calls in the chunk used {} of compute, reaching their share of {}",
+                Gas::from_gas(*used),
+                Gas::from_gas(*limit)
+            ),
+            InvalidTxError::ExternalCallChunkShareReached {
+                share: ExternalCallChunkLimit::StorageProof { used, limit },
+            } => write!(
+                f,
+                "external calls in the chunk recorded {} bytes of storage proof, reaching their \
+                 share of {} bytes",
+                used, limit
+            ),
         }
     }
 }
@@ -1320,6 +1479,19 @@ impl Display for ActionErrorKind {
                 f,
                 "Can't complete the action because account {:?} is uninitialized",
                 account_id
+            ),
+            ActionErrorKind::ReservedMethodName { method_name } => write!(
+                f,
+                "Method {:?} is reserved for external contract calls and can't be called by a FunctionCall action",
+                method_name
+            ),
+            ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded {
+                number_of_nonces,
+                limit,
+            } => write!(
+                f,
+                "Receipt removed {} gas key nonces but at most {} is allowed",
+                number_of_nonces, limit
             ),
         }
     }
@@ -1633,7 +1805,7 @@ pub enum HostError {
     /// otherwise well-sized inputs return 0 from the host function instead of
     /// aborting.
     MlDsaVerifyInvalidInput { msg: String } = 34,
-    /// `method_name` is not allowed in external contract calls
+    /// `method_name` is not allowed in external contract calls, or in the receipts they lead to
     ProhibitedInExternalCall { method_name: String } = 35,
     /// An external contract call has an attached deposit, which it cannot have
     DepositInExternalCall = 36,

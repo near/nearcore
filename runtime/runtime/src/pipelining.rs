@@ -1,4 +1,5 @@
 use crate::cache_warming::{cache_keys_differ, spawn_lazy_cache_warming};
+use crate::contract_code::RuntimeContractIdentifier;
 use crate::contract_preparation::{
     ContractPreparation, prepare_contract_metadata, prepare_function_call,
 };
@@ -99,11 +100,20 @@ struct PrepareTask {
     status: Mutex<PrepareTaskStatus>,
     condvar: Condvar,
     created: Instant,
-    /// Hash of the contract identifier captured at submit time.
+    /// Contract identifier the receiver resolved to at submit time.
     ///
-    /// Defense in depth: if the receiver's code hash unexpectedly changes between
-    /// preparation and execution, the stale prepared artifact is discarded.
-    expected_hash: CryptoHash,
+    /// `get_contract` uses the task only for a call that resolves to the same
+    /// identifier. Equal code hashes are not enough. The pool thread reads
+    /// the code by hash as soon as the task is submitted. If the receiver
+    /// switches within the chunk to another identifier, and a deploy later
+    /// in the chunk puts the same bytes under it, the hashes match but the
+    /// read ran before the deploy. A chunk validator has that code only from
+    /// the deploy: `record_contract_call` announces no code that the
+    /// pre-chunk trie lacks under the call's identifier. So on a validator
+    /// whose compiled contract cache lacks the code, the read fails, and the
+    /// failure is stored in the task. Rejecting the task prepares the call
+    /// inline, after the deploy.
+    identifier: RuntimeContractIdentifier,
 }
 
 enum PrepareTaskStatus {
@@ -170,6 +180,7 @@ impl ReceiptPreparationPipeline {
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
             ReceiptEnum::ActionV2(a) | ReceiptEnum::PromiseYieldV2(a) => &a.actions,
+            ReceiptEnum::ActionV3(a) | ReceiptEnum::PromiseYieldV3(a) => &a.actions,
             ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
                 self.block_global_contracts.insert(global_contract_data.id().clone());
                 return false;
@@ -269,25 +280,26 @@ impl ReceiptPreparationPipeline {
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
                     let created = Instant::now();
-                    let expected_hash = code_ext.identifier.hash();
                     let task = Arc::new(PrepareTask {
                         status,
                         condvar: Condvar::new(),
                         created,
-                        expected_hash,
+                        identifier: code_ext.identifier.clone(),
                     });
                     self.map.insert(key, Arc::clone(&task));
                     PIPELINING_ACTIONS_SUBMITTED.inc_by(1);
                     let shard_id = self.shard_id;
                     let priority = self.priority;
                     contract_compilation_pool().spawn_boxed(Box::new(move || {
-                        let task_status = {
+                        {
+                            // Only claim a task nobody has started. Overwriting any other status
+                            // would lose a result or a wakeup of the thread waiting for it.
                             let mut status = task.status.lock();
-                            std::mem::replace(&mut *status, PrepareTaskStatus::Working)
-                        };
-                        let PrepareTaskStatus::Pending = task_status else {
-                            return;
-                        };
+                            let PrepareTaskStatus::Pending = *status else {
+                                return;
+                            };
+                            *status = PrepareTaskStatus::Working;
+                        }
                         PIPELINING_ACTIONS_TASK_DELAY_TIME
                             .inc_by(task.created.elapsed().as_secs_f64());
                         let start = Instant::now();
@@ -339,7 +351,8 @@ impl ReceiptPreparationPipeline {
             account_id,
             account,
             state_update,
-            function_call,
+            &function_call.method_name,
+            function_call.gas,
             // TODO(ecc): Make speculative preparation work for ECC
             &ExecutionMode::Internal,
             access,
@@ -372,6 +385,10 @@ impl ReceiptPreparationPipeline {
                 .actions
                 .get(action_index)
                 .expect("indexing receipt actions by an action_index failed!"),
+            ReceiptEnum::ActionV3(r) | ReceiptEnum::PromiseYieldV3(r) => r
+                .actions
+                .get(action_index)
+                .expect("indexing receipt actions by an action_index failed!"),
             ReceiptEnum::GlobalContractDistribution(_)
             | ReceiptEnum::Data(_)
             | ReceiptEnum::PromiseResume(_) => {
@@ -384,10 +401,7 @@ impl ReceiptPreparationPipeline {
         let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
         // The receipt hash and action index already identify the prepaid gas budget.
         // The caller handles early aborts, including absent code, before this path.
-        let Some(task) = self.map.get(&key).filter(|t| {
-            // Identical code hashes imply identical source bytes and length.
-            t.expected_hash == code_ext.identifier.hash()
-        }) else {
+        let Some(task) = self.map.get(&key).filter(|t| t.identifier == code_ext.identifier) else {
             let start = Instant::now();
             if !self.block_accounts.contains(account_id) {
                 tracing::debug!(

@@ -5,7 +5,7 @@ use anyhow::{Context, anyhow, bail};
 use bytesize::ByteSize;
 use near_async::thread_pool::background_runtime_tasks;
 use near_async::time::{Clock, Duration};
-use near_chain::runtime::{NightshadeRuntime, RuntimeOptions};
+use near_chain::runtime::{ExternalCallCache, NightshadeRuntime, RuntimeOptions};
 use near_chain_configs::test_utils::{
     TESTING_INIT_BALANCE, TESTING_INIT_STAKE, add_account_with_key, add_protocol_account,
     random_chain_id,
@@ -21,19 +21,19 @@ use near_chain_configs::{
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, ProtocolVersionCheckConfig, ReshardingConfig,
     StateSyncConfig, TRANSACTION_VALIDITY_PERIOD, TrackedShardsConfig,
     default_block_request_timeout, default_chunk_validation_threads, default_chunk_wait_mult,
-    default_chunks_cache_height_horizon, default_enable_early_prepare_transactions,
-    default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_request_server_threads, default_state_request_throttle_period,
-    default_state_requests_per_throttle_period, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_transaction_pool_strict_nonce_ttl_blocks, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_access_keys_limit, default_view_client_threads,
-    get_initial_supply,
+    default_chunks_cache_height_horizon, default_ecc_pool_size_share, default_ecc_time_share,
+    default_enable_early_prepare_transactions, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_request_server_threads,
+    default_state_request_throttle_period, default_state_requests_per_throttle_period,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_transaction_pool_strict_nonce_ttl_blocks,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_access_keys_limit, default_view_client_threads, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -158,6 +158,8 @@ pub struct Consensus {
     #[serde(with = "near_async::time::serde_duration_as_std")]
     #[serde(alias = "state_sync_external_timeout")]
     pub block_request_timeout: Duration,
+    /// How long to wait for a response from p2p state sync. Values above 15s don't help, because
+    /// a connection is closed once nothing has been sent or received on it for 15s.
     #[serde(default = "default_state_sync_p2p_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_p2p_timeout: Duration,
@@ -387,6 +389,16 @@ pub struct Config {
     #[serde(default)]
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    /// The share of `produce_chunk_add_transactions_time_limit` that ECCs may take when a chunk is
+    /// produced, as `[numerator, denominator]`. Signed transactions go first, and ECCs get what
+    /// they leave of the limit, but no more than this share of it. 1/2 if not set. Zero keeps ECCs
+    /// out of chunks. Can be changed while the node is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ecc_time_share: Option<Rational32>,
+    /// The share of `transaction_pool_size_limit` that ECCs may fill, as `[numerator,
+    /// denominator]`. 1/10 if not set. Zero keeps ECCs out of the pool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ecc_pool_size_share: Option<Rational32>,
     /// Optional config for the Chunk Distribution Network feature.
     ///
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
@@ -522,6 +534,8 @@ impl Default for Config {
             disable_tx_routing: false,
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
+            ecc_time_share: None,
+            ecc_pool_size_share: None,
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
@@ -651,6 +665,7 @@ impl Config {
         None
     }
 
+    #[cfg_attr(not(feature = "json_rpc"), allow(unused_variables))]
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
@@ -831,6 +846,13 @@ impl NearConfig {
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",
                 ),
+                ecc_time_share: MutableConfigValue::new(
+                    config.ecc_time_share.unwrap_or_else(default_ecc_time_share),
+                    "ecc_time_share",
+                ),
+                ecc_pool_size_share: config
+                    .ecc_pool_size_share
+                    .unwrap_or_else(default_ecc_pool_size_share),
                 chunk_distribution_network: config.chunk_distribution_network,
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
@@ -926,6 +948,17 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
+        Self::from_config_with_external_call_cache(home_dir, store, config, epoch_manager, None)
+    }
+
+    /// Like [`NightshadeRuntimeExt::from_config`], sharing `external_call_cache` if it is given.
+    pub fn from_config_with_external_call_cache(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        external_call_cache: Option<ExternalCallCache>,
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         #[allow(clippy::or_fun_call)] // Closure cannot return reference to a temporary value
         let hot_store_path =
             home_dir.join(config.config.store.path.as_ref().unwrap_or(&"data".into()));
@@ -945,6 +978,7 @@ impl NightshadeRuntime {
             config,
             epoch_manager,
             state_snapshot_config,
+            external_call_cache,
         )
     }
 
@@ -958,6 +992,7 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         state_snapshot_config: StateSnapshotConfig,
+        external_call_cache: Option<ExternalCallCache>,
     ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
@@ -987,6 +1022,7 @@ impl NightshadeRuntime {
             RuntimeOptions {
                 is_cloud_archival_writer: config.client_config.cloud_archival_writer.is_some(),
                 save_receipt_to_tx: config.client_config.save_receipt_to_tx,
+                external_call_cache,
             },
         ))
     }
@@ -1461,6 +1497,13 @@ pub fn create_localnet_configs_from_seeds(
     (configs, validator_signers, network_signers, genesis)
 }
 
+/// Makes the node its own TIER1 proxy at `addr`, the local address it listens on. A validator
+/// advertises the address in its account data, and the other validators connect to it over TIER1.
+fn set_local_tier1_proxy(config: &mut Config, addr: SocketAddr, node_key: PublicKey) {
+    config.network.public_addrs = vec![PeerAddr { addr, peer_id: PeerId::new(node_key) }];
+    config.network.allow_private_ip_in_public_addrs = true;
+}
+
 fn create_localnet_config(
     num_validators: NumSeats,
     tracked_shards_config: &TrackedShardsConfig,
@@ -1477,13 +1520,12 @@ fn create_localnet_config(
         std::cmp::min(num_validators as usize - 1, config.consensus.min_num_peers);
 
     // Configure networking and RPC endpoint. Enable debug-RPC by default for all nodes.
-    config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
+    #[cfg(feature = "json_rpc")]
+    {
+        config.rpc.get_or_insert_with(Default::default).enable_debug_rpc = true;
+    }
     config.network.addr = network_config.0.to_string();
-    config.network.public_addrs = vec![PeerAddr {
-        addr: network_config.0,
-        peer_id: PeerId::new(network_config.1.public_key()),
-    }];
-    config.network.allow_private_ip_in_public_addrs = true;
+    set_local_tier1_proxy(&mut config, network_config.0, network_config.1.public_key());
     config.network.tier1.connect_interval = Duration::seconds(5);
     config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.network.boot_nodes = if params.is_boot {
@@ -1827,6 +1869,8 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
+    set_local_tier1_proxy(&mut config, *addr, signer.public_key());
+    config.network.tier1.connect_interval = Duration::seconds(1);
     NearConfig::new(
         config,
         genesis,

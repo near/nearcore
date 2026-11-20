@@ -13,6 +13,7 @@
 #![allow(clippy::all)]
 
 #[allow(unused)]
+#[link(wasm_import_module = "env")]
 extern "C" {
     // #############
     // # Registers #

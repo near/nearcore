@@ -577,7 +577,7 @@ impl ClientActor {
                     self.client.chain.get_block_header(&block_hash)?
                 };
                 let block = if block_hash == CryptoHash::default() {
-                    Some(self.client.chain.genesis_block().clone())
+                    Some(self.client.chain.genesis_block())
                 } else {
                     self.client.chain.get_block(&block_hash).ok()
                 };
@@ -961,7 +961,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: d.timestamp,
+                timestamp: d.timestamp_utc(),
             })
             .collect(),
         tier1_connections: network_info

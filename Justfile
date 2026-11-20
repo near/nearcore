@@ -3,7 +3,7 @@
 platform_excludes := if os() == "macos" {
     "--exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
 } else if os() == "windows" {
-    "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
+    "--exclude near-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
 } else {
     ""
 }
@@ -31,6 +31,7 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-machete \
                 check-cargo-clippy \
                 check-non-default \
+                check-nearcore-no-default-features \
                 check-cargo-udeps \
                 (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
@@ -69,6 +70,20 @@ check-non-default:
     # Ensure that near-vm-runner always builds without default features enabled
     RUSTFLAGS="-D warnings" \
     cargo check -p near-vm-runner --no-default-features
+    # Ensure that near-store builds without RocksDB (in-memory store only)
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-store --no-default-features
+    # Ensure that near-runtime builds on its own and does not pull RocksDB or cloud
+    # storage, so it can be used with only near-store's in-memory store
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-runtime
+    deps="$(cargo tree -p near-runtime -e normal --target all --prefix none --format '{p}')" \
+        && ! printf '%s\n' "$deps" | grep -E '^(rocksdb|object_store) v'
+
+# check that nearcore builds without the JSON-RPC and Rosetta RPC servers
+check-nearcore-no-default-features:
+    RUSTFLAGS="-D warnings" \
+    cargo check -p nearcore --no-default-features
 
 # check rust formatting
 check-cargo-fmt:
@@ -99,7 +114,9 @@ codecov RULE:
     # Note: macos seems to not support `source <()` as a way to set environment variables, but
     # this variant seems to work on both linux and macos.
     # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
-    cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS= > env
+    # `--no-rustc-wrapper`: the instrumentation flags come from our own wrapper below, which
+    # applies them to the workspace crates only.
+    cargo llvm-cov show-env --no-rustc-wrapper --sh | grep -v RUSTFLAGS= > env
     source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/coverage-wrapper-rustc") }}"
     {{ just_executable() }} {{ RULE }}
@@ -160,8 +177,18 @@ check-publishable-separately *OPTIONS:
             REPORT="$REPORT\n$pkg_name: SKIPPED"
             continue
         fi
+        check_args="--examples --tests {{ OPTIONS }}"
+        # near-store's RocksDB backend doesn't build on Windows, and the tests of
+        # near-store and near-runtime pull it in through dev-dependencies. Check
+        # only their libraries there, with near-store on its in-memory store.
+        if [ "{{ os() }}" == "windows" ] && [ "$pkg_name" == "near-store" ]; then
+            check_args="--no-default-features"
+        fi
+        if [ "{{ os() }}" == "windows" ] && [ "$pkg_name" == "near-runtime" ]; then
+            check_args="{{ OPTIONS }}"
+        fi
         env RUSTFLAGS="-D warnings" \
-        cargo check -p $pkg_name --examples --tests {{ OPTIONS }}
+        cargo check -p $pkg_name $check_args
         res=$?
         if [ $res -eq 0 ]; then
             REPORT="$REPORT\n$pkg_name: OK"
@@ -187,6 +214,10 @@ check-cspell:
     # You will need the cspell npm package.
     # For nixpkgs users that's `nodePackages.cspell`
     git ls-files | cspell --no-progress --file-list stdin
+
+# zizmor-based security checks of the GitHub Actions workflows
+check-zizmor:
+    zizmor --min-severity high .github/
 
 # Derives COMPOSE_PROFILES from NUM_VALIDATORS; plain `docker compose up`
 # users must sync it manually.

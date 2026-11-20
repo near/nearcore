@@ -1,5 +1,12 @@
 # Light Client
 
+> **Note:** This page is out of date and may contain errors. Do not use it as the only reference
+> when you build a light client. Have any light client implementation reviewed independently before
+> you use it in production.
+>
+> The [near/near-light-client](https://github.com/near/near-light-client) implementation is archived
+> and no longer maintained. Avoid using it.
+
 The state of the light client is defined by:
 
 1. `BlockHeaderInnerLiteView` for the current head (which contains `height`, `epoch_id`, `next_epoch_id`, `prev_state_root`, `outcome_root`, `timestamp`, the hash of the block producers set for the next epoch `next_bp_hash`, and the merkle root of all the block hashes `block_merkle_root`);
@@ -21,7 +28,11 @@ pub enum ApprovalInner {
     Skip(BlockHeight)
 }
 
-pub struct ValidatorStakeView {
+pub enum ValidatorStakeView {
+    V1(ValidatorStakeViewV1),
+}
+
+pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
     pub stake: Balance,
@@ -101,6 +112,8 @@ The light client updates its head with the information from `LightClientBlockVie
 5. The signatures present in `approvals_after_next` correspond to more than 2/3 of the total stake (see next section).
 6. If `next_bps` is not none, `sha256(borsh(next_bps))` corresponds to the `next_bp_hash` in `inner_lite`.
 
+Rule (6) hashes the borsh encoding of the list in `next_bps`. The hash does not include the `Option` around the list. The list is encoded as a u32 length followed by its entries. Each entry is encoded as the `ValidatorStakeView` enum above: a one-byte version tag (`0` for `V1`), then `account_id`, `public_key` and `stake`. In JSON, the version is the field `validator_stake_struct_version` with the value `"V1"`. Blocks produced before protocol version 49 hash the entries without the version tag.
+
 ```python
 def validate_and_update_head(block_view):
     global head
@@ -121,13 +134,14 @@ def validate_and_update_head(block_view):
         return False
 
     # (4) and (5)
-    total_stake = 0
+    epoch_block_producers = epoch_block_producers_map[block_view.inner_lite.epoch_id]
+
+    # The total includes every block producer of the epoch, including those without an entry in
+    # approvals_after_next.
+    total_stake = sum(block_producer.stake for block_producer in epoch_block_producers)
     approved_stake = 0
 
-    epoch_block_producers = epoch_block_producers_map[block_view.inner_lite.epoch_id]
     for maybe_signature, block_producer in zip(block_view.approvals_after_next, epoch_block_producers):
-        total_stake += block_producer.stake
-
         if maybe_signature is None:
             continue
 
@@ -161,7 +175,7 @@ By construction by the time the `LightClientBlockView` is being validated, the b
 
 The sum of all the stakes of `next_bps` in the previous epoch is `total_stake` referred to in (5) above.
 
-The signatures in the `LightClientBlockView::approvals_after_next` are signatures on `approval_message`. The  `i`-th signature in `approvals_after_next`, if present, must validate against the `i`-th public key in `next_bps` from the previous epoch. `approvals_after_next` can contain fewer elements than `next_bps` in the previous epoch.
+The signatures in the `LightClientBlockView::approvals_after_next` are signatures on `approval_message`. The  `i`-th signature in `approvals_after_next`, if present, must validate against the `i`-th public key in `next_bps` from the previous epoch. `approvals_after_next` can contain fewer elements than `next_bps` in the previous epoch. A block producer without an entry counts as one that did not sign, and its stake still counts in `total_stake`. nearcore nodes always produce an entry for each block producer. Block validation also accepts a shorter list, so a light client should accept one too.
 
 `approvals_after_next` can also contain more signatures than the length of `next_bps` in the previous epoch. This is due to the fact that, as per [consensus specification](./Consensus.md), the last blocks in each epoch contain signatures from both the block producers of the current epoch, and the next epoch. The trailing signatures can be safely ignored by the light client implementation.
 
@@ -217,11 +231,41 @@ verification.
 #### Execution Outcome Root Verification
 
 If the outcome root of the transaction or receipt is included in block `H`, then `outcome_proof` includes the block hash
-of `H`, as well as the merkle proof of the execution outcome in its given shard. The outcome root in `H` can be
-reconstructed by
+of `H`, as well as the merkle proof of the execution outcome in its given shard.
+
+The leaf of the outcome in this merkle tree is the hash of `execution_outcome_hashes`. This is a list of hashes. The
+first is the outcome `id`. The second is `sha256(borsh(partial_outcome))`. Then comes the `sha256` of the UTF-8 bytes
+of each log line, in the order of the logs. The list is borsh-encoded as a vector: a u32 length followed by the 32-byte
+hashes.
+
+`partial_outcome` is a `PartialExecutionOutcome` built from `outcome_proof.outcome`. It has no logs and no metadata:
+
+```rust
+pub struct PartialExecutionOutcome {
+    pub receipt_ids: Vec<CryptoHash>,
+    pub gas_burnt: Gas,
+    pub tokens_burnt: Balance,
+    pub executor_id: AccountId,
+    pub status: PartialExecutionStatus,
+}
+
+pub enum PartialExecutionStatus {
+    Unknown,                      // 0
+    Failure,                      // 1
+    SuccessValue(Vec<u8>),        // 2
+    SuccessReceiptId(CryptoHash), // 3
+}
+```
+
+The status is a `PartialExecutionStatus`, not the `ExecutionStatusView` that RPC returns. It is encoded as one
+byte for the variant, as shown in the comments. `Failure` has nothing after this byte, so the error details are not
+hashed. `SuccessValue` is followed by a u32 length and the value bytes, which RPC returns in base64.
+`SuccessReceiptId` is followed by the 32-byte receipt id.
+
+The outcome root in `H` can be reconstructed by
 
 ```python
-shard_outcome_root = compute_root(sha256(borsh(execution_outcome)), outcome_proof.proof)
+shard_outcome_root = compute_root(sha256(borsh(execution_outcome_hashes)), outcome_proof.proof)
 block_outcome_root = compute_root(sha256(borsh(shard_outcome_root)), outcome_root_proof)
 ```
 
@@ -249,6 +293,20 @@ block_merkle_root = compute_root(block_hash, block_proof)
 ```
 
 which must match the block merkle root in the light client block of the light client head.
+
+#### What a Proof Shows
+
+A verified proof shows that the outcome was committed in block `H`. It does not show that the outcome is the only one
+with its `id`.
+
+A receipt has exactly one outcome on the canonical chain. A chunk receives receipts only through the incoming receipt
+proofs that validators check, so no chunk producer can add a receipt to a chunk. A receipt outcome can be relied on
+whether it succeeded or failed.
+
+A transaction can have several. A transaction outcome that succeeded shows that the transaction ran, but one that
+failed does not show that the transaction never ran. To act on the result of a transaction, verify the outcomes of the
+receipts it produced, for example the receipt that ran on a bridge contract and logged an event. Do not treat a failed
+transaction outcome as proof that the transaction did not happen.
 
 ## RPC end-points
 

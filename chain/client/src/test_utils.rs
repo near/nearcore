@@ -13,15 +13,15 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::UpdatableClientConfig;
 use near_client_primitives::types::Error;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::Block;
+use near_primitives::block::{Approval, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk, ShardChunkWithEncoding};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::transaction::ValidatedTransaction;
-use near_primitives::types::{Balance, BlockHeight, EpochId, ShardId};
+use near_primitives::transaction::{ValidatedTransaction, ValidatedTransactionEnvelope};
+use near_primitives::types::{Balance, BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
@@ -45,9 +45,9 @@ impl Client {
         should_produce_chunk: bool,
         allow_errors: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, None)?;
+        self.start_process_block(block, provenance)?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) = self.postprocess_ready_blocks(None, should_produce_chunk);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(should_produce_chunk);
         if !allow_errors {
             assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         }
@@ -82,7 +82,7 @@ impl Client {
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(None, true).0);
+            accepted_blocks.extend(self.postprocess_ready_blocks(true).0);
         }
         accepted_blocks
     }
@@ -91,7 +91,7 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(None, true);
+            let (accepted_blocks, _) = self.postprocess_ready_blocks(true);
             return accepted_blocks;
         }
         vec![]
@@ -162,13 +162,37 @@ pub fn create_chunk(
     validated_txs: Vec<ValidatedTransaction>,
 ) -> (ProduceChunkResult, Arc<Block>) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
+    let validated_txs =
+        validated_txs.into_iter().map(ValidatedTransactionEnvelope::from).collect_vec();
+    create_chunk_on_block(client, &last_block, validated_txs)
+}
+
+/// Creates a chunk on top of `last_block` holding `validated_txs`, and the block at the next height
+/// that includes it. `last_block` need not be the head, so the block can start a fork.
+pub fn create_chunk_on_block(
+    client: &mut Client,
+    last_block: &Block,
+    validated_txs: Vec<ValidatedTransactionEnvelope>,
+) -> (ProduceChunkResult, Arc<Block>) {
     let next_height = last_block.header().height() + 1;
+    create_chunk_on_block_at_height(client, last_block, next_height, validated_txs)
+}
+
+/// Like `create_chunk_on_block`, with the block at `next_height`, which may skip heights after
+/// `last_block`. A fork block at a height past the head takes over from the head by itself.
+pub fn create_chunk_on_block_at_height(
+    client: &mut Client,
+    last_block: &Block,
+    next_height: BlockHeight,
+    validated_txs: Vec<ValidatedTransactionEnvelope>,
+) -> (ProduceChunkResult, Arc<Block>) {
+    assert!(next_height > last_block.header().height(), "the block must be above its parent");
     let signer = client.validator_signer.get().unwrap();
     let ProduceChunkResult { chunk, encoded_chunk_parts_paths: mut merkle_paths, receipts } =
         client
             .chunk_producer
             .produce_chunk(
-                &last_block,
+                last_block,
                 last_block.header().epoch_id(),
                 last_block.chunks()[0].clone(),
                 next_height,
@@ -180,12 +204,7 @@ pub fn create_chunk(
             .unwrap()
             .unwrap();
     let mut encoded_chunk = chunk.into_parts().1;
-    let signed_txs = validated_txs
-        .iter()
-        .cloned()
-        .map(|validated_tx| validated_tx.into_signed_tx())
-        .collect::<Vec<_>>();
-    let tx_root = merklize(&signed_txs).0;
+    let tx_root = merklize(&validated_txs).0;
 
     // reconstruct the chunk with changes
     {
@@ -230,7 +249,6 @@ pub fn create_chunk(
                 None,
                 &*signer,
                 &rs,
-                PROTOCOL_VERSION,
             )
         };
         let mut new_encoded_chunk = new_chunk.into_parts().1;
@@ -250,8 +268,9 @@ pub fn create_chunk(
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
 
     let signer = client.validator_signer.get().unwrap();
+    let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(last_block.hash()).unwrap();
     let endorsement =
-        ChunkEndorsement::new(EpochId::default(), &encoded_chunk.cloned_header(), signer.as_ref());
+        ChunkEndorsement::new(epoch_id, &encoded_chunk.cloned_header(), signer.as_ref());
     // Match the producer: the field is non-empty only on the epoch's last block.
     let spice_chunk_endorsement_stats = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         client
@@ -264,8 +283,21 @@ pub fn create_chunk(
     };
     let epoch_sync_data_hash =
         client.epoch_manager.compute_epoch_sync_data_hash(last_block.hash()).unwrap();
-    let block = TestBlockBuilder::from_prev_block(client.clock.clone(), &last_block, signer)
+    // The signer approves the block, as a block producer's own approval does.
+    let approval =
+        Approval::new(*last_block.hash(), last_block.header().height(), next_height, &signer);
+    let approvers =
+        client.epoch_manager.get_epoch_block_approvers_ordered(last_block.hash()).unwrap();
+    let approvals = approvers
+        .into_iter()
+        .map(|approver| {
+            let signed = approver.account_id == approval.account_id;
+            signed.then(|| Box::new(approval.signature.clone()))
+        })
+        .collect();
+    let block = TestBlockBuilder::from_prev_block(client.clock.clone(), last_block, signer)
         .height(next_height)
+        .approvals(approvals)
         .chunks(vec![encoded_chunk.cloned_header()])
         .chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature()))]])
         .max_gas_price(Balance::from_yoctonear(100))
@@ -290,7 +322,7 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         block_inside_messages.lock().push(msg);
     });
     loop {
-        client.run_catchup(&block_catch_up, None)?;
+        client.run_catchup(&block_catch_up)?;
         let mut catchup_done = true;
         for msg in block_messages.lock().drain(..) {
             let results = do_apply_chunks_sequential(

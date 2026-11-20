@@ -2,6 +2,7 @@
 use crate::block::BlockHeader;
 use crate::hash::{CryptoHash, hash};
 use crate::sharding::ChunkHash;
+use crate::transaction::TransactionEnvelope;
 use crate::types::{ChunkExecutionResultHash, ShardId};
 use crate::universal_state_init::RawStateInit;
 use chrono;
@@ -12,6 +13,7 @@ use near_primitives_core::deterministic_account_id::DeterministicAccountStateIni
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::universal_account_id::encode_universal_account_id;
 use serde;
+use std::collections::HashSet;
 use std::convert::AsRef;
 use std::fmt;
 use std::mem::size_of;
@@ -299,6 +301,46 @@ pub fn create_receipt_id_from_transaction(
     create_hash_index(tx_hash, block_height, 0)
 }
 
+/// Creates the id of an external call's outcome, from the height of its block and the call's hash
+/// computed with no state init. The same call included in two blocks gets two ids.
+///
+/// Built like a transaction's receipt id but without the receipt index, so the input is shorter
+/// than that of any id from `create_hash_index` and the two can't collide.
+pub fn create_ecc_outcome_id(
+    hash_without_state_init: &CryptoHash,
+    block_height: BlockHeight,
+) -> CryptoHash {
+    const BYTES_LEN: usize = size_of::<CryptoHash>() + size_of::<BlockHeight>();
+    let mut bytes: Vec<u8> = Vec::with_capacity(BYTES_LEN);
+    bytes.extend_from_slice(hash_without_state_init.as_ref());
+    bytes.extend_from_slice(block_height.to_le_bytes().as_ref());
+    hash(&bytes)
+}
+
+/// The outcome id of each of the chunk's `transactions`, in the block at `height`. An external call
+/// with no outcome in `outcome_ids` gets `None`.
+pub fn chunk_transaction_outcome_ids(
+    transactions: &[TransactionEnvelope],
+    height: BlockHeight,
+    outcome_ids: impl IntoIterator<Item = CryptoHash>,
+) -> Vec<Option<CryptoHash>> {
+    // A malicious producer can include the same call twice. Both copies get the same unique id,
+    // but only the first has an outcome, so an id is taken out of the set once it is used.
+    let mut call_outcome_ids: HashSet<CryptoHash> = outcome_ids.into_iter().collect();
+    let mut ids = Vec::with_capacity(transactions.len());
+    for tx in transactions {
+        let id = match tx.as_unsigned() {
+            None => Some(tx.get_hash()),
+            Some(call) => {
+                let unique_id = create_ecc_outcome_id(call.hash_without_state_init(), height);
+                call_outcome_ids.remove(&unique_id).then_some(unique_id)
+            }
+        };
+        ids.push(id);
+    }
+    ids
+}
+
 /// Creates a new Receipt ID based on original receipt id.
 pub fn create_receipt_id_from_receipt_id(
     receipt_id: &CryptoHash,
@@ -496,9 +538,10 @@ pub fn derive_near_deterministic_account_id(
 /// (FIPS-202) over exactly those bytes, encoded with the UAID address codec.
 ///
 /// **Note:** This function deliberately does not take `UniversalStateInit`, but
-/// `RawStateInit`, because account ID is committed to the exact user-supplied bytes.
-/// Re-serializing could yield a different ID, if `state_init` contained non-canonical
-/// borsh representation.
+/// `RawStateInit`, because the account ID is committed to the exact bytes. It does
+/// not check them: from `CanonicalUniversalStateInit` on only the canonical encoding
+/// is accepted (see `UniversalStateInit::from_raw_strict`), so a non-canonical encoding can
+/// derive an ID but can never create the account.
 pub fn derive_universal_account_id(state_init: &RawStateInit) -> AccountId {
     use sha3::Digest;
     let hash = sha3::Sha3_256::digest(&state_init.0).into();
@@ -532,7 +575,79 @@ pub fn get_block_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{EccTransaction, SignedTransaction};
+    use crate::universal_state_init::RawStateInit;
     use near_crypto::{KeyType, PublicKey};
+
+    /// A call repeated in a chunk gets its id once, under the one outcome apply gave it, a call with
+    /// no outcome gets none, and a signed transaction gets its hash.
+    #[test]
+    fn test_chunk_transaction_outcome_ids() {
+        let height = 7;
+        let call = EccTransaction::new("wallet.near".parse().unwrap(), vec![1]);
+        let skipped = EccTransaction::new("wallet.near".parse().unwrap(), vec![2]);
+        let signed = SignedTransaction::empty(CryptoHash::default());
+        let unique_id = create_ecc_outcome_id(call.hash(), height);
+        let transactions: Vec<TransactionEnvelope> =
+            vec![call.clone().into(), signed.clone().into(), call.into(), skipped.into()];
+
+        let ids = chunk_transaction_outcome_ids(&transactions, height, [unique_id]);
+        assert_eq!(ids, vec![Some(unique_id), Some(signed.get_hash()), None, None]);
+    }
+
+    /// A copy of a call with its state init and a copy without share one id, which only the
+    /// first gets.
+    #[test]
+    fn test_chunk_transaction_outcome_ids_with_state_init() {
+        let height = 7;
+        let without = EccTransaction::new("wallet.near".parse().unwrap(), vec![1]);
+        let with = EccTransaction::new_with_state_init(
+            without.contract_id().clone(),
+            without.payload().to_vec(),
+            Some(RawStateInit(vec![2])),
+        );
+        let unique_id = create_ecc_outcome_id(without.hash(), height);
+        let transactions: Vec<TransactionEnvelope> = vec![with.into(), without.into()];
+
+        let ids = chunk_transaction_outcome_ids(&transactions, height, [unique_id]);
+        assert_eq!(ids, vec![Some(unique_id), None]);
+    }
+
+    /// A copy's unique id is the hash of the call's bytes without its state init, starting with
+    /// the escape byte and the version, then the including block's height as u64 little endian.
+    #[test]
+    fn test_ecc_outcome_id_of_a_call() {
+        let height: BlockHeight = 7;
+        let state_init = Some(RawStateInit(vec![9]));
+        let call = EccTransaction::new_with_state_init(
+            "wallet.near".parse().unwrap(),
+            vec![1, 2],
+            state_init,
+        );
+        let mut call_bytes = vec![0xFF, 0x00];
+        call_bytes.extend_from_slice(&11u32.to_le_bytes());
+        call_bytes.extend_from_slice(b"wallet.near");
+        call_bytes.extend_from_slice(&2u32.to_le_bytes());
+        call_bytes.extend_from_slice(&[1, 2]);
+        // No state init.
+        call_bytes.push(0);
+        let mut id_bytes = hash(&call_bytes).as_ref().to_vec();
+        id_bytes.extend_from_slice(&height.to_le_bytes());
+
+        let id = create_ecc_outcome_id(call.hash_without_state_init(), height);
+        assert_eq!(id, hash(&id_bytes));
+        assert_ne!(call.hash(), call.hash_without_state_init());
+    }
+
+    #[test]
+    fn test_ecc_outcome_id() {
+        let ecc_hash = hash(b"ecc");
+        let id = create_ecc_outcome_id(&ecc_hash, 7);
+        assert_ne!(id, ecc_hash);
+        assert_ne!(id, create_receipt_id_from_transaction(&ecc_hash, 7));
+        assert_ne!(id, create_ecc_outcome_id(&ecc_hash, 8));
+        assert_ne!(id, create_ecc_outcome_id(&hash(b"other"), 7));
+    }
 
     #[test]
     fn test_derive_near_implicit_account_id() {
@@ -587,12 +702,14 @@ mod tests {
         }
     }
 
-    /// Two encodings of the same logical state init are two different accounts:
-    /// the id commits to the bytes, and nothing re-serializes a decoded value to
-    /// derive one.
+    /// The derivation commits to the bytes it is given, and nothing re-serializes a
+    /// decoded value to derive one. From `CanonicalUniversalStateInit` on, non-canonical
+    /// bytes are rejected before they get here (see `UniversalStateInit::from_raw_strict`), but
+    /// the hash itself is blind.
     #[test]
     fn test_derive_universal_account_id_is_over_raw_bytes() {
         use crate::universal_state_init::{RawStateInit, UniversalStateInit};
+        use borsh::BorshDeserialize;
 
         // V1, code: None, data {"b": "", "a": ""} written out of order, no keys.
         // Borsh accepts it and re-sorts on decode, so the typed form's own encoding
@@ -607,7 +724,7 @@ mod tests {
         bytes.extend_from_slice(&0u32.to_le_bytes());
         let raw = RawStateInit(bytes);
 
-        let decoded = UniversalStateInit::from_raw(&raw).unwrap();
+        let decoded = UniversalStateInit::try_from_slice(&raw.0).unwrap();
         assert_ne!(decoded.to_raw().0, raw.0, "fixture must be non-canonical");
         assert_ne!(
             derive_universal_account_id(&raw),

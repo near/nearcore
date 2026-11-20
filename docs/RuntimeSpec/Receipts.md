@@ -6,7 +6,7 @@ Receipts are stateful in a sense that they serve not only as messages between ac
 
 Each receipt has a [`predecessor_id`](#predecessor_id) (who sent it) and [`receiver_id`](#receiver_id) the current account.
 
-Receipts are one of 2 types: action receipts or data receipts.
+Receipts are one of these kinds: action receipts, data receipts, promise yield receipts, promise resume receipts and global contract distribution receipts.
 
 Data Receipts are receipts that contains some data for some `ActionReceipt` with the same `receiver_id`.
 Data Receipts have 2 fields: the unique data identifier `data_id` and `data` the received result.
@@ -24,6 +24,18 @@ Which means all corresponding data receipts have to be received.
 If any of the data dependencies are missing, the action receipt is postponed until all missing data dependencies arrive.
 
 Because chain and runtime guarantees that no receipts are missing, we can rely that every action receipt will be executed eventually ([Receipt Matching explanation](#receipt-matching)).
+
+A promise yield receipt is an action receipt with exactly one input `data_id`.
+A contract creates it with a yield host function such as `promise_yield_create`.
+The runtime does not postpone it like other action receipts.
+Instead, it stores the receipt under its input `data_id` and runs it when a promise resume receipt with the same `data_id` arrives.
+A promise resume receipt is a data receipt.
+A contract creates it with a resume host function such as `promise_yield_resume`.
+If the yield is not resumed before it times out, the runtime creates a promise resume receipt with no data.
+
+A global contract distribution receipt carries the code of a global contract.
+A [`DeployGlobalContractAction`](Actions.md#deployglobalcontractaction) creates it.
+When the receipt is applied on a shard, the runtime stores the code there. It then sends a new distribution receipt to the next shard, until every shard has the code. Its `receiver_id` is `system`. The runtime sends it to the shard named in the receipt, not to the shard of an account.
 
 Each `Receipt` has the following fields:
 
@@ -48,9 +60,30 @@ An unique id for the receipt.
 
 #### receipt
 
-- **`type`**: [ActionReceipt](#actionreceipt) | [DataReceipt](#datareceipt)
+- **`type`**: `ReceiptEnum`
 
-There are 2 types of Receipt: [ActionReceipt](#actionreceipt) and [DataReceipt](#datareceipt). An `ActionReceipt` is a request to apply [Actions](Actions.md), while a `DataReceipt` is a result of the application of these actions.
+```rust
+pub enum ReceiptEnum {
+    Action(ActionReceipt) = 0,
+    Data(DataReceipt) = 1,
+    PromiseYield(ActionReceipt) = 2,
+    PromiseResume(DataReceipt) = 3,
+    GlobalContractDistribution(GlobalContractDistributionReceipt) = 4,
+    ActionV2(ActionReceiptV2) = 5,
+    PromiseYieldV2(ActionReceiptV2) = 6,
+    ActionV3(ActionReceiptV3) = 7,
+    PromiseYieldV3(ActionReceiptV3) = 8,
+}
+```
+
+An [ActionReceipt](#actionreceipt) is a request to apply [Actions](Actions.md), while a [DataReceipt](#datareceipt) is a result of the application of these actions.
+`PromiseYield`, `PromiseResume` and `GlobalContractDistribution` are the receipts described above.
+`ActionV2` and `PromiseYieldV2` carry an `ActionReceiptV2`, which has the fields of `ActionReceipt` plus `refund_to`.
+If `refund_to` is set, deposit refunds for the receipt go to that account instead of `predecessor_id`.
+Action receipts that contracts create in a chain a signed transaction started use these V2 kinds.
+`ActionV3` and `PromiseYieldV3` carry an `ActionReceiptV3`, which has the fields of `ActionReceiptV2` with `authorization_context` in place of `signer_public_key`.
+`authorization_context` is `AccessKey(PublicKey)` or `ExternalContractCall`, and the action receipts and gas refunds in a chain an external call started use these V3 kinds with `ExternalContractCall`.
+A deposit refund comes from `system` in every chain, as an `Action` receipt.
 
 ## ActionReceipt
 
@@ -74,7 +107,13 @@ In case of a deposit refund, the public key is empty (all bytes are 0).
 
 - **`type`**: `u128`
 
-Gas price which was set in a block where the original [transaction](Transactions.md) has been applied.
+The price per unit of gas at which the gas attached to this receipt was bought.
+For a receipt created from a [transaction](Transactions.md), it is the higher of the gas price of the block where the transaction was converted into the receipt and the `min_gas_purchase_price` runtime parameter.
+From protocol version 85 (nearcore 2.13.0), `min_gas_purchase_price` is 10^9 yoctoNEAR per gas. Before that, it was 0.
+From protocol version 85 (nearcore 2.13.0), the receipt burns gas at the lower of this price and the gas price of the block where it is executed.
+The price difference is refunded, except for the account creation charge when the receipt creates an account (see [Refunds](Refunds.md)).
+A receipt created while another receipt is executed, for example by a contract call or a delegate action, has the same gas price as that receipt.
+Refund receipts have a gas price of 0.
 
 #### output_data_receivers
 
@@ -90,7 +129,7 @@ If smart contract finishes its execution with some value (not Promise), runtime 
 
 #### actions
 
-- **`type`**: [`FunctionCall`](Actions.md#functioncallaction) | [`TransferAction`](Actions.md#transferaction) | [`StakeAction`](Actions.md#stakeaction) | [`AddKeyAction`](Actions.md#addkeyaction) | [`DeleteKeyAction`](Actions.md#deletekeyaction) | [`CreateAccountAction`](Actions.md#createaccountaction) | [`DeleteAccountAction`](Actions.md#deleteaccountaction)
+- **`type`**: `Vec<Action>`. See [Actions](Actions.md) for the action kinds.
 
 ## DataReceipt
 
@@ -226,13 +265,9 @@ Receipt {
 ```
 
 ```python
-data_receipts["alice,e5fa44"] = borsh_serialize(Receipt{
-    receiver_id: "alice",
-    receipt: DataReceipt {
-        data_id: "e5fa44",
-        data: "some data for alice",
-    }
-};
+data_receipts["alice,e5fa44"] = borsh_serialize(ReceivedData{
+    data: "some data for alice",
+});
 pending_data_receipt_count["alice,5e73d4"] = 1`
 del pending_data_receipt_store["alice,e5fa44"]
 ```
@@ -251,14 +286,10 @@ Receipt{
 ```
 
 ```python
-data_receipts["alice,7448d8"] = borsh_serialize(Receipt{
-    receiver_id: "alice",
-    receipt: DataReceipt {
-        data_id: "7448d8",
-        data: "some more data for alice",
-    }
-};
-postponed_receipt_id = pending_data_receipt_store["alice,5e73d4"]
+data_receipts["alice,7448d8"] = borsh_serialize(ReceivedData{
+    data: "some more data for alice",
+});
+postponed_receipt_id = pending_data_receipt_store["alice,7448d8"]
 postponed_receipt = postponed_receipts[postponed_receipt_id]
 del postponed_receipts[postponed_receipt_id]
 del pending_data_receipt_count["alice,5e73d4"]
@@ -278,8 +309,17 @@ mainly two types of errors:
 
 ```rust
 /// The `receiver_id` of a Receipt is not valid.
-InvalidReceiverId { account_id: AccountId },
+InvalidReceiverId { account_id: String },
 ``` 
+
+error is returned.
+
+- refund receiver is invalid. If the `refund_to` of the receipt is set and is not a valid account id, a
+
+```rust
+/// The `refund_to` of an ActionReceipt is not valid.
+InvalidRefundTo { account_id: String },
+```
 
 error is returned.
 

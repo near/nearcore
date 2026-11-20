@@ -1,5 +1,4 @@
-//! Sticky-by-`ShardId` validator assignment across reshardings, gated behind
-//! `ProtocolFeature::StickyReshardingValidatorAssignment`. Implements the
+//! Sticky-by-`ShardId` validator assignment across reshardings. Implements the
 //! `AssignmentStrategy::StickyResharding` constructor, the bin-pack used to
 //! distribute a parent's validators across split children, and the dispatch
 //! helper called by `get_initial_chunk_producer_assignment` when the strategy
@@ -210,8 +209,6 @@ mod tests {
     /// the path that synthetic test layouts (`multi_shard`) take to keep
     /// unrelated tests from failing on nightly.
     fn test_select_falls_back_to_fresh_for_non_derived_layouts() {
-        use near_primitives::version::PROTOCOL_VERSION;
-
         let prev_layout = ShardLayout::v2(
             vec!["aa".parse().unwrap()],
             vec![ShardId::new(0), ShardId::new(1)],
@@ -227,7 +224,7 @@ mod tests {
         // and select swallows the error and returns Fresh.
         assert!(AssignmentStrategy::sticky_resharding(&new_layout, &prev_layout).is_err());
         assert!(matches!(
-            AssignmentStrategy::select(PROTOCOL_VERSION, &prev_layout, &new_layout),
+            AssignmentStrategy::select(&prev_layout, &new_layout),
             AssignmentStrategy::Fresh,
         ));
     }

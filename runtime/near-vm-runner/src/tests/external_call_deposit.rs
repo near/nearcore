@@ -40,7 +40,7 @@ fn run_external_call(attached_deposit: Balance) -> VMOutcome {
     let context = VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "alice".parse().unwrap(),
-        signer_account_pk: vec![],
+        signer_account_pk: None,
         predecessor_account_id: "alice".parse().unwrap(),
         refund_to_account_id: "alice".parse().unwrap(),
         input: Rc::from(Vec::new()),
@@ -55,7 +55,7 @@ fn run_external_call(attached_deposit: Balance) -> VMOutcome {
         attached_deposit,
         prepaid_gas: Gas::ZERO,
         random_seed: vec![0, 1, 2],
-        execution_mode: ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) },
+        execution_mode: ExecutionMode::External { fee_gas: Gas::ZERO },
         output_data_receivers: vec![],
     };
 

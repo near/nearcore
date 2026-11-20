@@ -391,7 +391,7 @@ impl Chain {
         &mut self,
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
+        apply_chunks_done_sender: ApplyChunksDoneSender,
     ) {
         let _span = debug_span!(
             target: "chain",

@@ -15,7 +15,6 @@ use near_primitives::utils::{
     index_to_bytes,
 };
 use std::collections::HashSet;
-use std::io;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -136,10 +135,9 @@ impl Into<StoreUpdate> for ChunkStoreUpdateAdapter<'static> {
 }
 
 impl ChunkStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
         store_update.commit();
-        Ok(())
     }
 }
 

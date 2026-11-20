@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{AccountId, Balance, Nonce, NonceIndex};
-use node_runtime::config::tx_cost;
+use near_runtime::config::tx_cost;
 use parking_lot::Mutex;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
@@ -200,6 +200,9 @@ impl PendingTransactionQueue {
     }
 
     /// Add transactions from a newly accepted block's chunk.
+    // TODO(spice): track ECCs too, and allow one ECC in flight per contract. The
+    // producer's dry run of a second ECC to the same contract would see state that the first one
+    // is about to change. Not reachable until the producer packs ECCs.
     pub fn add_chunk_transactions<'a>(
         &mut self,
         block_hash: CryptoHash,

@@ -10,7 +10,7 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
-use near_primitives::sharding::{ReceiptProof, ShardProof};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId, SpiceChunkId};
@@ -20,7 +20,6 @@ use near_primitives::utils::{
 };
 use near_primitives::views::LightClientBlockView;
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::sync::{Arc, OnceLock};
 
 #[derive(Clone)]
@@ -165,12 +164,14 @@ impl ChainStoreAdapter {
         self.store.exists(DBCol::Block, h.as_ref())
     }
 
+    /// Get block header, if stored.
+    pub fn get_block_header_if_exists(&self, h: &CryptoHash) -> Option<Arc<BlockHeader>> {
+        self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref())
+    }
+
     /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
-        option_to_not_found(
-            self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref()),
-            format_args!("BLOCK HEADER: {}", h),
-        )
+        option_to_not_found(self.get_block_header_if_exists(h), format_args!("BLOCK HEADER: {}", h))
     }
 
     /// Get block height.
@@ -223,6 +224,31 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::NextBlockHashes, hash.as_ref()),
             format_args!("NEXT BLOCK HASH: {}", hash),
         )
+    }
+
+    /// The height of the canonical block that includes `chunk`, which the unique ids of its
+    /// external calls need. `None` when it holds none, or no block on the canonical chain
+    /// includes it: a fork block, or none at all. That block can only be a child of the block
+    /// the chunk was made on.
+    // TODO(spice): look for a fork block in `all_next_block_hashes`.
+    pub fn get_external_call_height_included(
+        &self,
+        chunk: &ShardChunk,
+    ) -> Result<Option<BlockHeight>, Error> {
+        if !chunk.to_transactions().iter().any(|tx| tx.as_unsigned().is_some()) {
+            return Ok(None);
+        }
+        let block_hash = match self.get_next_block_hash(chunk.prev_block()) {
+            Ok(block_hash) => block_hash,
+            Err(Error::DBNotFoundErr(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        let block = self.get_block(&block_hash)?;
+        let included = block
+            .chunks()
+            .iter()
+            .any(|header| header.is_new_chunk() && header.chunk_hash() == chunk.chunk_hash());
+        Ok(included.then(|| block.header().height()))
     }
 
     pub fn get_outgoing_receipts(
@@ -362,6 +388,24 @@ impl ChainStoreAdapter {
             .get_ser(DBCol::TransactionResultForBlock, &get_outcome_id_block_hash(id, block_hash))
     }
 
+    /// Whether `outcome_id` in block `block_hash` is a transaction's outcome rather than a receipt's.
+    pub fn is_transaction_outcome(&self, outcome_id: &CryptoHash, block_hash: &CryptoHash) -> bool {
+        self.store.exists(DBCol::Transactions, outcome_id.as_ref())
+            || self.get_external_call_hash(outcome_id, block_hash).is_some()
+    }
+
+    /// The hash of the external call whose copy in block `block_hash` has unique id `unique_id`.
+    pub fn get_external_call_hash(
+        &self,
+        unique_id: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Option<CryptoHash> {
+        self.store.get_ser(
+            DBCol::ExternalCallTransactions,
+            &get_outcome_id_block_hash(unique_id, block_hash),
+        )
+    }
+
     /// Returns the receipt-to-tx origin info for a given receipt_id, if stored.
     pub fn get_receipt_to_tx(&self, receipt_id: &CryptoHash) -> Option<ReceiptToTxInfo> {
         self.store.get_ser(DBCol::ReceiptToTx, receipt_id.as_ref())
@@ -445,10 +489,9 @@ impl Into<StoreUpdate> for ChainStoreUpdateAdapter<'static> {
 }
 
 impl ChainStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
         store_update.commit();
-        Ok(())
     }
 }
 
@@ -604,6 +647,22 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     pub fn set_receipt_to_tx(&mut self, receipt_to_tx: &[(CryptoHash, ReceiptToTxInfo)]) {
         for (receipt_id, info) in receipt_to_tx {
             self.store_update.insert_ser(DBCol::ReceiptToTx, receipt_id.as_ref(), info);
+        }
+    }
+
+    /// Records the transaction hash of each external call copy in block `block_hash`, keyed by the
+    /// copy's unique id.
+    pub fn set_external_call_hashes(
+        &mut self,
+        block_hash: &CryptoHash,
+        external_calls: &[(CryptoHash, CryptoHash)],
+    ) {
+        for (unique_id, tx_hash) in external_calls {
+            self.store_update.insert_ser(
+                DBCol::ExternalCallTransactions,
+                &get_outcome_id_block_hash(unique_id, block_hash),
+                tx_hash,
+            );
         }
     }
 

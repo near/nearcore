@@ -1,11 +1,13 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, MaybeEncodedShardChunk};
 use near_primitives::errors::{
-    ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError, StorageError,
+    ActionsValidationError, ChunkAccessError, EpochError, InvalidSpiceCoreStatementsError,
+    StorageError,
 };
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId, ShardIndex};
 use near_time::Utc;
 use std::io;
 
@@ -22,6 +24,18 @@ pub enum QueryError {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error("invalid state init: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error(
         "Contract code for contract ID {contract_account_id} has never been observed on the node"
@@ -62,6 +76,14 @@ pub enum QueryError {
     ContractExecutionError {
         error_message: String,
         error: near_primitives::errors::FunctionCallError,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("The contract refused the external call: {error:?}")]
+    ExternalCallRefused {
+        error: Box<near_primitives::errors::TxExecutionError>,
+        /// The logs of the contract's run. Empty for a call refused before its run.
+        logs: Vec<String>,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
@@ -136,6 +158,9 @@ pub enum Error {
     /// Invalid receipts proof.
     #[error("Invalid Receipts Proof")]
     InvalidReceiptsProof,
+    /// An incoming receipt failed validation.
+    #[error("Invalid Receipt: {0}")]
+    InvalidReceipt(String),
     /// Invalid outcomes proof.
     #[error("Invalid Outcomes Proof")]
     InvalidOutcomesProof,
@@ -362,6 +387,7 @@ impl Error {
             | Error::InvalidChunkHeadersRoot
             | Error::InvalidChunkTxRoot
             | Error::InvalidReceiptsProof
+            | Error::InvalidReceipt(_)
             | Error::InvalidStatePayload
             | Error::InvalidTransactions
             | Error::InvalidChallenge
@@ -453,6 +479,7 @@ impl Error {
             Error::InvalidChunkHeadersRoot => "invalid_chunk_headers_root",
             Error::InvalidChunkTxRoot => "invalid_chunk_tx_root",
             Error::InvalidReceiptsProof => "invalid_receipts_proof",
+            Error::InvalidReceipt(_) => "invalid_receipt",
             Error::InvalidStatePayload => "invalid_state_payload",
             Error::InvalidTransactions => "invalid_transactions",
             Error::InvalidChallenge => "invalid_challenge",
@@ -547,6 +574,11 @@ impl From<BlockValidityError> for Error {
             BlockValidityError::InvalidTransactionRoot => Error::InvalidTxRoot,
             BlockValidityError::InvalidChunkHeaderRoot => Error::InvalidChunkHeadersRoot,
             BlockValidityError::InvalidChunkMask => Error::InvalidChunkMask,
+            BlockValidityError::InvalidChunkHeight { height_created, block_height } => {
+                Error::InvalidChunk(format!(
+                    "chunk height_created {height_created} is above block height {block_height}"
+                ))
+            }
         }
     }
 }

@@ -42,6 +42,8 @@ use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
+use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::adapter::ViewRuntimeAdapter;
 use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
@@ -51,8 +53,6 @@ use near_store::trie::AccessOptions;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
-use node_runtime::SignedValidPeriodTransactions;
-use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
@@ -117,6 +117,7 @@ pub(crate) fn apply_block(
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
+                    prev_block.header(),
                     prev_block.header().next_gas_price(),
                     block.block_congestion_info(),
                     block.block_bandwidth_requests(),
@@ -147,6 +148,7 @@ pub(crate) fn apply_block(
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
+                    prev_block.header(),
                     block.header().next_gas_price(),
                     prev_block.block_congestion_info(),
                     prev_block.block_bandwidth_requests(),
@@ -645,7 +647,7 @@ pub(crate) fn print_chain(
     // TODO: Split into smaller functions.
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            let header = chain_store.get_block_header(&block_hash).unwrap();
             if height == 0 {
                 println!(
                     "{: >3} {}",
@@ -653,8 +655,7 @@ pub(crate) fn print_chain(
                     format_hash(*header.hash(), show_full_hashes)
                 );
             } else {
-                let parent_header =
-                    chain_store.get_block_header(header.prev_hash()).unwrap().clone();
+                let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
                     cur_epoch_id = Some(epoch_id);
@@ -684,7 +685,7 @@ pub(crate) fn print_chain(
                         .or_insert(1);
 
                     let block = if let Ok(block) = chain_store.get_block(&block_hash) {
-                        block.clone()
+                        block
                     } else {
                         continue;
                     };
@@ -768,7 +769,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie =
             runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
-        for item in trie.disk_iter().unwrap() {
+        for item in trie.disk_iter() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(&key, value) {
                 println!("{}", state_record);
@@ -813,8 +814,8 @@ pub(crate) fn view_chain(
         // We can directly get the shard_id from the chunk_header as we are guaranteed new chunk via iter_new
         let shard_id = chunk_header.shard_id();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone();
-        let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone();
+        let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid).ok();
+        let chunk = chain_store.get_chunk(&chunk_header.chunk_hash()).ok();
         chunk_extras.push((shard_id, chunk_extra));
         chunks.push((shard_id, chunk));
     }
@@ -957,7 +958,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
             }
         }
         cur_block = match chain_store.get_block(cur_block.header().prev_hash()) {
-            Ok(b) => b.clone(),
+            Ok(b) => b,
             Err(_) => {
                 panic!("last block is {:?}", cur_block);
             }
@@ -1130,11 +1131,9 @@ pub(crate) fn print_epoch_analysis(
         // — same intent as the historical `has_same_shard_layout = true`
         // override in this mode.
         let strategy = match mode {
-            EpochAnalysisMode::CheckConsistency => AssignmentStrategy::select(
-                next_next_protocol_version,
-                &next_shard_layout,
-                &next_next_shard_layout,
-            ),
+            EpochAnalysisMode::CheckConsistency => {
+                AssignmentStrategy::select(&next_shard_layout, &next_next_shard_layout)
+            }
             EpochAnalysisMode::Backtest => AssignmentStrategy::CarryOver,
         };
         let next_next_epoch_info = proposals_to_epoch_info(
@@ -1146,7 +1145,7 @@ pub(crate) fn print_epoch_analysis(
             stored_next_next_epoch_info.validator_reward().clone(),
             stored_next_next_epoch_info.minted_amount(),
             next_next_protocol_version,
-            next_next_shard_layout.clone(),
+            next_next_shard_layout,
             &strategy,
             last_resharding,
         )
@@ -1237,7 +1236,7 @@ pub(crate) fn view_trie(
     record_type: Option<u8>,
     from: Option<AccountId>,
     to: Option<AccountId>,
-) -> anyhow::Result<()> {
+) {
     let trie = get_trie(store, hash, shard_id, shard_version);
     trie.print_recursive(
         &mut std::io::stdout().lock(),
@@ -1248,7 +1247,6 @@ pub(crate) fn view_trie(
         &from.as_ref(),
         &to.as_ref(),
     );
-    Ok(())
 }
 
 pub(crate) fn view_trie_leaves(
@@ -1261,7 +1259,7 @@ pub(crate) fn view_trie_leaves(
     record_type: Option<u8>,
     from: Option<AccountId>,
     to: Option<AccountId>,
-) -> anyhow::Result<()> {
+) {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
     trie.print_recursive_leaves(
         &mut std::io::stdout().lock(),
@@ -1271,7 +1269,6 @@ pub(crate) fn view_trie_leaves(
         &from.as_ref(),
         &to.as_ref(),
     );
-    Ok(())
 }
 
 fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {

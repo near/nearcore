@@ -208,10 +208,8 @@ impl StateViewerSubCommand {
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 #[clap(rename_all = "kebab_case")]
 pub enum StorageSource {
+    /// Use the data stored in trie, without flat storage.
     Trie,
-    /// Use the data stored in trie, but without paying extra gas costs.
-    /// This could be used to simulate flat storage when the latter is not present.
-    TrieFree,
     #[value(alias("flat"))]
     FlatStorage,
     /// Implies flat storage and loads the memtries as well.
@@ -224,12 +222,11 @@ pub enum StorageSource {
 impl StorageSource {
     pub fn create_runtime_storage(&self, state_root: StateRoot) -> RuntimeStorageConfig {
         match self {
-            StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
-            StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
-            StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+            StorageSource::Trie => RuntimeStorageConfig::new_with_db_trie_only(state_root),
+            StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root),
             // This is the same as FlatStorage handling. That's because memtrie initialization
             // happens as part of `ShardTries::load_memtrie` function call.
-            StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
+            StorageSource::Memtrie => RuntimeStorageConfig::new(state_root),
             StorageSource::Recorded => {
                 panic!(
                     "For recorded storage the RuntimeStorageConfig has to be created from storage proof"
@@ -1040,8 +1037,7 @@ impl ViewTrieCmd {
                     record_type,
                     self.from,
                     self.to,
-                )
-                .unwrap();
+                );
             }
             ViewTrieFormat::Pretty => {
                 view_trie_leaves(
@@ -1054,8 +1050,7 @@ impl ViewTrieCmd {
                     record_type,
                     self.from,
                     self.to,
-                )
-                .unwrap();
+                );
             }
         }
     }

@@ -11,7 +11,9 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, DeployContractAction, ECC_METHOD_NAME, EccTransaction, SignedTransaction,
+};
 use near_primitives::types::{Balance, Gas};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives_core::hash::CryptoHash;
@@ -89,6 +91,16 @@ fn create_tx_deploy_contract(
     SignedTransaction::from_actions(height, test0(), test0(), signer, vec![action], block_hash)
 }
 
+/// Deploys to test1 a contract that accepts every external call.
+fn create_tx_deploy_ecc_contract(block_hash: CryptoHash) -> SignedTransaction {
+    let code = near_test_contracts::wat_contract(&format!(
+        r#"(module (func (export "{ECC_METHOD_NAME}")))"#
+    ));
+    let action = Action::DeployContract(DeployContractAction { code });
+    let signer = InMemorySigner::test_signer(&test1());
+    SignedTransaction::from_actions(1, test1(), test1(), &signer, vec![action], block_hash)
+}
+
 fn create_tx_function_call(
     nonce: u64,
     signer: &Signer,
@@ -99,7 +111,7 @@ fn create_tx_function_call(
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
-/// Also doing 5 send transactions every block.
+/// Also doing 5 send transactions and an external call every block.
 /// 4 epochs, because this test does not cover gc behavior.
 /// After every block updating a separate database with data from client's storage.
 /// After 4 epochs we check that everything, that exists in cold columns
@@ -122,7 +134,7 @@ fn test_storage_after_commit_of_cold_update() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store());
 
     let state_reads = test_get_store_reads(DBCol::State);
 
@@ -131,6 +143,11 @@ fn test_storage_after_commit_of_cold_update() {
         let signer = InMemorySigner::test_signer(&test0());
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
+            assert_eq!(
+                env.rpc_handlers[0].process_tx(tx, false, false),
+                ProcessTxResponse::ValidTx
+            );
+            let tx = create_tx_deploy_ecc_contract(last_hash);
             assert_eq!(
                 env.rpc_handlers[0].process_tx(tx, false, false),
                 ProcessTxResponse::ValidTx
@@ -151,6 +168,15 @@ fn test_storage_after_commit_of_cold_update() {
                 let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(
                     env.rpc_handlers[0].process_tx(tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
+            }
+            // An external call to the contract deployed on test1 at height 1. The producer packs
+            // only a call the contract accepts, and its copy gets a row in the external calls' column.
+            if height >= 3 {
+                let call = EccTransaction::new(test1(), height.to_le_bytes().to_vec());
+                assert_eq!(
+                    env.rpc_handlers[0].process_tx(call, false, false),
                     ProcessTxResponse::ValidTx
                 );
             }
@@ -287,7 +313,7 @@ fn test_cold_db_copy_with_height_skips() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
 
-    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+    test_copy_all_data_to_cold(&cold_db, &env.clients[0].runtime_adapter.store());
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -368,6 +394,8 @@ fn test_cold_db_copy_with_height_skips() {
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
                     || col == DBCol::StateShardUIdMapping
+                    // Empty: this test sends no external calls.
+                    || col == DBCol::ExternalCallTransactions
                     // Empty until EarlyKickout activates.
                     || (col == DBCol::ChunkProducers
                         && !ProtocolFeature::EarlyKickout.enabled(PROTOCOL_VERSION))
@@ -430,7 +458,7 @@ fn test_cold_loop_on_gc_boundary() {
     set_genesis_height(&mut store_update, &0);
     store_update.commit();
 
-    test_copy_all_data_to_cold(cold_db, hot_store).unwrap();
+    test_copy_all_data_to_cold(cold_db, hot_store);
 
     update_cold_head(cold_db, hot_store, &(height_delta - 1)).unwrap();
 

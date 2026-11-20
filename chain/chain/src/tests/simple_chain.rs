@@ -2,6 +2,7 @@ use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
 use crate::{BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
+use near_async::messaging::{IntoSender, noop};
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
@@ -62,10 +63,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"HEQX8aYCgumLEdjFBgAgyzESevKP96EmGAnK2c6RR4PW");
+        insta::assert_snapshot!(hash, @"AiT4cS2JKudRd44itswGppa6LyCfu6zFLFwmhBxgP6d9");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"CgU8VVmbT5rT3fqsFjTgyFd6GkruEaoDDUJV4D1vXkSd");
+        insta::assert_snapshot!(hash, @"8vSa6ZurjAqiAnpV4wd23KjeAFLVhbwyDPJbfongBmY2");
     }
 
     for i in 1..5 {
@@ -82,10 +83,10 @@ fn build_chain() {
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"FUyFD5zTo2kHw1qrPZGPYtc3cSA7aHYJN9HcudPtL3Cc");
+        insta::assert_snapshot!(hash, @"FWS47vsoSEx3JaB3HvzVmjfdbdrWKhAnBrcd72qte93H");
     } else {
         // cspell:disable-next-line
-        insta::assert_snapshot!(hash, @"D4XyYwAZGHpRPem1AA7fLeULredydvkYEcqbk2Kxwuoa");
+        insta::assert_snapshot!(hash, @"87nFAMnaKVg3fjVKYFs6zmKarwy7moizoiPHxzLLS9Sj");
     }
 }
 
@@ -112,7 +113,10 @@ fn build_chain_with_orphans() {
     assert_matches!(chain.process_block_test(blocks.pop().unwrap()).unwrap_err(), Error::Orphan);
     chain.process_block_test(blocks.pop().unwrap()).unwrap();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&mut BlockProcessingArtifact::default(), None);
+        chain.postprocess_ready_blocks(
+            &mut BlockProcessingArtifact::default(),
+            noop().into_sender(),
+        );
     }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
@@ -332,7 +336,7 @@ fn test_pending_block() {
         .process_optimistic_block(
             optimistic_block,
             block2.chunks().iter_raw().cloned().collect(),
-            None,
+            noop().into_sender(),
         )
         .unwrap();
 
@@ -340,7 +344,7 @@ fn test_pending_block() {
         block2.clone().into(),
         crate::Provenance::PRODUCED,
         &mut BlockProcessingArtifact::default(),
-        None,
+        noop().into_sender(),
     );
     let Err(err) = &result else {
         panic!("Block processing should not succeed");
@@ -355,7 +359,7 @@ fn test_pending_block() {
     // Process optimistic block
     let mut block_processing_artifact = BlockProcessingArtifact::default();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&mut block_processing_artifact, None);
+        chain.postprocess_ready_blocks(&mut block_processing_artifact, noop().into_sender());
     }
 
     // Verify the block is no longer in the pending pool
@@ -363,7 +367,7 @@ fn test_pending_block() {
 
     // Wait for the pending block to be processed
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(&mut block_processing_artifact, None);
+        chain.postprocess_ready_blocks(&mut block_processing_artifact, noop().into_sender());
     }
 
     // Verify the block is now in the chain
@@ -421,7 +425,7 @@ fn test_pending_block_same_height() {
 
     // Process the optimistic block
     let chunk_headers = block2.chunks().iter_raw().cloned().collect();
-    chain.process_optimistic_block(optimistic_block, chunk_headers, None).unwrap();
+    chain.process_optimistic_block(optimistic_block, chunk_headers, noop().into_sender()).unwrap();
 
     // Check that processing the first copy is failed due to optimistic block
     // in processing.
@@ -429,7 +433,7 @@ fn test_pending_block_same_height() {
         block2.into(),
         crate::Provenance::PRODUCED,
         &mut BlockProcessingArtifact::default(),
-        None,
+        noop().into_sender(),
     );
     let Err(err) = &result_a else {
         panic!("Block processing should not succeed");

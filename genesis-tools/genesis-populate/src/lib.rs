@@ -26,6 +26,7 @@ use near_primitives::types::{
     AccountId, Balance, EpochId, Gas, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::to_timestamp;
+pub use near_runtime::bootstrap_congestion_info;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
@@ -35,7 +36,6 @@ use near_store::{
 use near_time::Utc;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-pub use node_runtime::bootstrap_congestion_info;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -86,8 +86,6 @@ pub struct GenesisBuilder {
     additional_accounts_code: Option<Vec<u8>>,
     additional_accounts_code_hash: CryptoHash,
     global_contracts: Vec<(GlobalContractIdentifier, Vec<u8>)>,
-
-    print_progress: bool,
 }
 
 impl GenesisBuilder {
@@ -117,13 +115,7 @@ impl GenesisBuilder {
             additional_accounts_code: None,
             additional_accounts_code_hash: CryptoHash::default(),
             global_contracts: Default::default(),
-            print_progress: false,
         }
-    }
-
-    pub fn print_progress(mut self) -> Self {
-        self.print_progress = true;
-        self
     }
 
     pub fn add_additional_accounts(mut self, num: u64) -> Self {
@@ -281,7 +273,7 @@ impl GenesisBuilder {
 
         store_update.merge(
             self.epoch_manager
-                .add_validator_proposals(
+                .record_block_info(
                     BlockInfo::from_header(
                         genesis.header(),
                         0,
@@ -290,6 +282,7 @@ impl GenesisBuilder {
                     *genesis.header().random_value(),
                 )
                 .unwrap()
+                .store_update
                 .into(),
         );
         store_update
@@ -321,7 +314,7 @@ impl GenesisBuilder {
 
         let head = Tip::from_header(genesis.header());
         store_update.save_head(&head).unwrap();
-        store_update.save_final_head(&head).unwrap();
+        store_update.save_final_head(&head);
         store_update.commit().unwrap();
 
         Ok(())

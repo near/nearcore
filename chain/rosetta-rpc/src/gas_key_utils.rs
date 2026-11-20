@@ -89,7 +89,9 @@ async fn query_gas_key_info(
         );
         let response = match view_client_addr.send_async(query).await? {
             Ok(r) => r,
-            Err(QueryError::UnknownAccount { .. }) => return Ok(HashMap::new()),
+            Err(QueryError::UnknownAccount { .. } | QueryError::UninitializedAccount { .. }) => {
+                return Ok(HashMap::new());
+            }
             Err(err) => return Err(ErrorKind::InternalError(err.to_string())),
         };
         let list = match response.kind {

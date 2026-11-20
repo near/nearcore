@@ -109,6 +109,7 @@ impl TestonlySyncChunkExecutorActor {
                 core_writer_sender,
                 data_distributor_adapter,
                 chunk_persistence_config,
+                None,
             ),
             actor_rc,
             tasks_rc,
@@ -144,15 +145,18 @@ impl TestonlySyncChunkExecutorActor {
     fn run_internal_events(&mut self) {
         loop {
             let mut events_processed = 0;
-            while let Ok(Some(task)) = self.tasks_rc.try_next() {
+            while let Ok(task) = self.tasks_rc.try_recv() {
                 events_processed += 1;
                 task();
             }
-            while let Ok(Some(event)) = self.actor_rc.try_next() {
+            while let Ok(event) = self.actor_rc.try_recv() {
                 events_processed += 1;
                 let block_hash = event.block_hash;
+                let shard_uid = event.shard_uid;
                 let outgoing_proofs = self.actor.per_shard_apply_done(event);
-                self.actor.coordinator_post_apply(&block_hash, &outgoing_proofs).unwrap();
+                self.actor
+                    .coordinator_post_apply(&block_hash, shard_uid, &outgoing_proofs)
+                    .unwrap();
             }
             if events_processed == 0 {
                 break;

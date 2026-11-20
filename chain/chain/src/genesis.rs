@@ -18,9 +18,9 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV2};
 use near_primitives::types::{Balance, EpochId, Gas, ShardId, StateRoot};
 use near_primitives::version::{PROD_GENESIS_PROTOCOL_VERSION, ProtocolFeature};
+use near_runtime::bootstrap_congestion_info;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{Store, get_genesis_state_roots};
-use node_runtime::bootstrap_congestion_info;
 use std::sync::Arc;
 
 impl Chain {
@@ -133,7 +133,8 @@ impl Chain {
         );
         store_update.merge(
             epoch_manager
-                .add_validator_proposals(block_info, *genesis.header().random_value())?
+                .record_block_info(block_info, *genesis.header().random_value())?
+                .store_update
                 .into(),
         );
         store_update.save_block_header(genesis.header().clone())?;
@@ -143,7 +144,7 @@ impl Chain {
         let block_head = Tip::from_header(genesis.header());
         let header_head = block_head.clone();
         store_update.save_head(&block_head)?;
-        store_update.save_final_head(&header_head)?;
+        store_update.save_final_head(&header_head);
         if ProtocolFeature::Spice.enabled(genesis_protocol_version) {
             let mut spice_update = store_update.store().store_update();
             let mut adapter = spice_update.chain_store_update();

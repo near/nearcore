@@ -31,7 +31,7 @@ use near_primitives::state::PartialState;
 use near_primitives::state_part::StatePartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
-use near_vm_runner::ContractCode;
+use near_primitives_core::code::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -310,7 +310,7 @@ impl Trie {
         let path_begin = self.find_state_part_boundary(part_id.index, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.index + 1, part_id.total)?;
 
-        let mut iterator = self.disk_iter()?;
+        let mut iterator = self.disk_iter();
         let nodes_list =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
         tracing::debug!(target: "state-parts", num_nodes = nodes_list.len());
@@ -408,7 +408,6 @@ impl Trie {
         let (trie, storage) = Trie::from_recorded_storage_with_storage::<true>(
             PartialStorage { nodes: partial_state },
             *state_root,
-            false,
         );
         trie.visit_nodes_for_state_part(part_id)?;
         drop(trie);
@@ -433,10 +432,10 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root, false);
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
         let path_begin = trie.find_state_part_boundary(part_id.index, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.index + 1, part_id.total)?;
-        let mut iterator = trie.disk_iter()?;
+        let mut iterator = trie.disk_iter();
         let trie_traversal_items =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
         let mut refcount_changes = TrieRefcountDeltaMap::new();
@@ -611,7 +610,7 @@ mod tests {
                     .cloned()
                     .collect(),
             );
-            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root, false);
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
@@ -883,7 +882,7 @@ mod tests {
                 &tries,
                 &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
-                trie_changes.clone(),
+                trie_changes,
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
             let root_memory_usage = trie.retrieve_root_node().unwrap().memory_usage;
@@ -1082,7 +1081,7 @@ mod tests {
                 &tries,
                 &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
-                trie_changes.clone(),
+                trie_changes,
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 

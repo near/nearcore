@@ -464,22 +464,22 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(
-        &self,
-        store_update: &mut FlatStoreUpdateAdapter,
-    ) -> Result<(), StorageError> {
+    pub fn clear_state(&self, store_update: &mut FlatStoreUpdateAdapter) {
         let guard = self.0.write();
         let shard_uid = guard.shard_uid;
         store_update.remove_all_values(shard_uid);
         store_update.remove_all_deltas(shard_uid);
         store_update.set_flat_storage_status(shard_uid, FlatStorageStatus::Empty);
         guard.update_delta_metrics();
-        Ok(())
     }
 
     pub(crate) fn get_head_hash(&self) -> CryptoHash {
         let guard = self.0.read();
         guard.flat_head.hash
+    }
+
+    pub(crate) fn get_head_height(&self) -> BlockHeight {
+        self.0.read().flat_head.height
     }
 
     pub(crate) fn shard_uid(&self) -> ShardUId {

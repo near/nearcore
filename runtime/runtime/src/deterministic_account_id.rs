@@ -8,7 +8,7 @@ use near_primitives::action::DeterministicStateInitAction;
 use near_primitives::errors::{ActionErrorKind, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::Receipt;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, ProtocolVersion};
 use near_primitives_core::deterministic_account_id::DeterministicAccountStateInit;
 use near_store::{StorageError, TrieUpdate};
 
@@ -21,9 +21,40 @@ pub(crate) fn action_deterministic_state_init(
     action: &DeterministicStateInitAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
+    let account = install_deterministic_state_init(
+        state_update,
+        maybe_account,
+        account_id,
+        &action.state_init,
+        result,
+        &apply_state.config.fees.storage_usage_config,
+    )?;
+    if result.result.is_err() {
+        return Ok(());
+    }
+
+    settle_state_init_deposit(
+        account,
+        action.deposit,
+        account_id,
+        receipt,
+        &apply_state.config,
+        apply_state.current_protocol_version,
+        result,
+    )
+}
+
+/// Creates the account if it's missing, then deploys `state_init` unless it has a contract.
+pub(crate) fn install_deterministic_state_init<'a>(
+    state_update: &mut TrieUpdate,
+    maybe_account: &'a mut Option<Account>,
+    account_id: &AccountId,
+    state_init: &DeterministicAccountStateInit,
+    result: &mut ActionResult,
+    storage_usage_config: &StorageUsageConfig,
+) -> Result<&'a mut Account, RuntimeError> {
     // See https://github.com/near/NEPs/blob/master/neps/nep-0616.md#account-state
     // for the detailed description around deterministic account state.
-    let storage_usage_config = &apply_state.config.fees.storage_usage_config;
     let account = match maybe_account {
         Some(account) => account,
         None => {
@@ -45,23 +76,12 @@ pub(crate) fn action_deterministic_state_init(
             state_update,
             account,
             account_id,
-            &action.state_init,
+            state_init,
             result,
             storage_usage_config,
         )?;
     }
-    if result.result.is_err() {
-        return Ok(());
-    }
-
-    settle_state_init_deposit(
-        account,
-        action.deposit,
-        account_id,
-        receipt,
-        &apply_state.config,
-        result,
-    )
+    Ok(account)
 }
 
 /// Settle a state-init action's attached deposit against the created account's
@@ -76,6 +96,7 @@ pub(crate) fn settle_state_init_deposit(
     account_id: &AccountId,
     receipt: &Receipt,
     config: &RuntimeConfig,
+    current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // Use attached deposit to satisfy storage staking requirements and refund
@@ -106,9 +127,11 @@ pub(crate) fn settle_state_init_deposit(
     };
 
     if deposit_refund > Balance::ZERO {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(receipt.balance_refund_receiver(), deposit_refund));
+        result.new_receipts.push(Receipt::new_balance_refund(
+            receipt.balance_refund_receiver(),
+            deposit_refund,
+            current_protocol_version,
+        ));
     }
 
     Ok(())

@@ -52,7 +52,7 @@ jobs:
       id-token: "write"
     steps:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
         with:
           persist-credentials: false
@@ -61,7 +61,7 @@ jobs:
         id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -76,7 +76,7 @@ jobs:
 
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
@@ -94,7 +94,7 @@ jobs:
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
         run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-codecov-${{ github.sha }}-cargo_nextest-${{ matrix.name }}
           path: coverage/codecov
@@ -103,7 +103,7 @@ jobs:
     name: "Protobuf Backward Compatibility"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
@@ -127,13 +127,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -145,17 +145,17 @@ jobs:
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-      - uses: WarpBuilds/setup-python@v5
+      - uses: WarpBuilds/setup-python@6cfa838faedb1152a7dc8626f00fdc041d8ebd82 # v5.1.4
         with:
           python-version: 3.11
           cache: pip
-      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
       # separate job like done with the regular neard.
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env --no-rustc-wrapper | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
       - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - uses: ./.github/actions/install-clang
@@ -168,7 +168,7 @@ jobs:
           NEAR_ROOT: "target/dev-release"
       - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-nightly.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-codecov-${{ github.sha }}-py-nightly
           path: coverage/codecov
@@ -180,13 +180,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -209,13 +209,13 @@ jobs:
     name: "Style"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: 3.11
           cache: pip
@@ -226,7 +226,7 @@ jobs:
     name: "Cargo Fmt"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -238,7 +238,7 @@ jobs:
     name: "Import Blocks"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -253,13 +253,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -284,13 +284,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -311,7 +311,7 @@ jobs:
   spellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -320,11 +320,27 @@ jobs:
       - run: npm install -g cspell
       - run: just check-cspell
 
+  check_zizmor:
+    name: "Zizmor (GitHub Actions security)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: just,zizmor@1.32.0
+      - run: just check-zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   check_cargo_deny:
     name: "Cargo Deny"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -336,7 +352,7 @@ jobs:
     name: "Themis"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -348,7 +364,7 @@ jobs:
     name: "Cargo machete (unused dependencies)"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -363,13 +379,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -386,6 +402,37 @@ jobs:
           tool: just
       - run: just check-non-default
 
+  check_nearcore_no_default_features:
+    name: "Non-default Configuration Builds (nearcore crate)"
+    runs-on: warp-ubuntu-2404-x64-8x
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: gcp-auth
+        name: Authenticate with Google Cloud
+        continue-on-error: true
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
+        with:
+          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
+      - if: steps.gcp-auth.outcome == 'success'
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+      - if: steps.gcp-auth.outcome == 'success'
+        run: |
+          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
+          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
+          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
+        with:
+          tool: just
+      - uses: ./.github/actions/install-clang
+      - run: just check-nearcore-no-default-features
+
   check_udeps:
     name: "Unused Dependencies"
     runs-on: warp-ubuntu-2404-x64-8x
@@ -393,13 +440,13 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - id: gcp-auth
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
@@ -421,7 +468,7 @@ jobs:
     name: "Cargo Audit"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
@@ -436,10 +483,10 @@ jobs:
       - cargo_nextest
       - pytest_nightly_tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: coverage-codecov-*
           merge-multiple: true
@@ -475,7 +522,7 @@ jobs:
         include:
           - name: Linux
             id: linux
-            os: warp-ubuntu-2404-x64-2x
+            os: warp-ubuntu-2404-x64-8x
           - name: Windows
             id: win
             os: windows-latest
@@ -490,7 +537,7 @@ jobs:
         if: github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
         name: Check if job should be skipped
         run: true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.run-job.outcome == 'success'
         with:
           persist-credentials: false
@@ -498,18 +545,31 @@ jobs:
         if: steps.run-job.outcome == 'success'
         name: Authenticate with Google Cloud
         continue-on-error: true
-        uses: "google-github-actions/auth@v2"
+        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
         with:
           workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
       - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
+        # The default shell on Windows is PowerShell, where `$GITHUB_ENV` is an
+        # unset variable and the writes below are silently discarded.
+        shell: bash
         run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
           echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          # sccache spawns rustc with all arguments on the command line, which
+          # for near-runtime exceeds the Windows limit of 32767 characters
+          # (os error 206). Most of the length is repeated target directory
+          # paths, so use a short one at the root of the workspace drive.
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE:0:2}\\t" >> $GITHUB_ENV
+          fi
+      # near-store (with its default `rocksdb` feature) builds librocksdb-sys.
+      - uses: ./.github/actions/install-clang
+        if: steps.run-job.outcome == 'success'
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         if: steps.run-job.outcome == 'success'
         with:
@@ -524,7 +584,7 @@ jobs:
     name: "OpenAPI Spec"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e

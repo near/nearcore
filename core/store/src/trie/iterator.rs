@@ -133,7 +133,7 @@ mod tests {
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
         let path_begin = Some(b"aa".as_slice());
         let path_end = Some(b"abb".as_slice());
-        let mut trie_iter = trie.disk_iter().unwrap();
+        let mut trie_iter = trie.disk_iter();
         let items = trie_iter.visit_nodes_interval(path_begin, path_end).unwrap();
         let trie_items: Vec<_> = items.into_iter().map(|item| item.key).flatten().collect();
         assert_eq!(trie_items, vec![b"aa"]);
@@ -154,7 +154,7 @@ mod tests {
 
             {
                 let lock = trie.lock_for_iter();
-                let iter = lock.iter().unwrap();
+                let iter = lock.iter();
                 assert_iter_type(&iter, use_memtries);
                 let result1: Vec<_> = iter.map(Result::unwrap).collect();
                 let result2: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -220,7 +220,6 @@ mod tests {
 
                 let result1 = trie
                     .disk_iter_with_prune_condition(Some(Box::new(prune_condition.clone())))
-                    .unwrap()
                     .map(Result::unwrap)
                     .collect_vec();
 
@@ -263,7 +262,6 @@ mod tests {
 
                 let result1 = trie
                     .disk_iter_with_prune_condition(Some(Box::new(prune_condition.clone())))
-                    .unwrap()
                     .map(Result::unwrap)
                     .collect_vec();
                 let result2 = map
@@ -292,7 +290,7 @@ mod tests {
         let trie_changes = keys.iter().map(|key| (key.clone(), value())).collect();
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        let iter = trie.disk_iter_with_max_depth(max_depth).unwrap();
+        let iter = trie.disk_iter_with_max_depth(max_depth);
         let keys: Vec<_> = iter.map(|item| item.unwrap().0).collect();
 
         assert_eq!(&keys, pruned_keys);
@@ -361,7 +359,7 @@ mod tests {
         is_memtrie: bool,
     ) {
         let lock = trie.lock_for_iter();
-        let mut iterator = lock.iter().unwrap();
+        let mut iterator = lock.iter();
         assert_iter_type(&iterator, is_memtrie);
         iterator.seek_prefix(&seek_key).unwrap();
         let got = iterator
@@ -393,7 +391,7 @@ mod tests {
         let trie_with_recorder = trie.recording_reads_new_recorder();
         let got = {
             let lock = trie_with_recorder.lock_for_iter();
-            let mut iterator = lock.iter().unwrap();
+            let mut iterator = lock.iter();
             assert_iter_type(&iterator, is_memtrie);
 
             let seek_bound =

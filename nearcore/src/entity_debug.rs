@@ -32,8 +32,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, BlockHeight, StateRoot};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::{
-    BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView,
-    TransactionEnvelopeView,
+    BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::encode_flat_state_db_key;
@@ -119,7 +118,7 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&block_merkle_tree))
             }
             EntityQuery::BlockMisc(()) => {
-                let block_misc = BlockMiscData::from_store(&store)?;
+                let block_misc = BlockMiscData::from_store(&store);
                 Ok(serialize_entity(&block_misc))
             }
             EntityQuery::ChunkByHash { chunk_hash } => {
@@ -130,7 +129,9 @@ impl EntityDebugHandlerImpl {
                     .epoch_manager
                     .get_chunk_producer_info_from_prev_block(chunk.prev_block(), chunk.shard_id())?
                     .take_account_id();
-                Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk)))
+                let height_included =
+                    store.chain_store().get_external_call_height_included(&chunk)?;
+                Ok(serialize_entity(&ChunkView::from_author_chunk(author, chunk, height_included)))
             }
             EntityQuery::ChunkExtraByBlockHashShardUId { block_hash, shard_uid } => {
                 let chunk_extra = store
@@ -412,7 +413,27 @@ impl EntityDebugHandlerImpl {
                         &borsh::to_vec(&transaction_hash).unwrap(),
                     )
                     .ok_or_else(|| anyhow!("Transaction not found"))?;
-                Ok(serialize_entity(&TransactionEnvelopeView::from(transaction)))
+                match transaction {
+                    TransactionEnvelope::Signed(tx) => {
+                        Ok(serialize_entity(&SignedTransactionView::from(tx)))
+                    }
+                    // A view of an external call holds the unique id, which depends on the
+                    // including block, so show the stored call.
+                    TransactionEnvelope::Unsigned(call) => {
+                        let mut ret = EntityDataStruct::new();
+                        ret.add(
+                            "contract_id",
+                            EntityDataValue::String(call.contract_id().to_string()),
+                        );
+                        ret.add("hash", EntityDataValue::String(call.hash().to_string()));
+                        ret.add("payload", EntityDataValue::String(hex::encode(call.payload())));
+                        if let Some(state_init) = call.state_init() {
+                            let state_init = hex::encode(&state_init.0);
+                            ret.add("state_init", EntityDataValue::String(state_init));
+                        }
+                        Ok(EntityDataValue::Struct(ret.into()))
+                    }
+                }
             }
             EntityQuery::TrieNode { trie_path } => {
                 let trie_path =
@@ -910,8 +931,8 @@ struct BlockMiscData {
 }
 
 impl BlockMiscData {
-    pub fn from_store(store: &Store) -> anyhow::Result<BlockMiscData> {
-        Ok(BlockMiscData {
+    pub fn from_store(store: &Store) -> BlockMiscData {
+        BlockMiscData {
             head: store.get_ser(DBCol::BlockMisc, HEAD_KEY),
             tail: store.get_ser(DBCol::BlockMisc, TAIL_KEY),
             chunk_tail: store.get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY),
@@ -926,6 +947,6 @@ impl BlockMiscData {
             state_sync_dump: store.get_ser(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY),
             state_snapshot: store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY),
             // TODO(cloud_archival) Add cloud head keys (CLOUD_WRITER_BLOCK_HEAD_KEY, ...)
-        })
+        }
     }
 }

@@ -50,7 +50,7 @@ fn test_setup() -> (TestEnv, Signer) {
 fn do_blocks(env: &mut TestEnv, start: BlockHeight, end: BlockHeight) {
     for i in start..end {
         let last_block = env.clients[0].produce_block(i).unwrap().unwrap();
-        env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+        env.process_block(0, last_block, Provenance::PRODUCED);
     }
 }
 

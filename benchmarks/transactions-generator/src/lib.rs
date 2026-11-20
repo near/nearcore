@@ -16,7 +16,7 @@ use near_primitives::views::{
     BlockHeaderView, BlockView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
     QueryResponse, QueryResponseKind,
 };
-use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
+use near_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -340,7 +340,11 @@ impl NativeTokenTxSender {
         match self
             .client_sender
             .tx_request_sender
-            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+            .send_async(ProcessTxRequest {
+                transaction: transaction.into(),
+                is_forwarded: false,
+                check_only: false,
+            })
             .await
         {
             Ok(res) => match res {
@@ -452,7 +456,7 @@ async fn ft_contract_account_create(
     match client_sender
         .tx_request_sender
         .send_async(ProcessTxRequest {
-            transaction: create_deploy_tx,
+            transaction: create_deploy_tx.into(),
             is_forwarded: false,
             check_only: false,
         })
@@ -526,7 +530,7 @@ async fn ft_contract_account_init(
     match client_sender
         .tx_request_sender
         .send_async(ProcessTxRequest {
-            transaction: init_tx,
+            transaction: init_tx.into(),
             is_forwarded: false,
             check_only: false,
         })
@@ -589,7 +593,7 @@ async fn ft_contract_register_accounts(
         for receiver_id in to_register {
             let client_sender = client_sender.clone();
             let view_client = view_client_sender.clone();
-            let creator_signer = creator.as_signer().clone();
+            let creator_signer = creator.as_signer();
             let ft_account = ft_contract_account_id.clone();
             const DEPOSIT: Balance = Balance::from_millinear(125);
             let receiver_id = receiver_id.clone();
@@ -627,7 +631,7 @@ async fn ft_contract_register_accounts(
                 match client_sender
                     .tx_request_sender
                     .send_async(ProcessTxRequest {
-                        transaction: tx,
+                        transaction: tx.into(),
                         is_forwarded: false,
                         check_only: false,
                     })
@@ -752,7 +756,7 @@ async fn ft_contract_fund_accounts(
             match client_sender
                 .tx_request_sender
                 .send_async(ProcessTxRequest {
-                    transaction: tx,
+                    transaction: tx.into(),
                     is_forwarded: false,
                     check_only: false,
                 })
@@ -854,7 +858,7 @@ async fn wait_chain_warm_up(
         match client_sender
             .tx_request_sender
             .send_async(ProcessTxRequest {
-                transaction: debug_tx,
+                transaction: debug_tx.into(),
                 is_forwarded: false,
                 check_only: false,
             })
@@ -1014,7 +1018,11 @@ impl FungibleTokenTxSender {
         match self
             .client_sender
             .tx_request_sender
-            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+            .send_async(ProcessTxRequest {
+                transaction: transaction.into(),
+                is_forwarded: false,
+                check_only: false,
+            })
             .await
         {
             Ok(ProcessTxResponse::ValidTx) => true,
@@ -1035,8 +1043,8 @@ impl TxGenerator {
         params: Config,
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
-    ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender })
+    ) -> Self {
+        Self { params, client_sender, view_client_sender }
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
@@ -1506,7 +1514,7 @@ impl TxGenerator {
                     ?diff,
                     rate,
                 );
-                stats_prev = stats.clone();
+                stats_prev = stats;
             }
         })
     }

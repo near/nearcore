@@ -2,7 +2,7 @@
 //!
 //! Two blocks on competing forks that share one parent at an epoch boundary are both
 //! epoch-first and both claim the same `EpochId` (the epoch-first decision reads only the
-//! parent), so `save_epoch_start` overwrites the shared `EpochStart` row: last write wins,
+//! parent), so `set_epoch_start` overwrites the shared `EpochStart` row: last write wins,
 //! and nothing repairs it when one fork is abandoned. The doomslug fixture in
 //! integration-tests already produces this shape (two children of genesis at heights 1 and
 //! 3); this file reproduces it at the epoch-manager level and follows it downstream.

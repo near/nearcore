@@ -5,7 +5,7 @@ use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
 use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::time::{Clock, Duration, Interval};
-use near_chain::state_snapshot_actor::snapshot_hash_for_block;
+use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
@@ -26,7 +26,6 @@ use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
-use std::i64;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use tokio::sync::Semaphore;
@@ -320,7 +319,7 @@ struct PartUploader {
 impl PartUploader {
     /// Increment the STATE_SYNC_DUMP_NUM_PARTS_DUMPED metric
     fn inc_parts_dumped(&self) {
-        match self.parts_dumped.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
+        match self.parts_dumped.try_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
             if prev >= 0 { Some(prev + 1) } else { None }
         }) {
             Ok(prev_parts_dumped) => {
@@ -617,7 +616,7 @@ impl StateDumper {
         let Some(sync_hash) = self
             .chain
             .get_sync_hash(final_hash)
-            .with_context(|| format!("Failed getting sync hash for {}", &final_hash))?
+            .with_context(|| format!("Failed getting sync hash for {}", final_hash))?
         else {
             return Ok(None);
         };
@@ -669,8 +668,11 @@ impl StateDumper {
             .epoch_manager
             .get_epoch_info(sync_header.epoch_id())
             .with_context(|| format!("Failed getting epoch info {:?}", sync_header.epoch_id()))?;
-        let sync_prev_header = self.get_block_header(sync_header.prev_hash())?;
-        let snapshot_hash = snapshot_hash_for_block(&sync_prev_header);
+        let snapshot_hash =
+            snapshot_hash_for_sync_hash(self.chain.chain_store(), sync_header.hash())
+                .with_context(|| {
+                    format!("Failed getting snapshot hash for {}", sync_header.hash())
+                })?;
         let shard_ids = self
             .epoch_manager
             .shard_ids(sync_header.epoch_id())

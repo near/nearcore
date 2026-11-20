@@ -18,7 +18,7 @@ near-chain.workspace = true
 near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-node-runtime.workspace = true
+near-runtime.workspace = true
 
 [features]
 nightly = [

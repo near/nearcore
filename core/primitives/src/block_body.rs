@@ -192,6 +192,17 @@ impl BlockBody {
         }
     }
 
+    /// Whether the body carries any of the deprecated challenges.
+    #[inline]
+    pub fn challenges_present(&self) -> bool {
+        #[allow(deprecated)]
+        match self {
+            BlockBody::V1(body) => !body.challenges.is_empty(),
+            BlockBody::V2(body) => !body.challenges.is_empty(),
+            BlockBody::V3(_) => false,
+        }
+    }
+
     #[inline]
     pub fn chunk_endorsements(&self) -> &[ChunkEndorsementSignatures] {
         match self {

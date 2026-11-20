@@ -38,7 +38,7 @@ pub(crate) fn resume_resharding(
 
     runtime_adapter.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
 
-    flat_storage_resharder.resume(shard_uid)?;
+    flat_storage_resharder.resume(shard_uid);
 
     tracing::info!(target: "resharding", "flat storage resharder completed");
 

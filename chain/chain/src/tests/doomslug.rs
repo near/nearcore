@@ -22,6 +22,32 @@ fn get_msg_delivery_time(now: Instant, gst: Instant, delta: Duration) -> Instant
         + Duration::milliseconds(thread_rng().gen_range(0..delta.whole_milliseconds() as i64) as i64)
 }
 
+/// The earliest time at which a message gets delivered or a doomslug timer fires.
+fn next_event_time(
+    approval_queue: &[(Approval, Instant)],
+    block_queue: &[(BlockHeight, usize, BlockHeight, Instant, CryptoHash)],
+    doomslugs: &[Doomslug],
+) -> Instant {
+    let approval_times = approval_queue.iter().map(|approval| approval.1);
+    let block_times = block_queue.iter().map(|block| block.3);
+    let timer_deadlines = doomslugs.iter().map(|ds| ds.next_timer_deadline());
+
+    let event_times = approval_times.chain(block_times).chain(timer_deadlines);
+    event_times.min().unwrap()
+}
+
+/// Number of ticks (at least one) to advance the clock by to reach `deadline`.
+fn num_ticks_until(now: Instant, deadline: Instant, tick: Duration) -> u32 {
+    let remaining = deadline.signed_duration_since(now);
+    let remaining_nanos = remaining.whole_nanoseconds();
+    let tick_nanos = tick.whole_nanoseconds();
+    // Round up, the deadline is reached at the first tick that is not before it.
+    let rounded_up_nanos = remaining_nanos + tick_nanos - 1;
+    let ticks = rounded_up_nanos.div_euclid(tick_nanos);
+    let ticks = ticks.clamp(1, u32::MAX as i128);
+    ticks as u32
+}
+
 /// Runs a single iteration of a fuzz test given specific time until global stabilization and
 /// the max delay on messages.
 /// Returns amount of time it took to produce a doomslug final block at height 50, as well as the
@@ -86,9 +112,18 @@ fn one_iter(
         hash_to_block_info.insert(block_hash(1, 0), (1, 1, block_hash(1, 0)));
     }
 
+    let tick = Duration::milliseconds(25);
     let mut is_done = false;
     while !is_done {
-        clock.advance(Duration::milliseconds(25));
+        // Nothing happens until the next message delivery or the next doomslug timer, so instead
+        // of stepping through the idle ticks one by one, jump to the last of them. The timers do
+        // not change during the idle ticks, so validating the timers (step 5) at the last idle
+        // tick covers all of them.
+        let next_event = next_event_time(&approval_queue, &block_queue, &doomslugs);
+        let ticks_until_next_event = num_ticks_until(clock.now(), next_event, tick);
+        let idle_ticks = ticks_until_next_event - 1;
+        let ticks_to_advance = idle_ticks.max(1);
+        clock.advance(tick * ticks_to_advance);
         let mut new_approval_queue = vec![];
         let mut new_block_queue = vec![];
 

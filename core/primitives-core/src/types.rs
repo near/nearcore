@@ -2,6 +2,7 @@
 pub use crate::account::id::AccountId;
 pub use crate::gas::Gas;
 use crate::hash::CryptoHash;
+use near_schema_checker_lib::ProtocolSchema;
 use std::num::{NonZeroU64, ParseIntError};
 use std::ops::Add;
 use std::str::FromStr;
@@ -9,12 +10,8 @@ use std::str::FromStr;
 pub type MerkleHash = CryptoHash;
 /// Validator identifier in current group.
 pub type ValidatorId = u64;
-/// Mask which validators participated in multi sign.
-pub type ValidatorMask = Vec<bool>;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
-/// StorageUsageChange is used to count the storage usage within a single contract call.
-pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
 /// Nonce index for gas keys.
@@ -44,10 +41,27 @@ pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
 pub type BlockHeightDelta = u64;
 
-pub type ReceiptIndex = usize;
-pub type PromiseId = Vec<ReceiptIndex>;
-
 pub type ProtocolVersion = u32;
+
+/// Identifies a consensus VM configuration generation.
+///
+/// Unlike [`ProtocolVersion`], this changes only when VM configuration changes
+/// invalidate compiled contracts.
+#[derive(
+    borsh::BorshDeserialize,
+    borsh::BorshSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    ProtocolSchema,
+)]
+pub struct VmGeneration(pub ProtocolVersion);
 
 /// The ShardIndex is the index of the shard in an array of shard data.
 /// Historically the ShardId was always in the range 0..NUM_SHARDS and was used

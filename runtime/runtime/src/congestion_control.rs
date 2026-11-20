@@ -306,7 +306,7 @@ impl ReceiptSinkV2WithInfo {
             &mut self.sink.outgoing_receipts,
             apply_state,
             &mut self.sink.stats,
-        )? {
+        ) {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
                 self.sink.buffer_receipt(receipt, size, gas, state_update, shard)?;
@@ -353,7 +353,7 @@ impl ReceiptSinkV2 {
                 &mut self.outgoing_receipts,
                 apply_state,
                 &mut self.stats,
-            )? {
+            ) {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas.as_gas().into())?;
@@ -397,7 +397,7 @@ impl ReceiptSinkV2 {
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
         stats: &mut ReceiptSinkStats,
-    ) -> Result<ReceiptForwarding, RuntimeError> {
+    ) -> ReceiptForwarding {
         // There is a bug which allows to create receipts that are above the size limit. Receipts
         // above the size limit might not fit under the maximum outgoing size limit. Let's pretend
         // that all receipts are at most `max_receipt_size` to avoid receipts getting stuck.
@@ -428,13 +428,8 @@ impl ReceiptSinkV2 {
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        let admission_gas = if ProtocolFeature::ClampOutgoingGasAdmission
-            .enabled(apply_state.current_protocol_version)
-        {
-            gas.min(apply_state.config.congestion_control_config.allowed_shard_outgoing_gas)
-        } else {
-            gas
-        };
+        let admission_gas =
+            gas.min(apply_state.config.congestion_control_config.allowed_shard_outgoing_gas);
 
         if forward_limit.gas >= admission_gas && forward_limit.size >= size {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
@@ -443,10 +438,10 @@ impl ReceiptSinkV2 {
             forward_limit.size -= size;
             stats.forwarded_receipts.entry(shard).or_default().add_receipt(size, gas);
 
-            Ok(ReceiptForwarding::Forwarded)
+            ReceiptForwarding::Forwarded
         } else {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "not forwarding buffered receipt");
-            Ok(ReceiptForwarding::NotForwarded(receipt))
+            ReceiptForwarding::NotForwarded(receipt)
         }
     }
 
@@ -759,11 +754,11 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
 
     // With ReshardingV3, it's possible for a chunk to have delayed receipts that technically
     // belong to the sibling shard before a resharding event.
-    // Here, we filter all the receipts that don't belong to the current shard_id.
+    // Here, we answer whether a receipt belongs to the current shard_id.
     //
-    // The function follows the guidelines of standard iterator filter function
-    // We return true if we should retain the receipt and false if we should filter it.
-    fn receipt_filter_fn(&self, receipt: &StateStoredReceipt) -> bool {
+    // TODO(perf) - read the shard layout once per queue read, not per receipt,
+    // to avoid cloning it every time.
+    fn is_for_this_shard(&self, receipt: &StateStoredReceipt) -> bool {
         let shard_layout = self.epoch_info_provider.shard_layout(&self.epoch_id).unwrap();
         let receipt_shard_id = receipt.get_receipt().receiver_shard_id(&shard_layout).unwrap();
         receipt_shard_id == self.shard_id
@@ -793,21 +788,25 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
                 .ok_or(IntegerOverflowError)?;
 
             // Track gas and bytes for receipt above and return only receipt that belong to the shard.
-            if self.receipt_filter_fn(&receipt) {
+            if self.is_for_this_shard(&receipt) {
                 return Ok(Some(receipt));
             }
         }
         Ok(None)
     }
 
+    /// Yields one item per queue entry read, so that a caller which bounds how
+    /// many entries it reads counts the entries left to a sibling shard too.
     pub(crate) fn peek_iter(
         &'a self,
         trie_update: &'a TrieUpdate,
-    ) -> impl Iterator<Item = StateStoredReceipt<'static>> + 'a {
-        self.queue
-            .iter(trie_update, false)
-            .map_while(Result::ok)
-            .filter(|receipt| self.receipt_filter_fn(receipt))
+    ) -> impl Iterator<Item = IteratedReceipt<StateStoredReceipt<'static>>> + 'a {
+        self.queue.iter(trie_update, false).map_while(Result::ok).map(|receipt| {
+            match self.is_for_this_shard(&receipt) {
+                true => IteratedReceipt::ForThisShard(receipt),
+                false => IteratedReceipt::ForOtherShard,
+            }
+        })
     }
 
     /// This function returns the maximum length of the delayed receipt queue.
@@ -829,6 +828,15 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         congestion.remove_receipt_bytes(self.removed_delayed_bytes)?;
         Ok(())
     }
+}
+
+/// One entry read from a receipt source.
+///
+/// A resharding leaves the delayed receipt queue of the parent in both children, so
+/// an entry read from the queue can belong to the sibling shard.
+pub(crate) enum IteratedReceipt<R> {
+    ForThisShard(R),
+    ForOtherShard,
 }
 
 fn int_overflow_to_storage_err(_err: IntegerOverflowError) -> StorageError {

@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, NonceIndex, StateChangeCause, StateRoot};
-use near_vm_runner::ContractCode;
+use near_primitives_core::code::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic;
 
@@ -308,9 +308,12 @@ impl GenesisStateApplier {
                         action_receipt.input_data_ids(),
                     );
                 }
-                VersionedReceiptEnum::PromiseYield(_) => {
+                VersionedReceiptEnum::PromiseYield(action_receipt) => {
+                    let &[data_id] = action_receipt.input_data_ids() else {
+                        panic!("a PromiseYield receipt in genesis must have one input data id");
+                    };
                     storage.modify(|state_update| {
-                        set_promise_yield_receipt(state_update, &receipt);
+                        set_promise_yield_receipt(state_update, &receipt, data_id);
                     });
                 }
                 VersionedReceiptEnum::GlobalContractDistribution(_)

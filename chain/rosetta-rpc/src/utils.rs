@@ -8,6 +8,7 @@ use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
+use near_client_primitives::types::QueryError;
 use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_primitives::types::Balance;
 
@@ -251,7 +252,7 @@ where
 
 /// Zero-balance account (NEP-448)
 fn is_zero_balance_account(account: &near_primitives::views::AccountView) -> bool {
-    account.storage_usage <= node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
+    account.storage_usage <= near_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
 
 /// Tokens not locked due to staking (=liquid) but reserved for state.
@@ -387,8 +388,9 @@ pub(crate) async fn query_access_key(
         Ok(query_response) => query_response,
         Err(err) => {
             return match err {
-                near_client_primitives::types::QueryError::UnknownAccount { .. }
-                | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
+                QueryError::UnknownAccount { .. }
+                | QueryError::UninitializedAccount { .. }
+                | QueryError::UnknownAccessKey { .. } => {
                     Err(crate::errors::ErrorKind::NotFound(err.to_string()))
                 }
                 _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),

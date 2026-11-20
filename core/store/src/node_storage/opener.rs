@@ -8,7 +8,52 @@ use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
 use crate::{
     DBCol, DBTransaction, Mode, NodeStorage, StateSnapshotConfig, Store, StoreConfig, Temperature,
 };
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+impl NodeStorage {
+    /// Initializes a new opener with given home directory and hot, cold,
+    /// and cloud store config.
+    pub fn opener<'a>(
+        home_dir: &std::path::Path,
+        store_config: &'a StoreConfig,
+        cold_store_config: Option<&'a StoreConfig>,
+        cloud_storage_context: Option<CloudStorageContext>,
+    ) -> StoreOpener<'a> {
+        StoreOpener::new(home_dir, store_config, cold_store_config, cloud_storage_context)
+    }
+
+    /// Initializes an opener for a new temporary test store.
+    ///
+    /// As per the name, this is meant for tests only.  The created store will
+    /// use test configuration (which may differ slightly from default config).
+    /// The function **panics** if a temporary directory cannot be created.
+    ///
+    /// Note that the caller must hold the temporary directory returned as first
+    /// element of the tuple while the store is open.
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+        static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
+        let dir = tempfile::tempdir().unwrap();
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None, None);
+        (dir, opener)
+    }
+
+    /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        cold_storage: Option<crate::db::RocksDB>,
+    ) -> Self {
+        let hot_storage = Arc::new(hot_storage);
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
+        } else {
+            None
+        };
+
+        Self { hot_storage, cold_storage: cold_db, cloud_storage: None }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -275,7 +320,7 @@ impl<'a> StoreOpener<'a> {
         let hot_db = self.hot.open_unsafe(mode)?;
         let cold_db = self.cold.as_ref().map(|cold| cold.open_unsafe(mode)).transpose()?;
         let mut storage = NodeStorage::from_rocksdb(hot_db, cold_db);
-        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open()).transpose()?;
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
         storage.cloud_storage = cloud_storage;
         Ok(storage)
     }
@@ -387,7 +432,7 @@ impl<'a> StoreOpener<'a> {
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
         let (hot_db, hot_snapshot, cold_db, cold_snapshot) = self.open_dbs(mode)?;
         let mut storage: NodeStorage = NodeStorage::from_rocksdb(hot_db, cold_db);
-        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open()).transpose()?;
+        let cloud_storage = self.cloud.as_ref().map(|cloud| cloud.open());
         storage.cloud_storage = cloud_storage;
 
         hot_snapshot.remove()?;

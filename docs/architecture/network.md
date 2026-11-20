@@ -150,7 +150,9 @@ pub struct PeerId(PublicKey);
 Each `edge` is represented by the `Edge` structure. It contains the following:
 
 * pair of nodes represented by their public keys.
-* `nonce` - a unique number representing the state of an edge. Starting with `1`.
+* `nonce` - a number representing the state of an edge. A new edge gets an odd
+  nonce based on the current Unix time in seconds. See
+  [Edge](../NetworkSpec/NetworkSpec.md#edge) for the exact rules.
   Odd numbers represent an active edge. Even numbers represent an edge in which
   one of the nodes, confirmed that the edge is removed.
 * Signatures from both peers for active edges.
@@ -462,11 +464,26 @@ example types that appear in `Handler<...>` implementations or multi-sender defi
 
 ## 10.2 Messages sent through TCP
 
-Near is using `borsh` serialization to exchange messages between nodes (See
-[borsh.io](https://borsh.io/)). We should be careful when making changes to
-them. We have to maintain backward compatibility. Only messages implementing
-`BorshSerialize`, `BorshDeserialize` can be sent. We also use `borsh` for
-database storage.
+Messages between nodes use `borsh` serialization (see
+[borsh.io](https://borsh.io/)), but older releases use `protobuf`. We have to
+maintain backward compatibility while the network transitions from protobuf to
+borsh; see `NetworkTransitionConfig` for the encodings accepted and sent by a
+release.
+
+Every frame is a length (`u32`, little endian) followed by that many bytes. A
+protobuf-encoded message is a single frame. A borsh-encoded message is sent as
+two frames: the `PeerMessageHeader` followed by the `PeerMessage` itself.
+
+A node which supports both encodings sends its first handshake in both: first in
+borsh, then in protobuf. A node which supports only protobuf ignores the borsh
+frames and responds in protobuf. A node which supports borsh responds in borsh
+and ignores the protobuf copy of the handshake. Both sides use the encoding of
+the handshake for the rest of the connection. The first frame of a connection
+is treated as borsh if it parses as a borsh header, and as a protobuf message
+otherwise; a node which accepts only borsh closes the connection in the latter
+case. We should be careful when making changes to messages. Only messages
+implementing `BorshSerialize`, `BorshDeserialize` can be sent. We also use
+`borsh` for database storage.
 
 ## 10.3 Messages sent/received through `chain/jsonrpc`
 

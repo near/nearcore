@@ -203,7 +203,6 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
                 GlobalContractIdentifier::AccountId("minimal.global".parse().unwrap()),
                 Vec::new(),
             )
-            .print_progress()
             .build()
             .unwrap()
             .dump_state()

@@ -4,7 +4,9 @@ use crate::types::{
     StatePartValidationResult, StateRootNodeValidationResult,
 };
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
+use itertools::Itertools;
 use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -18,15 +20,21 @@ use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_test_logger;
+use near_parameters::config::ExternalCallsConfig;
+use near_pool::types::PooledGroup;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::UniversalStateInitAction;
+use near_primitives::account::{AccessKeyPermission, AccountContract};
+use near_primitives::action::{GlobalContractIdentifier, UniversalStateInitAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
+use near_primitives::congestion_info::{
+    BlockCongestionInfo, CongestionInfo, CongestionInfoV1, ExtendedCongestionInfo,
+};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::RngSeed;
+use near_primitives::errors::InvalidTxError;
+use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{ActionReceipt, ReceiptV0};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
@@ -34,10 +42,11 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
-    Action, DeleteAccountAction, SignedTransaction, StakeAction, Transaction, TransactionNonce,
-    TransactionV0, TransferAction,
+    Action, DeleteAccountAction, DeployContractAction, ECC_METHOD_NAME, EccTransaction,
+    ExecutionStatus, SignedTransaction, StakeAction, Transaction, TransactionEnvelope,
+    TransactionNonce, TransactionV0, TransferAction, ValidatedEcc, ValidatedTransactionEnvelope,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -45,24 +54,30 @@ use near_primitives::types::{
     ValidatorKickoutReason,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
-use near_primitives::utils::derive_universal_account_id;
+use near_primitives::utils::{derive_universal_account_id, index_to_bytes};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
+use near_runtime::ExternalCallInclusion;
+use near_runtime::PostStateNodes;
+use near_runtime::SignedValidPeriodTransactions;
+use near_runtime::config::ecc_cost;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
 use near_store::trie::AccessOptions;
-use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots, set_account};
+use near_store::trie::NewTrieNodes;
+use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use primitive_types::U256;
 use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::mpsc;
+use std::thread;
 use tempfile::TempDir;
 
 const TEST_SEED: RngSeed = [3; 32];
@@ -195,7 +210,7 @@ impl TestEnv {
         }
 
         epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     genesis_hash,
                     0,
@@ -205,7 +220,6 @@ impl TestEnv {
                     vec![],
                     vec![],
                     genesis_total_supply,
-                    genesis_protocol_version,
                     genesis_protocol_version,
                     0,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -221,6 +235,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         Self {
             epoch_manager,
@@ -241,10 +256,10 @@ impl TestEnv {
         }
     }
 
-    pub fn apply_new_chunk(
+    pub fn apply_new_chunk<T: Into<TransactionEnvelope>>(
         &self,
         shard_id: ShardId,
-        transactions: Vec<SignedTransaction>,
+        transactions: Vec<T>,
         receipts: &[Receipt],
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
@@ -270,7 +285,7 @@ impl TestEnv {
         let transactions = SignedValidPeriodTransactions::new(transactions, transaction_validity);
         self.runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(state_root, true),
+                RuntimeStorageConfig::new(state_root),
                 ApplyChunkReason::UpdateTrackedShard,
                 ApplyChunkShardContext {
                     shard_uid,
@@ -286,6 +301,8 @@ impl TestEnv {
                     block_type: BlockType::Normal,
                     height,
                     prev_block_hash,
+                    prev_block_height: self.head.height,
+                    prev_block_timestamp: 0,
                     block_timestamp,
                     gas_price,
                     random_seed: CryptoHash::default(),
@@ -375,7 +392,7 @@ impl TestEnv {
             self.last_shard_proposals.insert(shard_id, proposals);
         }
         self.epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     new_hash,
                     new_height,
@@ -386,7 +403,6 @@ impl TestEnv {
                     chunk_mask,
                     self.runtime.genesis_config.total_supply,
                     self.runtime.genesis_config.protocol_version,
-                    self.runtime.genesis_config.protocol_version,
                     self.time + 10u64.pow(9),
                     chunk_endorsements,
                     None,
@@ -394,6 +410,7 @@ impl TestEnv {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
@@ -889,7 +906,7 @@ fn test_state_sync() {
         };
         new_env
             .epoch_manager
-            .add_validator_proposals(
+            .record_block_info(
                 BlockInfo::new(
                     cur_hash,
                     i,
@@ -899,7 +916,6 @@ fn test_state_sync() {
                     new_env.last_proposals,
                     vec![true],
                     new_env.runtime.genesis_config.total_supply,
-                    new_env.runtime.genesis_config.protocol_version,
                     new_env.runtime.genesis_config.protocol_version,
                     new_env.time,
                     ChunkEndorsementsBitmap::from_endorsements(vec![
@@ -912,6 +928,7 @@ fn test_state_sync() {
                 [0; 32].as_ref().try_into().unwrap(),
             )
             .unwrap()
+            .store_update
             .commit();
         new_env.head.height = i;
         new_env.head.last_block_hash = cur_hash;
@@ -1401,6 +1418,81 @@ fn test_delete_account_after_unstake() {
     }
 }
 
+/// An external call in the first chunk of a new epoch sees the chunk's parent block, which is
+/// the last block of the previous epoch: its height, its epoch height, and the validator stakes
+/// of its epoch. The contract's account is a validator whose stake changes at that boundary.
+#[test]
+fn test_ecc_in_first_chunk_of_epoch_sees_parent_epoch() {
+    init_test_logger();
+    let validators: Vec<AccountId> = vec!["test1".parse().unwrap()];
+    let mut env = TestEnv::new(vec![validators.clone()], 4, false);
+    let contract_id = validators[0].clone();
+    let signer = InMemorySigner::test_signer(&contract_id);
+    // The ECC method returns the block height, the epoch height and the contract account's
+    // validator stake it sees, in that order.
+    let code = near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "block_index" (func $block_index (result i64)))
+  (import "env" "epoch_height" (func $epoch_height (result i64)))
+  (import "env" "validator_stake" (func $validator_stake (param i64 i64 i64)))
+  (import "env" "value_return" (func $value_return (param i64 i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 100) "{contract_id}")
+  (func (export "{ECC_METHOD_NAME}")
+    (i64.store (i32.const 0) (call $block_index))
+    (i64.store (i32.const 8) (call $epoch_height))
+    (call $validator_stake (i64.const {account_id_len}) (i64.const 100) (i64.const 16))
+    (call $value_return (i64.const 32) (i64.const 0)))
+)"#,
+        account_id_len = contract_id.len(),
+    ));
+    let deploy = SignedTransaction::from_actions(
+        1,
+        contract_id.clone(),
+        contract_id.clone(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction { code })],
+        // runtime does not validate block history
+        CryptoHash::default(),
+    );
+    // A stake proposal takes effect two epochs later, at the boundary the ECC is applied at.
+    let block_producer = create_test_signer(contract_id.as_str());
+    let new_stake = TESTING_INIT_STAKE.checked_mul(2).unwrap().checked_div(3).unwrap();
+    env.step_default(vec![deploy, stake(2, &signer, &block_producer, new_stake)]);
+    // The epoch height doesn't change at the first epoch boundary after genesis, so step to the
+    // end of the epoch after it.
+    for _ in 0..2 {
+        env.step_default(vec![]);
+        while !env.epoch_manager.is_next_block_epoch_start(&env.head.last_block_hash).unwrap() {
+            env.step_default(vec![]);
+        }
+    }
+
+    let parent = env.head.last_block_hash;
+    let parent_epoch_id = env.epoch_manager.get_epoch_id(&parent).unwrap();
+    let parent_epoch_height =
+        env.epoch_manager.get_epoch_info(&parent_epoch_id).unwrap().epoch_height();
+    let chunk_epoch_height = env.epoch_manager.get_epoch_height_from_prev_block(&parent).unwrap();
+    assert_ne!(chunk_epoch_height, parent_epoch_height);
+    let chunk_epoch_id = env.epoch_manager.get_epoch_id_from_prev_block(&parent).unwrap();
+    let stake_in = |epoch_id| {
+        env.epoch_manager.get_validator_by_account_id(epoch_id, &contract_id).unwrap().stake()
+    };
+    let parent_stake = stake_in(&parent_epoch_id);
+    assert_eq!(parent_stake, TESTING_INIT_STAKE);
+    assert_eq!(stake_in(&chunk_epoch_id), new_stake);
+
+    let ecc = EccTransaction::new(contract_id, vec![]);
+    let apply_result = env.apply_new_chunk(ShardId::new(0), vec![ecc], &[]);
+    let [outcome] = apply_result.outcomes.as_slice() else {
+        panic!("expected one outcome, got {:?}", apply_result.outcomes);
+    };
+    let mut seen = env.head.height.to_le_bytes().to_vec();
+    seen.extend(parent_epoch_height.to_le_bytes());
+    seen.extend(parent_stake.as_yoctonear().to_le_bytes());
+    assert_eq!(outcome.outcome.status, ExecutionStatus::SuccessValue(seen));
+}
+
 #[test]
 fn test_proposal_deduped() {
     let num_nodes = 2;
@@ -1607,6 +1699,12 @@ fn generate_transaction_pool(signers: &[Signer], block_hash: CryptoHash) -> Tran
 }
 
 fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
+    get_test_env_with_chain_and_pool_for(None)
+}
+
+fn get_test_env_with_chain_and_pool_for(
+    runtime_config_store: Option<RuntimeConfigStore>,
+) -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..NUM_TEST_SIGNERS)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
@@ -1619,7 +1717,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
             minimum_stake_divisor: None,
             zero_fees: false,
             create_flat_storage: false,
-            runtime_config_store: None,
+            runtime_config_store,
         },
     );
 
@@ -1650,12 +1748,64 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     (env, chain, transaction_pool)
 }
 
+/// The signed transactions among the prepared ones.
+fn signed_txs(txs: &[ValidatedTransactionEnvelope]) -> impl Iterator<Item = &ValidatedTransaction> {
+    txs.iter().filter_map(|tx| match tx {
+        ValidatedTransactionEnvelope::Signed(tx) => Some(tx),
+        ValidatedTransactionEnvelope::Unsigned(_) => None,
+    })
+}
+
+/// The time ECCs get in the tests, so long that no run ends up late.
+const TEST_ECC_TIME_LIMIT: Duration = Duration::seconds(10);
+
+/// The time limits of the tests: `total` for the whole preparation, and time for ECCs that no run
+/// of a test goes over, so the tests do not depend on how fast the machine is.
+fn time_limits(total: Option<Duration>) -> PrepareTransactionsTimeLimits {
+    PrepareTransactionsTimeLimits { total, ecc: TEST_ECC_TIME_LIMIT }
+}
+
+/// The context to prepare transactions for the chain's head.
+fn block_context(
+    env: &TestEnv,
+    congestion_info: BlockCongestionInfo,
+    next_epoch_id: EpochId,
+) -> PrepareTransactionsBlockContext {
+    let prev_hash = env.head.prev_block_hash;
+    let epoch_id = env.epoch_manager.get_epoch_id(&prev_hash).unwrap();
+    PrepareTransactionsBlockContext {
+        next_gas_price: env.runtime.genesis_config.min_gas_price,
+        height: env.head.height,
+        timestamp: 0,
+        epoch_id,
+        epoch_height: env.epoch_manager.get_epoch_info(&epoch_id).unwrap().epoch_height(),
+        next_epoch_id,
+        // The parent is genesis, which counts as an epoch start. Most tests don't want that.
+        starts_new_epoch: false,
+        congestion_info,
+        gas_limit: env.runtime.genesis_config.gas_limit,
+    }
+}
+
 fn prepare_transactions(
     env: &TestEnv,
     chain: &Chain,
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
+    let limits = time_limits(default_produce_chunk_add_transactions_time_limit());
+    prepare_transactions_with_limits(env, chain, transaction_groups, storage_config, limits)
+        .map(|(prepared, _skipped)| prepared)
+}
+
+/// Like `prepare_transactions`, with the given time limits, and the skipped transactions.
+fn prepare_transactions_with_limits(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    storage_config: RuntimeStorageConfig,
+    time_limits: PrepareTransactionsTimeLimits,
+) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;
     let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
@@ -1666,12 +1816,7 @@ fn prepare_transactions(
     env.runtime.prepare_transactions(
         storage_config,
         shard_id,
-        PrepareTransactionsBlockContext {
-            next_gas_price: env.runtime.genesis_config.min_gas_price,
-            height: env.head.height,
-            next_epoch_id,
-            congestion_info,
-        },
+        block_context(env, congestion_info, next_epoch_id),
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {
             chain
@@ -1680,7 +1825,7 @@ fn prepare_transactions(
                 .is_ok()
         },
         &|_| true,
-        default_produce_chunk_add_transactions_time_limit(),
+        time_limits,
     )
 }
 
@@ -1715,6 +1860,36 @@ fn prepare_transactions_extra_with_time_limit(
     cancel: Option<Arc<AtomicBool>>,
     time_limit: Option<Duration>,
 ) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
+    prepare_transactions_extra_in_state(
+        env,
+        chain,
+        transaction_groups,
+        skip_tx_hashes,
+        validate_tx_ttl,
+        check_pending,
+        cancel,
+        time_limits(time_limit),
+        None,
+        |_| {},
+        |_| {},
+    )
+}
+
+/// Like `prepare_transactions_extra_with_time_limit`, with the state changed by `change_state` and
+/// the block context by `change_context`. `parent_nodes` is as for `prepare_transactions_extra`.
+fn prepare_transactions_extra_in_state(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    validate_tx_ttl: &dyn Fn(&SignedTransaction) -> bool,
+    check_pending: &mut dyn FnMut(&SignedTransaction) -> PendingTxCheckResult,
+    cancel: Option<Arc<AtomicBool>>,
+    time_limits: PrepareTransactionsTimeLimits,
+    parent_nodes: Option<ParentPostStateNodes>,
+    change_state: impl FnOnce(&mut TrieUpdate),
+    change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
+) -> Result<(PreparedTransactions, SkippedTransactions), Error> {
     let prev_hash = env.head.prev_block_hash;
     let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
     let shard_uid = shard_layout.shard_uids().next().unwrap();
@@ -1725,17 +1900,15 @@ fn prepare_transactions_extra_with_time_limit(
 
     let mut trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
     trie = trie.recording_reads_new_recorder();
-    let state_update = TrieUpdate::new(trie);
+    let mut state_update = TrieUpdate::new(trie);
+    change_state(&mut state_update);
+    let mut block_context = block_context(env, congestion_info, next_epoch_id);
+    change_context(&mut block_context);
 
     env.runtime.prepare_transactions_extra(
         state_update,
         shard_id,
-        PrepareTransactionsBlockContext {
-            next_gas_price: env.runtime.genesis_config.min_gas_price,
-            height: env.head.height,
-            next_epoch_id,
-            congestion_info,
-        },
+        block_context,
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {
             chain
@@ -1746,9 +1919,1551 @@ fn prepare_transactions_extra_with_time_limit(
         validate_tx_ttl,
         skip_tx_hashes,
         check_pending,
-        time_limit,
+        time_limits,
         cancel,
+        parent_nodes,
     )
+}
+
+/// Whether the producer packs ECCs in this build: not under Spice yet. If not, logs that the test
+/// is skipped.
+fn eccs_are_packed() -> bool {
+    let packed = !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION);
+    if !packed {
+        init_test_logger();
+        tracing::info!("skipping: ECCs are not packed in this build");
+    }
+    packed
+}
+
+fn ecc(contract_id: &str, tag: u8) -> ValidatedEcc {
+    ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![tag]))
+}
+
+fn pool_with_eccs(eccs: impl IntoIterator<Item = ValidatedEcc>) -> TransactionPool {
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for ecc in eccs {
+        assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
+    }
+    pool
+}
+
+/// Prepares the transactions of the pool, in a state where the accounts `with_contract` hold a
+/// contract and the other ones do not.
+fn prepare_eccs(
+    env: &TestEnv,
+    chain: &Chain,
+    pool: &mut TransactionPool,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    with_contract: &[&str],
+) -> (PreparedTransactions, SkippedTransactions) {
+    let change_state = give_contracts(with_contract);
+    prepare_eccs_with_context(env, chain, pool, skip_tx_hashes, change_state, |_| {})
+}
+
+fn prepare_eccs_with_context(
+    env: &TestEnv,
+    chain: &Chain,
+    pool: &mut TransactionPool,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    change_state: impl FnOnce(&mut TrieUpdate),
+    change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
+) -> (PreparedTransactions, SkippedTransactions) {
+    prepare_eccs_with_limits(
+        env,
+        chain,
+        pool,
+        skip_tx_hashes,
+        time_limits(None),
+        change_state,
+        change_context,
+    )
+}
+
+fn prepare_eccs_with_limits(
+    env: &TestEnv,
+    chain: &Chain,
+    pool: &mut TransactionPool,
+    skip_tx_hashes: HashSet<CryptoHash>,
+    time_limits: PrepareTransactionsTimeLimits,
+    change_state: impl FnOnce(&mut TrieUpdate),
+    change_context: impl FnOnce(&mut PrepareTransactionsBlockContext),
+) -> (PreparedTransactions, SkippedTransactions) {
+    prepare_transactions_extra_in_state(
+        env,
+        chain,
+        &mut pool.pool_iterator(),
+        skip_tx_hashes,
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+        time_limits,
+        None,
+        change_state,
+        change_context,
+    )
+    .unwrap()
+}
+
+/// The tag of the ECCs that `ecc_test_contract` refuses.
+const REFUSED_TAG: u8 = 255;
+
+/// The tag of the ECCs whose run in `ecc_test_contract` fails with an error of the runtime, not a
+/// refusal of the contract: it asks for the total stake of the epoch of the parent block.
+const FAILING_TAG: u8 = 254;
+
+/// A contract whose ECC method reads a key of its storage, refuses the call with the payload
+/// `[REFUSED_TAG]`, asks for the total stake with `[FAILING_TAG]`, and accepts any other one.
+fn ecc_test_contract() -> Vec<u8> {
+    near_test_contracts::wat_contract(&format!(
+        r#"(module
+  (import "env" "input" (func $input (param i64)))
+  (import "env" "read_register" (func $read_register (param i64 i64)))
+  (import "env" "storage_read" (func $storage_read (param i64 i64 i64) (result i64)))
+  (import "env" "validator_total_stake" (func $validator_total_stake (param i64)))
+  (memory (export "memory") 1)
+  (data (i32.const 1024) "k")
+  (func (export "{ECC_METHOD_NAME}")
+    (drop (call $storage_read (i64.const 1) (i64.const 1024) (i64.const 1)))
+    (call $input (i64.const 0))
+    (call $read_register (i64.const 0) (i64.const 0))
+    (if (i32.eq (i32.load8_u (i32.const 0)) (i32.const {REFUSED_TAG})) (then unreachable))
+    (if (i32.eq (i32.load8_u (i32.const 0)) (i32.const {FAILING_TAG}))
+      (then (call $validator_total_stake (i64.const 2048))))
+  )
+)"#
+    ))
+}
+
+/// A change of the state that gives the accounts the contract from `ecc_test_contract`.
+fn give_contracts(account_ids: &[&str]) -> impl FnOnce(&mut TrieUpdate) + use<> {
+    let account_ids = account_ids.iter().map(|id| id.parse::<AccountId>().unwrap()).collect_vec();
+    move |state_update| {
+        let code = ContractCode::new(ecc_test_contract(), None);
+        for account_id in account_ids {
+            let mut account = get_account(state_update, &account_id).unwrap().unwrap();
+            account.set_contract(AccountContract::Local(*code.hash())).unwrap();
+            set_account(state_update, account_id.clone(), &account);
+            state_update.set_code(account_id, &code);
+            state_update.record_contract_deploy(code.clone_for_tests());
+        }
+    }
+}
+
+/// A change of the state that gives each account its contract. It puts no code behind it.
+fn give_account_contracts(
+    contracts: Vec<(&str, AccountContract)>,
+) -> impl FnOnce(&mut TrieUpdate) + use<> {
+    let contracts = contracts
+        .into_iter()
+        .map(|(account_id, contract)| (account_id.parse::<AccountId>().unwrap(), contract))
+        .collect_vec();
+    move |state_update| {
+        for (account_id, contract) in contracts {
+            let mut account = get_account(state_update, &account_id).unwrap().unwrap();
+            account.set_contract(contract).unwrap();
+            set_account(state_update, account_id, &account);
+        }
+    }
+}
+
+/// What the ECCs among `txs` are: contract and tag.
+fn packed_eccs(txs: &[ValidatedTransactionEnvelope]) -> Vec<(String, u8)> {
+    txs.iter()
+        .filter_map(|tx| match tx {
+            ValidatedTransactionEnvelope::Unsigned(ecc) => {
+                Some((ecc.contract_id().to_string(), ecc.payload()[0]))
+            }
+            ValidatedTransactionEnvelope::Signed(_) => None,
+        })
+        .sorted()
+        .collect()
+}
+
+/// The tags of the ECCs in the pool, by contract, taken out of the pool.
+fn drain_eccs_from_pool(pool: &mut TransactionPool) -> Vec<(String, Vec<u8>)> {
+    let mut iter = pool.pool_iterator();
+    let mut eccs = vec![];
+    while let Some(group) = iter.next() {
+        if let PooledGroup::Ecc(group) = group {
+            let mut tags = vec![];
+            let mut contract_id = None;
+            while let Some(ecc) = group.next() {
+                contract_id = Some(ecc.contract_id().to_string());
+                tags.push(ecc.payload()[0]);
+            }
+            eccs.extend(contract_id.map(|contract_id| (contract_id, tags)));
+        }
+    }
+    eccs.sort();
+    eccs
+}
+
+/// The producer takes the first ECC to arrive for each contract, and leaves the rest of them in
+/// the pool.
+#[test]
+fn test_prepare_transactions_packs_one_ecc_per_contract() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([
+        ecc("test1", 1),
+        ecc("test1", 2),
+        ecc("test1", 3),
+        ecc("test2", 1),
+        ecc("test2", 2),
+    ]);
+
+    let (prepared, skipped) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![("test1".to_string(), 1), ("test2".to_string(), 1)]
+    );
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+    assert_eq!(
+        drain_eccs_from_pool(&mut pool),
+        vec![("test1".to_string(), vec![2, 3]), ("test2".to_string(), vec![2])]
+    );
+}
+
+/// An ECC of about 1 KB, which starts with `tag`.
+fn kilobyte_ecc(contract_id: &str, tag: u8) -> ValidatedEcc {
+    ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![tag; 1000]))
+}
+
+/// A test env whose ECCs' share of a chunk's transaction bytes holds two `kilobyte_ecc`s, but not
+/// three.
+fn get_test_env_with_room_for_two_kilobyte_eccs() -> (TestEnv, Chain, TransactionPool) {
+    let ecc_size = kilobyte_ecc("test1", 1).get_size();
+    let mut runtime_config = RuntimeConfig::test();
+    let share_size = 2 * ecc_size + ecc_size / 2;
+    let combined_size = runtime_config.witness_config.combined_transactions_size_limit;
+    runtime_config.external_calls_config.chunk_transactions_size_share =
+        Rational32::new(i32::try_from(share_size).unwrap(), i32::try_from(combined_size).unwrap());
+    let ecc_config = &runtime_config.external_calls_config;
+    assert_eq!(ecc_config.transactions_size_share(&runtime_config.witness_config), share_size);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    get_test_env_with_chain_and_pool_for(Some(store))
+}
+
+/// Once the chunk's ECCs take their share of its transaction bytes, the rest stay in the pool,
+/// and the next chunk takes them.
+#[test]
+fn test_prepare_transactions_leaves_eccs_past_the_size_share() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_room_for_two_kilobyte_eccs();
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let mut pool = pool_with_eccs(contracts.map(|contract_id| kilobyte_ecc(contract_id, 1)));
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+    let first_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(first_chunk.len(), 2);
+    // The ones left go into the next chunk.
+    let (prepared, _) = prepare_eccs(
+        &env,
+        &chain,
+        &mut pool,
+        prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
+        &contracts,
+    );
+    let next_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(next_chunk.len(), 2);
+    assert!(next_chunk.iter().all(|ecc| !first_chunk.contains(ecc)));
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// Once the chunk holds `max_calls_per_chunk` ECCs, the rest stay in the pool, and the next chunk
+/// takes them.
+#[test]
+fn test_prepare_transactions_leaves_eccs_past_the_max_calls() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.external_calls_config.max_calls_per_chunk = 2;
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, _) = get_test_env_with_chain_and_pool_for(Some(store));
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+    let first_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(first_chunk.len(), 2);
+    // The ones left go into the next chunk.
+    let (prepared, _) = prepare_eccs(
+        &env,
+        &chain,
+        &mut pool,
+        prepared.transactions.iter().map(|tx| tx.get_hash()).collect(),
+        &contracts,
+    );
+    let next_chunk = packed_eccs(&prepared.transactions);
+    assert_eq!(next_chunk.len(), 2);
+    assert!(next_chunk.iter().all(|ecc| !first_chunk.contains(ecc)));
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// The ECCs of a chunk take no more than their share of its transaction bytes, or the chunk
+/// would be invalid. The ones past the share wait in the pool, and signed transactions still go
+/// into the chunk.
+#[test]
+fn test_prepare_transactions_keeps_eccs_to_their_size_share() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, mut pool) = get_test_env_with_room_for_two_kilobyte_eccs();
+    let num_signed_txs = pool.len();
+    let contracts = ["test1", "test2", "test3", "test4"];
+    for contract_id in contracts {
+        let ecc = kilobyte_ecc(contract_id, 1);
+        assert_eq!(pool.insert_transaction(ecc), InsertTransactionResult::Success);
+    }
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+    assert_eq!(packed_eccs(&prepared.transactions).len(), 2);
+    assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
+    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2);
+}
+
+/// An ECC that does not fit in what the chunk has left for transactions waits in the pool, and
+/// the packing goes on without it.
+#[test]
+fn test_prepare_transactions_leaves_an_ecc_that_does_not_fit() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.combined_transactions_size_limit = 1000;
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool_for(Some(store));
+    let big_ecc =
+        ValidatedEcc::new_for_test(EccTransaction::new("test1".parse().unwrap(), vec![1; 2000]));
+    assert_eq!(pool.insert_transaction(big_ecc), InsertTransactionResult::Success);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(signed_txs(&prepared.transactions).count() > 0);
+    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 1);
+}
+
+/// A cancelled preparation stops at the first group of ECCs it visits, as at any other group:
+/// the limits are checked before the visit.
+#[test]
+fn test_prepare_transactions_cancel_stops_at_ecc_groups() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
+
+    let (prepared, skipped) = prepare_transactions_extra_in_state(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        Some(Arc::new(AtomicBool::new(true))),
+        time_limits(None),
+        None,
+        give_contracts(&["test1", "test2"]),
+        |_| {},
+    )
+    .unwrap();
+
+    assert!(prepared.transactions.is_empty());
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Cancelled);
+    assert_eq!(pool.len(), 2);
+}
+
+/// An ECC is refused for a contract that does not exist, one that holds no code, and one that
+/// cannot pay the fees at the given gas price.
+#[test]
+fn test_can_accept_ecc_checks_contract_and_fees() {
+    let env = TestEnv::new_with_config(
+        vec![vec!["test1".parse().unwrap()]],
+        TestEnvConfig {
+            epoch_length: 5,
+            has_reward: false,
+            minimum_stake_divisor: None,
+            zero_fees: false,
+            create_flat_storage: false,
+            runtime_config_store: None,
+        },
+    );
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
+    let min_gas_price = env.runtime.genesis_config.min_gas_price;
+    let can_accept = |contract_id: &str, gas_price| {
+        let ecc =
+            ValidatedEcc::new_for_test(EccTransaction::new(contract_id.parse().unwrap(), vec![1]));
+        env.runtime.can_accept_ecc(
+            &shard_layout,
+            gas_price,
+            env.state_roots[0],
+            &ecc,
+            PROTOCOL_VERSION,
+        )
+    };
+
+    assert!(matches!(
+        can_accept("nobody", min_gas_price),
+        Err(InvalidTxError::ContractNotFound { .. })
+    ));
+    assert!(matches!(
+        can_accept("test1", min_gas_price),
+        Err(InvalidTxError::ContractNotFound { .. })
+    ));
+    assert!(matches!(
+        can_accept("test1", Balance::from_near(1)),
+        Err(InvalidTxError::NotEnoughBalance { .. })
+    ));
+}
+
+/// A call is a repeat only while the contract's accepted inclusion of it is in a final block on
+/// the canonical chain, at most `EXTERNAL_CALL_REPEAT_WINDOW` blocks below the final head.
+#[test]
+fn test_external_call_cache_repeats_only_an_accepted_final_canonical_inclusion() {
+    let (env, mut chain, _) = get_test_env_with_chain_and_pool();
+    let genesis = chain.genesis().clone();
+    let (genesis_hash, genesis_height) = (*genesis.hash(), genesis.height());
+    // The setup: the genesis block is the final head.
+    assert_eq!(chain.final_head().unwrap().height, genesis_height);
+    let remember = |name: &str, block_hash: CryptoHash, height: BlockHeight, accepted: bool| {
+        let call_hash = CryptoHash::hash_bytes(name.as_bytes());
+        let unique_id = CryptoHash::hash_bytes(&[name.as_bytes(), block_hash.as_ref()].concat());
+        let inclusion = ExternalCallInclusion {
+            unique_id,
+            hash: call_hash,
+            hash_without_state_init: call_hash,
+            accepted,
+        };
+        env.runtime.external_call_cache().remember(&block_hash, height, &[inclusion]);
+    };
+    let is_repeat = |name: &str| {
+        let call_hash = CryptoHash::hash_bytes(name.as_bytes());
+        env.runtime.external_call_cache().is_repeat(&call_hash)
+    };
+
+    remember("accepted", genesis_hash, genesis_height, true);
+    assert!(is_repeat("accepted"));
+    // A later inclusion, not final yet, does not replace the accepted one inside the window.
+    remember("accepted", CryptoHash::hash_bytes(b"next block"), genesis_height + 1, true);
+    assert!(is_repeat("accepted"));
+    remember("refused", genesis_hash, genesis_height, false);
+    assert!(!is_repeat("refused"));
+    remember("fork", CryptoHash::hash_bytes(b"fork block"), genesis_height, true);
+    assert!(!is_repeat("fork"));
+    remember("not final", CryptoHash::hash_bytes(b"next block"), genesis_height + 1, true);
+    assert!(!is_repeat("not final"));
+    assert!(!is_repeat("never landed"));
+    let answer = |name: &str, sent_at: BlockHeight| {
+        let call_hash = CryptoHash::hash_bytes(name.as_bytes());
+        env.runtime.external_call_cache().answer_to_send(&call_hash, sent_at)
+    };
+    let id = |name: &str, block_hash: &CryptoHash| {
+        CryptoHash::hash_bytes(&[name.as_bytes(), block_hash.as_ref()].concat())
+    };
+    let set_canonical = |height: BlockHeight, block_hash: &CryptoHash| {
+        let mut store_update = env.runtime.store().store_update();
+        store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(height), block_hash);
+        store_update.commit();
+    };
+
+    // A skip fork: the canonical block re-includes a call from a block that the fork orphans.
+    // The index still points at the orphaned block when the canonical inclusion is cached.
+    let fork_hash = CryptoHash::hash_bytes(b"fork block");
+    set_canonical(genesis_height, &fork_hash);
+    remember("orphaned", fork_hash, genesis_height, true);
+    remember("orphaned", genesis_hash, genesis_height, true);
+    set_canonical(genesis_height, &genesis_hash);
+    assert!(is_repeat("orphaned"));
+    assert_eq!(answer("orphaned", genesis_height), Some(id("orphaned", &genesis_hash)));
+
+    // A send is answered by an inclusion after it, or by an earlier one that ran.
+    assert_eq!(answer("accepted", genesis_height), Some(id("accepted", &genesis_hash)));
+    assert_eq!(answer("refused", genesis_height), None);
+    let retry_hash = CryptoHash::hash_bytes(b"retry block");
+    set_canonical(genesis_height + 1, &retry_hash);
+    remember("refused", retry_hash, genesis_height + 1, false);
+    assert_eq!(answer("refused", genesis_height), Some(id("refused", &retry_hash)));
+    // A resend that landed after the send, before the first inclusion was final, is its own
+    // answer even when the first inclusion is accepted.
+    remember("resent", genesis_hash, genesis_height, true);
+    remember("resent", retry_hash, genesis_height + 1, true);
+    assert_eq!(answer("resent", genesis_height), Some(id("resent", &retry_hash)));
+
+    // The final head moves past a height the canonical chain skipped. An inclusion at that height
+    // is on an orphaned block, and it does not count.
+    let skipped_height = genesis_height + 2;
+    remember("skipped height", CryptoHash::hash_bytes(b"orphaned block"), skipped_height, true);
+    let mut final_head = Tip::from_header(&genesis);
+    final_head.height = skipped_height + 1;
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update.save_final_head(&final_head);
+    store_update.commit().unwrap();
+    assert!(!is_repeat("skipped height"));
+
+    // The final head moves past the window of the inclusion in the genesis block.
+    final_head.height = genesis_height + EXTERNAL_CALL_REPEAT_WINDOW + 1;
+    let mut store_update = chain.mut_chain_store().store_update();
+    store_update.save_final_head(&final_head);
+    store_update.commit().unwrap();
+    assert!(!is_repeat("accepted"));
+}
+
+/// A producer leaves a repeat of a call that ran in a final block out of the chunk, and drops it
+/// from the pool, while it packs other calls.
+#[test]
+fn test_prepare_transactions_drops_a_repeat_of_an_ecc_that_ran() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let genesis = chain.genesis().clone();
+    // The setup: the genesis block is the final head, and the call to test1 ran in it.
+    assert_eq!(chain.final_head().unwrap().height, genesis.height());
+    let repeat = ecc("test1", 1);
+    let call_hash = *repeat.hash_without_state_init();
+    let inclusion = ExternalCallInclusion {
+        unique_id: CryptoHash::hash_bytes(b"inclusion that ran"),
+        hash: call_hash,
+        hash_without_state_init: call_hash,
+        accepted: true,
+    };
+    env.runtime.external_call_cache().remember(genesis.hash(), genesis.height(), &[inclusion]);
+    let mut pool = pool_with_eccs([repeat, ecc("test2", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// A chunk with no room for ECCs, as their share of its transaction bytes is zero, gets none,
+/// and they all stay in the pool. Signed transactions are not affected.
+#[test]
+fn test_prepare_transactions_leaves_eccs_in_pool_when_there_is_no_room() {
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.external_calls_config.chunk_transactions_size_share = Rational32::new(0, 1);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool_for(Some(store));
+    let num_signed_txs = pool.len();
+    for contract_id in ["test1", "test2"] {
+        assert_eq!(pool.insert_transaction(ecc(contract_id, 1)), InsertTransactionResult::Success);
+    }
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
+    assert_eq!(
+        drain_eccs_from_pool(&mut pool),
+        vec![("test1".to_string(), vec![1]), ("test2".to_string(), vec![1])]
+    );
+}
+
+/// An ECC to an account with no contract is dropped, as nobody can run it.
+#[test]
+fn test_prepare_transactions_drops_eccs_to_accounts_without_contract() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool =
+        pool_with_eccs([ecc("test1", 1), ecc("test2", 1), ecc("test2", 2), ecc("nobody", 1)]);
+
+    let (prepared, skipped) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// A call whose state init derives to another account fails apply's validity check. One can reach
+/// the pool only unchecked, such as after a reorg, and the producer leaves it out of the chunk.
+#[test]
+fn test_prepare_transactions_drops_an_ecc_whose_state_init_is_for_another_account() {
+    if !eccs_are_packed() {
+        return;
+    }
+    // The init names a global contract that accepts the call, so only the validity check refuses
+    // it.
+    let code = ContractCode::new(ecc_test_contract(), None);
+    let state_init = |value: &[u8]| {
+        UniversalStateInit::V1(UniversalStateInitV1 {
+            code: Some(GlobalContractIdentifier::CodeHash(*code.hash())),
+            data: BTreeMap::from([(b"k".to_vec(), value.to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw()
+    };
+    let wallet = derive_universal_account_id(&state_init(b"v"));
+    let other_init = state_init(b"w");
+    assert_ne!(derive_universal_account_id(&other_init), wallet);
+    let call = EccTransaction::new_with_state_init(wallet.clone(), vec![1], Some(other_init));
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ValidatedEcc::new_for_test(call), ecc("test1", 1)]);
+    let change_state = |state_update: &mut TrieUpdate| {
+        give_contracts(&["test1"])(state_update);
+        let account = Account::new_uninitialized(Balance::from_near(10), 100, 0);
+        set_account(state_update, wallet, &account);
+        let identifier = GlobalContractCodeIdentifier::CodeHash(*code.hash());
+        state_update.set(TrieKey::GlobalContractCode { identifier }, code.code().to_vec());
+        state_update.record_contract_deploy(code.clone_for_tests());
+    };
+
+    let (prepared, _) =
+        prepare_eccs_with_context(&env, &chain, &mut pool, HashSet::new(), change_state, |_| {});
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// ECCs to accounts that use a global contract, by hash or by the account that deployed it, are
+/// packed like the ones to accounts with a local contract.
+#[test]
+fn test_prepare_transactions_packs_eccs_to_accounts_with_global_contracts() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
+    let code = ContractCode::new(ecc_test_contract(), None);
+    let deployer: AccountId = "deployer.near".parse().unwrap();
+    let by_hash = AccountContract::Global(*code.hash());
+    let by_account = AccountContract::GlobalByAccount(deployer.clone());
+    // The runs load the code of the global contracts from the state.
+    let global_contracts = [
+        GlobalContractCodeIdentifier::CodeHash(*code.hash()),
+        GlobalContractCodeIdentifier::AccountId(deployer),
+    ];
+    let give_account_contracts =
+        give_account_contracts(vec![("test1", by_hash), ("test2", by_account)]);
+    let change_state = move |state_update: &mut TrieUpdate| {
+        give_account_contracts(state_update);
+        for identifier in global_contracts {
+            state_update.set(TrieKey::GlobalContractCode { identifier }, code.code().to_vec());
+        }
+        state_update.record_contract_deploy(code.clone_for_tests());
+    };
+
+    let (prepared, skipped) =
+        prepare_eccs_with_context(&env, &chain, &mut pool, HashSet::new(), change_state, |_| {});
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![("test1".to_string(), 1), ("test2".to_string(), 1)]
+    );
+    assert!(skipped.0.is_empty());
+}
+
+/// An ECC that went into the previous chunk, which is not in a block yet, is not packed again.
+/// The producer takes the next one, and the pool gets back both in the order they came.
+#[test]
+fn test_prepare_transactions_skips_eccs_of_the_previous_chunk() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test1", 2), ecc("test1", 3)]);
+    let in_previous_chunk = ecc("test1", 1).get_hash();
+
+    let (prepared, skipped) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::from([in_previous_chunk]), &["test1"]);
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 2)]);
+    assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![in_previous_chunk]);
+    assert_eq!(pool.len(), 1);
+    // Put back the way the producer does.
+    pool.reintroduce_prepared(prepared.transactions, skipped.0);
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![1, 2, 3])]);
+}
+
+/// The producer packs an ECC that its contract accepts, and drops one that the contract refuses,
+/// without giving up the contract's place in the chunk: the next ECC to the same contract goes in.
+#[test]
+fn test_prepare_transactions_packs_accepted_eccs_and_drops_refused_ones() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", REFUSED_TAG), ecc("test2", 2)]);
+
+    let (prepared, skipped) =
+        prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![("test1".to_string(), 1), ("test2".to_string(), 2)]
+    );
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// A test env whose ECCs have so small a share of a chunk's compute, or of its storage proof,
+/// that one ECC takes all of it. `set_shares` gets the config and the amounts the shares are of.
+fn get_test_env_with_tiny_ecc_shares(
+    set_shares: impl FnOnce(&mut ExternalCallsConfig, Gas, u64),
+) -> (TestEnv, Chain, TransactionPool) {
+    let mut runtime_config = RuntimeConfig::test();
+    let gas_limit = Gas::from_teragas(1000);
+    let proof_limit = runtime_config.witness_config.main_storage_proof_size_soft_limit;
+    set_shares(&mut runtime_config.external_calls_config, gas_limit, proof_limit);
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    get_test_env_with_chain_and_pool_for(Some(store))
+}
+
+/// A share of `amount` that is a unit or more, but less than what any ECC uses.
+fn tiny_share(amount: u64) -> Rational32 {
+    Rational32::new(1, i32::try_from(amount).unwrap_or(i32::MAX))
+}
+
+fn set_tiny_compute_share(config: &mut ExternalCallsConfig, gas_limit: Gas, _: u64) {
+    config.chunk_compute_share = tiny_share(gas_limit.as_gas());
+}
+
+fn set_tiny_storage_proof_share(config: &mut ExternalCallsConfig, _: Gas, proof_limit: u64) {
+    config.chunk_storage_proof_share = tiny_share(proof_limit);
+}
+
+/// Changes the shares of ECCs in a config to tiny ones, given the amounts they are shares of.
+type SetTinyShares = fn(&mut ExternalCallsConfig, Gas, u64);
+
+fn tiny_share_cases() -> [(&'static str, SetTinyShares); 2] {
+    [("compute", set_tiny_compute_share), ("storage proof", set_tiny_storage_proof_share)]
+}
+
+/// Once the ECCs of a chunk use up their share of its compute or of its storage proof, the producer
+/// takes no more of them, and they stay in the pool. Apply refuses a call past a share, so the
+/// producer must not pack one.
+#[test]
+fn test_prepare_transactions_stops_at_a_full_share() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let contracts = ["test1", "test2", "test3"];
+    let tests = tiny_share_cases();
+    for (name, set_shares) in tests {
+        let (env, chain, _) = get_test_env_with_tiny_ecc_shares(set_shares);
+        let mut pool = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+
+        let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+        assert_eq!(packed_eccs(&prepared.transactions).len(), 1, "{name}");
+        assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2, "{name}");
+    }
+}
+
+/// An ECC that its contract refuses is not in the chunk, so it uses none of the chunk's shares:
+/// an ECC after it is still taken.
+#[test]
+fn test_prepare_transactions_refused_ecc_does_not_use_the_shares() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let contracts = ["test1", "test2", "test3", "test4"];
+    let tests = tiny_share_cases();
+    for (name, set_shares) in tests {
+        let (env, chain, _) = get_test_env_with_tiny_ecc_shares(set_shares);
+        let mut pool = pool_with_eccs([
+            ecc("test1", REFUSED_TAG),
+            ecc("test2", REFUSED_TAG),
+            ecc("test3", 1),
+            ecc("test4", 1),
+        ]);
+
+        let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &contracts);
+
+        let packed = packed_eccs(&prepared.transactions);
+        assert_eq!(packed.len(), 1, "{name}");
+        assert_eq!(packed[0].1, 1, "{name}");
+    }
+}
+
+/// What the apply of the parent chunk does for `prepare_eccs_early`.
+#[derive(Clone, Copy)]
+enum ParentApply {
+    /// It finalizes the parent's writes and sends the nodes they add.
+    Finalizes,
+    /// It sends the nodes only after this long, while the preparation waits for them.
+    FinalizesAfter(StdDuration),
+    /// It fails before it sends them.
+    Fails,
+    /// It has not sent them by the time the preparation gives up waiting.
+    Stalls,
+    /// It has not sent them when the preparation is cancelled, this long after it starts.
+    StallsUntilCancelled(StdDuration),
+}
+
+/// Prepares ECCs as early preparation does. The state of the preparation holds `parent_writes`,
+/// the writes of the parent chunk, as pending changes. The nodes that the writes add to the trie
+/// are sent as `parent_apply` says, though they are never stored.
+fn prepare_eccs_early(
+    env: &TestEnv,
+    chain: &Chain,
+    pool: &mut TransactionPool,
+    parent_apply: ParentApply,
+    time_limits: PrepareTransactionsTimeLimits,
+    parent_writes: impl Fn(&mut TrieUpdate),
+) -> (PreparedTransactions, SkippedTransactions) {
+    let cause = StateChangeCause::InitialState;
+    let shard_uid = test_shard_uid(env);
+    let (sender, receiver) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let nodes = || {
+        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+        let mut update = TrieUpdate::new(trie.recording_reads_new_recorder());
+        parent_writes(&mut update);
+        update.commit(cause.clone());
+        let trie_changes = update.finalize().unwrap().trie_changes;
+        let nodes = NewTrieNodes::from_changes(&trie_changes);
+        PostStateNodes { state_root: trie_changes.new_root, nodes }
+    };
+    match parent_apply {
+        ParentApply::Finalizes => sender.send(nodes()).unwrap(),
+        ParentApply::FinalizesAfter(delay) => {
+            let (nodes, sender) = (nodes(), sender.clone());
+            thread::spawn(move || {
+                thread::sleep(delay);
+                let _ = sender.send(nodes);
+            });
+        }
+        ParentApply::StallsUntilCancelled(delay) => {
+            let cancel = Arc::clone(&cancel);
+            thread::spawn(move || {
+                thread::sleep(delay);
+                cancel.store(true, Ordering::Relaxed);
+            });
+        }
+        ParentApply::Fails | ParentApply::Stalls => {}
+    }
+    // The sender stays until the preparation is over, unless the parent's apply failed.
+    let sender = (!matches!(parent_apply, ParentApply::Fails)).then_some(sender);
+    let result = prepare_transactions_extra_in_state(
+        env,
+        chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        Some(cancel),
+        time_limits,
+        Some(ParentPostStateNodes { shard_uid, receiver }),
+        |state| {
+            parent_writes(state);
+            state.commit(cause);
+        },
+        |_| {},
+    )
+    .unwrap();
+    drop(sender);
+    result
+}
+
+/// Early preparation runs ECCs on the state that the parent chunk leaves, as apply of the next
+/// chunk finds it. Reading what the parent wrote from its pending changes costs nothing, while
+/// apply reads it from the trie, so an ECC that reads too much of it is refused there. Here a
+/// value that is over what an ECC's run may record is refused by the run, and the ECC is dropped.
+#[test]
+fn test_prepare_transactions_early_drops_an_ecc_that_reads_too_much_of_the_parent_writes() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
+    let value = vec![1; config.external_calls_config.max_call_recorded_size * 3 / 2];
+    let key = TrieKey::ContractData { account_id: "test1".parse().unwrap(), key: b"k".to_vec() };
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+
+    let (prepared, skipped) = prepare_eccs_early(
+        &env,
+        &chain,
+        &mut pool,
+        ParentApply::Finalizes,
+        time_limits(None),
+        |state| {
+            give_contracts(&["test1"])(state);
+            state.set(key.clone(), value.clone());
+        },
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// An ECC whose contract the parent chunk deployed, with its account, code and data in the nodes
+/// that the parent's apply sent, runs and is packed.
+#[test]
+fn test_prepare_transactions_early_packs_an_ecc_to_a_contract_the_parent_deployed() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let key = TrieKey::ContractData { account_id: "test1".parse().unwrap(), key: b"k".to_vec() };
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+
+    let (prepared, skipped) = prepare_eccs_early(
+        &env,
+        &chain,
+        &mut pool,
+        ParentApply::Finalizes,
+        time_limits(None),
+        |state| {
+            give_contracts(&["test1"])(state);
+            state.set(key.clone(), b"value".to_vec());
+        },
+    );
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+}
+
+/// An ECC waits for the nodes of the parent chunk's apply, and runs once they come, however late.
+#[test]
+fn test_prepare_transactions_early_waits_for_the_parent_nodes() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+    let delay = StdDuration::from_millis(150);
+
+    let start = Instant::now();
+    let (prepared, skipped) = prepare_eccs_early(
+        &env,
+        &chain,
+        &mut pool,
+        ParentApply::FinalizesAfter(delay),
+        time_limits(None),
+        |state| give_contracts(&["test1"])(state),
+    );
+
+    assert!(start.elapsed() >= delay);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+}
+
+/// An ECC that has no nodes of the parent chunk to run on goes back to the pool, and the
+/// preparation goes on without ECCs, with the signed transactions it has. That is so if the
+/// parent's apply fails, if the nodes do not come before the time for ECCs is up, even when the
+/// preparation as a whole has no time limit, and if the preparation is cancelled while it waits.
+#[test]
+fn test_prepare_transactions_early_puts_back_eccs_without_the_parent_nodes() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let short_ecc_time =
+        PrepareTransactionsTimeLimits { total: None, ecc: Duration::milliseconds(300) };
+    let cases = [
+        (ParentApply::Fails, time_limits(None), PrepareTransactionsLimit::NoMoreTxsInPool),
+        (ParentApply::Stalls, short_ecc_time, PrepareTransactionsLimit::Time),
+        (
+            ParentApply::StallsUntilCancelled(StdDuration::from_millis(50)),
+            time_limits(None),
+            PrepareTransactionsLimit::Cancelled,
+        ),
+    ];
+    for (parent_apply, limits, limited_by) in cases {
+        let mut pool = pool_with_eccs([ecc("test1", 1)]);
+
+        let (prepared, skipped) =
+            prepare_eccs_early(&env, &chain, &mut pool, parent_apply, limits, |state| {
+                give_contracts(&["test1"])(state)
+            });
+
+        assert!(packed_eccs(&prepared.transactions).is_empty());
+        assert_eq!(
+            skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(),
+            [ecc("test1", 1).get_hash()]
+        );
+        assert_eq!(prepared.limited_by, limited_by);
+    }
+}
+
+/// The shard of the test environment.
+fn test_shard_uid(env: &TestEnv) -> ShardUId {
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    shard_layout.shard_uids().next().unwrap()
+}
+
+/// Saves the contract from `ecc_test_contract` for the accounts in the state of the environment,
+/// with a value under the key the contract reads. Unlike `give_contracts`, which only changes the
+/// state of a preparation, it puts nodes in the trie for the runs of the contract to read.
+#[cfg(feature = "test_features")]
+fn deploy_ecc_contracts(env: &mut TestEnv, account_ids: &[&str]) {
+    let shard_uid = test_shard_uid(env);
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let mut state_update = TrieUpdate::new(trie);
+    let code = ContractCode::new(ecc_test_contract(), None);
+    for account_id in account_ids {
+        let account_id: AccountId = account_id.parse().unwrap();
+        let mut account = get_account(&state_update, &account_id).unwrap().unwrap();
+        account.set_contract(AccountContract::Local(*code.hash())).unwrap();
+        set_account(&mut state_update, account_id.clone(), &account);
+        state_update.set_code(account_id.clone(), &code);
+        let key = TrieKey::ContractData { account_id, key: b"k".to_vec() };
+        state_update.set(key, b"value".to_vec());
+    }
+    state_update.commit(StateChangeCause::InitialState);
+    let trie_changes = state_update.finalize().unwrap().trie_changes;
+    let mut store_update = env.runtime.tries.store_update();
+    env.state_roots[0] = env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+    store_update.commit();
+}
+
+/// A call whose run fails with an error of the runtime fails the preparation, as such an error
+/// fails the application of a chunk. It is not a refusal of the contract. Here the contract asks for
+/// the total stake of an epoch that does not exist.
+#[test]
+fn test_prepare_transactions_fails_when_the_run_of_an_ecc_fails() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", FAILING_TAG), ecc("test2", 1)]);
+
+    let result = prepare_transactions_extra_in_state(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        HashSet::new(),
+        &|_| true,
+        &mut PendingTxCheckResult::always_admit(),
+        None,
+        time_limits(None),
+        None,
+        give_contracts(&["test1", "test2"]),
+        |context| context.epoch_id = EpochId(CryptoHash::hash_bytes(b"no such epoch")),
+    );
+
+    assert_matches!(result, Err(Error::EpochOutOfBounds(_)));
+}
+
+/// The size of the state that checking that the accounts hold a contract reads, which is all a
+/// preparation reads for ECCs that their contracts refuse.
+#[cfg(feature = "test_features")]
+fn recorded_size_of_contract_checks(env: &TestEnv, contracts: &[&str]) -> usize {
+    let shard_uid = test_shard_uid(env);
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let state_update = TrieUpdate::new(trie.recording_reads_new_recorder());
+    let wrapper = TrieUpdateWitnessSizeWrapper::new(state_update);
+    for contract_id in contracts {
+        let ecc = EccTransaction::new(contract_id.parse().unwrap(), vec![]);
+        assert!(call_can_run_at_account(&wrapper, &ecc).unwrap());
+    }
+    wrapper.recorded_storage_size()
+}
+
+/// The reads of a refused ECC stay out of the storage proof. Otherwise a later ECC would get the
+/// nodes the refused one read for free, and fit at the producer but not at apply.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_leaves_the_reads_of_refused_eccs_out_of_the_storage_proof() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+    let contracts = ["test1", "test2"];
+    deploy_ecc_contracts(&mut env, &contracts);
+    let mut refused = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, REFUSED_TAG)));
+    let mut accepted = pool_with_eccs(contracts.map(|contract_id| ecc(contract_id, 1)));
+
+    let (prepared_refused, _) = prepare_eccs(&env, &chain, &mut refused, HashSet::new(), &[]);
+    let (prepared_accepted, _) = prepare_eccs(&env, &chain, &mut accepted, HashSet::new(), &[]);
+
+    assert!(packed_eccs(&prepared_refused.transactions).is_empty());
+    assert_eq!(packed_eccs(&prepared_accepted.transactions).len(), 2);
+    // Nothing but the check of the contracts is in the proof of the refused ECCs. The accepted
+    // ones add what their runs read: the code length and the value of the contract.
+    let checks = recorded_size_of_contract_checks(&env, &contracts);
+    assert_eq!(prepared_refused.recorded_storage_size, checks);
+    assert!(prepared_accepted.recorded_storage_size > checks);
+}
+
+/// The preparation stops taking ECCs once what it read is over the soft limit of the storage
+/// proof, as it stops taking signed transactions.
+#[test]
+fn test_prepare_transactions_stops_taking_eccs_at_the_storage_proof_limit() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.new_transactions_validation_state_size_soft_limit = 1;
+    let store = RuntimeConfigStore::with_one_config(runtime_config);
+    let (env, chain, _) = get_test_env_with_chain_and_pool_for(Some(store));
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::StorageProofSize);
+    assert_eq!(drain_eccs_from_pool(&mut pool).len(), 2);
+}
+
+/// Signed transactions go into the chunk before any ECC, whatever the order in the pool.
+#[test]
+fn test_prepare_transactions_packs_signed_transactions_before_eccs() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool();
+    for contract_id in ["test1", "test2", "test3", "test4"] {
+        assert_eq!(pool.insert_transaction(ecc(contract_id, 1)), InsertTransactionResult::Success);
+    }
+    let num_signed_txs = pool.len() - 4;
+
+    let (prepared, _) = prepare_eccs(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        &["test1", "test2", "test3", "test4"],
+    );
+
+    let kinds = prepared
+        .transactions
+        .iter()
+        .map(|tx| matches!(tx, ValidatedTransactionEnvelope::Signed(_)))
+        .collect_vec();
+    assert_eq!(kinds.len(), num_signed_txs + 4);
+    assert!(kinds[..num_signed_txs].iter().all(|is_signed| *is_signed));
+    assert!(kinds[num_signed_txs..].iter().all(|is_signed| !is_signed));
+}
+
+/// An ECC runs on the balance its contract has left after the signed transactions that are ahead of
+/// it in the chunk.
+#[test]
+fn test_prepare_transactions_runs_an_ecc_on_the_balance_signed_transactions_left() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let shard_uid = test_shard_uid(&env);
+    let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
+    let contract_id: AccountId = "test1".parse().unwrap();
+    let balance = get_account(&TrieUpdate::new(trie), &contract_id).unwrap().unwrap().amount();
+    let config = env.runtime.get_runtime_config(PROTOCOL_VERSION);
+    let gas_price = env.runtime.genesis_config.min_gas_price;
+    let ecc_fee = ecc_cost(config, ecc("test1", 1).to_ecc(), gas_price).unwrap().burnt_amount;
+
+    // A transfer that leaves the contract one yocto short of the fees of the ECC.
+    let signer = InMemorySigner::test_signer(&contract_id);
+    let transfer = |deposit: Balance| {
+        SignedTransaction::send_money(
+            1,
+            contract_id.clone(),
+            "test2".parse().unwrap(),
+            &signer,
+            deposit,
+            env.head.prev_block_hash,
+        )
+    };
+    let fees = tx_cost(config, &transfer(Balance::ZERO).transaction, gas_price).unwrap().total_cost;
+    let left = ecc_fee.checked_sub(Balance::from_yoctonear(1)).unwrap();
+    let deposit = balance.checked_sub(fees).unwrap().checked_sub(left).unwrap();
+
+    let mut with_transfer = pool_with_eccs([ecc("test1", 1)]);
+    with_transfer.insert_transaction(ValidatedTransaction::new_for_test(transfer(deposit)));
+    let mut without_transfer = pool_with_eccs([ecc("test1", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut with_transfer, HashSet::new(), &["test1"]);
+    assert_eq!(signed_txs(&prepared.transactions).count(), 1);
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(drain_eccs_from_pool(&mut with_transfer).is_empty());
+
+    let (prepared, _) =
+        prepare_eccs(&env, &chain, &mut without_transfer, HashSet::new(), &["test1"]);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+}
+
+/// A signed transaction of the contract that preparation rejects is not in the chunk. The ECC
+/// goes on and runs on the account as it is in the state, and is packed.
+#[test]
+fn test_prepare_transactions_runs_an_ecc_after_a_rejected_signed_transaction_of_its_contract() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let trie = env.runtime.tries.get_trie_for_shard(test_shard_uid(&env), env.state_roots[0]);
+    let contract_id: AccountId = "test1".parse().unwrap();
+    let balance = get_account(&TrieUpdate::new(trie), &contract_id).unwrap().unwrap().amount();
+    // A transfer of more than the contract has.
+    let transfer = SignedTransaction::send_money(
+        1,
+        contract_id.clone(),
+        "test2".parse().unwrap(),
+        &InMemorySigner::test_signer(&contract_id),
+        balance.checked_add(Balance::from_yoctonear(1)).unwrap(),
+        env.head.prev_block_hash,
+    );
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+    pool.insert_transaction(ValidatedTransaction::new_for_test(transfer));
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1"]);
+
+    assert_eq!(signed_txs(&prepared.transactions).count(), 0);
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test1".to_string(), 1)]);
+}
+
+#[cfg(feature = "test_features")]
+fn wait_until_ecc_thread_is_free(runtime: &NightshadeRuntime) {
+    while runtime.ecc_thread.is_busy() {
+        thread::yield_now();
+    }
+}
+
+/// How long the producer waits for the run of an ECC that is held, which is late whatever the
+/// time. It is the time the producer has to reach the run, so it is generous, and it is also how
+/// long a test waits.
+#[cfg(feature = "test_features")]
+const HELD_ECC_WAIT: Duration = Duration::milliseconds(500);
+
+/// An ECC that is not done by the deadline is left out of the chunk, and runs on in the
+/// background. If it had the whole time for ECCs to itself it is dropped, as it would not finish
+/// next time either. Until it is done the next chunks take no ECCs, and then they take them again.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_leaves_out_a_late_ecc_and_takes_no_others_while_it_runs() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let held = ecc("test1", 1);
+    let held_hash = held.get_hash();
+    env.runtime.test_held_eccs.hold(&held_hash);
+    let contracts = ["test1", "test2"];
+    let prepare = |pool: &mut TransactionPool, limits| {
+        let change_state = give_contracts(&contracts);
+        prepare_eccs_with_limits(&env, &chain, pool, HashSet::new(), limits, change_state, |_| {})
+    };
+    // Short, only for the runs that are held. A run that is not must not be late.
+    let held_limits = PrepareTransactionsTimeLimits { total: None, ecc: HELD_ECC_WAIT };
+
+    let mut pool = pool_with_eccs([held]);
+    let (prepared, skipped) = prepare(&mut pool, held_limits);
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Time);
+    // It had the whole time to itself, so it is not put back.
+    assert!(skipped.0.is_empty());
+    assert_eq!(pool.len(), 0);
+    assert!(env.runtime.ecc_thread.is_busy());
+
+    // The run is going on, and no other ECC is taken, nor lost.
+    let mut pool = pool_with_eccs([ecc("test2", 1)]);
+    let (prepared, skipped) = prepare(&mut pool, held_limits);
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test2".to_string(), vec![1])]);
+
+    // Once it is done, ECCs are taken again.
+    env.runtime.test_held_eccs.release(&held_hash);
+    wait_until_ecc_thread_is_free(&env.runtime);
+    let mut pool = pool_with_eccs([ecc("test2", 1)]);
+    let (prepared, _) = prepare(&mut pool, time_limits(None));
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
+}
+
+/// A late ECC that started late, because the signed transactions left less time than ECCs may
+/// take, is put back: it may finish in time when it has more.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_puts_back_a_late_ecc_that_started_late() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let held = ecc("test1", 1);
+    let held_hash = held.get_hash();
+    env.runtime.test_held_eccs.hold(&held_hash);
+    // The time of the whole preparation ends before the time for ECCs does.
+    let limits =
+        PrepareTransactionsTimeLimits { total: Some(HELD_ECC_WAIT), ecc: Duration::seconds(60) };
+    let mut pool = pool_with_eccs([held]);
+
+    let (prepared, skipped) = prepare_eccs_with_limits(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        limits,
+        give_contracts(&["test1"]),
+        |_| {},
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::Time);
+    assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![held_hash]);
+    assert_eq!(pool.len(), 0);
+
+    env.runtime.test_held_eccs.release(&held_hash);
+    wait_until_ecc_thread_is_free(&env.runtime);
+}
+
+/// `prepare_transactions` hands back what it skips, like `prepare_transactions_extra`: the
+/// producer needs it to put back an ECC that was late, or that did not get to run, since it is
+/// the one that takes the ECC out of the pool. Without a list of skipped ECCs it would lose them.
+#[cfg(feature = "test_features")]
+#[test]
+fn test_prepare_transactions_returns_the_late_ecc_that_started_late() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
+    deploy_ecc_contracts(&mut env, &["test1"]);
+    let held = ecc("test1", 1);
+    let held_hash = held.get_hash();
+    env.runtime.test_held_eccs.hold(&held_hash);
+    let limits =
+        PrepareTransactionsTimeLimits { total: Some(HELD_ECC_WAIT), ecc: Duration::seconds(60) };
+    let mut pool = pool_with_eccs([held]);
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+    };
+
+    let (prepared, skipped) = prepare_transactions_with_limits(
+        &env,
+        &chain,
+        &mut pool.pool_iterator(),
+        storage_config,
+        limits,
+    )
+    .unwrap();
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(skipped.0.iter().map(|tx| tx.get_hash()).collect_vec(), vec![held_hash]);
+    assert_eq!(pool.len(), 0);
+
+    env.runtime.test_held_eccs.release(&held_hash);
+    wait_until_ecc_thread_is_free(&env.runtime);
+}
+
+/// With no time for ECCs, none are taken, and they stay in the pool.
+#[test]
+fn test_prepare_transactions_takes_no_eccs_without_time_for_them() {
+    if !eccs_are_packed() {
+        tracing::info!("skipping: ECCs are not packed in this build");
+        return;
+    }
+    let (env, chain, mut pool) = get_test_env_with_chain_and_pool();
+    let num_signed_txs = pool.len();
+    assert_eq!(pool.insert_transaction(ecc("test1", 1)), InsertTransactionResult::Success);
+    let limits = PrepareTransactionsTimeLimits { total: None, ecc: Duration::ZERO };
+
+    let (prepared, _) = prepare_eccs_with_limits(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        limits,
+        give_contracts(&["test1"]),
+        |_| {},
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(signed_txs(&prepared.transactions).count(), num_signed_txs);
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![1])]);
+}
+
+/// ECCs get their share of the time limit, or of the default limit if there is none, and a share
+/// of nothing or of the whole is kept within those bounds.
+#[test]
+fn test_time_limits_of_eccs() {
+    let ms = Duration::milliseconds;
+    let limits = |total, share| PrepareTransactionsTimeLimits::new(total, share).ecc;
+    assert_eq!(limits(Some(ms(200)), Rational32::new(1, 2)), ms(100));
+    assert_eq!(limits(Some(ms(300)), Rational32::new(1, 3)), ms(100));
+    assert_eq!(limits(Some(ms(200)), Rational32::new(0, 1)), Duration::ZERO);
+    assert_eq!(limits(Some(ms(200)), Rational32::new(-1, 2)), Duration::ZERO);
+    assert_eq!(limits(Some(ms(200)), Rational32::new(1, 1)), ms(200));
+    assert_eq!(limits(Some(ms(200)), Rational32::new(3, 2)), ms(200));
+    assert_eq!(limits(None, Rational32::new(1, 2)), ms(100));
+    assert_eq!(limits(None, Rational32::new(0, 1)), Duration::ZERO);
+    assert_eq!(PrepareTransactionsTimeLimits::new(None, Rational32::new(1, 2)).total, None);
+}
+
+/// TODO(spice): the producer does not pack ECCs under Spice yet, so they all stay in the pool.
+#[test]
+fn test_prepare_transactions_does_not_pack_eccs_under_spice() {
+    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
+        tracing::info!("skipping: Spice is not enabled in this build");
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1), ecc("test2", 1)]);
+
+    let (prepared, _) = prepare_eccs(&env, &chain, &mut pool, HashSet::new(), &["test1", "test2"]);
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert_eq!(pool.len(), 2);
+}
+
+/// A change of the state that gives `test1`, `test2` and the protocol treasury a contract. `test1`
+/// has stake, `test2` and the treasury have none.
+fn give_contracts_to_a_staker_and_non_stakers(
+    protocol_treasury: &str,
+) -> impl FnOnce(&mut TrieUpdate) + use<> {
+    let give_contracts = give_contracts(&["test1", "test2", protocol_treasury]);
+    let protocol_treasury_id: AccountId = protocol_treasury.parse().unwrap();
+    move |state_update| {
+        give_contracts(state_update);
+        let staker_id: AccountId = "test1".parse().unwrap();
+        let staker = get_account(state_update, &staker_id).unwrap().unwrap();
+        assert!(staker.locked() > Balance::ZERO);
+        let non_staker_id: AccountId = "test2".parse().unwrap();
+        let mut non_staker = get_account(state_update, &non_staker_id).unwrap().unwrap();
+        non_staker.set_locked(Balance::ZERO).unwrap();
+        set_account(state_update, non_staker_id, &non_staker);
+        let protocol_treasury = get_account(state_update, &protocol_treasury_id).unwrap().unwrap();
+        assert_eq!(protocol_treasury.locked(), Balance::ZERO);
+    }
+}
+
+/// Apply updates the validators' accounts at the start of an epoch, before it runs anything, and
+/// the dry run does not, so a contract with stake, or the protocol treasury, could see another
+/// balance in each. The producer holds back the calls to such a contract in the first chunk of an
+/// epoch, and takes them in the next chunk. Other contracts are not held back.
+#[test]
+fn test_prepare_transactions_holds_back_eccs_to_updated_accounts_at_the_start_of_an_epoch() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let treasury = env.runtime.genesis_config.protocol_treasury_account.to_string();
+    let mut pool =
+        pool_with_eccs([ecc("test1", 1), ecc("test1", 2), ecc("test2", 1), ecc(&treasury, 1)]);
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_contracts_to_a_staker_and_non_stakers(&treasury),
+        |context| context.starts_new_epoch = true,
+    );
+
+    assert_eq!(packed_eccs(&prepared.transactions), vec![("test2".to_string(), 1)]);
+    assert!(skipped.0.is_empty());
+    assert_eq!(prepared.limited_by, PrepareTransactionsLimit::NoMoreTxsInPool);
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_contracts_to_a_staker_and_non_stakers(&treasury),
+        |_| {},
+    );
+
+    assert_eq!(
+        packed_eccs(&prepared.transactions),
+        vec![(treasury, 1), ("test1".to_string(), 1)].into_iter().sorted().collect_vec()
+    );
+    assert!(skipped.0.is_empty());
+    assert_eq!(drain_eccs_from_pool(&mut pool), vec![("test1".to_string(), vec![2])]);
+}
+
+/// An account without a contract is not held back at the start of an epoch, but dropped as ever.
+#[test]
+fn test_prepare_transactions_drops_eccs_to_accounts_without_contract_at_the_start_of_an_epoch() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("nobody", 1)]);
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        |_| {},
+        |context| context.starts_new_epoch = true,
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
+}
+
+/// The context of a block that ends its epoch says that its child starts a new one. The genesis
+/// of the mock chain is such a block.
+#[test]
+fn test_block_context_flags_the_last_block_of_an_epoch() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let genesis = chain.genesis_block();
+    assert!(env.epoch_manager.is_next_block_epoch_start(genesis.hash()).unwrap());
+
+    let context = PrepareTransactionsBlockContext::new(
+        &genesis,
+        env.epoch_manager.as_ref(),
+        BlockCongestionInfo::default(),
+        Gas::MAX,
+    )
+    .unwrap();
+
+    assert!(context.starts_new_epoch);
+}
+
+/// ECCs of a contract in a congested shard are dropped, as signed transactions to it are.
+#[test]
+fn test_prepare_transactions_drops_eccs_to_a_congested_shard() {
+    if !eccs_are_packed() {
+        return;
+    }
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let mut pool = pool_with_eccs([ecc("test1", 1)]);
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let full_congestion = CongestionInfo::V1(CongestionInfoV1 {
+        delayed_receipts_gas: u128::from(u64::MAX),
+        buffered_receipts_gas: 0,
+        receipt_bytes: 0,
+        allowed_shard: 0,
+    });
+    let congested = BlockCongestionInfo::new(
+        [(shard_id, ExtendedCongestionInfo::new(full_congestion, 0))].into(),
+    );
+
+    let (prepared, skipped) = prepare_eccs_with_context(
+        &env,
+        &chain,
+        &mut pool,
+        HashSet::new(),
+        give_contracts(&["test1"]),
+        |context| context.congestion_info = congested,
+    );
+
+    assert!(packed_eccs(&prepared.transactions).is_empty());
+    assert!(skipped.0.is_empty());
+    assert!(drain_eccs_from_pool(&mut pool).is_empty());
 }
 
 #[test]
@@ -1757,7 +3472,9 @@ fn test_prepare_transactions_duplicate_nonces() {
 
     // Insert a transaction with a duplicate (public key, nonce) pair into the pool.
     let mut iter = transaction_pool.pool_iterator();
-    let group = iter.next().unwrap();
+    let PooledGroup::Signed(group) = iter.next().unwrap() else {
+        panic!("expected a group of signed transactions")
+    };
     let first_tx = group.peek_next().unwrap();
     let duplicate_nonce_tx = SignedTransaction::send_money(
         first_tx.nonce().nonce(),
@@ -1771,7 +3488,6 @@ fn test_prepare_transactions_duplicate_nonces() {
 
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
     };
@@ -1783,7 +3499,7 @@ fn test_prepare_transactions_duplicate_nonces() {
 
     // Collect (public key, nonce) pairs to check for duplicates.
     let mut pk_nonce_set = HashSet::new();
-    for tx in &txs.transactions {
+    for tx in signed_txs(&txs.transactions) {
         let pk_nonce = (tx.public_key(), tx.nonce().nonce());
         assert!(
             pk_nonce_set.insert(pk_nonce),
@@ -1859,7 +3575,6 @@ fn test_prepare_transactions_shared_balance_across_keys() {
 
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
     };
@@ -1894,7 +3609,7 @@ fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
     let raw_state_init = state_init.to_raw();
     let account_id = derive_universal_account_id(&raw_state_init);
 
-    // Stands in for `initial_nonce_value(creation_height)`. The account is
+    // Stands in for `initial_nonce_value(creation_height, ..)`. The account is
     // written straight into the trie, so only its relation to the transaction
     // nonce matters, and it has to stay under the height-derived upper bound.
     const BOOTSTRAP_NONCE: Nonce = 1_000;
@@ -1923,7 +3638,6 @@ fn test_prepare_transactions_rejects_unauthorized_bootstrap() {
     let prepare = |tx: SignedTransaction| {
         let storage_config = RuntimeStorageConfig {
             state_root: env.state_roots[0],
-            use_flat_storage: true,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
         };
@@ -1991,7 +3705,7 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     let raw_state_init = state_init.to_raw();
     let account_id = derive_universal_account_id(&raw_state_init);
 
-    // As in the test above: stands in for `initial_nonce_value(creation_height)`.
+    // As in the test above: stands in for `initial_nonce_value(creation_height, ..)`.
     const BOOTSTRAP_NONCE: Nonce = 1_000;
 
     let block_hash = env.head.prev_block_hash;
@@ -2022,7 +3736,6 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     let prepare = |tx: SignedTransaction| {
         let storage_config = RuntimeStorageConfig {
             state_root: env.state_roots[0],
-            use_flat_storage: true,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
         };
@@ -2072,23 +3785,18 @@ fn test_prepare_transactions_gap_check_holds_only_bootstrap() {
     );
 }
 
-/// One account's flood of rejected transactions must not use up the whole
-/// selection budget. Rejected transactions advance no gas/size budget, so the
-/// `time_limit` bounds them, and the per-visit group cap
-/// (`MAX_TXS_PER_GROUP_PER_VISIT`) lets the loop reach that check and give
-/// other accounts a turn.
+/// A pool with one account's flood of transactions that get rejected, next to
+/// a few valid transactions from other accounts.
 ///
-/// With one small time limit, checks that:
-///  - preparation stops on the time limit (within a small cap), not by draining the flood,
-///  - transactions from other accounts are still included (fairness),
-///  - the flood is drained more than one visit's worth, but not fully.
-#[test]
-fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
-    let (env, chain, _) = get_test_env_with_chain_and_pool();
-    let block_hash = env.head.prev_block_hash;
-
-    let flooder: AccountId = "test1".parse().unwrap();
-    let flooder_signer = InMemorySigner::test_signer(&flooder);
+/// Returns the pool and the number of valid transactions from the other
+/// accounts.
+fn build_flood_pool(
+    block_hash: CryptoHash,
+    flooder: &AccountId,
+    flood_size: u64,
+    honest_txs_per_account: u64,
+) -> (TransactionPool, u64) {
+    let flooder_signer = InMemorySigner::test_signer(flooder);
 
     // Each transfer exceeds half the available balance, so only the lowest-nonce
     // transaction is funded and every following one is rejected on balance.
@@ -2096,8 +3804,8 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
     let big_transfer =
         available.checked_div(2).unwrap().checked_add(Balance::from_near(1)).unwrap();
 
-    // Empty signatures, so the pile is cheap to build.
-    let flood_tx = |nonce: u64| -> ValidatedTransaction {
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for nonce in 1..=flood_size {
         let tx = Transaction::V0(TransactionV0 {
             signer_id: flooder.clone(),
             public_key: flooder_signer.public_key(),
@@ -2106,57 +3814,19 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
             block_hash,
             actions: vec![Action::Transfer(TransferAction { deposit: big_transfer })],
         });
-        ValidatedTransaction::new_for_test(SignedTransaction::new(
-            Signature::empty(KeyType::ED25519),
-            tx,
-        ))
-    };
-
-    let build_flood_pool = |size: u64| -> TransactionPool {
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        for nonce in 1..=size {
-            pool.insert_transaction(flood_tx(nonce));
-        }
-        pool
-    };
-
-    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
-
-    // Measure the ~cost of rejecting one transaction. Sizing the load/timeouts
-    // relative to this keeps the test machine-independent.
-    let warmup_size = 4 * cap;
-    let mut warmup_pool = build_flood_pool(warmup_size);
-    let warmup_start = std::time::Instant::now();
-    {
-        let mut warmup_iter = warmup_pool.pool_iterator();
-        prepare_transactions_extra_with_time_limit(
-            &env,
-            &chain,
-            &mut warmup_iter,
-            HashSet::new(),
-            &|_| true,
-            &mut PendingTxCheckResult::always_admit(),
-            None,
-            None, // no time limit => drains the whole warmup flood
-        )
-        .unwrap();
+        // Empty signatures, so the pile is cheap to build.
+        let tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), tx);
+        pool.insert_transaction(ValidatedTransaction::new_for_test(tx));
     }
-    let time_to_reject_tx = warmup_start.elapsed() / warmup_size as u32;
-
-    // Real flood: far more than the ~8 visits the time budget below allows, so
-    // it can't be drained within the deadline.
-    let flood_size = 64 * cap;
-    let mut pool = build_flood_pool(flood_size);
 
     // A few valid transactions from other accounts submitted alongside the
     // flood. Each transfers a negligible amount, so all of them are funded.
     let honest_accounts = ["test2", "test3", "test4"];
-    const HONEST_TXS_PER_ACCOUNT: u64 = 2;
     let mut honest_count = 0u64;
     for name in honest_accounts {
         let account: AccountId = name.parse().unwrap();
         let signer = InMemorySigner::test_signer(&account);
-        for nonce in 1..=HONEST_TXS_PER_ACCOUNT {
+        for nonce in 1..=honest_txs_per_account {
             let tx = SignedTransaction::send_money(
                 nonce,
                 account.clone(),
@@ -2170,9 +3840,43 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
         }
     }
 
-    // Time budget of ~1/8 needed to drain the flood (but still ~8x of single visit full of rejections)
-    let time_limit =
-        Some(Duration::nanoseconds(time_to_reject_tx.as_nanos() as i64 * 8 * cap as i64));
+    (pool, honest_count)
+}
+
+/// One account's flood of rejected transactions must not keep the other
+/// accounts waiting. Rejected transactions advance no gas/size budget, so the
+/// per-visit group cap (`MAX_TXS_PER_GROUP_PER_VISIT`) is what makes the loop
+/// leave the flood's group and give the other accounts a turn.
+///
+/// There is no time limit here. The test looks at the order in which the
+/// transactions are examined, so the speed of the machine plays no part:
+///  - the flood never gets more than the cap in a row while others wait,
+///  - the loop comes back to the flood after the others had their turn,
+///  - all the valid transactions are included.
+#[test]
+fn test_prepare_transactions_flood_fairness() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let block_hash = env.head.prev_block_hash;
+    let flooder: AccountId = "test1".parse().unwrap();
+    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
+
+    let flood_size = 8 * cap;
+    // The first flood transaction is funded and that ends the flood's first
+    // visit, so the first visit full of rejections is its second one. With
+    // three transactions each, the other accounts still wait at that point,
+    // wherever the flood is in the order of the groups.
+    let honest_txs_per_account = 3;
+    let (mut pool, honest_count) =
+        build_flood_pool(block_hash, &flooder, flood_size, honest_txs_per_account);
+
+    // Whether each examined transaction is a flood one, in the order in which
+    // they are examined.
+    let mut examined_is_flood: Vec<bool> = Vec::new();
+    let mut check_pending = |tx: &SignedTransaction| {
+        let is_flood = tx.transaction.signer_id() == &flooder;
+        examined_is_flood.push(is_flood);
+        PendingTxCheckResult::Admit(PendingConstraints::default())
+    };
 
     let result = {
         let mut pool_iter = pool.pool_iterator();
@@ -2182,13 +3886,120 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
             &mut pool_iter,
             HashSet::new(),
             &|_| true,
-            &mut PendingTxCheckResult::always_admit(),
+            &mut check_pending,
             None,
-            time_limit,
+            None,
         )
         .unwrap()
         .0
     };
+
+    // The longest run of flood transactions examined in a row while a
+    // transaction from another account was still waiting.
+    let mut honest_waiting = honest_count;
+    let mut flood_run = 0u64;
+    let mut longest_flood_run = 0u64;
+    for is_flood in &examined_is_flood {
+        if *is_flood {
+            flood_run += 1;
+        } else {
+            honest_waiting -= 1;
+            flood_run = 0;
+        }
+        if honest_waiting > 0 {
+            longest_flood_run = longest_flood_run.max(flood_run);
+        }
+    }
+
+    // Property 1 (fairness): the flood gets a full visit while others wait, and
+    // no more than that.
+    assert_eq!(honest_waiting, 0, "all honest transactions should be examined");
+    assert_eq!(
+        longest_flood_run, cap,
+        "expected the flood to get exactly one visit's worth in a row while others wait",
+    );
+
+    // Property 2: the loop keeps coming back to the flood, here until none of
+    // it is left.
+    let flood_examined = examined_is_flood.iter().filter(|is_flood| **is_flood).count() as u64;
+    assert_eq!(flood_examined, flood_size, "expected the whole flood to be examined");
+    assert_eq!(pool.len(), 0, "expected the pool to be drained");
+
+    // Property 3: transactions from the other accounts are included despite
+    // the flood, plus exactly the one funded flood tx.
+    let included_honest =
+        signed_txs(&result.transactions).filter(|tx| tx.signer_id() != &flooder).count() as u64;
+    assert_eq!(included_honest, honest_count, "all honest transactions should be included");
+    let included_flood =
+        signed_txs(&result.transactions).filter(|tx| tx.signer_id() == &flooder).count();
+    assert_eq!(included_flood, 1, "exactly one flood transaction is funded");
+}
+
+/// One account's flood of rejected transactions must not use up more than the
+/// time limit. Rejected transactions advance no gas/size budget, so the
+/// `time_limit` is what bounds them.
+///
+/// The time limit is a wall clock one, and the test does not race it. The
+/// pending check sleeps for longer than it on one chosen flood transaction, in
+/// the middle of a visit, and preparation must not go past that transaction.
+/// On a busy machine the time may run out earlier, which only makes it stop
+/// sooner. Getting to that transaction takes a tiny part of the time limit,
+/// so that is rare.
+#[test]
+fn test_prepare_transactions_flood_respects_time_limit() {
+    let (env, chain, _) = get_test_env_with_chain_and_pool();
+    let block_hash = env.head.prev_block_hash;
+    let flooder: AccountId = "test1".parse().unwrap();
+    let cap = MAX_TXS_PER_GROUP_PER_VISIT as u64;
+
+    // Only the flood: `test_prepare_transactions_flood_fairness` covers what
+    // the other accounts get.
+    let flood_size = 8 * cap;
+    let honest_txs_per_account = 0;
+    let (mut pool, _) = build_flood_pool(block_hash, &flooder, flood_size, honest_txs_per_account);
+
+    // Set up the time limit so that all transactions can be processed if not
+    // for the sleep. Set up the sleep duration to be a bit longer.
+    let time_limit = Duration::milliseconds(10);
+    let sleep_time = Duration::milliseconds(15);
+
+    // The prepare_transactions will sleep after processing the
+    // `sleepy_flood_tx`-th flood transaction. At this point the time limit
+    // should have been reached, and the preparation should stop.
+    //
+    // Position it in the midst of a visit, and early, so that getting to it
+    // takes little time. The first flood transaction is funded and ends the
+    // first visit, so this one is in the middle of the second visit.
+    let sleepy_flood_tx = cap / 2;
+
+    let mut flood_seen = 0u64;
+    let mut check_pending = |_: &SignedTransaction| {
+        flood_seen += 1;
+        if flood_seen == sleepy_flood_tx {
+            thread::sleep(sleep_time.unsigned_abs());
+        }
+        PendingTxCheckResult::Admit(PendingConstraints::default())
+    };
+
+    // Timed from the outside. The time limit is counted from a point inside
+    // the call, so this is never less than what the call itself counted.
+    let start = Instant::now();
+    let result = {
+        let mut pool_iter = pool.pool_iterator();
+        prepare_transactions_extra_with_time_limit(
+            &env,
+            &chain,
+            &mut pool_iter,
+            HashSet::new(),
+            &|_| true,
+            &mut check_pending,
+            None,
+            Some(time_limit),
+        )
+        .unwrap()
+        .0
+    };
+    let elapsed = start.elapsed();
 
     // Property 1: preparation stopped on the time limit, not because the flood was exhausted.
     assert!(
@@ -2197,170 +4008,19 @@ fn test_prepare_transactions_flood_respects_time_limit_and_fairness() {
         result.limited_by,
     );
 
-    // Property 2 (fairness): transactions from the other accounts are
-    // included despite the flood, plus exactly the one funded flood tx.
-    let included_honest =
-        result.transactions.iter().filter(|tx| tx.signer_id() != &flooder).count() as u64;
-    assert_eq!(included_honest, honest_count, "all honest transactions should be included");
-    let included_flood = result.transactions.iter().filter(|tx| tx.signer_id() == &flooder).count();
-    assert_eq!(included_flood, 1, "exactly one flood transaction is funded");
-
-    // Property 3 (a bit into the implementation): check the count pulled was more than one visit's worth.
+    // Property 2: it stopped as soon as the time ran out, without finishing
+    // the visit. There is no lower bound, that would depend on the machine.
     let flood_examined = flood_size - pool.len() as u64;
     assert!(
-        flood_examined > cap,
-        "expected to pull more than one visit from the flood, pulled {flood_examined}",
+        flood_examined <= sleepy_flood_tx,
+        "expected to stop by flood transaction {sleepy_flood_tx}, pulled {flood_examined}",
     );
+
+    // Property 3: it did not stop on the time limit before the time ran out.
+    // A busy machine only makes the call take longer, so this cannot flake.
     assert!(
-        flood_examined < flood_size,
-        "expected the flood to not be fully drained, pulled {flood_examined}",
-    );
-}
-
-/// The time limit must also bound a flood that fits inside a *single* group
-/// visit. `test_prepare_transactions_flood_respects_time_limit_and_fairness`
-/// covers the case where the flood exceeds `MAX_TXS_PER_GROUP_PER_VISIT`, so the
-/// loop returns to the outer check between visits. It cannot cover this one:
-/// here the whole flood fits in one visit, so the outer check is never reached
-/// again, and only a check inside the per-group loop can stop it.
-///
-/// The cost per peeked transaction is what makes the difference. These carry a
-/// `UniversalStateInit` payload at the transaction size limit, which
-/// `is_state_init_bootstrap` hashes and decodes and `tx_cost` decodes twice more,
-/// all before the transaction is rejected. A rejected transaction burns no gas
-/// and never advances `total_size`, so the gas and size budgets stay put.
-#[test]
-fn test_prepare_transactions_respects_time_limit_within_one_group_visit() {
-    /// Mainnet `max_transaction_size` (`core/parameters/res/runtime_configs/69.yaml:3`).
-    const MAX_TX_SIZE: usize = 1_572_864;
-    /// Default `transaction_pool_size_limit` (`core/chain-configs/src/client_config.rs`).
-    const POOL_LIMIT: usize = 100_000_000;
-    const BOOTSTRAP_NONCE: Nonce = 1_000;
-
-    let (mut env, chain, _) = get_test_env_with_chain_and_pool();
-    let block_hash = env.head.prev_block_hash;
-
-    let committed =
-        InMemorySigner::from_seed("unused.near".parse().unwrap(), KeyType::ED25519, "committed");
-    // One entry holding one large value, rather than many small entries: this
-    // shape stays within every per-entry and per-key limit, so what the test
-    // measures cannot be taken away by a cap on the payload's structure.
-    let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
-        code: None,
-        data: BTreeMap::from([(b"k".to_vec(), vec![0u8; MAX_TX_SIZE - 1_000])]),
-        access_keys: BTreeSet::from([PublicKeyHandle::from(committed.public_key())]),
-    });
-    let raw_state_init = state_init.to_raw();
-    let payload_len = raw_state_init.0.len();
-    assert!(payload_len < MAX_TX_SIZE, "payload {payload_len} exceeds the transaction size limit");
-    let account_id = derive_universal_account_id(&raw_state_init);
-
-    // The account exists but is uninitialized and far too poor to pay for a state
-    // init this large, so every transaction below is rejected on balance.
-    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
-    let shard_id = shard_layout.shard_ids().next().unwrap();
-    let shard_uid =
-        shard_id_to_uid(env.epoch_manager.as_ref(), shard_id, &env.head.epoch_id).unwrap();
-    {
-        let trie = env.runtime.tries.get_trie_for_shard(shard_uid, env.state_roots[0]);
-        let mut state_update = TrieUpdate::new(trie);
-        set_account(
-            &mut state_update,
-            account_id.clone(),
-            &Account::new_uninitialized(Balance::from_yoctonear(1), 100, BOOTSTRAP_NONCE),
-        );
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().trie_changes;
-        let mut store_update = env.runtime.tries.store_update();
-        env.state_roots[0] =
-            env.runtime.tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit();
-    }
-
-    // All at the one admissible bootstrap nonce, so the nonce gap check lets every
-    // one of them through to the expensive work. They differ only in the action
-    // deposit, which is enough for distinct hashes and so distinct pool entries.
-    let build_pool = |size: usize| -> TransactionPool {
-        let mut pool = TransactionPool::new(TEST_SEED, None, "");
-        for i in 0..size {
-            let tx = Transaction::V0(TransactionV0 {
-                signer_id: account_id.clone(),
-                public_key: committed.public_key(),
-                nonce: BOOTSTRAP_NONCE + 1,
-                receiver_id: account_id.clone(),
-                block_hash,
-                actions: vec![Action::UniversalStateInit(Box::new(UniversalStateInitAction {
-                    state_init: raw_state_init.clone(),
-                    deposit: Balance::from_yoctonear(i as u128),
-                }))],
-            });
-            let signed = SignedTransaction::new(Signature::empty(KeyType::ED25519), tx);
-            assert_eq!(
-                pool.insert_transaction(ValidatedTransaction::new_for_test(signed)),
-                InsertTransactionResult::Success,
-            );
-        }
-        pool
-    };
-
-    let run = |pool: &mut TransactionPool, time_limit| -> (PreparedTransactions, Duration) {
-        let start = std::time::Instant::now();
-        let mut iter = pool.pool_iterator();
-        let prepared = prepare_transactions_extra_with_time_limit(
-            &env,
-            &chain,
-            &mut iter,
-            HashSet::new(),
-            &|_| true,
-            &mut PendingTxCheckResult::always_admit(),
-            None,
-            time_limit,
-        )
-        .unwrap()
-        .0;
-        (prepared, Duration::nanoseconds(start.elapsed().as_nanos() as i64))
-    };
-
-    // Calibrate the budget against this machine rather than a fixed duration:
-    // time an unbudgeted run over a small pool, and give the real run twice
-    // that. The doubling leaves room above the per-call setup the warmup also
-    // paid for, so the outer check cannot fire before the group is entered,
-    // while staying far below what draining the whole flood would take.
-    const WARMUP: usize = 8;
-    let (warmup, warmup_elapsed) = run(&mut build_pool(WARMUP), None);
-    assert!(warmup.transactions.is_empty(), "the flood must not be includable");
-    let time_limit = warmup_elapsed * 2;
-
-    // A shard pool's worth of them, all in the one (account, key) group, and
-    // fewer than the per-visit cap so the loop never returns to the outer check.
-    let flood_size = POOL_LIMIT / payload_len;
-    assert!(
-        flood_size < MAX_TXS_PER_GROUP_PER_VISIT,
-        "the pool byte limit, not the per-visit count cap, has to be what bounds this group",
-    );
-    let mut pool = build_pool(flood_size);
-
-    let (result, _) = run(&mut pool, Some(time_limit));
-    assert!(result.transactions.is_empty(), "the flood must not be includable");
-
-    // Nothing below measures wall-clock time, so a slow or heavily loaded worker
-    // cannot fail this. The counts alone say the inner check is what stopped it:
-    // there is a single group, so had the loop only checked the clock between
-    // groups it would have drained the group and reported `NoMoreTxsInPool`.
-    assert!(
-        matches!(result.limited_by, PrepareTransactionsLimit::Time),
-        "expected to stop on the time limit, stopped on {:?}",
-        result.limited_by,
-    );
-    let examined = flood_size - pool.len();
-    assert!(
-        examined > 0,
-        "expected the group to be entered, so that the stop came from the inner check \
-         rather than from the outer one before any transaction was peeked",
-    );
-    assert!(
-        examined < flood_size,
-        "expected to stop before draining the group, examined all {flood_size}",
+        elapsed >= time_limit,
+        "expected to run for at least {time_limit:?}, stopped after {elapsed:?}",
     );
 }
 
@@ -2393,7 +4053,6 @@ fn test_prepare_transactions_helper(
 
     let storage_config = RuntimeStorageConfig {
         state_root: env.state_roots[0],
-        use_flat_storage: true,
         source: storage_source,
         state_patch: Default::default(),
     };
@@ -2629,7 +4288,7 @@ fn test_prepare_transactions_pending_nonce_constraint() {
     )
     .unwrap();
     assert_eq!(prepared.transactions.len(), 1);
-    assert_eq!(prepared.transactions[0].nonce().nonce(), 2);
+    assert_eq!(signed_txs(&prepared.transactions).next().unwrap().nonce().nonce(), 2);
 }
 
 #[test]
@@ -2679,12 +4338,7 @@ fn test_strict_nonce_u64_max_not_included() {
         .prepare_transactions_extra(
             state_update,
             shard_id,
-            PrepareTransactionsBlockContext {
-                next_gas_price: env.runtime.genesis_config.min_gas_price,
-                height: env.head.height,
-                next_epoch_id,
-                congestion_info,
-            },
+            block_context(&env, congestion_info, next_epoch_id),
             &mut PoolIteratorWrapper::new(&mut pool),
             &mut |tx: &SignedTransaction| -> bool {
                 chain
@@ -2695,7 +4349,8 @@ fn test_strict_nonce_u64_max_not_included() {
             &|_| true,
             HashSet::new(),
             &mut PendingTxCheckResult::always_admit(),
-            default_produce_chunk_add_transactions_time_limit(),
+            time_limits(default_produce_chunk_add_transactions_time_limit()),
+            None,
             None,
         )
         .unwrap();
@@ -2763,14 +4418,20 @@ fn test_strict_nonce_gap_does_not_count_towards_state_size_soft_limit() {
             PrepareTransactionsBlockContext {
                 next_gas_price: runtime.genesis_config.min_gas_price,
                 height: 0,
+                timestamp: 0,
+                epoch_id,
+                epoch_height: 0,
                 next_epoch_id: epoch_id,
+                starts_new_epoch: false,
                 congestion_info: Default::default(),
+                gas_limit: runtime.genesis_config.gas_limit,
             },
             &mut PoolIteratorWrapper::new(&mut pool),
             &|_| true,
             &|_| true,
             HashSet::new(),
             &mut PendingTxCheckResult::always_admit(),
+            time_limits(None),
             None,
             None,
         )
@@ -2884,7 +4545,7 @@ fn test_storage_proof_garbage() {
             )],
         }),
     });
-    let apply_result = env.apply_new_chunk(shard_id, vec![], &[receipt]);
+    let apply_result = env.apply_new_chunk(shard_id, Vec::<SignedTransaction>::new(), &[receipt]);
     let PartialState::TrieValues(storage_proof) = apply_result.proof.unwrap().nodes;
     let total_size: usize = storage_proof.iter().map(|v| v.len()).sum();
     assert_eq!(total_size / 1000_000, garbage_size_mb);
@@ -3072,4 +4733,16 @@ mod check_dynamic_resharding {
         let result = check_dynamic_resharding(&trie, shard_id, shard_layout, &config);
         assert!(result.unwrap().is_some());
     }
+}
+
+/// A view call of the external call method that hits a storage error before the run answers with
+/// the node's failure, while a refusal before the run stays a refusal.
+#[test]
+fn test_view_external_call_storage_error_is_internal() {
+    let storage_error = InvalidTxError::StorageError(StorageError::StorageInternalError);
+    let viewed = ViewExternalCallError::refused_before_run(storage_error);
+    assert!(matches!(viewed, ViewExternalCallError::Internal(Error::StorageError(_))));
+
+    let viewed = ViewExternalCallError::refused_before_run(InvalidTxError::Expired);
+    assert!(matches!(viewed, ViewExternalCallError::Refused(_, _)));
 }

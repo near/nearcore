@@ -29,8 +29,8 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_primitives_core::types::Balance;
+use near_runtime::config::total_prepaid_gas;
 use near_test_contracts::{ft_contract, smallest_rs_contract};
-use node_runtime::config::total_prepaid_gas;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
     carol_account, eve_dot_alice_account,

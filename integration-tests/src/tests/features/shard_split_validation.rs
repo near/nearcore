@@ -9,7 +9,7 @@ use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::trie_split::TrieSplit;
 use near_primitives::types::{AccountId, ShardId};
-use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::sync::Arc;
 
@@ -18,11 +18,6 @@ use std::sync::Arc;
 // Stateless validation (state witnesses) is disabled under SPICE.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn chunk_header_proposed_split_validation() {
-    // proposed_split is included in chunk headers only if dynamic resharding is enabled
-    if !ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     near_o11y::testonly::init_integration_logger();
 
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();
@@ -114,7 +109,6 @@ fn chunk_header_proposed_split_validation() {
         original_header.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         forged_split.clone(), // FORGED proposed_split
         &signer,
-        PROTOCOL_VERSION,
     ));
 
     // Replace the chunk header in the witness.
@@ -154,11 +148,6 @@ fn chunk_header_proposed_split_validation() {
 
 #[test]
 fn block_header_shard_split_validation() {
-    // shard_split is included in block headers only if dynamic resharding is enabled
-    if !ProtocolFeature::DynamicResharding.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     near_o11y::testonly::init_integration_logger();
 
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();

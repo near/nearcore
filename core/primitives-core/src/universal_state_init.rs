@@ -15,10 +15,9 @@ use serde_with::serde_as;
 /// This is the protocol's view of a state init, not a mere transport wrapper: the
 /// account ID is SHA3-256 over exactly these bytes. The typed form is a decoded
 /// *view* of them, used to install the state and to price the action, and it is
-/// never re-serialized to derive an ID. Two encodings of the same logical value
-/// are two different accounts, which is deliberate: canonical encoding cannot be
-/// enforced end to end anyway, since contracts serialize their own nested state
-/// inside the opaque storage values.
+/// never re-serialized to derive an ID. From `CanonicalUniversalStateInit` on, only
+/// the canonical encoding is accepted (see `UniversalStateInit::from_raw_strict`), so
+/// each logical value has one ID.
 ///
 /// It also lets an immutable contract pass through a `UniversalStateInit` version it
 /// predates: the bytes travel verbatim, so a version added after the contract was
@@ -46,6 +45,49 @@ pub struct RawStateInit(
     #[cfg_attr(feature = "schemars", schemars(with = "String"))]
     pub Vec<u8>,
 );
+
+/// Why bytes are not a valid [`RawStateInit`] payload.
+///
+/// Shared with `near-vm-runner`, which reports it to contracts as a status code.
+#[derive(PartialEq, Eq, Debug, Clone, Copy, thiserror::Error)]
+pub enum StateInitError {
+    /// The bytes do not decode into a `UniversalStateInit`.
+    #[error("bytes do not decode into a universal state init")]
+    Malformed,
+    /// The bytes decode, but are not the canonical borsh encoding of the result.
+    #[error("state init is not in canonical borsh form")]
+    NonCanonical,
+}
+
+impl StateInitError {
+    /// The exit status `universal_state_init_to_account_id` reports for this error.
+    /// Success is `0`.
+    pub const fn exit_status(self) -> u64 {
+        match self {
+            StateInitError::Malformed => 1,
+            StateInitError::NonCanonical => 2,
+        }
+    }
+}
+
+/// How strictly the bytes of a [`RawStateInit`] are decoded.
+///
+/// Which one applies is a protocol decision: `Strict` from the
+/// `CanonicalUniversalStateInit` protocol feature on, `Lenient` before it.
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum DecodeMode {
+    /// Any well-formed borsh encoding is accepted.
+    Lenient,
+    /// Only the canonical borsh encoding is accepted.
+    Strict,
+}
+
+impl DecodeMode {
+    /// `Strict` if `strict`, else `Lenient`.
+    pub const fn strict_if(strict: bool) -> Self {
+        if strict { DecodeMode::Strict } else { DecodeMode::Lenient }
+    }
+}
 
 /// What a `UniversalStateInit` action is priced on.
 ///

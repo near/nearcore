@@ -1,6 +1,7 @@
 use crate::env::test_env::TestEnv;
 use crate::env::test_env_builder::TestEnvBuilder;
 use assert_matches::assert_matches;
+use near_async::messaging::{IntoSender, noop};
 use near_chain::test_utils::is_optimistic_block_in_processing;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
@@ -46,12 +47,7 @@ fn test_not_process_height_twice() {
     let dup_block_hash = *mut_block.hash();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
-        .receive_block_impl(
-            duplicate_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-        )
+        .receive_block_impl(duplicate_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false)
         .unwrap();
     // check that the second block is not being processed
     assert!(!test_utils::is_block_in_processing(&env.clients[0].chain, &dup_block_hash));
@@ -94,7 +90,7 @@ fn test_not_process_same_block_twice() {
         .process_optimistic_block(
             optimistic_block,
             block.chunks().iter_raw().cloned().collect(),
-            None,
+            noop().into_sender(),
         )
         .unwrap();
 
@@ -104,7 +100,6 @@ fn test_not_process_same_block_twice() {
         block.clone(),
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
-        None,
     );
     assert_matches!(res, Err(near_chain::Error::BlockPendingOptimisticExecution));
 
@@ -114,7 +109,6 @@ fn test_not_process_same_block_twice() {
         block,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         false,
-        None,
     );
     assert_matches!(res, Ok(_));
 }
@@ -165,7 +159,6 @@ fn test_bad_shard_id() {
             chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
             None,
             &validator_signer,
-            PROTOCOL_VERSION,
         )
     };
     modified_chunk.height_included = 2;
@@ -199,7 +192,7 @@ fn test_bad_block_content_vrf() {
     Arc::make_mut(&mut bad_block).set_vrf_value(Value([0u8; 32]));
 
     let err = env.clients[0]
-        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -221,7 +214,7 @@ fn test_bad_block_signature() {
     Arc::make_mut(&mut bad_block).mut_header().set_signature(Signature::default());
 
     let err = env.clients[0]
-        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -309,7 +302,6 @@ fn test_validate_chunk_with_chunk_extra_bad_congestion_info_impl(mode: BadConges
         chunk.bandwidth_requests().cloned().unwrap_or_else(BandwidthRequests::empty),
         None,
         &validator_signer,
-        PROTOCOL_VERSION,
     );
     modified_chunk_header.height_included = 2;
 
@@ -403,9 +395,9 @@ fn test_process_optimistic_block() {
 
     // Start processing block and then optimistic block.
     // Check that optimistic block is not in processing.
-    env.clients[0].start_process_block(block.into(), Provenance::NONE, None).unwrap();
+    env.clients[0].start_process_block(block.into(), Provenance::NONE).unwrap();
     let optimistic_block_height = optimistic_block.inner.block_height;
-    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, None);
+    env.clients[0].chain.preprocess_optimistic_block(optimistic_block, noop().into_sender());
     assert!(
         !is_optimistic_block_in_processing(&env.clients[0].chain, optimistic_block_height),
         "Optimistic block should not be in processing because block processing already started"

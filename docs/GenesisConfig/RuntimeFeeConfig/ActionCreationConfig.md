@@ -1,6 +1,6 @@
 # action_creation_config
 
-Describes the cost of creating a specific action, `Action`. Includes all variants.
+Describes the cost of creating a specific action, `Action`. It covers the actions up to `delegate_cost`. The fees of newer actions, such as global contract, state init and gas key actions, are separate runtime parameters.
 
 ## create_account_cost
 
@@ -64,3 +64,9 @@ Base cost of deleting a key.
 `type: Fee`
 
 Base cost of deleting an account.
+
+## delegate_cost
+
+`type: Fee`
+
+Base cost of processing a delegate action. It is charged on top of the costs of the actions inside the delegate action.

@@ -832,7 +832,7 @@ mod tests {
     /// Benchmark how long it takes to run the scheduler in a worst-case scenario for different numbers of shards.
     ///
     /// Run with:
-    /// cargo test -p node-runtime --release test_scheduler_worst_case_performance -- --nocapture
+    /// cargo test -p near-runtime --release test_scheduler_worst_case_performance -- --nocapture
     ///
     /// Running scheduler with 6 shards: 0.13 ms
     /// Running scheduler with 10 shards: 0.19 ms

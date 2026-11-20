@@ -6,13 +6,16 @@ pub use crate::db::{
     STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use crate::db::{DBTransaction, Database, StoreStatistics, metadata};
+#[cfg(feature = "rocksdb")]
 pub use crate::node_storage::opener::{
     StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
     clear_columns,
 };
 pub use crate::node_storage::{NodeStorage, Temperature};
 pub use crate::store::{Store, StoreUpdate};
-pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
+pub use crate::trie::update::{
+    RecordingBudget, TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr,
+};
 pub use crate::trie::{
     ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice, PartialStorage,
     PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS,

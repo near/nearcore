@@ -169,7 +169,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployGlobalContractAction")
             .field("code", &format_args!("{}", base64(&self.code)))
-            .field("deploy_mode", &format_args!("{:?}", &self.deploy_mode))
+            .field("deploy_mode", &format_args!("{:?}", self.deploy_mode))
             .finish()
     }
 }
@@ -270,10 +270,10 @@ pub struct FunctionCallAction {
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
-            .field("method_name", &format_args!("{}", &self.method_name))
+            .field("method_name", &format_args!("{}", self.method_name))
             .field("args", &format_args!("{}", base64(&self.args)))
-            .field("gas", &format_args!("{}", &self.gas))
-            .field("deposit", &format_args!("{}", &self.deposit))
+            .field("gas", &format_args!("{}", self.gas))
+            .field("deposit", &format_args!("{}", self.deposit))
             .finish()
     }
 }
@@ -490,14 +490,13 @@ impl Action {
             // Installs access keys as handles; any of them may be an ML-DSA-65 hash.
             // A state init that does not decode carries no keys as far as this is
             // concerned; it is rejected by action validation before it can run.
-            Action::UniversalStateInit(a) => {
-                UniversalStateInit::from_raw(&a.state_init).is_ok_and(|state_init| {
+            Action::UniversalStateInit(a) => UniversalStateInit::from_raw_lenient(&a.state_init)
+                .is_ok_and(|state_init| {
                     state_init
                         .access_keys()
                         .iter()
                         .any(|handle| handle.key_type().is_post_quantum())
-                })
-            }
+                }),
             // Each of these carries a single pubkey.
             Action::Stake(a) => a.public_key.key_type().is_post_quantum(),
             Action::AddKey(a) => a.public_key.key_type().is_post_quantum(),
@@ -578,6 +577,47 @@ impl Action {
             | Action::UseGlobalContract(_)
             | Action::TransferToGasKey(_)
             | Action::WithdrawFromGasKey(_) => StateInitCounts::ZERO,
+        }
+    }
+
+    /// The gas key nonces this action adds, which the receipt it belongs to pays
+    /// execution fees for.
+    ///
+    /// Exhaustive by design, like [`Action::state_init_counts`]. Do not collapse
+    /// the arms into a wildcard.
+    pub fn num_gas_key_nonces_added(&self) -> u64 {
+        match self {
+            Action::AddKey(add_key) => {
+                add_key.access_key.gas_key_info().map_or(0, |info| info.num_nonces as u64)
+            }
+            // Recursive for the same reason as `state_init_counts`: the outer
+            // receipt prepays the inner actions' fees.
+            Action::Delegate(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::num_gas_key_nonces_added)
+                .fold(0, u64::saturating_add),
+            Action::DelegateV2(sda) => sda
+                .delegate_action
+                .get_actions()
+                .iter()
+                .map(Action::num_gas_key_nonces_added)
+                .fold(0, u64::saturating_add),
+            // `UniversalStateInit` commits full-access keys only.
+            Action::CreateAccount(_)
+            | Action::DeployContract(_)
+            | Action::FunctionCall(_)
+            | Action::Transfer(_)
+            | Action::Stake(_)
+            | Action::DeleteKey(_)
+            | Action::DeleteAccount(_)
+            | Action::DeployGlobalContract(_)
+            | Action::UseGlobalContract(_)
+            | Action::DeterministicStateInit(_)
+            | Action::UniversalStateInit(_)
+            | Action::TransferToGasKey(_)
+            | Action::WithdrawFromGasKey(_) => 0,
         }
     }
 }

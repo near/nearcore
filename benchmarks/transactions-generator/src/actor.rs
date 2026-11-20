@@ -34,6 +34,6 @@ pub fn start_tx_generator(
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
 ) -> TokioRuntimeHandle<GeneratorActor> {
-    let tx_generator = TxGenerator::new(config, client_sender, view_client_sender).unwrap();
+    let tx_generator = TxGenerator::new(config, client_sender, view_client_sender);
     actor_system.spawn_tokio_actor(GeneratorActor { tx_generator })
 }

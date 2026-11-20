@@ -5,7 +5,6 @@ use std::rc::Rc;
 pub type PublicKey = Vec<u8>;
 pub type PromiseIndex = u64;
 pub type ReceiptIndex = u64;
-pub type IteratorIndex = u64;
 pub type ActionIndex = u64;
 
 #[derive(Debug, PartialEq, Clone)]

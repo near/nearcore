@@ -9,10 +9,10 @@ use near_primitives::receipt::{
     DataReceipt, Receipt, ReceiptEnum, ReceiptV0, StateStoredReceipt, StateStoredReceiptMetadata,
 };
 use near_primitives::types::{ShardId, StateChangeCause, StateRoot};
+use near_runtime::bootstrap_congestion_info;
 use near_store::trie::receipts_column_helper::{DelayedReceiptQueue, TrieQueue};
 use near_store::{ShardTries, ShardUId, Store, TrieUpdate};
 use nearcore::NearConfig;
-use node_runtime::bootstrap_congestion_info;
 use rand::Rng;
 use std::path::Path;
 

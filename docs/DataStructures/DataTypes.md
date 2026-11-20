@@ -16,17 +16,9 @@ Hash used by a struct implementing the Merkle tree.
 
 Validator identifier in current group.
 
-## type ValidatorMask = [bool]
-
-Mask which validators participated in multi sign.
-
 ## type StorageUsage = u64
 
 StorageUsage is used to count the amount of storage used by a contract.
-
-## type StorageUsageChange = i64
-
-StorageUsageChange is used to count the storage usage within a single contract call.
 
 ## type Nonce = u64
 

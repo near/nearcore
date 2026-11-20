@@ -3,8 +3,8 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
-    AccountData, AccountKeySignedPayload, OwnedAccount, SignedAccountData, SignedOwnedAccount,
-    VersionedAccountData,
+    AccountData, AccountKeySignature, OwnedAccount, SignedAccountData, SignedOwnedAccount,
+    VersionedAccountData, from_unix_nanos, to_unix_nanos,
 };
 use protobuf::{Message as _, MessageField as MF};
 
@@ -31,7 +31,7 @@ impl From<&VersionedAccountData> for proto::AccountKeyPayload {
                 account_key: MF::some((&x.account_key).into()),
                 proxies: x.proxies.iter().map(Into::into).collect(),
                 version: x.version,
-                timestamp: MF::some(utc_to_proto(&x.timestamp)),
+                timestamp: MF::some(utc_to_proto(&from_unix_nanos(x.timestamp))),
                 ..Default::default()
             })),
             ..Self::default()
@@ -53,8 +53,9 @@ impl TryFrom<&proto::AccountKeyPayload> for VersionedAccountData {
             },
             account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
             version: x.version,
-            timestamp: map_from_required(&x.timestamp, utc_from_proto)
-                .map_err(Self::Error::Timestamp)?,
+            timestamp: to_unix_nanos(
+                map_from_required(&x.timestamp, utc_from_proto).map_err(Self::Error::Timestamp)?,
+            ),
         })
     }
 }
@@ -71,27 +72,41 @@ pub enum ParseSignedAccountDataError {
     Signature(ParseRequiredError<ParseSignatureError>),
 }
 
-impl From<&SignedAccountData> for proto::AccountKeySignedPayload {
-    fn from(x: &SignedAccountData) -> Self {
-        Self {
-            payload: (&x.payload.payload).clone(),
-            signature: MF::some((&x.payload.signature).into()),
-            ..Self::default()
-        }
+impl VersionedAccountData {
+    /// Parses the protobuf encoding of the data, see `AccountKeySignature::Proto`.
+    pub(crate) fn from_proto_bytes(payload: &[u8]) -> Result<Self, ParseSignedAccountDataError> {
+        let account_data = proto::AccountKeyPayload::parse_from_bytes(payload)
+            .map_err(ParseSignedAccountDataError::Decode)?;
+        (&account_data).try_into().map_err(ParseSignedAccountDataError::AccountData)
+    }
+}
+
+impl SignedAccountData {
+    /// Converts the data to protobuf. Returns `None` if it is signed over its borsh encoding,
+    /// which can't be expressed in protobuf.
+    pub(crate) fn to_proto(&self) -> Option<proto::AccountKeySignedPayload> {
+        signature_to_proto(&self.signature)
+    }
+}
+
+fn signature_to_proto(signature: &AccountKeySignature) -> Option<proto::AccountKeySignedPayload> {
+    match signature {
+        AccountKeySignature::Proto { payload, signature } => Some(proto::AccountKeySignedPayload {
+            payload: payload.clone(),
+            signature: MF::some(signature.into()),
+            ..Default::default()
+        }),
+        AccountKeySignature::Borsh(_) => None,
     }
 }
 
 impl TryFrom<&proto::AccountKeySignedPayload> for SignedAccountData {
     type Error = ParseSignedAccountDataError;
     fn try_from(x: &proto::AccountKeySignedPayload) -> Result<Self, Self::Error> {
-        let account_data =
-            proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
+        let signature = try_from_required(&x.signature).map_err(Self::Error::Signature)?;
         Ok(Self {
-            account_data: (&account_data).try_into().map_err(Self::Error::AccountData)?,
-            payload: AccountKeySignedPayload {
-                payload: x.payload.clone(),
-                signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
-            },
+            account_data: VersionedAccountData::from_proto_bytes(&x.payload)?,
+            signature: AccountKeySignature::Proto { payload: x.payload.clone(), signature },
         })
     }
 }
@@ -116,7 +131,7 @@ impl From<&OwnedAccount> for proto::AccountKeyPayload {
             payload_type: Some(ProtoPT::OwnedAccount(proto::OwnedAccount {
                 account_key: MF::some((&x.account_key).into()),
                 peer_id: MF::some((&x.peer_id).into()),
-                timestamp: MF::some(utc_to_proto(&x.timestamp)),
+                timestamp: MF::some(utc_to_proto(&from_unix_nanos(x.timestamp))),
                 ..Default::default()
             })),
             ..Self::default()
@@ -134,8 +149,9 @@ impl TryFrom<&proto::AccountKeyPayload> for OwnedAccount {
         Ok(Self {
             account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
-            timestamp: map_from_required(&x.timestamp, utc_from_proto)
-                .map_err(Self::Error::Timestamp)?,
+            timestamp: to_unix_nanos(
+                map_from_required(&x.timestamp, utc_from_proto).map_err(Self::Error::Timestamp)?,
+            ),
         })
     }
 }
@@ -152,27 +168,30 @@ pub enum ParseSignedOwnedAccountError {
     Signature(ParseRequiredError<ParseSignatureError>),
 }
 
-impl From<&SignedOwnedAccount> for proto::AccountKeySignedPayload {
-    fn from(x: &SignedOwnedAccount) -> Self {
-        Self {
-            payload: (&x.payload.payload).clone(),
-            signature: MF::some((&x.payload.signature).into()),
-            ..Self::default()
-        }
+impl OwnedAccount {
+    /// Parses the protobuf encoding of the owned account, see `AccountKeySignature::Proto`.
+    pub(crate) fn from_proto_bytes(payload: &[u8]) -> Result<Self, ParseSignedOwnedAccountError> {
+        let owned_account = proto::AccountKeyPayload::parse_from_bytes(payload)
+            .map_err(ParseSignedOwnedAccountError::Decode)?;
+        (&owned_account).try_into().map_err(ParseSignedOwnedAccountError::OwnedAccount)
+    }
+}
+
+impl SignedOwnedAccount {
+    /// Converts the owned account to protobuf. Returns `None` if it is signed over its borsh
+    /// encoding, which can't be expressed in protobuf.
+    pub(crate) fn to_proto(&self) -> Option<proto::AccountKeySignedPayload> {
+        signature_to_proto(&self.signature)
     }
 }
 
 impl TryFrom<&proto::AccountKeySignedPayload> for SignedOwnedAccount {
     type Error = ParseSignedOwnedAccountError;
     fn try_from(x: &proto::AccountKeySignedPayload) -> Result<Self, Self::Error> {
-        let owned_account =
-            proto::AccountKeyPayload::parse_from_bytes(&x.payload).map_err(Self::Error::Decode)?;
+        let signature = try_from_required(&x.signature).map_err(Self::Error::Signature)?;
         Ok(Self {
-            owned_account: (&owned_account).try_into().map_err(Self::Error::OwnedAccount)?,
-            payload: AccountKeySignedPayload {
-                payload: x.payload.clone(),
-                signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
-            },
+            owned_account: OwnedAccount::from_proto_bytes(&x.payload)?,
+            signature: AccountKeySignature::Proto { payload: x.payload.clone(), signature },
         })
     }
 }

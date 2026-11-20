@@ -2,9 +2,10 @@ use crate::access_keys::initial_nonce_value;
 use crate::cache_warming::precompile_contract_with_warming;
 use crate::config::{
     delegate_signature_verification_compute, safe_add_compute, storage_removes_compute,
-    total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::deterministic_account_id::create_deterministic_account;
+use crate::receipt_runtime_configs::ReceiptRuntimeConfigs;
 use crate::wallet_contract::eth_wallet_global_contract_hash;
 use crate::{ActionResult, ApplyState};
 use near_crypto::PublicKey;
@@ -21,7 +22,7 @@ use near_primitives::action::delegate::{
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
+    Receipt, ReceiptEnum, ReceiptV0, VersionedActionReceipt, VersionedReceiptEnum,
 };
 use near_primitives::transaction::{
     Action, DeleteAccountAction, DeployContractAction, StakeAction, TransactionNonce,
@@ -32,7 +33,6 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
-use near_primitives_core::version::ProtocolFeature;
 use near_store::{
     StorageError, TrieUpdate, compute_gas_key_balance_sum, get_access_key, get_gas_key_nonce,
     remove_account, set_access_key, set_gas_key_nonce,
@@ -234,7 +234,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     match get_account_type(account_id, apply_state.config.as_ref()) {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
-            access_key.nonce = initial_nonce_value(block_height);
+            access_key.nonce = initial_nonce_value(block_height, protocol_version);
 
             // unwrap: the arm we are in means `account_id` is 64 hex characters.
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
@@ -278,7 +278,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             *account = Some(Account::new_uninitialized(
                 deposit,
                 fee_config.storage_usage_config.num_bytes_account,
-                initial_nonce_value(block_height),
+                initial_nonce_value(block_height, protocol_version),
             ));
         }
         // Unreachable: this is an implicit account creation transfer, so
@@ -340,28 +340,8 @@ pub(crate) fn action_delete_account(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let account_ref = account.as_ref().unwrap();
-    let account_storage_usage = if ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage
-        .enabled(current_protocol_version)
-    {
-        let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
-        account_ref.storage_usage().saturating_sub(contract_storage)
-    } else {
-        // Legacy behavior: only subtracts local contract code, misses the
-        // global contract identifier overhead.
-        let account_storage_usage = account_ref.storage_usage();
-        let code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            account_ref.local_contract_hash().unwrap_or_default(),
-        )?;
-        debug_assert!(
-            code_len == 0 || account_storage_usage > code_len,
-            "account storage usage should be larger than code size. storage usage: {}, code size: {}",
-            account_storage_usage,
-            code_len
-        );
-        account_storage_usage.saturating_sub(code_len)
-    };
+    let contract_storage = get_contract_storage_usage(state_update, account_id, account_ref)?;
+    let account_storage_usage = account_ref.storage_usage().saturating_sub(contract_storage);
     if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
         result.result =
             Err(ActionErrorKind::DeleteAccountWithLargeState { account_id: account_id.clone() }
@@ -381,9 +361,12 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account_ref.amount();
     if account_balance > Balance::ZERO {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        let receipt = Receipt::new_balance_refund(
+            &delete_account.beneficiary_id,
+            account_balance,
+            current_protocol_version,
+        );
+        result.new_receipts.push(receipt);
     }
     let remove_result = remove_account(state_update, account_id)?;
     result.tokens_burnt =
@@ -400,6 +383,7 @@ pub(crate) fn action_delete_account(
         result.compute_usage = safe_add_compute(result.compute_usage, compute).map_err(|_| {
             StorageError::StorageInconsistentState("compute_usage overflow".to_string())
         })?;
+        result.gas_key_nonces_removed = remove_result.gas_key_nonce_count as u64;
     }
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
@@ -455,6 +439,7 @@ pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     action_receipt: &VersionedActionReceipt,
+    receipt_runtime_configs: &ReceiptRuntimeConfigs,
     sender_id: &AccountId,
     signed_delegate_action: VersionedSignedDelegateActionRef<'_>,
     result: &mut ActionResult,
@@ -497,20 +482,26 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
+    // For the delegate action, the new receipt should inherit the creation
+    // protocol version from the relayer's receipt that prepaid the static fees.
+    let creation_protocol_version = receipt_runtime_configs.creation_protocol_version();
+    // The new receipt stays in the chain that authorized the relayer's receipt,
+    // such as the chain of an external call.
+    let authorization_context = action_receipt.authorization_context().into_owned();
     // Generate a new receipt from DelegateAction.
+    let receipt = ReceiptEnum::new_action_receipt(
+        apply_state.current_protocol_version,
+        creation_protocol_version,
+        action_receipt.signer_id().clone(),
+        authorization_context,
+        action_receipt.gas_price(),
+        delegate_action.get_actions(),
+    );
     let new_receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_id.clone(),
         receiver_id: delegate_action.receiver_id().clone(),
         receipt_id: CryptoHash::default(),
-
-        receipt: ReceiptEnum::Action(ActionReceipt {
-            signer_id: action_receipt.signer_id().clone(),
-            signer_public_key: action_receipt.signer_public_key().clone(),
-            gas_price: action_receipt.gas_price(),
-            output_data_receivers: vec![],
-            input_data_ids: vec![],
-            actions: delegate_action.get_actions(),
-        }),
+        receipt,
     });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
@@ -519,8 +510,9 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, action_receipt.actions())?;
-    let required_cost = receipt_required_cost(apply_state, &new_receipt)?;
+    let prepaid_send_fees =
+        receipt_runtime_configs.total_prepaid_send_fees(action_receipt.actions())?;
+    let required_cost = receipt_required_cost(receipt_runtime_configs, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt.
     // Compute costs of that are not relevant at this point, the "used" gas is
     // only reserved for execution later, potentially on a different shard.
@@ -535,15 +527,17 @@ pub(crate) fn apply_delegate_action(
     Ok(())
 }
 
-/// Returns the cost required to execute the Receipt and all actions it contains
+/// Returns the cost required to execute the Receipt and all actions it contains, priced with the
+/// creation config of `receipt_runtime_configs`.
 fn receipt_required_cost(
-    apply_state: &ApplyState,
+    receipt_runtime_configs: &ReceiptRuntimeConfigs,
     receipt: &Receipt,
 ) -> Result<ParameterCost, RuntimeError> {
+    let config = receipt_runtime_configs.creation_config();
     Ok(match receipt.versioned_receipt() {
         VersionedReceiptEnum::Action(action_receipt)
         | VersionedReceiptEnum::PromiseYield(action_receipt) => {
-            action_receipt_required_cost(apply_state, receipt, action_receipt.into())?
+            action_receipt_required_cost(config, receipt, action_receipt.into())?
         }
         VersionedReceiptEnum::GlobalContractDistribution(_)
         | VersionedReceiptEnum::Data(_)
@@ -552,23 +546,19 @@ fn receipt_required_cost(
 }
 
 fn action_receipt_required_cost(
-    apply_state: &ApplyState,
+    config: &RuntimeConfig,
     receipt: &Receipt,
     action_receipt: VersionedActionReceipt,
 ) -> Result<ParameterCost, RuntimeError> {
-    let mut required_gas = total_prepaid_exec_fees(
-        &apply_state.config,
-        &action_receipt.actions(),
-        receipt.receiver_id(),
-    )?;
+    let mut required_gas =
+        total_prepaid_exec_fees(config, &action_receipt.actions(), receipt.receiver_id())?;
     let attached_gas = total_prepaid_gas(&action_receipt.actions())?;
     // Gas attached to outgoing function calls have no associated compute costs.
     // Compute costs are only relevant when burning gas.
     let attached_gas_cost = ParameterCost { gas: attached_gas, compute: 0 };
     required_gas = required_gas.checked_add_result(attached_gas_cost)?;
-    required_gas = required_gas.checked_add_result(
-        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-    )?;
+    required_gas = required_gas
+        .checked_add_result(config.fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     Ok(required_gas)
 }
 
@@ -684,14 +674,7 @@ fn validate_delegate_action_key(
                     InvalidAccessKeyError::DepositWithFunctionCall,
                 )
                 .into());
-                // Before this fix, the missing early return allowed execution
-                // to fall through to the receiver_id and method_name checks,
-                // which could overwrite this error with a different one.
-                if ProtocolFeature::FixDelegateActionDepositWithFunctionCallError
-                    .enabled(apply_state.current_protocol_version)
-                {
-                    return Ok(());
-                }
+                return Ok(());
             }
             if delegate_action.receiver_id() != &function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
@@ -940,7 +923,11 @@ mod tests {
     use super::*;
     use crate::actions_test_utils::{setup_account, test_delete_account};
     use crate::near_primitives::shard_layout::ShardUId;
+    use crate::tests::set_config;
+    use crate::universal_account_id::action_universal_state_init;
+    use crate::{StorageStakingError, check_storage_stake};
     use near_crypto::{KeyType, Signature};
+    use near_parameters::RuntimeConfigStore;
     use near_primitives::account::FunctionCallPermission;
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, NonDelegateAction, SignedDelegateAction,
@@ -955,6 +942,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
+    use near_primitives::receipt::ActionReceipt;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::transaction::TransferAction;
     use near_primitives::types::EpochId;
@@ -963,6 +951,7 @@ mod tests {
     use near_primitives::universal_account_id::encode_universal_account_id;
     use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::version::ProtocolFeature;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
@@ -1083,7 +1072,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::from_local_code_hash(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            PROTOCOL_VERSION,
             &mut state_update,
         );
         assert_eq!(
@@ -1097,10 +1085,7 @@ mod tests {
         )
     }
 
-    fn test_delete_account_with_contract(
-        storage_usage: u64,
-        protocol_version: ProtocolVersion,
-    ) -> ActionResult {
+    fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
@@ -1129,7 +1114,6 @@ mod tests {
                 account.local_contract_hash().unwrap_or_default(),
             ),
             storage_usage,
-            protocol_version,
             &mut state_update,
         )
     }
@@ -1150,72 +1134,32 @@ mod tests {
         account_id: &AccountId,
         contract: AccountContract,
         storage_usage: u64,
-        protocol_version: ProtocolVersion,
     ) -> ActionResult {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        test_delete_account(
-            account_id,
-            contract,
-            storage_usage,
-            protocol_version,
-            &mut state_update,
-        )
+        test_delete_account(account_id, contract, storage_usage, &mut state_update)
     }
 
     #[test]
     fn test_delete_account_with_contract_and_small_state() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_delete_account_with_contract_and_large_state() {
-        let action_result = test_delete_account_with_contract(
-            10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            PROTOCOL_VERSION,
-        );
+        let action_result =
+            test_delete_account_with_contract(10 * Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE);
         expect_delete_account_too_large(&action_result);
     }
 
     #[test]
     fn test_delete_account_with_local_contract_fix_enabled() {
-        let action_result = test_delete_account_with_contract(
-            Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
-        );
+        let action_result =
+            test_delete_account_with_contract(Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 100);
         assert!(action_result.result.is_ok());
-    }
-
-    #[test]
-    fn test_delete_account_global_contract_protocol_transition() {
-        let account_id: AccountId = "alice".parse().unwrap();
-        let storage = Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 32;
-        let enabled =
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version();
-
-        // Before the fix: the identifier is not subtracted, so `MAX + 32 > MAX`.
-        let before = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled - 1,
-        );
-        expect_delete_account_too_large(&before);
-
-        // From the fix onwards: the 32-byte identifier is subtracted, so
-        // `MAX + 32 - 32 == MAX`, which is not `> MAX`.
-        let after = test_delete_account_in_empty_trie(
-            &account_id,
-            AccountContract::Global(CryptoHash::default()),
-            storage,
-            enabled,
-        );
-        assert!(after.result.is_ok());
     }
 
     /// `MAX + 33`: still over the limit after subtracting the 32-byte identifier.
@@ -1225,7 +1169,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 33,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&action_result);
     }
@@ -1240,7 +1183,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::GlobalByAccount(global_id),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + identifier_len,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1252,7 +1194,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::Global(CryptoHash::default()),
             10,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(action_result.result.is_ok());
     }
@@ -1264,7 +1205,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         assert!(at_limit.result.is_ok());
     }
@@ -1276,7 +1216,6 @@ mod tests {
             &"alice".parse().unwrap(),
             AccountContract::None,
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
         );
         expect_delete_account_too_large(&over_limit);
     }
@@ -1296,7 +1235,11 @@ mod tests {
         ));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), Balance::ZERO);
+        let receipt = Receipt::new_balance_refund(
+            &"alice.near".parse().unwrap(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+        );
         let config = RuntimeConfig::test();
 
         let res = action_delete_account(
@@ -1308,7 +1251,7 @@ mod tests {
             &account_id,
             &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             &config,
-            ProtocolFeature::FixDeleteAccountGlobalContractStorageUsage.protocol_version(),
+            PROTOCOL_VERSION,
         );
         assert!(res.is_ok());
         expect_delete_account_too_large(&action_result);
@@ -1348,11 +1291,17 @@ mod tests {
         (action_receipt, signed_delegate_action)
     }
 
+    fn receipt_runtime_configs<'a>(
+        apply_state: &'a ApplyState,
+        action_receipt: &ActionReceipt,
+    ) -> ReceiptRuntimeConfigs<'a> {
+        ReceiptRuntimeConfigs::new(apply_state, &action_receipt.into())
+    }
+
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
             apply_reason: ApplyChunkReason::UpdateTrackedShard,
             block_height,
-            prev_block_hash: CryptoHash::default(),
             shard_id: ShardUId::single_shard().shard_id(),
             epoch_id: EpochId::default(),
             epoch_height: 3,
@@ -1360,9 +1309,12 @@ mod tests {
             block_timestamp: 1,
             gas_limit: None,
             random_seed: CryptoHash::default(),
+            prev_block: Default::default(),
             current_protocol_version: 1,
             config: Arc::new(RuntimeConfig::test()),
+            config_store: Arc::new(RuntimeConfigStore::test()),
             next_wasm_config: None,
+            vm_generation: Default::default(),
             cache: None,
             is_new_chunk: false,
             save_receipt_to_tx: false,
@@ -1394,6 +1346,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1441,13 +1394,14 @@ mod tests {
             Arc::make_mut(&mut cfg.fees).signature_verification_costs[SignatureKind::Ed25519] =
                 ParameterCost::new(Gas::from_gas(0), verify_compute);
             Arc::make_mut(&mut cfg.wasm_config).fix_ml_dsa_cost_charging = fix_enabled;
-            apply_state.config = Arc::new(cfg);
+            set_config(&mut apply_state, Arc::new(cfg));
             let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
             let mut result = ActionResult::default();
             apply_delegate_action(
                 &mut state_update,
                 &apply_state,
                 &VersionedActionReceipt::from(&action_receipt),
+                &receipt_runtime_configs(&apply_state, &action_receipt),
                 &sender_id,
                 (&sda).into(),
                 &mut result,
@@ -1482,7 +1436,8 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &VersionedActionReceipt::from(action_receipt),
+            &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1508,7 +1463,8 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &VersionedActionReceipt::from(action_receipt),
+            &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &sender_id,
             (&signed_delegate_action).into(),
             &mut result,
@@ -1534,7 +1490,8 @@ mod tests {
         apply_delegate_action(
             &mut state_update,
             &apply_state,
-            &VersionedActionReceipt::from(action_receipt),
+            &VersionedActionReceipt::from(&action_receipt),
+            &receipt_runtime_configs(&apply_state, &action_receipt),
             &"www.test.near".parse().unwrap(),
             (&signed_delegate_action).into(),
             &mut result,
@@ -1900,30 +1857,8 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_deposit_with_function_call_reports_receiver_mismatch_before_fix() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version() - 1;
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
-
-        // Legacy: missing early return lets ReceiverMismatch overwrite
-        // DepositWithFunctionCall.
-        assert_eq!(
-            result.result,
-            Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::ReceiverMismatch {
-                    tx_receiver: "token.test.near".parse().unwrap(),
-                    ak_receiver: "other.test.near".parse().unwrap(),
-                },
-            )
-            .into()),
-        );
-    }
-
-    #[test]
     fn test_delegate_deposit_with_function_call_reports_deposit_error() {
-        let version =
-            ProtocolFeature::FixDelegateActionDepositWithFunctionCallError.protocol_version();
-        let result = deposit_with_function_call_and_receiver_mismatch(version);
+        let result = deposit_with_function_call_and_receiver_mismatch(PROTOCOL_VERSION);
 
         assert_eq!(
             result.result,
@@ -2461,6 +2396,98 @@ mod tests {
             ),
             Err(ActionErrorKind::AccountAlreadyExists { account_id }.into())
         );
+    }
+
+    /// Applies a universal state init carrying `deposit` to an initialized account that lacks
+    /// balance for its storage staking, under `protocol_version`.
+    fn apply_repeated_universal_state_init(
+        protocol_version: ProtocolVersion,
+        receipt: &Receipt,
+        deposit: Balance,
+    ) -> (Account, ActionResult) {
+        let mut apply_state = create_apply_state(1);
+        apply_state.current_protocol_version = protocol_version;
+        let tries = TestTriesBuilder::new().build();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let balance = Balance::from_yoctonear(1);
+        let mut account =
+            Some(Account::new(balance, Balance::ZERO, AccountContract::None, 1_000_000));
+        let missing =
+            match check_storage_stake(account.as_ref().unwrap(), balance, &apply_state.config) {
+                Err(StorageStakingError::LackBalanceForStorageStaking(missing)) => missing,
+                _ => panic!("the account must lack balance for storage staking"),
+            };
+        assert!(missing > deposit, "the deposit must not cover the missing storage stake");
+        let action = UniversalStateInitAction { state_init: RawStateInit(vec![]), deposit };
+        let mut result = ActionResult::default();
+
+        action_universal_state_init(
+            &mut state_update,
+            &apply_state,
+            &mut account,
+            &account_id(),
+            receipt,
+            &action,
+            &mut result,
+        )
+        .unwrap();
+        (account.unwrap(), result)
+    }
+
+    /// A state init on an already initialized account refunds the whole deposit,
+    /// even when the account lacks balance for its storage staking. The deposit
+    /// only covers storage staking for the action that initializes the account.
+    #[test]
+    fn repeated_universal_state_init_refunds_whole_deposit() {
+        let receipt = Receipt::new_balance_refund(
+            &"refund.near".parse().unwrap(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+        );
+        let deposit = Balance::from_near(1);
+        let protocol_version =
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version();
+        let (account, result) =
+            apply_repeated_universal_state_init(protocol_version, &receipt, deposit);
+
+        assert!(result.result.is_ok());
+        assert_eq!(
+            account.amount(),
+            Balance::from_yoctonear(1),
+            "the account must not be topped up"
+        );
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt::new_balance_refund(
+                receipt.balance_refund_receiver(),
+                deposit,
+                protocol_version
+            )]
+        );
+    }
+
+    /// Before the refund feature, the deposit of a repeated state init still settles the
+    /// storage stake, so a deposit short of the missing stake fails the action.
+    #[test]
+    fn repeated_universal_state_init_settles_storage_before_refund_feature() {
+        let receipt = Receipt::new_balance_refund(
+            &"refund.near".parse().unwrap(),
+            Balance::ZERO,
+            PROTOCOL_VERSION,
+        );
+        let (account, result) = apply_repeated_universal_state_init(
+            ProtocolFeature::RefundRepeatedUniversalStateInitDeposit.protocol_version() - 1,
+            &receipt,
+            Balance::from_near(1),
+        );
+
+        assert!(matches!(
+            result.result,
+            Err(ActionError { kind: ActionErrorKind::LackBalanceForState { .. }, .. })
+        ));
+        assert_eq!(account.amount(), Balance::from_yoctonear(1));
+        assert!(result.new_receipts.is_empty());
     }
 
     fn config_with(universal_accounts: bool) -> RuntimeConfig {

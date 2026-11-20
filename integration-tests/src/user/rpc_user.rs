@@ -123,6 +123,7 @@ impl User for RpcUser {
             account_id: account_id.clone(),
             method_name: method_name.to_string(),
             args: args.to_vec().into(),
+            state_init: None,
         };
         match self.query(query)?.kind {
             QueryResponseKind::CallResult(call_result) => Ok(call_result),
@@ -181,11 +182,7 @@ impl User for RpcUser {
         }
     }
 
-    fn add_receipts(
-        &self,
-        _receipts: Vec<Receipt>,
-        _use_flat_storage: bool,
-    ) -> Result<(), ServerError> {
+    fn add_receipts(&self, _receipts: Vec<Receipt>) -> Result<(), ServerError> {
         // TODO: figure out if rpc will support this
         unimplemented!()
     }

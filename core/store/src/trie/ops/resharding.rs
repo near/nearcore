@@ -53,7 +53,8 @@ fn boundary_account_to_intervals(
             | col::PROMISE_YIELD_TIMEOUT
             | col::BANDWIDTH_SCHEDULER_STATE
             | col::GLOBAL_CONTRACT_CODE
-            | col::GLOBAL_CONTRACT_NONCE => {
+            | col::GLOBAL_CONTRACT_NONCE
+            | col::CONTRACT_COMPILATION_STATUS => {
                 // This section contains the keys that we need to copy to both shards.
                 intervals.push(get_interval_for_copy_to_both_children(prefix))
             }
@@ -383,6 +384,7 @@ mod tests {
             vec![col::PROMISE_YIELD_STATUS]..append_key(col::PROMISE_YIELD_STATUS, &alice_account),
             vec![col::YIELD_ID_TO_DATA_ID]..append_key(col::YIELD_ID_TO_DATA_ID, &alice_account),
             vec![col::DATA_ID_TO_YIELD_ID]..append_key(col::DATA_ID_TO_YIELD_ID, &alice_account),
+            vec![col::CONTRACT_COMPILATION_STATUS]..vec![col::CONTRACT_COMPILATION_STATUS + 1],
         ];
         assert!(left_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in left_intervals.iter().zip_eq(expected_left_intervals.iter()) {
@@ -415,6 +417,7 @@ mod tests {
                 ..vec![col::YIELD_ID_TO_DATA_ID + 1],
             append_key(col::DATA_ID_TO_YIELD_ID, &alice_account)
                 ..vec![col::DATA_ID_TO_YIELD_ID + 1],
+            vec![col::CONTRACT_COMPILATION_STATUS]..vec![col::CONTRACT_COMPILATION_STATUS + 1],
         ];
         assert!(right_intervals.iter().all(|range| range.start < range.end));
         for (actual, expected) in right_intervals.iter().zip_eq(expected_right_intervals.iter()) {

@@ -35,6 +35,11 @@ async fn test_convert_block_changes_to_transactions() {
         &runtime_config,
     )
     .await;
+    near_rosetta_rpc::test::test_external_call_operations(
+        &actor_handles.view_client_actor,
+        &runtime_config,
+    )
+    .await;
     near_rosetta_rpc::test::test_execution_status_propagation(
         &actor_handles.view_client_actor,
         &runtime_config,

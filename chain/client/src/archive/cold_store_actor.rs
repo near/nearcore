@@ -197,7 +197,7 @@ impl ColdStoreActor {
         // below when it processes genesis height.
         if cold_head.is_none() {
             tracing::info!(target: "cold_store", "cold store not initialized, copying genesis state");
-            copy_state_to_cold(&self.cold_db, &self.hot_store)?;
+            copy_state_to_cold(&self.cold_db, &self.hot_store);
         }
 
         // When cold HEAD is not set, start copying from genesis height.

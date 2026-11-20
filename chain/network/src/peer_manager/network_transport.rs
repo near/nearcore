@@ -58,9 +58,16 @@ pub trait NetworkTransport: Send + Sync + 'static {
         ConnectHandle::noop()
     }
 
-    /// Close a connection to a peer.
-    /// ban_reason: None = graceful disconnect, Some = ban.
-    fn disconnect_peer(&self, _peer_id: &PeerId, _ban_reason: Option<ReasonForBan>) {}
+    /// Closes the connection to a peer on the given tier.
+    fn disconnect_peer(&self, _tier: tcp::Tier, _peer_id: &PeerId) {}
+
+    /// Closes the connections to a peer on every tier, with `ban_reason`
+    /// as the closing reason.
+    fn ban_peer(&self, _peer_id: &PeerId, _ban_reason: ReasonForBan) {}
+
+    /// Close the Tier3 connections on which nothing has been sent or received for longer than
+    /// `idle_timeout`.
+    fn stop_idle_tier3_connections(&self, _now: time::Instant, _idle_timeout: time::Duration) {}
 
     /// Graceful shutdown.
     fn shutdown(&self) {}
@@ -69,7 +76,7 @@ pub trait NetworkTransport: Send + Sync + 'static {
     /// capacity checks. Read-only, no side effects.
     ///
     /// Production: reads Pool snapshots and Connection atomics.
-    /// Testloop: returns default (0 pending, empty peer_stats).
+    /// Testloop: returns default (0 pending, empty tier2_peer_stats).
     fn transport_info(&self) -> TransportInfo {
         TransportInfo::default()
     }
@@ -85,7 +92,7 @@ pub struct TransportInfo {
     /// Per-peer transport stats keyed by peer_id. Only data that lives
     /// on the transport layer (bandwidth rates, timing). Business logic
     /// metadata (block_info, archival, etc.) is on ConnectedPeerState.
-    pub peer_stats: HashMap<PeerId, PeerTransportStats>,
+    pub tier2_peer_stats: HashMap<PeerId, PeerTransportStats>,
 }
 
 /// Per-peer transport-level stats (read-only, no side effects).

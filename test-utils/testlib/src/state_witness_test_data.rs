@@ -1,7 +1,7 @@
 use crate::runtime_utils::{alice_account, bob_account};
 use borsh;
 use near_crypto::InMemorySigner;
-use near_parameters::RuntimeConfig;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -16,10 +16,10 @@ use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
 use near_primitives::types::EpochId;
 use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{set_access_key, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -77,7 +77,6 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
     let apply_state = ApplyState {
         apply_reason: ApplyChunkReason::UpdateTrackedShard,
         block_height: 1,
-        prev_block_hash: Default::default(),
         shard_id: shard_uid.shard_id(),
         epoch_id: Default::default(),
         epoch_height: 0,
@@ -85,9 +84,12 @@ pub fn generate_realistic_state_witness(target_size_bytes: usize) -> ChunkStateW
         block_timestamp: 100,
         gas_limit: Some(Gas::from_teragas(1000)),
         random_seed: Default::default(),
+        prev_block: Default::default(),
         current_protocol_version: PROTOCOL_VERSION,
         config: Arc::new(RuntimeConfig::test()),
+        config_store: Arc::new(RuntimeConfigStore::test()),
         next_wasm_config: None,
+        vm_generation: Default::default(),
         cache: Some(Box::new(FilesystemContractRuntimeCache::test().unwrap())),
         is_new_chunk: true,
         save_receipt_to_tx: false,

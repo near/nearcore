@@ -81,6 +81,8 @@ pytest sanity/handshake_tie_resolution.py
 pytest sanity/handshake_tie_resolution.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.
 #pytest sanity/handshake_tie_resolution.py --features nightly,protocol_feature_spice
+pytest sanity/network_borsh_transition.py
+pytest sanity/network_borsh_transition.py --features nightly
 pytest sanity/switch_node_key.py
 pytest sanity/switch_node_key.py --features nightly
 # TODO(spice): Assess if this test is relevant for spice and if yes fix it.

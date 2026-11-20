@@ -79,6 +79,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             49 => Ok(()), // DBCol::ChunkProducers column added, no need to perform a migration
             50 => migrate_50_to_51(hot_store),
             51 => migrate_51_to_52(hot_store),
+            52 => Ok(()), // DBCol::ExternalCallTransactions column added, no need to perform a migration
             DB_VERSION.. => unreachable!(),
         }
     }
@@ -455,7 +456,7 @@ fn migrate_48_to_49(
 
     update_epoch_sync_proof(hot_store.clone(), transaction_validity_period)?;
     verify_block_headers(hot_store)?;
-    delete_old_block_headers(hot_store)?;
+    delete_old_block_headers(hot_store);
     Ok(())
 }
 
@@ -624,7 +625,7 @@ fn update_epoch_sync_proof(
     // First we move any existing epoch sync proof to the compressed format
     // Note that while accessing the proof, we need to read directly from DBCol::EpochSyncProof
     // as we can't use the epoch_store.get_epoch_sync_proof() method due to
-    // ProtocolFeature::ContinuousEpochSync being enabled
+    // continuous epoch sync being unconditionally enabled
     if let Some(proof) = store.get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[]) {
         let mut store_update = epoch_store.store_update();
         store_update.set_epoch_sync_proof(&proof);
@@ -705,7 +706,7 @@ fn verify_block_headers(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
+fn delete_old_block_headers(store: &Store) {
     tracing::info!(target: "migrations", "deleting all block headers from hot store");
 
     let mut store_update = store.store_update();
@@ -728,14 +729,12 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
         }
         if height % BATCH_SIZE == 0 {
             tracing::info!(target: "migrations", ?height, ?latest_known_height, "committing addition of required block headers to hot store");
-            store_update.commit()?;
+            store_update.commit();
             store_update = chain_store.store_update();
         }
     }
-    store_update.commit()?;
+    store_update.commit();
     tracing::info!(target: "migrations", ?latest_known_height, "completed deletion of old block headers from hot store");
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1071,7 +1070,7 @@ mod tests {
         let migrated_store = migrated_storage.get_hot_store();
         assert_eq!(migrated_store.get_db_version().unwrap(), DB_VERSION);
         // The checkpoint really was at 49, and every arm from there ran in order.
-        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51]);
+        assert_eq!(migrator.migrated.borrow().as_slice(), &[49, 50, 51, 52]);
         // The column family now exists and is readable. It is empty until EarlyKickout
         // activates.
         assert_eq!(migrated_store.iter(DBCol::ChunkProducers).count(), 0);

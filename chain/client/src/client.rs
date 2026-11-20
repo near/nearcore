@@ -29,8 +29,7 @@ use near_async::messaging::IntoAsyncSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
-    ApplyChunksDoneSender, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    VerifyBlockHashAndSignatureResult,
+    BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::types::ReshardingSender;
@@ -71,7 +70,9 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader, ShardChunkWithEncoding,
     StateSyncInfo, StateSyncInfoV1,
 };
-use near_primitives::transaction::{SignedTransaction, TransactionEnvelope, ValidatedTransaction};
+use near_primitives::transaction::{
+    SignedTransaction, TransactionEnvelope, ValidatedTransactionEnvelope,
+};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -149,7 +150,7 @@ pub struct Client {
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     /// Sender for catchup state sync requests.
     chain_sender_for_state_sync: ChainSenderForStateSync,
-    // Sender to be able to send a message to myself.
+    /// Sender to be able to send a message to myself.
     pub myself_sender: ClientSenderForClient,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: lru::LruCache<CryptoHash, ()>,
@@ -175,7 +176,7 @@ pub struct Client {
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     /// Adapter to send request to partial_witness_actor to distribute state witness.
     pub partial_witness_adapter: PartialWitnessSenderForClient,
-    // Optional value used for the Chunk Distribution Network Feature.
+    /// Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
     /// Upgrade schedule which determines when the client starts voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
@@ -210,6 +211,7 @@ impl Client {
             .config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
+        is_updated |= self.config.ecc_time_share.update(update_client_config.ecc_time_share);
         is_updated |= self
             .config
             .block_production_tracking_delay
@@ -285,8 +287,6 @@ impl Client {
 pub struct AsyncComputationMultiSpawner {
     /// Spawner to run 'apply chunks' tasks (see `ApplyChunksSpawner` for default)
     apply_chunks: ApplyChunksSpawner,
-    /// Spawner to run 'epoch sync' tasks (defaults to `RayonAsyncComputationSpawner`)
-    epoch_sync: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run 'prepare transactions' tasks (defaults to `RayonAsyncComputationSpawner`)
     prepare_transactions: Arc<dyn AsyncComputationSpawner>,
     /// Spawner to run background memtrie loading tasks (defaults to `StdThreadAsyncComputationSpawner`)
@@ -297,7 +297,6 @@ impl Default for AsyncComputationMultiSpawner {
     fn default() -> Self {
         Self {
             apply_chunks: Default::default(),
-            epoch_sync: Arc::new(RayonAsyncComputationSpawner),
             prepare_transactions: Arc::new(RayonAsyncComputationSpawner),
             memtrie_loading: Default::default(),
         }
@@ -309,7 +308,6 @@ impl AsyncComputationMultiSpawner {
     pub fn all_custom(spawner: Arc<dyn AsyncComputationSpawner>) -> Self {
         Self {
             apply_chunks: ApplyChunksSpawner::Custom(spawner.clone()),
-            epoch_sync: spawner.clone(),
             prepare_transactions: spawner.clone(),
             memtrie_loading: MemtrieLoadingSpawner::Custom(spawner),
         }
@@ -375,14 +373,17 @@ impl Client {
             multi_spawner.memtrie_loading,
             validator_signer.clone(),
             resharding_sender.clone(),
-            Some(myself_sender.on_post_state_ready.clone()),
+            // Only early preparation uses the post state of a chunk, so without it the apply of a
+            // chunk need not copy anything for it.
+            config
+                .enable_early_prepare_transactions
+                .then(|| myself_sender.on_post_state_ready.clone()),
         )?;
         chain.init_flat_storage()?;
         let epoch_sync = EpochSync::new(
             clock.clone(),
             network_adapter.clone(),
             chain.genesis().clone(),
-            multi_spawner.epoch_sync,
             config.epoch_sync.clone(),
         );
         let header_sync = HeaderSync::new(
@@ -438,11 +439,13 @@ impl Client {
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
             config.produce_chunk_add_transactions_time_limit.clone(),
+            config.ecc_time_share.clone(),
             &chain.chain_store(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
             rng_seed,
             config.transaction_pool_size_limit,
+            config.ecc_pool_size_share,
             multi_spawner.prepare_transactions,
             config.spice_pending_transaction_queue_enabled(),
         );
@@ -487,7 +490,14 @@ impl Client {
             pending_approvals: lru::LruCache::new(
                 NonZeroUsize::new(num_block_producer_seats).unwrap(),
             ),
-            sync_handler: SyncHandler::new(config, epoch_sync, header_sync, state_sync, block_sync),
+            sync_handler: SyncHandler::new(
+                config,
+                epoch_sync,
+                header_sync,
+                state_sync,
+                block_sync,
+                rng_seed,
+            ),
             catchup_state_syncs: HashMap::new(),
             state_sync_future_spawner,
             chain_sender_for_state_sync,
@@ -532,7 +542,8 @@ impl Client {
     }
 
     /// Remove transactions for tracked chunks in `block` from the pool.
-    /// Returns the hashes of transactions referenced by those tracked chunks.
+    /// Returns the hashes of transactions referenced by those tracked chunks, for an external call
+    /// its hash without the state init.
     pub fn remove_transactions_for_block(
         &mut self,
         block: &Block,
@@ -551,14 +562,11 @@ impl Client {
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
                 for tx in transactions {
-                    removed_hashes.push(tx.get_hash());
+                    let hash = *tx.id_hash();
+                    removed_hashes.push(hash);
                 }
                 let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock();
-                // TODO(ecc): remove ECCs from the pool once it can hold them (#16473)
-                pool_guard.remove_transactions(
-                    shard_uid,
-                    transactions.iter().filter_map(TransactionEnvelope::as_signed),
-                );
+                pool_guard.remove_transactions(shard_uid, transactions);
             }
         }
         Ok(removed_hashes)
@@ -589,18 +597,23 @@ impl Client {
                 let validated_txs = chunk
                     .to_transactions()
                     .into_iter()
-                    .filter(|tx| !exclude.contains(&tx.get_hash()))
-                    // TODO(ecc): reintroduce ECCs once the pool can hold them
-                    .filter_map(|tx| tx.as_signed().cloned())
-                    .filter_map(|signed_tx| {
-                        match ValidatedTransaction::new(&config, signed_tx, protocol_version) {
+                    .filter(|tx| {
+                        let hash = *tx.id_hash();
+                        !exclude.contains(&hash)
+                    })
+                    .filter_map(|tx| {
+                        match ValidatedTransactionEnvelope::new(
+                            &config,
+                            tx.clone(),
+                            protocol_version,
+                        ) {
                             Ok(validated_tx) => Some(validated_tx),
-                            Err((err, signed_tx)) => {
+                            Err((err, tx)) => {
                                 tracing::debug!(
                                     target: "client",
-                                    ?signed_tx,
+                                    ?tx,
                                     ?err,
-                                    "validating signed tx failed with error"
+                                    "validating tx failed with error"
                                 );
                                 None
                             }
@@ -666,7 +679,7 @@ impl Client {
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
                 *block.hash(),
-                // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                // TODO(ecc): account ECCs against the contract's balance
                 transactions.iter().filter_map(TransactionEnvelope::as_signed),
                 &config,
                 gas_price,
@@ -719,7 +732,7 @@ impl Client {
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,
-                    // TODO(ecc): account ECCs against the contract's balance once they have a cost
+                    // TODO(ecc): account ECCs against the contract's balance
                     transactions.iter().filter_map(TransactionEnvelope::as_signed),
                     &config,
                     gas_price,
@@ -1212,18 +1225,15 @@ impl Client {
         Ok(Some(block))
     }
 
-    /// A height that fails this test cannot change the sync decision, so it needs no proof.
-    pub(crate) fn peer_height_requires_sync(
-        &self,
-        peer_height: BlockHeight,
-        head_height: BlockHeight,
-    ) -> bool {
+    /// A peer must advertise above this height to start or continue sync. A height at
+    /// or below it cannot change the sync decision, so it needs no proof.
+    pub(crate) fn sync_trigger_height(&self, head_height: BlockHeight) -> BlockHeight {
         let threshold = if self.sync_handler.sync_status.is_syncing() {
             0
         } else {
             self.config.sync_height_threshold
         };
-        peer_height > head_height + threshold
+        head_height + threshold
     }
 
     /// Record `peer_id`'s verified height if the relayed block's approvals verify as
@@ -1233,7 +1243,7 @@ impl Client {
         let head_height = self.chain.head().map(|tip| tip.height).unwrap_or(0);
         self.verified_peer_heights.prune_at_or_below(head_height);
         let height = block.header().height();
-        if !self.peer_height_requires_sync(height, head_height) {
+        if height <= self.sync_trigger_height(head_height) {
             return;
         }
         self.verified_peer_heights.record_if_verified(peer_id, block.hash(), height, || {
@@ -1256,15 +1266,9 @@ impl Client {
             %was_requested
         )
     )]
-    pub fn receive_block(
-        &mut self,
-        block: Arc<Block>,
-        peer_id: PeerId,
-        was_requested: bool,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
+    pub fn receive_block(&mut self, block: Arc<Block>, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
-        let res = self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_sender);
+        let res = self.receive_block_impl(block, peer_id, was_requested);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1304,7 +1308,6 @@ impl Client {
         block: Arc<Block>,
         peer_id: PeerId,
         was_requested: bool,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), near_chain::Error> {
         self.chain.blocks_delay_tracker.mark_block_received(&block);
         // To protect ourselves from spamming, we do a pre-check before doing
@@ -1331,7 +1334,7 @@ impl Client {
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let res = self.start_process_block(block, provenance, apply_chunks_done_sender);
+        let res = self.start_process_block(block, provenance);
         match &res {
             Ok(()) => {}
             Err(near_chain::Error::Orphan) => {
@@ -1372,8 +1375,7 @@ impl Client {
             return;
         }
 
-        self.chain
-            .preprocess_optimistic_block(block, Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.preprocess_optimistic_block(block, self.myself_sender.apply_chunks_done.clone());
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block
@@ -1469,7 +1471,6 @@ impl Client {
     /// Start the processing of a block. Note that this function will return before
     /// the full processing is finished because applying chunks is done asynchronously
     /// in the rayon thread pool.
-    /// `apply_chunks_done_sender`: a callback that will be called when applying chunks is finished.
     #[instrument(
         level = "debug",
         target = "client",
@@ -1483,7 +1484,6 @@ impl Client {
         &mut self,
         block: MaybeValidated<Arc<Block>>,
         provenance: Provenance,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), near_chain::Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
@@ -1492,7 +1492,7 @@ impl Client {
                 block,
                 provenance,
                 &mut block_processing_artifacts,
-                apply_chunks_done_sender,
+                self.myself_sender.apply_chunks_done.clone(),
             )
         };
 
@@ -1506,13 +1506,13 @@ impl Client {
     #[instrument(level = "debug", target = "client", skip_all, fields(%should_produce_chunk))]
     pub fn postprocess_ready_blocks(
         &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
-        let (accepted_blocks, errors) = self
-            .chain
-            .postprocess_ready_blocks(&mut block_processing_artifacts, apply_chunks_done_sender);
+        let (accepted_blocks, errors) = self.chain.postprocess_ready_blocks(
+            &mut block_processing_artifacts,
+            self.myself_sender.apply_chunks_done.clone(),
+        );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             let head = self.chain.head().unwrap();
             let header_head = self.chain.header_head().unwrap();
@@ -1620,7 +1620,6 @@ impl Client {
         &mut self,
         partial_chunk: PartialEncodedChunk,
         decoded_chunk: DecodedChunk,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
@@ -1689,10 +1688,9 @@ impl Client {
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
         // If this was the last chunk that was missing for a block, it will be processed now.
-        self.process_blocks_with_missing_chunks(apply_chunks_done_sender);
+        self.process_blocks_with_missing_chunks();
 
-        self.chain
-            .maybe_process_optimistic_block(Some(self.myself_sender.apply_chunks_done.clone()));
+        self.chain.maybe_process_optimistic_block(self.myself_sender.apply_chunks_done.clone());
         Ok(())
     }
 
@@ -1725,14 +1723,21 @@ impl Client {
                 "Cannot sync block headers during an epoch sync".to_owned(),
             ));
         };
-        self.chain.sync_block_headers(headers)?;
+        let head_before = self.chain.head().unwrap();
+        let header_head_before = self.chain.header_head().unwrap();
+
+        // sync_block_headers can move the head even if it fails halfway through the batch.
+        let result = self.chain.sync_block_headers(headers);
+
         let head = self.chain.head().unwrap();
         let header_head = self.chain.header_head().unwrap();
-        self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
-            head: Tip::clone(&head),
-            header_head: Tip::clone(&header_head),
-        });
-        Ok(())
+        if head != head_before || header_head != header_head_before {
+            self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
+                head: Tip::clone(&head),
+                header_head: Tip::clone(&header_head),
+            });
+        }
+        result
     }
 
     /// Checks if the latest hash known to Doomslug matches the current head, and updates it if not.
@@ -2037,11 +2042,8 @@ impl Client {
                             && reintroduce_head.hash() != remove_head.hash()
                     {
                         to_reintroduce.push(*reintroduce_head.hash());
-                        reintroduce_head = self
-                            .chain
-                            .get_block_header(reintroduce_head.prev_hash())
-                            .unwrap()
-                            .clone();
+                        reintroduce_head =
+                            self.chain.get_block_header(reintroduce_head.prev_hash()).unwrap();
                     }
                 }
 
@@ -2064,7 +2066,9 @@ impl Client {
                     }
                 }
 
-                // Reintroduce old-branch-only txs (skip overlap with new branch).
+                // Reintroduce old-branch-only txs (skip overlap with new branch). The blocks are
+                // ordered from the newest one, and each batch of ECCs goes ahead of
+                // everything waiting, so the ECCs end up in the order of arrival.
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                         match self.reintroduce_transactions_for_block(&block, &new_branch_txs) {
@@ -2300,14 +2304,11 @@ impl Client {
 
     /// Check if any block with missing chunks is ready to be processed
     #[instrument(level = "debug", target = "client", skip_all)]
-    pub fn process_blocks_with_missing_chunks(
-        &mut self,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
-    ) {
+    pub fn process_blocks_with_missing_chunks(&mut self) {
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
         self.chain.check_blocks_with_missing_chunks(
             &mut blocks_processing_artifacts,
-            apply_chunks_done_sender,
+            self.myself_sender.apply_chunks_done.clone(),
         );
         self.process_block_processing_artifact(blocks_processing_artifacts);
     }
@@ -2558,7 +2559,6 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
-        apply_chunks_done_sender: Option<ApplyChunksDoneSender>,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
@@ -2620,11 +2620,13 @@ impl Client {
                             &epoch_first_block,
                             &sync_hash,
                             &mut block_processing_artifacts,
-                            apply_chunks_done_sender.clone(),
+                            self.myself_sender.apply_chunks_done.clone(),
                             &catchup.done_blocks,
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts);
+
+                        self.catchup_state_syncs.remove(&sync_hash);
                     }
                 }
             }
@@ -2728,6 +2730,24 @@ impl Client {
         Ok(account_keys)
     }
 
+    /// The TIER1 accounts to feed to PeerManager. They normally come from the last processed
+    /// block, `head`. That is important because a validator which is still processing the final
+    /// blocks of an epoch while the header head has moved into the next one should not update
+    /// its TIER1 peer set yet.
+    ///
+    /// A node that is syncing can be many epochs behind on blocks, though, so the accounts come
+    /// from the latest header instead if it's ahead by two or more epochs.
+    fn get_network_tier1_accounts(&mut self, head: &Tip) -> Result<Arc<AccountKeys>, Error> {
+        let header_head = self.chain.header_head()?;
+        if header_head.epoch_id == head.epoch_id || header_head.epoch_id == head.next_epoch_id {
+            return self.get_tier1_accounts(head);
+        }
+        self.get_tier1_accounts(&header_head).or_else(|err| {
+            tracing::debug!(target: "client", ?err, "tier1 accounts of header head are not known yet");
+            self.get_tier1_accounts(head)
+        })
+    }
+
     /// We send the optimistic block to the chunk producers of the current and next epochs.
     pub(crate) fn get_optimistic_block_targets(
         &mut self,
@@ -2782,7 +2802,7 @@ impl Client {
             // and if the issue described above has been resolved.
             vec![]
         };
-        let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        let tier1_accounts = self.get_network_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.send(SetChainInfo(ChainInfo {
             block,

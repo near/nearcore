@@ -16,6 +16,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::epoch_store::{EpochStoreAdapter, EpochStoreUpdateAdapter};
 use near_store::merkle_proof::MerkleProofAccess;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Called on the first block of epoch T with T's epoch_id.
 /// Derives the epoch sync proof up to epoch T-2, because a syncing node needs at least
@@ -230,12 +231,12 @@ fn get_epoch_sync_proof_last_epoch_data(
     let next_next_epoch_info = store.get_epoch_info(&next_next_epoch_id)?;
 
     Ok(EpochSyncProofLastEpochData {
-        epoch_info,
-        next_epoch_info,
-        next_next_epoch_info,
-        first_block_in_epoch,
-        last_block_in_epoch,
-        second_last_block_in_epoch,
+        epoch_info: Arc::unwrap_or_clone(epoch_info),
+        next_epoch_info: Arc::unwrap_or_clone(next_epoch_info),
+        next_next_epoch_info: Arc::unwrap_or_clone(next_next_epoch_info),
+        first_block_in_epoch: Arc::unwrap_or_clone(first_block_in_epoch),
+        last_block_in_epoch: Arc::unwrap_or_clone(last_block_in_epoch),
+        second_last_block_in_epoch: Arc::unwrap_or_clone(second_last_block_in_epoch),
     })
 }
 

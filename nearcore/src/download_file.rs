@@ -188,7 +188,7 @@ impl<'a> AutoXzDecoder<'a> {
                 self.state = AutoXzState::PlainText;
                 Some(pos)
             } else if pos + len == XZ_HEADER_MAGIC.len() {
-                let stream = xz2::stream::Stream::new_stream_decoder(u64::max_value(), 0).unwrap();
+                let stream = xz2::stream::Stream::new_stream_decoder(u64::MAX, 0).unwrap();
                 // cspell:ignore uninit
                 // TODO(mina86): Once ‘new_uninit’ feature gets stabilized
                 // replaced buffer initialization by:

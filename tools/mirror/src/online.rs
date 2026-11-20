@@ -236,7 +236,11 @@ impl crate::ChainAccess for ChainAccess {
                 .unwrap()
             {
                 Ok(response) => response,
-                Err(QueryError::UnknownAccount { .. }) => return Ok(ret),
+                Err(
+                    QueryError::UnknownAccount { .. } | QueryError::UninitializedAccount { .. },
+                ) => {
+                    return Ok(ret);
+                }
                 Err(e) => return Err(e.into()),
             };
             let QueryResponseKind::AccessKeyList(l) = response.kind else {

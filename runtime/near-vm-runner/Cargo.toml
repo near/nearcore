@@ -21,8 +21,8 @@ dashmap.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm-6 = { workspace = true, optional = true }
-lru.workspace = true
 num-rational.workspace = true
+object = { workspace = true, features = ["elf", "read_core", "unaligned"], optional = true }
 p256.workspace = true
 parking_lot.workspace = true
 prefix-sum-vec = { workspace = true, optional = true }
@@ -30,7 +30,6 @@ prometheus = { workspace = true, optional = true }
 rand.workspace = true
 rayon = { workspace = true, optional = true }
 ripemd.workspace = true
-rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -48,6 +47,7 @@ wasmtime = { workspace = true, features = [
     "runtime",
 ], optional = true }
 
+near-cache.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
@@ -83,7 +83,7 @@ wat.workspace = true
 
 [features]
 default = ["wasmtime_vm"]
-wasmtime_vm = ["wasmtime", "anyhow", "prepare", "rayon"]
+wasmtime_vm = ["wasmtime", "anyhow", "object", "prepare", "rayon"]
 prepare = [
     "finite-wasm-6",
     "wasm-encoder",
@@ -100,7 +100,7 @@ nightly = [
     "near-primitives-core/nightly",
 ]
 sandbox = ["near-o11y/sandbox"]
-test_features = []
+test_features = ["near-cache/test_features"]
 protocol_schema = [
     "near-crypto/protocol_schema",
     "near-parameters/protocol_schema",

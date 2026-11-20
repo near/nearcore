@@ -1,3 +1,7 @@
+use near_primitives::errors::ActionsValidationError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, BlockHeight};
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RpcQueryRequest {
@@ -37,6 +41,18 @@ pub enum RpcQueryError {
         requested_account_id: near_primitives::types::AccountId,
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
+    },
+    #[error("account {requested_account_id} exists but is not initialized")]
+    UninitializedAccount {
+        requested_account_id: AccountId,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
+    },
+    #[error("invalid state init: {error}")]
+    InvalidStateInit {
+        error: Box<ActionsValidationError>,
+        block_height: BlockHeight,
+        block_hash: CryptoHash,
     },
     #[error(
         "Contract code for contract ID #{contract_account_id} has never been observed on the node"
@@ -80,6 +96,14 @@ pub enum RpcQueryError {
         block_height: near_primitives::types::BlockHeight,
         block_hash: near_primitives::hash::CryptoHash,
     },
+    #[error("The contract refused the external call: {error:?}")]
+    ExternalCallRefused {
+        error: Box<near_primitives::errors::TxExecutionError>,
+        /// The logs of the contract's run. Empty for a call refused before its run.
+        logs: Vec<String>,
+        block_height: near_primitives::types::BlockHeight,
+        block_hash: near_primitives::hash::CryptoHash,
+    },
     #[error(
         "Global contract code with identifier {identifier:?} has never been observed on the node"
     )]
@@ -117,7 +141,6 @@ pub enum QueryResponseKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives::hash::CryptoHash;
     use near_primitives::views::GasKeyNoncesView;
 
     /// Regression: bare `Vec<Nonce>` can't be flattened into an object.

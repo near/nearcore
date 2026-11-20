@@ -13,7 +13,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{Gas, StateRoot};
-use node_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
+use near_runtime::{PostStateReadyCallback, SignedValidPeriodTransactions};
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
@@ -158,7 +158,6 @@ pub fn apply_new_chunk(
     let _timer = chunk_hash.map(|chunk_hash| CryptoHashTimer::new(Clock::real(), chunk_hash.0));
     let storage_config = RuntimeStorageConfig {
         state_root: prev_state_root,
-        use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
     };
@@ -211,7 +210,6 @@ pub fn apply_old_chunk(
 
     let storage_config = RuntimeStorageConfig {
         state_root: *prev_chunk_extra.state_root(),
-        use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
     };

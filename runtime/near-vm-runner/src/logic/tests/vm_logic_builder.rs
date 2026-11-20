@@ -37,8 +37,7 @@ impl VMLogicBuilder {
         // The budget is zero in configs where external contract calls are not enabled yet.
         builder.config.limit_config.max_gas_burnt_external =
             builder.config.limit_config.max_gas_burnt;
-        builder.context.execution_mode =
-            ExecutionMode::External { gas_price: Balance::from_yoctonear(100_000_000) };
+        builder.context.execution_mode = ExecutionMode::External { fee_gas: Gas::ZERO };
         // The contract pays for the gas of an external call, and nobody sends
         // it a deposit.
         builder.context.account_balance = Balance::from_near(1);
@@ -73,7 +72,7 @@ fn get_context() -> VMContext {
     VMContext {
         current_account_id: "alice.near".parse().unwrap(),
         signer_account_id: "bob.near".parse().unwrap(),
-        signer_account_pk: vec![0, 1, 2, 3, 4],
+        signer_account_pk: Some(vec![0, 1, 2, 3, 4]),
         predecessor_account_id: "carol.near".parse().unwrap(),
         refund_to_account_id: "david.near".parse().unwrap(),
         input: std::rc::Rc::new([0, 1, 2, 3, 4]),
