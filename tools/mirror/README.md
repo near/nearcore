@@ -55,3 +55,68 @@ traffic to the target chain.
 ML-DSA-65 keys work the same way, except that the derivation input is
 the on-trie key handle - the SHA3-256 digest of the pubkey - rather than
 the pubkey itself, since the full pubkey is never stored in state.
+
+## Source chain modes
+
+`neard mirror run --source-home <dir> --target-home <dir> --no-secret` reads the
+source chain's blocks out of the store under `--source-home` as it is, and stops
+once it has sent the transactions of the last block in it. `--online-source`
+instead starts a node in `--source-home` and follows the live chain.
+
+### Streaming the source chain from a cloud archive
+
+`--source-cloud-archive` streams the source chain out of a cloud archive bucket
+written by `cloud_archival.writer` nodes. `--source-home` is then a cloud archive
+reader home, like the one `neard cloud-archive bootstrap` and `follow` work in: the
+source chain's `genesis.json`, a `node_key.json`, and a `config.json` that enables
+archival, tracks every shard (the mirror needs every chunk) and names the bucket:
+
+```json
+{
+  "archive": true,
+  "tracked_shards_config": "AllShards",
+  "cloud_archival": {
+    "location": { "GCS": { "bucket": "my-cloud-archive" } },
+    "reader": {}
+  }
+}
+```
+
+`cloud_archival.reader.polling_interval` (5 seconds by default) is how often the
+bucket is polled for a new batch; `cloud_archival.credentials_file` can name a GCS
+key file. A `{"Filesystem": {"root_dir": "/path"}}` location works for a local test.
+
+The mirror opens that store once and shares it between its own reads and a copy of
+the recent reader loop it runs in the background, so it sees new batches as they
+land without another process on the store:
+
+- A fresh home is bootstrapped first, from where the mirror goes on (the height
+  after the last one it sent, or the target chain's genesis height on a first run)
+  up 3200 blocks, or to the bucket's block head if that is lower. The reader loop
+  then stays at most 3200 blocks above the heights the mirror asks for, so a fork
+  far behind the bucket's head does not copy the whole bucket before the first
+  transaction. A bucket that starts above that height is opened
+  on its first archived block instead (the heights in between are not in the bucket,
+  and the mirror skips them); a bucket whose head has not reached that height
+  yet is polled until it has. Failed bucket reads are retried; a bootstrap that
+  fails part way is taken on by the reader loop. The log says which range got
+  bootstrapped. A home that already has a reader head, from a
+  `cloud-archive bootstrap` or an earlier run, is followed from that head, unless the
+  head is more than 3200 blocks below where the mirror goes on: the mirror then
+  stops and asks for the home's `data` directory to be removed, so the next start
+  bootstraps at the right height instead of copying everything in between.
+- `--source-skip-state` copies no state out of the bucket, like
+  `cloud-archive bootstrap --skip-state`, for a bucket without state snapshots. The
+  full access keys of an account cannot be looked up then, and every mirrored
+  transaction is signed with the default extra key. A home bootstrapped without
+  state (by that flag, or by `cloud-archive bootstrap --skip-state`) has to be
+  followed with `--source-skip-state` every time: without it the reader loop fails
+  its state checks at startup and the mirror stops.
+- Without `--stop-height` the mirror runs until stopped; when it catches up with the
+  reader head it waits for the next batch. A `--stop-height` above the bucket's head
+  makes it wait the same way (not fail) until the bucket gets there. A `SIGTERM` or
+  `SIGINT` drains the transactions already sent and stops the reader loop after the
+  batch in flight.
+- Progress is logged every 16 batches, and the `near_mirror_source_reader_head` and
+  `near_mirror_source_bucket_head` gauges report the reader head and the bucket's
+  block head as last read.

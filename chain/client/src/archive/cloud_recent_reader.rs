@@ -15,6 +15,28 @@ use near_store::archive::cloud_storage::CloudStorage;
 use near_store::{ShardTries, ShardUId, Store};
 use std::mem;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// The highest height the reader may pull up to. A consumer that reads the store
+/// behind the reader raises it as it goes, so the reader stays a bounded distance
+/// ahead of it instead of copying the whole bucket.
+#[derive(Clone, Debug)]
+pub struct PullLimit(Arc<AtomicU64>);
+
+impl PullLimit {
+    pub fn new(height: BlockHeight) -> Self {
+        Self(Arc::new(AtomicU64::new(height)))
+    }
+
+    /// Moves the limit up to `height`. A lower `height` leaves it as it is.
+    pub fn raise_to(&self, height: BlockHeight) {
+        self.0.fetch_max(height, Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> BlockHeight {
+        self.0.load(Ordering::Relaxed)
+    }
+}
 
 /// Result of one recent-reader iteration.
 #[derive(Debug)]
@@ -23,6 +45,8 @@ enum PullOutcome {
     Pulled { head: CloudReaderHead },
     /// The bucket holds no block past the reader's head.
     WaitingForBlocks,
+    /// The reader head is at or above the pull limit.
+    WaitingForLimit,
     /// This shard's data for the next window is not in the bucket.
     WaitingForShard {
         #[allow(dead_code)] // Read through the derived Debug in the pull trace.
@@ -67,6 +91,8 @@ pub struct CloudArchivalRecentReader {
     /// Copies block and shard rows but applies no state changes, for a store that
     /// `bootstrap_range` built with `skip_state`.
     skip_state: bool,
+    /// When set, the reader opens no window above this height.
+    pull_limit: Option<PullLimit>,
 }
 
 impl CloudArchivalRecentReader {
@@ -90,7 +116,15 @@ impl CloudArchivalRecentReader {
             pending_window: None,
             tries,
             skip_state: false,
+            pull_limit: None,
         }
+    }
+
+    /// Opens a window only while the reader head is below `pull_limit`. The window
+    /// then runs to its batch end, so the head can pass the limit by up to one batch.
+    pub fn with_pull_limit(mut self, pull_limit: PullLimit) -> Self {
+        self.pull_limit = Some(pull_limit);
+        self
     }
 
     /// Leaves state out, the way `bootstrap_range` does with `skip_state`: the loop then
@@ -171,6 +205,7 @@ impl CloudArchivalRecentReader {
                             Duration::ZERO
                         }
                         PullOutcome::WaitingForBlocks => self.polling_interval,
+                        PullOutcome::WaitingForLimit => self.polling_interval,
                         PullOutcome::WaitingForShard { .. } => self.polling_interval,
                     }
                 }
@@ -194,6 +229,12 @@ impl CloudArchivalRecentReader {
         &mut self,
         reader_head: &CloudReaderHead,
     ) -> Result<PullOutcome, CloudArchivalReaderError> {
+        // A window already opened is finished even if the limit is below it now.
+        if self.pending_window.is_none()
+            && self.pull_limit.as_ref().is_some_and(|limit| reader_head.height >= limit.get())
+        {
+            return Ok(PullOutcome::WaitingForLimit);
+        }
         let Some(mut window) = self.get_pending_window(reader_head).await? else {
             return Ok(PullOutcome::WaitingForBlocks);
         };
