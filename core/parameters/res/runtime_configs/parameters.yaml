@@ -22,6 +22,7 @@ account_creation_charge: 0.007 N
 
 # Stateless validation config
 main_storage_proof_size_soft_limit: 4_000_000
+queue_push_storage_proof_size: 0
 per_receipt_storage_proof_size_limit: 4_000_000
 combined_transactions_size_limit: 4_194_304
 new_transactions_validation_state_size_soft_limit: 572_864
@@ -394,6 +395,7 @@ reject_tx_congestion_threshold: {
   numerator: 80,
   denominator: 100,
 }
+min_receipt_congestion_size: 0
 
 # Bandwidth scheduler
 

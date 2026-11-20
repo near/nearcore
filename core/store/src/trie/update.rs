@@ -228,6 +228,18 @@ impl TrieUpdate {
             .insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: Some(value) });
     }
 
+    /// Charges `size` bytes for a push to a receipt queue to the upper bound of the recorded
+    /// storage proof, so the storage proof limits count the trie path that the push records at
+    /// finalize. A size of 0 charges nothing.
+    pub fn charge_queue_push(&self, size: u64) {
+        if size == 0 {
+            return;
+        }
+        if let Some(recorder) = &self.trie.recorder {
+            recorder.record_queue_push(size as usize);
+        }
+    }
+
     pub fn remove(&mut self, trie_key: TrieKey) {
         // We count removals performed by the contracts and charge extra for them.
         // A malicious contract could generate a lot of storage proof by a removal,

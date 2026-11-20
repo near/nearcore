@@ -207,6 +207,14 @@ pub struct CongestionControlConfig {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The smallest size a receipt counts for bandwidth and congestion. A receipt smaller than
+    /// this counts this size instead.
+    ///
+    /// The bandwidth scheduler limits the bytes a shard receives per height, so this bounds the
+    /// number of receipts it receives per height, and with it the receipts it pushes to its
+    /// delayed queue once its limits are reached.
+    pub min_receipt_congestion_size: u64,
 }
 
 // The Eq cannot be automatically derived for this class because it contains a
@@ -232,6 +240,7 @@ impl CongestionControlConfig {
             max_tx_gas: Gas::from_gas(max_value),
             min_tx_gas: Gas::from_gas(max_value),
             reject_tx_congestion_threshold: 2.0,
+            min_receipt_congestion_size: 0,
         }
     }
 
@@ -260,6 +269,7 @@ impl CongestionControlConfig {
             // 20 TGas
             min_tx_gas: Gas::from_gas(20_000_000_000_000),
             reject_tx_congestion_threshold: 0.5,
+            min_receipt_congestion_size: 0,
         }
     }
 }
@@ -277,6 +287,13 @@ pub struct WitnessConfig {
     pub combined_transactions_size_limit: usize,
     /// Size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: u64,
+    /// Storage proof size charged in advance for each push to a receipt queue (the delayed
+    /// receipts, the outgoing buffers and the yield timeouts).
+    ///
+    /// A push writes a key without reading it, so the trie nodes on its path are recorded only
+    /// when the chunk's state changes are finalized, after the soft limit is checked. The charge
+    /// is an upper bound on that path, so the soft limit counts it.
+    pub queue_push_storage_proof_size: u64,
 }
 
 impl WitnessConfig {
@@ -287,6 +304,7 @@ impl WitnessConfig {
             main_storage_proof_size_soft_limit: u64::MAX,
             combined_transactions_size_limit: usize::MAX,
             new_transactions_validation_state_size_soft_limit: u64::MAX,
+            queue_push_storage_proof_size: 0,
         }
     }
 }

@@ -1,6 +1,7 @@
 use super::GAS_PRICE;
 use crate::access_keys::initial_nonce_value;
 use crate::config::{ecc_cost, exec_fee, safe_gas_to_balance, total_send_fees, tx_cost};
+use crate::congestion_control::receipt_congestion_size;
 use crate::conversions::Convert;
 use crate::tests::{
     MAX_ATTACHED_GAS, create_receipt_for_create_account, create_receipt_with_actions, set_config,
@@ -47,7 +48,7 @@ use near_primitives::errors::{
     DepositCostFailureReason, EpochError, ExternalCallChunkLimit, FunctionCallError,
     InvalidTxError, MissingTrieValue, ReceiptValidationError, RuntimeError, TxExecutionError,
 };
-use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_size};
+use near_primitives::fees::compute_receipt_congestion_gas;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
@@ -6902,7 +6903,8 @@ fn test_congestion_delayed_receipts_accounting() {
         (n - 1)
             * compute_receipt_congestion_gas(&receipts[0], &apply_state.config).unwrap().as_gas(),
     );
-    let expected_receipts_bytes = (n - 1) * compute_receipt_size(&receipts[0]).unwrap() as u64;
+    let expected_receipts_bytes =
+        (n - 1) * receipt_congestion_size(&receipts[0], &apply_state.config).unwrap();
 
     assert_eq!(u128::from(expected_delayed_gas.as_gas()), congestion.delayed_receipts_gas());
     assert_eq!(expected_receipts_bytes, congestion.receipt_bytes());
@@ -12036,4 +12038,87 @@ fn test_ecc_accepted_with_deep_storage_path() {
         &epoch_info_provider,
     );
     assert_matches!(apply_result.outcomes[0].outcome.status, ExecutionStatus::SuccessValue(_));
+}
+
+/// Applies `n` delegate-action receipts on `alice`'s shard, with `bob`'s shard congested so that
+/// every receipt they produce goes to the outgoing buffer. Records the reads with the given soft
+/// limit and charges `queue_push_charge` bytes for each push. Returns the apply result.
+fn apply_buffered_delegate_actions(n: u64, soft_limit: u64, queue_push_charge: u64) -> ApplyResult {
+    let version = 3;
+    let accounts = vec![alice_account(), bob_account()];
+    let shard_layout = ShardLayout::multi_shard_custom(accounts.clone(), version);
+    let local_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let local_shard_uid = ShardUId::new(version, local_shard);
+    let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    let accounts_with_keys = accounts
+        .into_iter()
+        .map(|account| {
+            let signer = Arc::new(InMemorySigner::test_signer(&account));
+            (account, vec![signer])
+        })
+        .collect::<Vec<_>>();
+    let (runtime, tries, root, mut apply_state, _) = setup_runtime_for_shard(
+        accounts_with_keys,
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+        local_shard_uid,
+        &shard_layout,
+    );
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
+    apply_state.shard_id = local_shard;
+    // The receiver shard is fully congested and allows only itself, so nothing is forwarded.
+    let max_congestion_incoming_gas =
+        apply_state.config.congestion_control_config.max_congestion_incoming_gas;
+    let receiver_congestion =
+        &mut apply_state.congestion_info.get_mut(&receiver_shard).unwrap().congestion_info;
+    receiver_congestion.add_delayed_receipt_gas(max_congestion_incoming_gas).unwrap();
+    receiver_congestion.set_allowed_shard(receiver_shard.into());
+    apply_state.congestion_info.insert(local_shard, Default::default());
+
+    let mut runtime_config = apply_state.config.as_ref().clone();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit;
+    runtime_config.witness_config.queue_push_storage_proof_size = queue_push_charge;
+    apply_state.config = Arc::new(runtime_config);
+
+    runtime
+        .apply(
+            tries
+                .get_trie_for_shard(local_shard_uid, root)
+                .recording_reads_with_proof_size_limit(soft_limit),
+            &None,
+            &apply_state,
+            &generate_delegate_actions(Balance::from_near(1), n),
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap()
+}
+
+#[test]
+fn test_queue_push_charge_stops_chunk_earlier() {
+    // Setup: each receipt pushes one receipt to the outgoing buffer. The soft limit fits many
+    // receipts by their reads alone.
+    const N: u64 = 200;
+    const SOFT_LIMIT: u64 = 100_000;
+    const QUEUE_PUSH_CHARGE: u64 = 2_000;
+
+    // Apply without the charge (before protocol version 89).
+    let without_charge = apply_buffered_delegate_actions(N, SOFT_LIMIT, 0);
+    // Apply with the charge.
+    let with_charge = apply_buffered_delegate_actions(N, SOFT_LIMIT, QUEUE_PUSH_CHARGE);
+
+    // Check: with the charge the pushes count toward the soft limit, so the chunk runs fewer
+    // receipts and delays more of them.
+    let ran_without_charge = N - without_charge.delayed_receipts_count;
+    let ran_with_charge = N - with_charge.delayed_receipts_count;
+    assert!(ran_with_charge > 0);
+    assert!(
+        ran_with_charge < ran_without_charge,
+        "ran {ran_with_charge} receipts with the charge, {ran_without_charge} without"
+    );
+    // Check: the chunk stops before the receipt after the one that crosses the limit, so the
+    // charged pushes of the receipts it ran fit under the limit with one receipt's slack.
+    assert!((ran_with_charge - 1) * QUEUE_PUSH_CHARGE <= SOFT_LIMIT);
 }

@@ -144,6 +144,12 @@ impl TrieRecorder {
         });
     }
 
+    /// Adds `size` to the upper bound of the recorded size for a push to a receipt queue. A push
+    /// writes a key with no read, so its trie path is recorded only at finalize.
+    pub fn record_queue_push(&self, size: usize) {
+        self.upper_bound_size.fetch_add(size, Ordering::Release).checked_add(size).unwrap();
+    }
+
     pub fn record_key_removal(&self) {
         self.upper_bound_size
             .fetch_add(REMOVAL_UPPER_BOUND_SIZE, Ordering::Release)

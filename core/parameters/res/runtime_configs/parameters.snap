@@ -11,6 +11,7 @@ account_creation_charge                 0.007 N
 main_storage_proof_size_soft_limit                 4_000_000
 per_receipt_storage_proof_size_limit               4_500_000
 new_transactions_validation_state_size_soft_limit             572_864
+queue_push_storage_proof_size                          2_000
 combined_transactions_size_limit                   4_194_304
 max_external_call_size                                20_480
 max_external_call_recorded_size                       51_200
@@ -288,6 +289,7 @@ allowed_shard_outgoing_gas              1_000_000_000_000_000
 max_tx_gas                               500_000_000_000_000
 min_tx_gas                                20_000_000_000_000
 reject_tx_congestion_threshold          80 / 100
+min_receipt_congestion_size                            1_000
 max_shard_bandwidth                                4_500_000
 max_single_grant                                   4_194_304
 max_allowance                                      4_500_000

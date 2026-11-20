@@ -479,6 +479,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+                queue_push_storage_proof_size: params.get(Parameter::QueuePushStorageProofSize)?,
             },
             external_calls_config: ExternalCallsConfig {
                 max_call_size: params.get(Parameter::MaxExternalCallSize)?,
@@ -519,6 +520,7 @@ fn get_congestion_control_config(
             let rational: Rational32 = params.get(Parameter::RejectTxCongestionThreshold)?;
             *rational.numer() as f64 / *rational.denom() as f64
         },
+        min_receipt_congestion_size: params.get(Parameter::MinReceiptCongestionSize)?,
     };
     Ok(congestion_control_config)
 }

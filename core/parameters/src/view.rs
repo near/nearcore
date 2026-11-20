@@ -757,6 +757,9 @@ pub struct WitnessConfigView {
     pub combined_transactions_size_limit: usize,
     /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: u64,
+    /// Storage proof size charged in advance for each push to a receipt queue.
+    #[serde(default)]
+    pub queue_push_storage_proof_size: u64,
 }
 
 impl From<WitnessConfig> for WitnessConfigView {
@@ -766,6 +769,7 @@ impl From<WitnessConfig> for WitnessConfigView {
             combined_transactions_size_limit: config.combined_transactions_size_limit,
             new_transactions_validation_state_size_soft_limit: config
                 .new_transactions_validation_state_size_soft_limit,
+            queue_push_storage_proof_size: config.queue_push_storage_proof_size,
         }
     }
 }
@@ -874,6 +878,12 @@ pub struct CongestionControlConfigView {
     /// How much congestion a shard can tolerate before it stops all shards from
     /// accepting new transactions with the receiver set to the congested shard.
     pub reject_tx_congestion_threshold: f64,
+
+    /// The smallest size a receipt counts for bandwidth and congestion.
+    ///
+    /// See [`CongestionControlConfig`] for more details.
+    #[serde(default)]
+    pub min_receipt_congestion_size: u64,
 }
 
 impl From<CongestionControlConfig> for CongestionControlConfigView {
@@ -889,6 +899,7 @@ impl From<CongestionControlConfig> for CongestionControlConfigView {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            min_receipt_congestion_size: other.min_receipt_congestion_size,
         }
     }
 }
@@ -906,6 +917,7 @@ impl From<CongestionControlConfigView> for CongestionControlConfig {
             max_tx_gas: other.max_tx_gas,
             min_tx_gas: other.min_tx_gas,
             reject_tx_congestion_threshold: other.reject_tx_congestion_threshold,
+            min_receipt_congestion_size: other.min_receipt_congestion_size,
         }
     }
 }

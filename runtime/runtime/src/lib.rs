@@ -1372,6 +1372,7 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV3(_)
                 );
 
+                charge_promise_yield_timeout_push(state_update, apply_state, &new_receipt);
                 if new_receipt.is_instant_receipt() {
                     // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
                     instant_receipts.push_back(new_receipt);
@@ -3304,6 +3305,21 @@ fn record_transaction_receipt(
     }
 }
 
+/// Charges the push of a `PromiseYield` receipt's timeout to the yield timeout queue. The push
+/// was written when the receipt was created, during the run; charging it here, as the receipt is
+/// sent, keeps it out of the run's own storage proof limits and charges only receipts that are
+/// sent.
+fn charge_promise_yield_timeout_push(
+    state_update: &TrieUpdate,
+    apply_state: &ApplyState,
+    receipt: &Receipt,
+) {
+    if matches!(receipt.versioned_receipt(), VersionedReceiptEnum::PromiseYield(_)) {
+        state_update
+            .charge_queue_push(apply_state.config.witness_config.queue_push_storage_proof_size);
+    }
+}
+
 /// Sends out the receipts of an accepted external call, which carry their ids already, through
 /// `receipt_sink`, as a receipt's run does, none local, and commits what sending them wrote.
 fn send_ecc_receipts(
@@ -3318,6 +3334,11 @@ fn send_ecc_receipts(
     }
     for receipt in receipts {
         record_transaction_receipt(processing_state, &receipt, *outcome_id, contract_id);
+        charge_promise_yield_timeout_push(
+            &processing_state.state_update,
+            &processing_state.apply_state,
+            &receipt,
+        );
         receipt_sink.forward_or_buffer_receipt(
             receipt,
             &processing_state.apply_state,

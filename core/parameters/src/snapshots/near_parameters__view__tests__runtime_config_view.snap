@@ -279,12 +279,14 @@ expression: "&view"
     "allowed_shard_outgoing_gas": 1000000000000000,
     "max_tx_gas": 500000000000000,
     "min_tx_gas": 20000000000000,
-    "reject_tx_congestion_threshold": 0.8
+    "reject_tx_congestion_threshold": 0.8,
+    "min_receipt_congestion_size": 1000
   },
   "witness_config": {
     "main_storage_proof_size_soft_limit": 4000000,
     "combined_transactions_size_limit": 4194304,
-    "new_transactions_validation_state_size_soft_limit": 572864
+    "new_transactions_validation_state_size_soft_limit": 572864,
+    "queue_push_storage_proof_size": 2000
   },
   "external_calls_config": {
     "max_call_size": 20480,
