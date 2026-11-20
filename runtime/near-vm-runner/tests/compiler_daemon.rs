@@ -22,9 +22,24 @@ use std::time::{Duration, Instant};
 
 const TEST_POOL_SIZE: usize = 4;
 
+/// Name under which the whole scenario is reported to nextest.
+const TEST_NAME: &str = "compiler_daemon";
+
 fn main() {
-    if env::args_os().nth(1).is_some_and(|arg| arg == "compile-wasm") {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "compile-wasm") {
         compiler_daemon::daemon_main();
+    }
+    // Nextest discovers tests by running every test binary with
+    // `--list --format terse`, once more with `--ignored`, and that phase has
+    // no timeout. Answer the listing instead of running the scenario there, so
+    // it runs as a regular test under the configured timeouts and retries.
+    let has_arg = |name: &str| args.iter().any(|arg| arg == name);
+    if has_arg("--list") {
+        if !has_arg("--ignored") {
+            println!("{TEST_NAME}: test");
+        }
+        return;
     }
 
     compiler_daemon::set_daemon_binary(env::current_exe().unwrap());
