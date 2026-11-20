@@ -1,7 +1,7 @@
 ## State witness size limits
 
 Some limits were introduced to keep the size of `ChunkStateWitness` reasonable.
-`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under about 28.4 MiB, or about 40.5 MiB from protocol version 89 (see the total below).
+`ChunkStateWitness` contains all the incoming transactions and receipts that will be processed during chunk application and in theory a single receipt could be tens of megabytes in size. Distributing a `ChunkStateWitness` this large would be troublesome, so we limit the size and number of transactions, receipts, etc. The limits aim to keep the total uncompressed size of `ChunkStateWitness` under about 40.5 MiB (see the total below).
 
 There are two types of size limits:
 
@@ -45,14 +45,12 @@ The limits are:
 
 In total the maximum witness size is:
 
-* 4 MiB + 500 KiB + 20.6 MB + 4.5 MB ~= 28.4 MiB, from the limits above. This total leaves out receipt queue pushes, which protocol version 89 bounds and counts below.
-* From protocol version 89:
-  * About 0.5 MB more from the higher `per_receipt_storage_proof_size_limit`.
-  * About 9 MB more from the pushes of received receipts after the soft limit (4,500 pushes, each recording up to about 2,000 bytes).
-  * About 2 MB more from the pushes of the last receipt.
-  * About 1 MB more from local receipts pushed to the delayed queue after the limit (about 2,300 transactions within `max_tx_gas`).
-  * So about 40.5 MiB.
-* Possibly a little more on missing chunks.
+* 4 MiB + 500 KiB + 21.1 MB + 4.5 MB ~= 28.9 MiB, from the limits above.
+* About 9 MB from the pushes of received receipts after the soft limit (4,500 pushes, each recording up to about 2,000 bytes).
+* About 2 MB from the pushes of the last receipt.
+* About 1 MB from local receipts pushed to the delayed queue after the limit (about 2,300 transactions within `max_tx_gas`).
+
+So about 40.5 MiB, possibly a little more on missing chunks.
 
 The receipt storage proof term includes the promise inputs, so it only holds where `max_receipt_total_input_size` is enforced, which is nightly for now. The witness also has hard caps: 48 MiB compressed (`MAX_COMPRESSED_STATE_WITNESS_SIZE`) and 64 MiB uncompressed (`MAX_UNCOMPRESSED_STATE_WITNESS_SIZE`).
 
