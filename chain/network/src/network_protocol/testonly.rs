@@ -356,6 +356,22 @@ pub fn make_account_data(
     }
 }
 
+/// Makes an `OwnedAccount` with the account key of `signer` and `peer_id`, signed by `signer` using
+/// `encoding`.
+pub fn make_signed_owned_account(
+    signer: &ValidatorSigner,
+    clock: &time::Clock,
+    peer_id: PeerId,
+    encoding: Encoding,
+) -> SignedOwnedAccount {
+    OwnedAccount {
+        account_key: signer.public_key(),
+        peer_id,
+        timestamp: to_unix_nanos(clock.now_utc()),
+    }
+    .sign(signer, encoding)
+}
+
 pub fn make_signed_account_data(
     rng: &mut impl Rng,
     clock: &time::Clock,

@@ -273,6 +273,9 @@ pub struct NetworkConfig {
     pub ideal_connections_hi: u32,
     /// Maximum number of inbound Tier3 connections.
     pub max_inbound_tier3_connections: u32,
+    /// Number of the inbound Tier3 connections from peers requesting state which are reserved for
+    /// validators. Use `tier3_connections_reserved_for_validators`, which resolves the default.
+    pub inbound_tier3_connections_reserved_for_validators: Option<u32>,
     /// Socket options for peer connections.
     pub socket_options: SocketOptions,
     /// Peers which last message is was within this period of time are considered active recent peers.
@@ -525,6 +528,8 @@ impl NetworkConfig {
             ideal_connections_lo: cfg.ideal_connections_lo,
             ideal_connections_hi: cfg.ideal_connections_hi,
             max_inbound_tier3_connections: cfg.max_inbound_tier3_connections,
+            inbound_tier3_connections_reserved_for_validators: cfg
+                .inbound_tier3_connections_reserved_for_validators,
             socket_options: SocketOptions {
                 recv_buffer_size: cfg.so_recv_buffer_size,
                 send_buffer_size: cfg.so_send_buffer_size,
@@ -574,6 +579,14 @@ impl NetworkConfig {
         PeerId::new(self.node_key.public_key())
     }
 
+    /// Number of the inbound Tier3 connections from peers requesting state which are reserved for
+    /// validators: `inbound_tier3_connections_reserved_for_validators` if set, a quarter of
+    /// `max_inbound_tier3_connections` otherwise.
+    pub fn tier3_connections_reserved_for_validators(&self) -> u32 {
+        self.inbound_tier3_connections_reserved_for_validators
+            .unwrap_or(self.max_inbound_tier3_connections / 4)
+    }
+
     /// TEST-ONLY: Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
@@ -617,6 +630,7 @@ impl NetworkConfig {
             ideal_connections_lo: 30,
             ideal_connections_hi: 35,
             max_inbound_tier3_connections: 64,
+            inbound_tier3_connections_reserved_for_validators: None,
             socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
@@ -698,6 +712,15 @@ impl NetworkConfig {
             );
         }
 
+        if let Some(reserved) = self.inbound_tier3_connections_reserved_for_validators {
+            anyhow::ensure!(
+                reserved <= self.max_inbound_tier3_connections,
+                "inbound_tier3_connections_reserved_for_validators({reserved}) can be at most \
+                 max_inbound_tier3_connections({})",
+                self.max_inbound_tier3_connections
+            );
+        }
+
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
@@ -772,6 +795,7 @@ mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
     use crate::config::{ConnectionEncoding, SignedStructFormat};
+    use crate::config_json;
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
@@ -782,7 +806,8 @@ mod test {
     use crate::tcp;
     use crate::testonly::make_rng;
     use near_async::time;
-    use serde_json::from_str;
+    use near_chain_configs::MutableConfigValue;
+    use serde_json::{from_str, from_value, to_value};
 
     #[test]
     fn test_network_config() {
@@ -997,6 +1022,58 @@ mod test {
         // Valid config should pass.
         let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         assert!(nc.verify().is_ok());
+    }
+
+    #[test]
+    fn tier3_connections_reserved_for_validators() {
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        nc.max_inbound_tier3_connections = 8;
+
+        // If unset, a quarter of the limit is reserved, rounded down.
+        nc.inbound_tier3_connections_reserved_for_validators = None;
+        assert_eq!(nc.tier3_connections_reserved_for_validators(), 2);
+        assert!(nc.clone().verify().is_ok());
+        let mut small = nc.clone();
+        small.max_inbound_tier3_connections = 3;
+        assert_eq!(small.tier3_connections_reserved_for_validators(), 0);
+
+        // A configured value is used as is, up to the limit.
+        for reserved in [0, 5, 8] {
+            nc.inbound_tier3_connections_reserved_for_validators = Some(reserved);
+            assert_eq!(nc.tier3_connections_reserved_for_validators(), reserved);
+            assert!(nc.clone().verify().is_ok());
+        }
+        nc.inbound_tier3_connections_reserved_for_validators = Some(9);
+        assert!(nc.verify().is_err());
+    }
+
+    #[test]
+    fn tier3_connections_reserved_for_validators_json() {
+        let mut rng = make_rng(921853258);
+        // An unset value is omitted from the config file.
+        let json = to_value(config_json::Config::default()).unwrap();
+        assert!(json.get("inbound_tier3_connections_reserved_for_validators").is_none());
+        let cfg: config_json::Config = from_value(json).unwrap();
+        assert_eq!(cfg.inbound_tier3_connections_reserved_for_validators, None);
+
+        // A configured value survives a round trip, and gets to the network config.
+        for reserved in [0, 5] {
+            let mut json = to_value(config_json::Config::default()).unwrap();
+            json["inbound_tier3_connections_reserved_for_validators"] = reserved.into();
+            let cfg: config_json::Config = from_value(json).unwrap();
+            assert_eq!(cfg.inbound_tier3_connections_reserved_for_validators, Some(reserved));
+            let json = to_value(&cfg).unwrap();
+            assert_eq!(json["inbound_tier3_connections_reserved_for_validators"], reserved);
+
+            let nc = config::NetworkConfig::new(
+                cfg,
+                data::make_secret_key(&mut rng),
+                MutableConfigValue::new(None, "validator_signer"),
+                false,
+            )
+            .unwrap();
+            assert_eq!(nc.inbound_tier3_connections_reserved_for_validators, Some(reserved));
+        }
     }
 
     #[test]

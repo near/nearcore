@@ -114,6 +114,11 @@ pub struct Config {
     /// Maximum number of inbound Tier3 connections.
     #[serde(default = "default_max_inbound_tier3_connections")]
     pub max_inbound_tier3_connections: u32,
+    /// Number of the inbound Tier3 connections from peers requesting state which are reserved for
+    /// validators of the current and the next epoch. Other peers can take only the rest. If unset,
+    /// a quarter of `max_inbound_tier3_connections` is reserved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_tier3_connections_reserved_for_validators: Option<u32>,
     #[serde(default = "default_so_recv_buffer_size")]
     pub so_recv_buffer_size: Option<u32>,
     #[serde(default = "default_so_send_buffer_size")]
@@ -372,6 +377,7 @@ impl Default for Config {
             ideal_connections_lo: default_ideal_connections_lo(),
             ideal_connections_hi: default_ideal_connections_hi(),
             max_inbound_tier3_connections: default_max_inbound_tier3_connections(),
+            inbound_tier3_connections_reserved_for_validators: None,
             so_recv_buffer_size: default_so_recv_buffer_size(),
             so_send_buffer_size: default_so_send_buffer_size(),
             peer_recent_time_window: default_peer_recent_time_window(),
