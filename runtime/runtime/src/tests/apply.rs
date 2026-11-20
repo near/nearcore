@@ -12149,15 +12149,95 @@ fn test_postponed_receipts_within_storage_proof_soft_limit() {
     };
     let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
 
-    // The last receipt runs past the soft limit. One receipt writes 128 rows, about 100 KB of
+    // The last receipt runs past the soft limit. One receipt writes 128 rows, about 20 KB of
     // proof.
-    let max_proof = soft_limit + 100_000;
+    let max_proof = soft_limit + 30_000;
 
     // Apply before the feature: the rows are written without a read.
     apply_state.current_protocol_version = feature_version - 1;
     let apply_result = apply_incoming(&apply_state);
     // Check: the limit misses the rows, so no receipt is delayed and the proof goes well past it.
     assert_eq!(apply_result.delayed_receipts_count, 0);
+    assert!(proof_size(&apply_result) > max_proof);
+
+    // Apply with the feature: each key is read before it is written.
+    apply_state.current_protocol_version = feature_version;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the chunk stops at the soft limit and delays the rest.
+    assert!(apply_result.delayed_receipts_count > 0);
+    assert!(proof_size(&apply_result) <= max_proof);
+}
+
+#[test]
+fn test_single_input_postponed_receipts_within_storage_proof_soft_limit() {
+    // Setup: many receipts pending under `alice`, each waiting on one data id, so the three rows
+    // of a new postponed receipt need deep trie paths of similar size.
+    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::from_near(500_000),
+        Gas::from_teragas(1000),
+    );
+    let receipts_for = |tag: &str, count: usize| {
+        (0..count)
+            .map(|i| {
+                action_receipt_awaiting(
+                    alice_account(),
+                    hash(format!("{tag}-receipt-{i}").as_bytes()),
+                    vec![hash(format!("{tag}-data-{i}").as_bytes())],
+                )
+            })
+            .collect_vec()
+    };
+    for batch in receipts_for("stored", 32768).chunks(1024) {
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                batch,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+        root =
+            commit_apply_result(&apply_result, &mut apply_state, &tries, ShardUId::single_shard());
+    }
+    // Reduced storage proof limit, so the incoming receipts are enough to pass it.
+    let soft_limit: usize = 400_000;
+    let mut runtime_config = RuntimeConfig::test();
+    runtime_config.witness_config.main_storage_proof_size_soft_limit = soft_limit as u64;
+    apply_state.config = Arc::new(runtime_config);
+    let incoming = receipts_for("incoming", 8192);
+    let apply_incoming = |apply_state: &ApplyState| {
+        runtime
+            .apply(
+                tries
+                    .get_trie_for_shard(ShardUId::single_shard(), root)
+                    .recording_reads_with_proof_size_limit(soft_limit as u64),
+                &None,
+                apply_state,
+                &incoming,
+                SignedValidPeriodTransactions::empty(),
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap()
+    };
+    let proof_size = |apply_result: &ApplyResult| {
+        let PartialState::TrieValues(values) = &apply_result.proof.as_ref().unwrap().nodes;
+        values.iter().map(|value| value.len()).sum::<usize>()
+    };
+    let feature_version = ProtocolFeature::ReadDataDependencyKeysBeforeWrite.protocol_version();
+
+    // The last receipt runs past the soft limit, by a few hundred bytes for its three rows.
+    let max_proof = soft_limit + 5_000;
+
+    // Apply before the feature: the three rows are written without a read.
+    apply_state.current_protocol_version = feature_version - 1;
+    let apply_result = apply_incoming(&apply_state);
+    // Check: the limit misses the rows, so the recorded proof goes well past it.
     assert!(proof_size(&apply_result) > max_proof);
 
     // Apply with the feature: each key is read before it is written.
