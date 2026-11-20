@@ -314,8 +314,8 @@ impl SpiceDataManager {
         }
     }
 
-    /// Tracks `ids`, which the chunk executor needs to apply a block, and pulls them at once: each
-    /// comes from a certified chunk. An id already done or expired is skipped.
+    /// Tracks `ids`, which the chunk executor needs to apply a block, if this node lost track of
+    /// them, and pulls them at once: each comes from a certified chunk.
     pub(crate) fn request_receipt_proofs(
         &mut self,
         ids: Vec<ReceiptProofId>,
@@ -331,30 +331,33 @@ impl SpiceDataManager {
     }
 
     fn track_requested(&mut self, id: &DataId) -> Result<(), Error> {
-        if self.done_items.contains(id) || self.is_done(id) {
+        // A tracked item is pulled by the usual rules; only one this node lost track of, as to a
+        // restart, is tracked again.
+        if self.items.contains_key(id) || self.done_items.contains(id) || self.is_done(id) {
             return Ok(());
         }
-        if !self.items.contains_key(id) {
-            let header = self.chain_store.get_block_header(id.block_hash())?;
-            let expiry = self.expiry(id)?;
-            if self.is_expired(expiry, header.height()) {
-                return Ok(());
-            }
-            let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
-            let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
-            let producers = producers_in_epoch(&epoch_info, &shard_layout, id)?;
-            self.items_by_height.entry(header.height()).or_default().insert(id.clone());
-            let item = FetchItem::new(
-                header.height(),
-                *header.epoch_id(),
-                *header.next_epoch_id(),
-                producers,
-                expiry,
-            );
-            self.items.insert(id.clone(), item);
+        let header = self.chain_store.get_block_header(id.block_hash())?;
+        // A proof this node produces itself, as from a shard it applies, is not fetched.
+        if !self.needed_items(&header)?.contains(id) {
+            return Ok(());
         }
-        let height = self.items[id].height;
-        self.pulls.mark_pullable(id.clone(), height);
+        let expiry = self.expiry(id)?;
+        if self.is_expired(expiry, header.height()) {
+            return Ok(());
+        }
+        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
+        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
+        let producers = producers_in_epoch(&epoch_info, &shard_layout, id)?;
+        self.items_by_height.entry(header.height()).or_default().insert(id.clone());
+        let item = FetchItem::new(
+            header.height(),
+            *header.epoch_id(),
+            *header.next_epoch_id(),
+            producers,
+            expiry,
+        );
+        self.items.insert(id.clone(), item);
+        self.pulls.mark_pullable(id.clone(), header.height());
         Ok(())
     }
 
