@@ -144,6 +144,11 @@ pub enum ProtocolFeature {
     /// its predecessor. Before, every such receipt was instant, so a delete of another account ran
     /// on the sender's shard instead of being forwarded to the receiver's shard.
     InstantDeleteAccountOnlyForSelf,
+    /// Read the key of each push to an outgoing receipt buffer and to the `PromiseYield`
+    /// timeout queue before writing it. A push writes a new key without reading it, so its
+    /// trie nodes are recorded only when the state update is finalized, after the storage
+    /// proof limits are checked. The read records the same nodes now, so the limits count them.
+    ReadQueueKeysBeforePush,
 }
 
 impl ProtocolFeature {
@@ -179,6 +184,7 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlockChallenges => 89,
             ProtocolFeature::ChargeAllTrieNodesAsTouched => 89,
             ProtocolFeature::InstantDeleteAccountOnlyForSelf => 89,
+            ProtocolFeature::ReadQueueKeysBeforePush => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
