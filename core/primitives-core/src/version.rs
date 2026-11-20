@@ -125,8 +125,9 @@ pub enum ProtocolFeature {
     ReadGasKeyNoncesBeforeRemoval,
     /// Read each key that links an action receipt to its input data before writing it:
     /// `PostponedReceiptId`, `PendingDataCount` and `PostponedReceipt` when an action
-    /// receipt is postponed, and `ReceivedData` when data arrives. The storage proof
-    /// limits then count the trie nodes that the insert records.
+    /// receipt is postponed, `PromiseYieldReceipt` when a yielded receipt is stored, and
+    /// `ReceivedData` when data arrives. The storage proof limits then count the trie nodes
+    /// that the insert records.
     ReadDataDependencyKeysBeforeWrite,
     /// Apply skips, with no outcome, a chunk's transaction whose routing account (the signer, or
     /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that

@@ -1721,6 +1721,12 @@ impl Runtime {
                         action_receipt.input_data_ids().len()
                     )));
                 };
+                if read_keys_before_write {
+                    read_key_before_write(
+                        state_update,
+                        &TrieKey::PromiseYieldReceipt { receiver_id: account_id.clone(), data_id },
+                    )?;
+                }
                 set_promise_yield_receipt(state_update, receipt, data_id);
             }
             VersionedReceiptEnum::PromiseResume(data_receipt) => {
