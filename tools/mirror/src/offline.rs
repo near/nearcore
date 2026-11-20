@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_chain_primitives::Error as ChainStoreError;
 use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError};
 use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -17,8 +18,9 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
+use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
-use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -41,28 +43,39 @@ pub(crate) struct ChainAccess {
 }
 
 impl ChainAccess {
+    /// Opens the store under `home` and serves it as it is.
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
-        let config =
-            nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
-                .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
+        let home = home.as_ref();
+        let config = nearcore::config::load_config(home, GenesisValidationMode::UnsafeFast)
+            .with_context(|| format!("Error loading config from {:?}", home))?;
         let node_storage =
-            nearcore::open_storage(home.as_ref(), &config).context("failed opening storage")?;
+            nearcore::open_storage(home, &config).context("failed opening storage")?;
         let store = node_storage.get_hot_store();
-        initialize_genesis_state(store.clone(), &config.genesis, Some(home.as_ref()));
+        initialize_genesis_state(store.clone(), &config.genesis, Some(home));
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home));
+        let runtime =
+            NightshadeRuntime::from_config(home, store.clone(), &config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
+        Ok(Self::from_parts(store, &config, epoch_manager, runtime, false))
+    }
+
+    /// Serves a store the caller opened and built the chain views for. With `skip_state`,
+    /// the store is known to hold no state, and a state query failing in the trie is
+    /// reported as `ChainError::NoState`.
+    pub(crate) fn from_parts(
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        runtime: Arc<NightshadeRuntime>,
+        skip_state: bool,
+    ) -> Self {
         let chain = ChainStore::new(
-            store.clone(),
+            store,
             config.client_config.save_trie_changes,
             config.genesis.config.transaction_validity_period,
         );
-        let epoch_manager = EpochManager::new_arc_handle(
-            store.clone(),
-            &config.genesis.config,
-            Some(home.as_ref()),
-        );
-        let runtime =
-            NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
-        Ok(Self { chain, epoch_manager, runtime, skip_state: false })
+        Self { chain, epoch_manager, runtime, skip_state }
     }
 }
 
@@ -91,7 +104,7 @@ impl crate::ChainAccess for ChainAccess {
                     );
                     break;
                 }
-                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => {
+                Err(ChainStoreError::DBNotFoundErr(_)) => {
                     height += 1;
                 }
                 Err(e) => {
@@ -247,10 +260,7 @@ impl crate::ChainAccess for ChainAccess {
                 // (`--source-skip-state`) that is expected at every block, and the caller
                 // falls back; on any other store it is corruption or state garbage-collected
                 // under the mirror, and it aborts the run like every other error.
-                Err(near_chain_primitives::error::QueryError::InternalError {
-                    error_message,
-                    ..
-                }) if self.skip_state => {
+                Err(QueryError::InternalError { error_message, .. }) if self.skip_state => {
                     tracing::debug!(
                         target: "mirror",
                         %account_id,

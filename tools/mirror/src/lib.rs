@@ -28,7 +28,7 @@ use near_primitives::views::{
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, NonceIndex, ShardId};
-use nearcore::NearNode;
+use nearcore::{NearConfig, NearNode};
 use parking_lot::{Mutex, RwLock};
 use rocksdb::{DB, IteratorMode};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -511,6 +511,27 @@ struct TxMirror<T: ChainAccess> {
     config: MirrorConfig,
 }
 
+/// `--mirror-db-path` if given, else the `mirror` directory next to the target store.
+fn resolve_mirror_db_path(
+    target_home: &Path,
+    target_config: &NearConfig,
+    mirror_db_path: Option<&Path>,
+) -> PathBuf {
+    match mirror_db_path {
+        Some(mirror_db_path) => mirror_db_path.to_path_buf(),
+        // keep backward compatibility
+        None => near_store::NodeStorage::opener(
+            target_home,
+            &target_config.config.store,
+            target_config.config.cold_store.as_ref(),
+            // TODO(cloud_archival) Consider supporting cloud archive here
+            None,
+        )
+        .path()
+        .join("mirror"),
+    }
+}
+
 fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
     let mut options = rocksdb::Options::default();
     options.create_missing_column_families(true);
@@ -945,30 +966,13 @@ impl<T: ChainAccess> TxMirror<T> {
     fn new(
         source_chain_access: T,
         target_home: &Path,
+        target_config: &NearConfig,
         mirror_db_path: Option<&Path>,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
         config: MirrorConfig,
     ) -> anyhow::Result<Self> {
-        let target_config =
-            nearcore::config::load_config(target_home, GenesisValidationMode::UnsafeFast)
-                .with_context(|| format!("Error loading target config from {:?}", target_home))?;
-        let db = match mirror_db_path {
-            Some(mirror_db_path) => open_db(mirror_db_path),
-            None => {
-                // keep backward compatibility
-                let mirror_db_path = near_store::NodeStorage::opener(
-                    target_home,
-                    &target_config.config.store,
-                    target_config.config.cold_store.as_ref(),
-                    // TODO(cloud_archival) Consider supporting cloud archive here
-                    None,
-                )
-                .path()
-                .join("mirror");
-                open_db(&mirror_db_path)
-            }
-        };
-        let db = db.context("failed to open mirror DB")?;
+        let db = open_db(resolve_mirror_db_path(target_home, target_config, mirror_db_path))
+            .context("failed to open mirror DB")?;
         let db = Arc::new(db);
         let default_extra_key = crate::key_mapping::default_extra_key(secret.as_ref());
 
@@ -2548,6 +2552,11 @@ async fn run<P: AsRef<Path>>(
         }
         None => Default::default(),
     };
+    let target_config =
+        nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
+            .with_context(|| {
+                format!("Error loading target config from {:?}", target_home.as_ref())
+            })?;
     let actor_system = near_async::ActorSystem::new();
     if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
@@ -2557,6 +2566,7 @@ async fn run<P: AsRef<Path>>(
         TxMirror::new(
             source_chain_access,
             target_home.as_ref(),
+            &target_config,
             mirror_db_path.as_deref(),
             secret,
             config,
@@ -2567,6 +2577,7 @@ async fn run<P: AsRef<Path>>(
         TxMirror::new(
             crate::online::ChainAccess::new(source_home, actor_system.clone()).await?,
             target_home.as_ref(),
+            &target_config,
             mirror_db_path.as_deref(),
             secret,
             config,
