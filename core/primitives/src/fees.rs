@@ -860,6 +860,20 @@ pub fn compute_receipt_size(receipt: &Receipt) -> Result<u64, IntegerOverflowErr
     size.try_into().map_err(|_| IntegerOverflowError)
 }
 
+/// The size a receipt counts for bandwidth and congestion: its size, but at least
+/// `min_receipt_congestion_size`. This bounds how many receipts a shard receives per height, and
+/// so how many it pushes to its delayed queue after its limits.
+///
+/// The calculation is part of protocol and should only be modified with a
+/// protocol upgrade.
+pub fn compute_receipt_congestion_size(
+    receipt: &Receipt,
+    config: &RuntimeConfig,
+) -> Result<u64, IntegerOverflowError> {
+    let size = compute_receipt_size(receipt)?;
+    Ok(size.max(config.congestion_control_config.min_receipt_congestion_size))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
