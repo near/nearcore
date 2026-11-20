@@ -20,8 +20,8 @@ use near_chain::ChainStoreAccess;
 use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 use near_client::archive::cloud_archival_utils::save_block_data;
+use near_client::archive::cloud_archival_utils::{SnapshotInfo, find_snapshot_at_or_before};
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_primitives::block::Block;
@@ -33,7 +33,7 @@ use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, ShardId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -644,8 +644,6 @@ impl CloudArchiveHarness {
 
 /// Verifies that archivization progresses without crashes.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_basic() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -657,8 +655,6 @@ fn test_cloud_archival_basic() {
 /// Verifies that cloud archivization and the cold store loop both progress with cold DB
 /// enabled.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_with_cold() {
     let mut h = CloudArchiveHarness::builder().cold_storage(true).build();
     h.run_until_epoch(MIN_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -671,8 +667,6 @@ fn test_cloud_archival_with_cold() {
 /// of the epoch containing the minimum among the heads (block or shards) being
 /// archivized, and the writer catches up after resuming.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_resume() {
     let mut h = CloudArchiveHarness::builder().build();
 
@@ -702,8 +696,6 @@ fn test_cloud_archival_resume() {
 /// `catch_up_throttle`, so three seconds of catch-up at a one second delay
 /// archive three batches.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_catch_up_throttle_limits_batch_rate() {
     let throttle = Duration::seconds(1);
     let window = Duration::seconds(3);
@@ -736,8 +728,6 @@ fn test_cloud_archival_catch_up_throttle_limits_batch_rate() {
 
 /// Verifies that block data can be read from the cloud at multiple heights.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_read_data_at_height() {
     let all_shards = CloudArchiveHarness::all_shard_ids();
     let mut h = CloudArchiveHarness::builder().build();
@@ -749,8 +739,6 @@ fn test_cloud_archival_read_data_at_height() {
 
 /// Archivization completes whole batches, so the height it reaches is always a batch end.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_batching_archived_height_at_batch_end() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
     assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
@@ -769,8 +757,6 @@ fn test_cloud_archival_batching_archived_height_at_batch_end() {
 /// Every batch up to the archived height has been uploaded as its own blob, and the
 /// batch past it has not.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_batching_blob_per_batch() {
     assert_eq!(CloudArchiveHarness::DEFAULT_EPOCH_LENGTH, 10);
     assert_eq!(CloudArchiveHarness::TEST_BATCH_SIZE, 4);
@@ -837,8 +823,6 @@ fn test_cloud_archival_use_snapshot() {
 /// A writer with `archive_block_data: false` and no tracked shards is misconfigured
 /// and must panic during initialization.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[should_panic(expected = "cloud archival writer must track at least one component")]
 fn test_cloud_archival_misconfigured_writer_panics() {
     let mut h =
@@ -849,8 +833,6 @@ fn test_cloud_archival_misconfigured_writer_panics() {
 
 /// Verifies that a writer recovers when one shard's external head lags behind.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_lagging_shard_catchup() {
     let all_shards = CloudArchiveHarness::all_shard_ids();
     let mut h = CloudArchiveHarness::builder().build();
@@ -873,8 +855,6 @@ fn test_cloud_archival_lagging_shard_catchup() {
 /// Verifies that the writer stops when a shard's external head is set back
 /// far enough that the data has already been garbage collected.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_lagging_shard_beyond_gc() {
     let mut h = CloudArchiveHarness::builder().build();
     let lag_at_height = (MIN_GC_NUM_EPOCHS_TO_KEEP + 1) * h.epoch_length;
@@ -899,8 +879,6 @@ fn test_cloud_archival_lagging_shard_beyond_gc() {
 /// Verifies that a second writer joining mid-test catches up and covers
 /// additional shards. Writer_b only archives from its join height onward.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_writer_joins_later() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
     let all_shard_ids = CloudArchiveHarness::all_shard_ids();
@@ -949,8 +927,6 @@ fn test_cloud_archival_writer_joins_later() {
 
 /// Verifies that two writers tracking all shards both produce valid data.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_multi_writer_same_shards() {
     let all_shard_uids = CloudArchiveHarness::all_shard_uids();
     let all_shard_ids = CloudArchiveHarness::all_shard_ids();
@@ -1017,8 +993,6 @@ fn test_cloud_archival_two_nodes_agree_across_gaps() {
 /// The blob carries the shard's stats in the archive's form, whatever the archiving node
 /// holds in its own row.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_blob_drops_node_measurements() {
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
@@ -1076,10 +1050,22 @@ fn test_cloud_archival_multi_writer_disjoint_shards() {
     h.shutdown();
 }
 
+fn snapshot_first_height(
+    cloud_storage: &CloudStorage,
+    epoch_id: EpochId,
+    shard_id: ShardId,
+) -> BlockHeight {
+    if cfg!(feature = "protocol_feature_spice") {
+        exec(cloud_storage.get_epoch_data(epoch_id)).unwrap().epoch_start_height() + 1
+    } else {
+        let header = get_state_header_for_epoch(cloud_storage, epoch_id, shard_id);
+        header.chunk_height_included().unwrap()
+    }
+}
+
 /// Verifies that a writer with `snapshot_every_n_epochs = 2` only snapshots even epochs
 /// and that the discovery helper locates the nearest snapshot at or before a given height.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_custom_snapshot_cadence() {
     let mut h = CloudArchiveHarness::builder().snapshot_every_n_epochs(2).build();
     h.run_until_epoch(6);
@@ -1090,11 +1076,15 @@ fn test_cloud_archival_custom_snapshot_cadence() {
 
     // Epoch 4 was snapshotted: first probe hits.
     let hit_at_45 = exec(find_snapshot_at_or_before(&cloud_storage, 45, shard_id)).unwrap();
-    assert_eq!(hit_at_45, (4, epoch_id_at(&cloud_storage, 45)));
+    let epoch_id = epoch_id_at(&cloud_storage, 45);
+    let first_height = snapshot_first_height(&cloud_storage, epoch_id, shard_id);
+    assert_eq!(hit_at_45, SnapshotInfo { epoch_height: 4, epoch_id, first_height });
 
     // Epoch 3 was skipped: probe misses, walks back to epoch 2.
     let hit_at_35 = exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
-    assert_eq!(hit_at_35, (2, epoch_id_at(&cloud_storage, 25)));
+    let epoch_id = epoch_id_at(&cloud_storage, 25);
+    let first_height = snapshot_first_height(&cloud_storage, epoch_id, shard_id);
+    assert_eq!(hit_at_35, SnapshotInfo { epoch_height: 2, epoch_id, first_height });
 
     h.shutdown();
 }
@@ -1103,7 +1093,6 @@ fn test_cloud_archival_custom_snapshot_cadence() {
 /// when stepping to the previous epoch. The test drops the block at that
 /// height; the function still locates the earlier snapshot.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     // With `epoch_length = 10`, height 29 sits at `epoch_start_3 - 1`, the
     // first height the walk-back from epoch 3 probes.
@@ -1129,7 +1118,9 @@ fn test_cloud_archival_find_snapshot_with_missing_epoch_boundary() {
     // `epoch_start_3 - 1 = 29` which is the dropped block; the function must
     // walk further down to a present block in epoch 2 and find its snapshot.
     let hit = exec(find_snapshot_at_or_before(&cloud_storage, 35, shard_id)).unwrap();
-    assert_eq!(hit, (2, epoch_id_at(&cloud_storage, 25)));
+    let epoch_id = epoch_id_at(&cloud_storage, 25);
+    let first_height = snapshot_first_height(&cloud_storage, epoch_id, shard_id);
+    assert_eq!(hit, SnapshotInfo { epoch_height: 2, epoch_id, first_height });
 
     h.shutdown();
 }
@@ -1188,7 +1179,6 @@ fn test_cloud_archival_single_skipped_slot() {
 
 /// A writer restarted while its bucket head is a height with no block resumes archiving.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_restart_with_head_at_skipped_height() {
     let batch_size = BlockHeight::from(CloudArchiveHarness::TEST_BATCH_SIZE);
     let dropped_height = 4 * batch_size - 1;
@@ -1214,7 +1204,6 @@ fn test_cloud_archival_restart_with_head_at_skipped_height() {
 /// range. Reconstruction loads that snapshot from cloud state parts, so it works
 /// without the sync block being local.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
     let mut h = CloudArchiveHarness::builder().snapshot_every_n_epochs(2).build();
     h.run_until_epoch(5);
@@ -1223,8 +1212,8 @@ fn test_cloud_archival_bootstrap_snapshot_in_earlier_epoch() {
     let (start, target) = (35, 38);
     let cloud_storage = get_cloud_storage(&h.env, &h.writer_id);
     let shard_id = CloudArchiveHarness::all_shard_ids()[0];
-    let (_, snapshot_epoch_id) =
-        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
+    let snapshot_epoch_id =
+        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap().epoch_id;
     let start_epoch_id = epoch_id_at(&cloud_storage, start);
     assert_ne!(snapshot_epoch_id, start_epoch_id, "snapshot must resolve to an earlier epoch");
 
@@ -1257,8 +1246,8 @@ fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
         own_snapshot_height > start,
         "h={start} must sit below its epoch's snapshot at h={own_snapshot_height}"
     );
-    let (_, resolved_epoch_id) =
-        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
+    let resolved_epoch_id =
+        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap().epoch_id;
     assert_ne!(resolved_epoch_id, start_epoch_id, "the snapshot must resolve to an earlier epoch");
 
     // The root the range's first height applies onto, which only a walk from the earlier
@@ -1285,7 +1274,6 @@ fn test_cloud_archival_bootstrap_below_its_epoch_snapshot() {
 /// A range whose start sits above its own epoch's snapshot anchors on that snapshot, even
 /// when the batch holding the start opens below it.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_bootstrap_anchors_on_the_nearest_snapshot() {
     let mut h = CloudArchiveHarness::builder().disable_gc().build();
     h.run_until_epoch(4);
@@ -1299,10 +1287,10 @@ fn test_cloud_archival_bootstrap_anchors_on_the_nearest_snapshot() {
     let (start, target) = (14, 22);
     let batch_start =
         cloud_storage.get_shard_batch_for_height(start, shard_id).unwrap().start_height();
-    let (_, near_epoch_id) =
-        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap();
-    let (_, far_epoch_id) =
-        exec(find_snapshot_at_or_before(&cloud_storage, batch_start, shard_id)).unwrap();
+    let near_epoch_id =
+        exec(find_snapshot_at_or_before(&cloud_storage, start, shard_id)).unwrap().epoch_id;
+    let far_epoch_id =
+        exec(find_snapshot_at_or_before(&cloud_storage, batch_start, shard_id)).unwrap().epoch_id;
     assert_ne!(
         near_epoch_id, far_epoch_id,
         "h={start} and its batch start h={batch_start} must resolve to different snapshots"
@@ -1765,7 +1753,6 @@ fn test_cloud_archival_outcomes_and_receipts() {
 /// Verifies that the reader's store has a row at every height in the per-block cold
 /// columns the reader reconstructs from cloud data.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_per_block_columns() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(3 + MIN_GC_NUM_EPOCHS_TO_KEEP);
@@ -2338,7 +2325,6 @@ fn test_cloud_archival_writer_resharding_known_shard_layout_versions() {
 /// layout-agnostic and round-trips the rows the seeder wrote (the anchor's own
 /// pre-split layout) without consulting any layout.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_reconstructs_chunk_producers() {
     let mut h = CloudArchiveHarness::builder().enable_resharding().disable_gc().build();
     let r = h.run_until_one_epoch_after_resharding();
@@ -2518,8 +2504,6 @@ fn test_cloud_archival_resharding_gap_without_the_sync_hash_row() {
 /// The recent reader points the heads a query resolves against at its own position, so a
 /// query on the store it took over answers there and not at the stopped node's head.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_recent_reader_writes_the_chain_heads() {
     let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
     h.run_until_epoch(2);
@@ -2558,8 +2542,6 @@ fn test_cloud_archival_recent_reader_writes_the_chain_heads() {
 /// nothing behind it, so the recent reader has to refuse it at the door rather than run and
 /// fail on the first height it applies.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_recent_reader_refuses_a_store_without_state() {
     let mut h = CloudArchiveHarness::builder().disable_gc().dont_take_over_rpc().build();
     h.run_until_epoch(3);
@@ -2654,8 +2636,6 @@ fn test_cloud_archival_recent_reader_waits_for_a_lagging_shard() {
 /// The recent reader moves each shard's state forward over the heights it takes, so every
 /// state root the writer recorded across the followed range resolves in the reader's trie.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_recent_reader_reconstructs_shard_state() {
     let mut h = CloudArchiveHarness::builder().build();
     h.run_until_epoch(2);
@@ -2689,8 +2669,6 @@ fn test_cloud_archival_recent_reader_reconstructs_shard_state() {
 /// bucket from there. What gc took before the switch stays gone, and what the
 /// reader holds afterwards is kept, because no gc runs once it has switched.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_recent_reader_gc_stops_at_takeover() {
     let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().build();
     let gced = h.epoch_length / 2;
@@ -2791,8 +2769,6 @@ fn test_cloud_archival_skipped_run_across_batch_edge() {
 /// A height the archive reports empty is cleared from the reader's index, so a row a
 /// fork left in the handed-over store cannot answer a query for that height.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_cloud_archival_reader_clears_forked_height() {
     let forked_height: BlockHeight = 20;
     let mut h = CloudArchiveHarness::builder()
