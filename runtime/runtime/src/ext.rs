@@ -13,7 +13,7 @@ use near_primitives::universal_state_init::{
     state_init_send_counts,
 };
 use near_primitives::utils::create_receipt_id_from_action_hash;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::contract::ContractStorage;
 use near_store::trie::{AccessOptions, AccessTracker};
 use near_store::{
@@ -46,6 +46,7 @@ pub struct RuntimeExt<'a> {
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
     trie_access_tracker: AccountingAccessTracker,
+    charge_all_as_touched: bool,
     storage_proof_size_before_receipt: Option<usize>,
 }
 
@@ -69,6 +70,7 @@ pub struct RuntimeExtValuePtr<'a, 'b> {
     value_ptr: TrieUpdateValuePtr<'a>,
     deref_options: AccessOptions<'b>,
     accounting_state: Arc<AccountingState>,
+    charge_all_as_touched: bool,
 }
 
 impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
@@ -82,7 +84,11 @@ impl<'a, 'b> ValuePtr for RuntimeExtValuePtr<'a, 'b> {
             TrieUpdateValuePtr::Ref(trie, optimized_value_ref) => {
                 let start_ttn = self.accounting_state.get_counts();
                 let result = trie.deref_optimized(self.deref_options, &optimized_value_ref);
-                self.accounting_state.commit_counts_since(start_ttn, access_tracker)?;
+                self.accounting_state.commit_counts_since(
+                    start_ttn,
+                    access_tracker,
+                    self.charge_all_as_touched,
+                )?;
                 Ok(result.map_err(wrap_storage_error)?)
             }
         }
@@ -115,6 +121,8 @@ impl<'a> RuntimeExt<'a> {
             epoch_info_provider,
             current_protocol_version,
             trie_access_tracker: AccountingAccessTracker { state: trie_access_tracker_state },
+            charge_all_as_touched: ProtocolFeature::ChargeAllTrieNodesAsTouched
+                .enabled(current_protocol_version),
             storage_proof_size_before_receipt,
         }
     }
@@ -181,8 +189,11 @@ impl<'a> External for RuntimeExt<'a> {
                 Some(ptr.deref_value(options).map_err(wrap_storage_error)?)
             }
         };
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
@@ -218,11 +229,15 @@ impl<'a> External for RuntimeExt<'a> {
                         value_ptr,
                         deref_options,
                         accounting_state: Arc::clone(&self.trie_access_tracker.state),
+                        charge_all_as_touched: self.charge_all_as_touched,
                     }) as Box<dyn ValuePtr>
                 })
             });
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         #[cfg(feature = "io_trace")]
         if let Ok(read) = &result {
             tracing::trace!(
@@ -264,8 +279,11 @@ impl<'a> External for RuntimeExt<'a> {
             }
         };
         self.trie_update.remove(storage_key);
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         // A removal grows the recorded storage proof without recording a node, so no read checks
         // it against a recording budget.
         self.trie_update.trie().check_recording_budget().map_err(wrap_storage_error)?;
@@ -295,8 +313,11 @@ impl<'a> External for RuntimeExt<'a> {
             .get_ref(&storage_key, mode, AccessOptions::contract_runtime(&self.trie_access_tracker))
             .map(|x| x.is_some())
             .map_err(wrap_storage_error);
-        let _delta =
-            self.trie_access_tracker.state.commit_counts_since(start_ttn, access_tracker)?;
+        let _delta = self.trie_access_tracker.state.commit_counts_since(
+            start_ttn,
+            access_tracker,
+            self.charge_all_as_touched,
+        )?;
         #[cfg(feature = "io_trace")]
         tracing::trace!(
             target: "io_tracer",
@@ -725,10 +746,13 @@ impl AccountingState {
         }
     }
 
+    /// From `ProtocolFeature::ChargeAllTrieNodesAsTouched`, both counts are charged as
+    /// `touching_trie_node`, in one charge.
     fn commit_counts_since(
         &self,
         snapshot: TrieNodesCount,
         into: &mut dyn StorageAccessTracker,
+        charge_all_as_touched: bool,
     ) -> Result<TrieNodesCount, VMLogicError> {
         let db_read_delta = self
             .db_reads
@@ -740,8 +764,15 @@ impl AccountingState {
             .load(Ordering::Relaxed)
             .checked_sub(snapshot.mem_reads)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
-        into.trie_node_touched(db_read_delta)?;
-        into.cached_trie_node_access(mem_read_delta)?;
+        if charge_all_as_touched {
+            let total = db_read_delta
+                .checked_add(mem_read_delta)
+                .ok_or(InconsistentStateError::IntegerOverflow)?;
+            into.trie_node_touched(total)?;
+        } else {
+            into.trie_node_touched(db_read_delta)?;
+            into.cached_trie_node_access(mem_read_delta)?;
+        }
         Ok(TrieNodesCount { db_reads: db_read_delta, mem_reads: mem_read_delta })
     }
 }

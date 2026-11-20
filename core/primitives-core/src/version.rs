@@ -115,6 +115,13 @@ pub enum ProtocolFeature {
     /// (not fully implemented, yet. only stabilize when it is fully implemented,
     /// including payment for new state)
     ContractCompilationStatus,
+    /// Charge every trie node and value a contract storage operation visits as
+    /// `touching_trie_node`, in one charge. Before, nodes the chunk had already visited were
+    /// charged separately as `read_cached_trie_node`. That costs the same, but when a call that
+    /// created a promise runs out of gas, the split charge burns less. Once
+    /// `MIN_SUPPORTED_PROTOCOL_VERSION` passes this version, the per-chunk trie accounting cache
+    /// (`AccountingState` in `near-runtime`) can be deleted.
+    ChargeAllTrieNodesAsTouched,
     /// Adds `creation_protocol_version` to action receipts and pins the
     /// execution fees of the receipt to its creation protocol version.
     /// This ensures that the fees prepaid at creation match the fees that are
@@ -133,6 +140,10 @@ pub enum ProtocolFeature {
     /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
     /// shares its id with the outcome of the same transaction in its own shard.
     SkipForeignShardTransactions,
+    /// An action receipt with a single `DeleteAccount` action is instant only when its receiver is
+    /// its predecessor. Before, every such receipt was instant, so a delete of another account ran
+    /// on the sender's shard instead of being forwarded to the receiver's shard.
+    InstantDeleteAccountOnlyForSelf,
 }
 
 impl ProtocolFeature {
@@ -166,6 +177,8 @@ impl ProtocolFeature {
             ProtocolFeature::ExternalContractCalls => 89,
             ProtocolFeature::SkipForeignShardTransactions => 89,
             ProtocolFeature::RejectBlockChallenges => 89,
+            ProtocolFeature::ChargeAllTrieNodesAsTouched => 89,
+            ProtocolFeature::InstantDeleteAccountOnlyForSelf => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -221,7 +234,7 @@ pub fn assert_supported_protocol_version(current_protocol_version: ProtocolVersi
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 89;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 158;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 159;
 
 // TODO(spice): Once spice is mature and close to release make it part of nightly - at the point in
 // time cargo feature for spice should be removed as well.

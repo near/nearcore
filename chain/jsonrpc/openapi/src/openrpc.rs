@@ -49,7 +49,7 @@ use near_jsonrpc_primitives::types::split_storage::{
 };
 use near_jsonrpc_primitives::types::status::{RpcHealthResponse, RpcStatusResponse};
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
+    RpcSendTransactionEnvelopeRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
 };
 use near_jsonrpc_primitives::types::validator::{
     RpcValidatorRequest, RpcValidatorResponse, RpcValidatorsOrderedRequest,
@@ -1038,7 +1038,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         false,
         &["gas"],
     );
-    add_method::<RpcSendTransactionRequest, RpcTransactionResponse>(
+    add_method::<RpcSendTransactionEnvelopeRequest, RpcTransactionResponse>(
         &mut methods,
         &mut all_schemas,
         "send_tx",
@@ -1373,7 +1373,7 @@ pub fn generate_openrpc() -> serde_json::Value {
 
     // ==================== Deprecated Methods ====================
 
-    add_method::<RpcSendTransactionRequest, Option<CryptoHash>>(
+    add_method::<RpcSendTransactionEnvelopeRequest, Option<CryptoHash>>(
         &mut methods,
         &mut all_schemas,
         "broadcast_tx_async",
@@ -1381,7 +1381,7 @@ pub fn generate_openrpc() -> serde_json::Value {
         true,
         &["transaction", "deprecated"],
     );
-    add_method::<RpcSendTransactionRequest, RpcTransactionResponse>(
+    add_method::<RpcSendTransactionEnvelopeRequest, RpcTransactionResponse>(
         &mut methods,
         &mut all_schemas,
         "broadcast_tx_commit",

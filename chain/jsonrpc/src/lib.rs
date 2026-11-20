@@ -65,8 +65,8 @@ use near_jsonrpc_primitives::types::split_storage::{
     RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionResponse, TimeoutErrorCause,
-    TransactionInfo,
+    RpcSendTransactionEnvelopeRequest, RpcTransactionError, RpcTransactionResponse,
+    TimeoutErrorCause, TransactionInfo,
 };
 use near_jsonrpc_primitives::types::view_access_key::{
     RpcViewAccessKeyError, RpcViewAccessKeyRequest, RpcViewAccessKeyResponse,
@@ -977,7 +977,7 @@ impl JsonRpcHandler {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)
     }
 
-    fn send_tx_async(&self, request_data: RpcSendTransactionRequest) -> Option<CryptoHash> {
+    fn send_tx_async(&self, request_data: RpcSendTransactionEnvelopeRequest) -> Option<CryptoHash> {
         let tx = request_data.transaction;
         let id = tx.outcome_id_before_inclusion();
         self.process_tx_sender.send(ProcessTxRequest {
@@ -1264,7 +1264,7 @@ impl JsonRpcHandler {
 
     async fn send_tx(
         &self,
-        request_data: RpcSendTransactionRequest,
+        request_data: RpcSendTransactionEnvelopeRequest,
     ) -> Result<RpcTransactionResponse, RpcTransactionError> {
         metrics::report_wait_until_metric("send_tx", &request_data.wait_until);
 
@@ -1301,12 +1301,12 @@ impl JsonRpcHandler {
 
     async fn send_tx_commit(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
+        request_data: RpcSendTransactionEnvelopeRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        self.send_tx(RpcSendTransactionRequest {
+        self.send_tx(RpcSendTransactionEnvelopeRequest {
             transaction: request_data.transaction,
             wait_until: TxExecutionStatus::ExecutedOptimistic,
         })

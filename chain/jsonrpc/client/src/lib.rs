@@ -11,7 +11,7 @@ use near_jsonrpc_primitives::types::receipts::{
     RpcReceiptRequest, RpcReceiptResponse, RpcReceiptToTxRequest, RpcReceiptToTxResponse,
 };
 use near_jsonrpc_primitives::types::transactions::{
-    RpcSendTransactionRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
+    RpcSendTransactionEnvelopeRequest, RpcTransactionResponse, RpcTransactionStatusRequest,
 };
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
@@ -484,7 +484,8 @@ impl JsonRpcClient {
         transaction: impl Into<TransactionEnvelope>,
         wait_until: near_primitives::views::TxExecutionStatus,
     ) -> RpcRequest<RpcTransactionResponse> {
-        let request = RpcSendTransactionRequest { transaction: transaction.into(), wait_until };
+        let request =
+            RpcSendTransactionEnvelopeRequest { transaction: transaction.into(), wait_until };
         call_method(&self.transport, "send_tx", request)
     }
 }

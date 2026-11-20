@@ -1920,8 +1920,8 @@ fn check_trie_nodes_count(
 ///                                                    --> (Leaf) -> (Value 3)
 ///
 /// 1st receipt should count 6 db reads.
-/// 2nd and 3rd receipts should count 2 db and 4 memory reads, because for them first 4 nodes were already put into the
-/// accounting cache.
+/// 2nd and 3rd receipts should also count 6 db reads. The first 4 nodes are in the accounting cache, but every node
+/// is charged as touched.
 pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = (0..3)
         .map(|i| {
@@ -1935,8 +1935,8 @@ pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: Runt
 
     let results = vec![
         TrieNodesCount { db_reads: 6, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        TrieNodesCount { db_reads: 6, mem_reads: 0 },
+        TrieNodesCount { db_reads: 6, mem_reads: 0 },
     ];
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
@@ -1947,7 +1947,7 @@ pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: Runt
 /// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
 ///
 /// 1st receipt should count 5 db reads.
-/// 2nd receipt should count 2 db and 4 memory reads.
+/// 2nd receipt should count 6 db reads.
 pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = (0..2)
         .map(|i| {
@@ -1961,7 +1961,7 @@ pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: Runti
 
     let results = vec![
         TrieNodesCount { db_reads: 5, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        TrieNodesCount { db_reads: 6, mem_reads: 0 },
     ];
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
@@ -1976,7 +1976,7 @@ pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: Runti
 /// 1st receipt writes `Value 1` and should count 6 db reads.
 /// 2nd receipt deploys a new contract which *code* is the same as `Value 2`. But this value shouldn't be put into the
 /// accounting cache.
-/// 3rd receipt writes `Value 2` and should count 2 db and 4 memory reads.
+/// 3rd receipt writes `Value 2` and should count 6 db reads.
 ///
 /// We have checked manually that if accounting cache mode is not disabled, then the following scenario happens:
 /// - 1st receipt enables accounting cache mode but doesn't disable it
@@ -1996,7 +1996,7 @@ pub fn test_accounting_cache_mode(node: impl Node, runtime_config: RuntimeConfig
     let results = vec![
         TrieNodesCount { db_reads: 6, mem_reads: 0 },
         TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 2, mem_reads: 4 },
+        TrieNodesCount { db_reads: 6, mem_reads: 0 },
     ];
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
@@ -2004,10 +2004,10 @@ pub fn test_accounting_cache_mode(node: impl Node, runtime_config: RuntimeConfig
 /// Checks costs for subsequent `storage_read` and `storage_write` for the same key.
 /// Depth for the storage key is 4.
 /// Without flat storage, cost for reading Value is skipped due to a bug, so we count
-/// 3 DB reads during read. During write, all nodes get cached, so we count 4 mem reads.
+/// 3 DB reads during read. During write, all nodes get cached, but are charged as touched, so we count 4 DB reads.
 /// With flat storage, neither DB nor memory reads should be counted, as we skip Trie
 /// node reads and don't charge for Value read due to the same bug. For write we go
-/// to Trie and count 3 DB node reads and 1 mem read for Value.
+/// to Trie and count 4 DB reads, 3 for nodes and 1 for Value.
 pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(
@@ -2024,13 +2024,13 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
 
     let results = vec![
         TrieNodesCount { db_reads: 3, mem_reads: 0 },
-        TrieNodesCount { db_reads: 0, mem_reads: 4 },
+        TrieNodesCount { db_reads: 4, mem_reads: 0 },
     ];
     check_trie_nodes_count(&node, &runtime_config, receipts.clone(), results, false);
 
     let results = vec![
         TrieNodesCount { db_reads: 0, mem_reads: 0 },
-        TrieNodesCount { db_reads: 3, mem_reads: 1 },
+        TrieNodesCount { db_reads: 4, mem_reads: 0 },
     ];
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }

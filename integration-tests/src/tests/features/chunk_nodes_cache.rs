@@ -67,9 +67,8 @@ fn process_transaction(
 ///                                                    --> (Leaf) -> (Value 2)
 ///
 /// 2nd run should count 12 regular db reads - for 6 nodes per each value, because protocol is not upgraded yet.
-/// 3nd run follows the upgraded protocol and it should count 8 db and 4 memory reads, which comes from 6 db reads
-/// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the accounting
-/// cache. 4nd run should give the same results, because caching must not affect different chunks.
+/// 3nd run follows the upgraded protocol and it should also count 12 db reads. The first 4 nodes for `Value 2` are
+/// in the accounting cache, but every node is charged as touched. 4nd run should give the same results.
 #[test]
 fn compare_node_counts() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -131,8 +130,8 @@ fn compare_node_counts() {
         })
         .collect();
 
-    assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 2, mem_reads: 2 });
-    assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
+    assert_eq!(tx_node_counts[0], TrieNodesCount { db_reads: 4, mem_reads: 0 });
+    assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+    assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 12, mem_reads: 0 });
+    assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 12, mem_reads: 0 });
 }
