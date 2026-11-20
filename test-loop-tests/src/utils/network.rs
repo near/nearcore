@@ -145,3 +145,28 @@ pub fn block_dropper_by_height(
         _ => HandlerResult::Unhandled(request),
     }
 }
+
+/// Matches every message that carries parts of a chunk `selects`.
+pub fn chunk_parts_matcher(
+    chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
+) -> impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static {
+    move |request| {
+        let by_hash = |hash| chunks_storage.lock().get(hash).is_some_and(&selects);
+        match request {
+            NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } => {
+                selects(&partial_encoded_chunk.header)
+            }
+            NetworkRequests::PartialEncodedChunkForward { forward, .. } => {
+                by_hash(&forward.chunk_hash)
+            }
+            NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                by_hash(&request.chunk_hash)
+            }
+            NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
+                by_hash(&response.chunk_hash)
+            }
+            _ => false,
+        }
+    }
+}
