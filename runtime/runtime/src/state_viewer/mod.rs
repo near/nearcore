@@ -268,7 +268,7 @@ impl TrieViewer {
         let mut iter =
             trie.disk_iter_with_prune_condition(Some(Box::new(move |key_nibbles: &Vec<u8>| {
                 !nibbles_within_prefix(&prefix_nibbles, key_nibbles)
-            })))?;
+            })));
 
         match after {
             Some(handle) => {
@@ -429,7 +429,7 @@ impl TrieViewer {
 
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
-        let mut iter = state_update.trie().disk_iter()?;
+        let mut iter = state_update.trie().disk_iter();
         iter.remember_visited_nodes(include_proof);
 
         match after_key {

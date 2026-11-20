@@ -811,7 +811,6 @@ pub fn bootstrap_historical_reader(
         let trie = tries.get_trie_for_shard(shard_uid, target_state_root);
         let items = trie
             .disk_iter()
-            .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap_or_else(|error| panic!("shard {shard_uid} trie is incomplete: {error}"));
         assert!(!items.is_empty(), "trie for shard {shard_uid} holds no state after bootstrap");

@@ -223,7 +223,7 @@ fn assert_state_sanity(
 
         let memtrie = get_memtrie_for_shard(client, &shard_uid, &final_head.prev_block_hash);
         let memtrie_state =
-            memtrie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+            memtrie.lock_for_iter().iter().collect::<Result<HashSet<_>, _>>().unwrap();
 
         let state_root = *client
             .chain
@@ -238,8 +238,7 @@ fn assert_state_sanity(
             .get_view_trie_for_shard(shard_uid.shard_id(), &final_head.prev_block_hash, state_root)
             .unwrap();
         assert!(!trie.has_memtries());
-        let trie_state =
-            trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+        let trie_state = trie.lock_for_iter().iter().collect::<Result<HashSet<_>, _>>().unwrap();
         assert_state_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
 
         let flat_storage_manager = client.chain.runtime_adapter.get_flat_storage_manager();

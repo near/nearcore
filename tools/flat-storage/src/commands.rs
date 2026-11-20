@@ -285,7 +285,7 @@ impl FlatStorageCommand {
 
         let flat_state_entries_iter = hot_store.iter(shard_uid);
 
-        let trie_iter = trie.disk_iter()?;
+        let trie_iter = trie.disk_iter();
         let mut verified = 0;
         let mut success = true;
         for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, flat_state_entries_iter)) {

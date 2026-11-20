@@ -310,7 +310,7 @@ impl Trie {
         let path_begin = self.find_state_part_boundary(part_id.index, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.index + 1, part_id.total)?;
 
-        let mut iterator = self.disk_iter()?;
+        let mut iterator = self.disk_iter();
         let nodes_list =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
         tracing::debug!(target: "state-parts", num_nodes = nodes_list.len());
@@ -435,7 +435,7 @@ impl Trie {
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
         let path_begin = trie.find_state_part_boundary(part_id.index, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.index + 1, part_id.total)?;
-        let mut iterator = trie.disk_iter()?;
+        let mut iterator = trie.disk_iter();
         let trie_traversal_items =
             iterator.visit_nodes_interval(path_begin.as_deref(), path_end.as_deref())?;
         let mut refcount_changes = TrieRefcountDeltaMap::new();

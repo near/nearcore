@@ -537,7 +537,7 @@ impl ArchivalDataLossRecoveryCommand {
 
         let state_root = chunk_header.prev_state_root();
         let trie = shard_tries.get_trie_for_shard(shard_uid, state_root);
-        let iter = trie.disk_iter_with_max_depth(6).expect("could not create disk iter");
+        let iter = trie.disk_iter_with_max_depth(6);
         for item in iter {
             item.unwrap();
             leaf_node_count += 1;
