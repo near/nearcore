@@ -33,6 +33,8 @@ pub enum CloudArchivalReaderError {
     Storage(#[from] StorageError),
     #[error("walked back to genesis without finding a state snapshot")]
     NoSnapshotFound,
+    #[error("state header for shard {shard_id} carries no chunk, which cloud archival needs")]
+    NoChunkInStateSyncHeader { shard_id: ShardId },
     #[error("no block below {start_height}, which must be above the first archived block")]
     NoAnchorBelow { start_height: BlockHeight },
     #[error("no state root for shard {shard_uid} under block {block_hash}")]
@@ -439,25 +441,14 @@ pub async fn find_present_block_below(
     }
 }
 
-/// A shard's state snapshot in the cloud archive, and the first height whose state changes apply
-/// onto it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SnapshotInfo {
-    pub epoch_height: EpochHeight,
-    pub epoch_id: EpochId,
-    /// The header chunk's `height_included` without spice. Under spice, the height after the
-    /// epoch's first block, which is its sync block.
-    pub first_height: BlockHeight,
-}
-
-/// Walks epochs backward from `height` and returns the first state snapshot stored in cloud for
-/// `shard_id` that serves `height`. Errors when the walk-back reaches below the earliest archived
-/// data without finding a snapshot.
+/// Walks epochs backward from `height` and returns the first `(epoch_height, epoch_id)`
+/// whose state snapshot is stored in cloud for `shard_id`. Errors when the walk-back
+/// reaches below the earliest archived data without finding a snapshot.
 pub async fn find_snapshot_at_or_before(
     cloud_storage: &CloudStorage,
     height: BlockHeight,
     shard_id: ShardId,
-) -> Result<SnapshotInfo, CloudArchivalReaderError> {
+) -> Result<(EpochHeight, EpochId), CloudArchivalReaderError> {
     let (_, initial_block) = find_present_block_below(cloud_storage, height + 1).await?;
     let mut epoch_id = *initial_block.block().header().epoch_id();
 
@@ -471,16 +462,17 @@ pub async fn find_snapshot_at_or_before(
         if cloud_storage.is_state_header_stored(epoch_height, epoch_id, shard_id).await? {
             let header =
                 cloud_storage.retrieve_state_header(epoch_height, epoch_id, shard_id).await?;
-            // An epoch's snapshot holds the state as of its sync block, so a `height` below
-            // that is served by the epoch under this one. Without spice that is the state
-            // before the header's chunk, a few heights into the epoch. A spice header carries
-            // no chunk: the sync block is the epoch's first block, and the state is what that
-            // block left behind.
+            // An epoch snapshots its sync block, a few heights into the epoch, so a
+            // `height` below that block is served by the epoch under this one.
             // TODO(cloud_archival): stop here for a shard a resharding added, which is
             // reached by walking the recorded inverse changes down instead.
-            let first_height = header.chunk_height_included().unwrap_or(epoch_start_height + 1);
-            if first_height <= height {
-                return Ok(SnapshotInfo { epoch_height, epoch_id, first_height });
+            // TODO(spice): a spice header carries no chunk, and its snapshot sits at the
+            // sync block itself rather than at a chunk's height_included.
+            let chunk_height_included = header
+                .chunk_height_included()
+                .ok_or(CloudArchivalReaderError::NoChunkInStateSyncHeader { shard_id })?;
+            if chunk_height_included <= height {
+                return Ok((epoch_height, epoch_id));
             }
         }
 
