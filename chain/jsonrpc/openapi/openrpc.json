@@ -3555,6 +3555,13 @@
             ],
             "description": "The minimum gas each shard can send to a shard that is not fully congested.\n\nSee [`CongestionControlConfig`] for more details."
           },
+          "min_receipt_congestion_size": {
+            "default": 0,
+            "description": "The smallest size a receipt counts for bandwidth and congestion.\n\nSee [`CongestionControlConfig`] for more details.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "min_tx_gas": {
             "allOf": [
               {
@@ -14418,6 +14425,13 @@
           },
           "new_transactions_validation_state_size_soft_limit": {
             "description": "Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "queue_push_storage_proof_size": {
+            "default": 0,
+            "description": "Storage proof size charged in advance for each push to a receipt queue.",
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
