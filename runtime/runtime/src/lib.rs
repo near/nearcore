@@ -1372,7 +1372,7 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV3(_)
                 );
 
-                if new_receipt.is_instant_receipt() {
+                if new_receipt.is_instant_receipt(apply_state.current_protocol_version) {
                     // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
                     instant_receipts.push_back(new_receipt);
                 } else {
