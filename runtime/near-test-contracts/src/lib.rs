@@ -304,17 +304,34 @@ pub fn many_data_segments_contract(num_segments: u32) -> Vec<u8> {
     for i in 0..num_segments {
         data.active(0, &ConstExpr::i32_const(0), [i as u8]);
     }
-    module.section(&data);
     let mut code = CodeSection::new();
     let mut f = Function::new([]);
     f.instruction(&Instruction::End);
     code.function(&f);
     module.section(&code);
+    module.section(&data);
     module.finish()
 }
 
 /// Many active element segments, each writing function 0 into table slot 0.
 pub fn many_element_segments_contract(num_segments: u32) -> Vec<u8> {
+    element_segments_contract(num_segments, 1, Elements::Functions(Cow::Borrowed(&[0u32])))
+}
+
+/// Active expression-form element segments that bypass Wasmtime's precomputed table image.
+///
+/// Each segment writes `entries_per_segment` references to function 0 at offset 0.
+/// Repeated segments keep the table small while increasing compiled initialization work.
+pub fn fallback_elements_contract(num_segments: u32, entries_per_segment: u32) -> Vec<u8> {
+    let entries = vec![ConstExpr::ref_func(0); entries_per_segment as usize];
+    element_segments_contract(
+        num_segments,
+        entries_per_segment,
+        Elements::Expressions(RefType::FUNCREF, Cow::Borrowed(&entries)),
+    )
+}
+
+fn element_segments_contract(num_segments: u32, table_size: u32, entries: Elements<'_>) -> Vec<u8> {
     let mut module = Module::new();
     let mut types = TypeSection::new();
     types.ty().function([], []);
@@ -325,8 +342,8 @@ pub fn many_element_segments_contract(num_segments: u32) -> Vec<u8> {
     let mut tables = TableSection::new();
     tables.table(TableType {
         element_type: RefType::FUNCREF,
-        minimum: 1,
-        maximum: Some(1),
+        minimum: u64::from(table_size),
+        maximum: Some(u64::from(table_size)),
         table64: false,
         shared: false,
     });
@@ -336,11 +353,7 @@ pub fn many_element_segments_contract(num_segments: u32) -> Vec<u8> {
     module.section(&exports);
     let mut elements = ElementSection::new();
     for _ in 0..num_segments {
-        elements.active(
-            Some(0),
-            &ConstExpr::i32_const(0),
-            Elements::Functions(Cow::Borrowed(&[0u32])),
-        );
+        elements.active(Some(0), &ConstExpr::i32_const(0), entries.clone());
     }
     module.section(&elements);
     let mut code = CodeSection::new();
