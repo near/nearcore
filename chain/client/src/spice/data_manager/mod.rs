@@ -14,13 +14,14 @@ pub use data_id::{DataId, ReceiptProofId};
 pub(crate) use encode::{EncodedData, encode};
 use heights::ChainHeights;
 pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
-use item::{FetchItem, PartInsertResult};
+use item::{Expiry, FetchItem, PartInsertResult};
 use lru::LruCache;
 use near_async::time::Instant;
 use near_chain::{Block, Error};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, epoch_chunk_producers_for_shard};
+use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
@@ -29,7 +30,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::spice::partial_data::{
     SpiceDataCommitment, SpiceDataPart, SpicePartialData, SpiceVerifiedPartialData,
 };
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use orphans::ParkedParts;
@@ -43,7 +44,6 @@ pub(crate) use serve::{
     CheckedDataRequest, Push, RequestedItem, ServeError, ServeOutcome, SpiceDataServer,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::mem;
 use std::num::NonZeroUsize;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -149,6 +149,9 @@ pub(crate) struct SpiceDataManager {
     orphans: LruCache<CryptoHash, Vec<ParkedParts>>,
     /// Processed blocks above the final execution head, with their heights.
     processed_blocks: HashMap<CryptoHash, BlockHeight>,
+    /// The final execution head of each shard, as the chunk executor reports it, see
+    /// [`Expiry::AtShardFinalExecutionHead`].
+    shard_final_execution_heads: HashMap<ShardId, BlockHeight>,
 }
 
 impl SpiceDataManager {
@@ -171,6 +174,7 @@ impl SpiceDataManager {
             heights: ChainHeights::default(),
             orphans: LruCache::new(MAX_ORPHAN_BLOCKS),
             processed_blocks: HashMap::new(),
+            shard_final_execution_heads: HashMap::new(),
         }
     }
 
@@ -178,7 +182,12 @@ impl SpiceDataManager {
     // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
     // witnesses move onto the engine (#16275).
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
-        receipt_proof::needed_items(self.epoch_manager.as_ref(), &self.shard_tracker, block)
+        receipt_proof::needed_items(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            block,
+        )
     }
 
     /// Whether the item is completed as far as data distribution is concerned.
@@ -240,11 +249,6 @@ impl SpiceDataManager {
     fn track_needed_items(&mut self, block: &Block) -> Result<(), Error> {
         let block = block.header();
         let height = block.height();
-        // The chain is past the block, so its data can never be applied.
-        // TODO(#16768): track the receipts a shard being caught up still applies.
-        if self.heights.at_or_below_final_execution(height) {
-            return Ok(());
-        }
         // A block off the canonical chain at or below the final head can never be applied.
         if self.heights.at_or_below_final_head(height)
             && self.canonical_block_hash(height)? != Some(*block.hash())
@@ -253,21 +257,77 @@ impl SpiceDataManager {
         }
         let epoch_info = self.epoch_manager.get_epoch_info(block.epoch_id())?;
         let shard_layout = self.epoch_manager.get_shard_layout(block.epoch_id())?;
-        let new_items_and_producers = self
+        let new_items = self
             .needed_items(block)?
             .into_iter()
-            .filter(|id| !self.items.contains_key(id) && !self.is_done(id))
+            .filter(|id| !self.items.contains_key(id))
             .map(|id| {
+                let expiry = self.expiry(&id)?;
+                if self.is_expired(expiry, height) || self.is_done(&id) {
+                    return Ok(None);
+                }
                 let producers = producers_in_epoch(&epoch_info, &shard_layout, &id)?;
-                Ok((id, producers))
+                Ok(Some((id, producers, expiry)))
             })
+            .filter_map(Result::transpose)
             .collect::<Result<Vec<_>, Error>>()?;
-        for (id, producers) in new_items_and_producers {
+        for (id, producers, expiry) in new_items {
             self.items_by_height.entry(height).or_default().insert(id.clone());
-            let item = FetchItem::new(height, *block.epoch_id(), *block.next_epoch_id(), producers);
+            let item = FetchItem::new(
+                height,
+                *block.epoch_id(),
+                *block.next_epoch_id(),
+                producers,
+                expiry,
+            );
             self.items.insert(id, item);
         }
         Ok(())
+    }
+
+    /// The expiry of `id`. A receipt proof into a shard this node tracks in the epoch of the block
+    /// that applies it expires at the final execution head, which waits for that shard. One into a
+    /// shard this node applies otherwise expires at that shard's own final execution head.
+    // TODO(spice-data-distribution): an item whose shard's head is never reported again, as after a
+    // validator key change, is never removed. Remove items past a retention horizon of a few epochs.
+    fn expiry(&self, id: &DataId) -> Result<Expiry, Error> {
+        match id {
+            DataId::ReceiptProof(ReceiptProofId { source, to_shard }) => {
+                if self.shard_tracker.cares_about_shard_checked(&source.block_hash, *to_shard)? {
+                    Ok(Expiry::AtFinalExecutionHead)
+                } else {
+                    Ok(Expiry::AtShardFinalExecutionHead(*to_shard))
+                }
+            }
+            DataId::Witness(_) => Ok(Expiry::AtFinalExecutionHead),
+        }
+    }
+
+    /// Whether an item at `height` with `expiry` is no longer needed. A shard that reported no
+    /// final execution head needs all of its items.
+    fn is_expired(&self, expiry: Expiry, height: BlockHeight) -> bool {
+        match expiry {
+            Expiry::AtFinalExecutionHead => self.heights.below_final_execution(height),
+            Expiry::AtShardFinalExecutionHead(shard_id) => {
+                self.shard_final_execution_heads.get(&shard_id).is_some_and(|&head| height < head)
+            }
+        }
+    }
+
+    /// Adds the tracked items from the chunks of `block` in `shards` to `pulls`.
+    fn mark_pullable_from(&mut self, block: &BlockHeader, shards: &[ShardId]) {
+        let Some(ids) = self.items_by_height.get(&block.height()) else {
+            return;
+        };
+        for id in ids {
+            let source = id.producing_chunk();
+            if &source.block_hash == block.hash()
+                && shards.contains(&source.shard_id)
+                && !self.done_items.contains(id)
+            {
+                self.pulls.mark_pullable(id.clone(), block.height());
+            }
+        }
     }
 
     /// Adds the tracked items `block` makes pullable to `pulls`.
@@ -290,8 +350,23 @@ impl SpiceDataManager {
         block_hash: &CryptoHash,
         now: Instant,
     ) -> ProcessedBlockOutput {
-        match self.final_execution_head_height() {
-            Ok(height) => self.on_final_execution_head(height),
+        self.handle_block(block_hash, &[], now)
+    }
+
+    /// Handles a processed block like [`Self::on_block_processed`], and pulls at once the items
+    /// from its chunks of `certified_shards`. For a block whose data the chunk executor needs again
+    /// after a restart, see `SpiceTrackBlockData`, the blocks certifying its chunks may have been
+    /// processed before it is tracked again.
+    pub(crate) fn handle_block(
+        &mut self,
+        block_hash: &CryptoHash,
+        certified_shards: &[ShardId],
+        now: Instant,
+    ) -> ProcessedBlockOutput {
+        match self.final_execution_head() {
+            Ok(final_execution_head) => {
+                self.on_final_execution_head(final_execution_head.as_deref())
+            }
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
             }
@@ -303,9 +378,13 @@ impl SpiceDataManager {
             }
         }
         let decoded = match self.chain_store.get_block(block_hash) {
-            Ok(block) => self
-                .track_block(&block)
-                .expect("chain and epoch data of a processed block should be readable"),
+            Ok(block) => {
+                let decoded = self
+                    .track_block(&block)
+                    .expect("chain and epoch data of a processed block should be readable");
+                self.mark_pullable_from(block.header(), certified_shards);
+                decoded
+            }
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, ?block_hash, "failed to read the block");
                 Vec::new()
@@ -315,11 +394,11 @@ impl SpiceDataManager {
         ProcessedBlockOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
     }
 
-    /// Height of the final execution head; the genesis height before the first one is recorded.
-    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
+    /// The final execution head; `None` before the first one is recorded.
+    fn final_execution_head(&self) -> Result<Option<Arc<Tip>>, Error> {
         match self.chain_store.spice_final_execution_head() {
-            Ok(head) => Ok(head.height),
-            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
+            Ok(head) => Ok(Some(head)),
+            Err(Error::DBNotFoundErr(_)) => Ok(None),
             Err(err) => Err(err),
         }
     }
@@ -397,31 +476,61 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Stops tracking items at or below the final execution head at `height`.
-    fn on_final_execution_head(&mut self, height: BlockHeight) {
-        self.heights.update_final_execution_head(height);
-        let Some(next_height) = height.checked_add(1) else {
+    /// Records the final execution head and stops tracking the items below it that expire at it.
+    /// Below it, processed blocks are forgotten and parts for untracked items are no longer wanted.
+    /// Before the first head is recorded, the genesis height stands in for it.
+    fn on_final_execution_head(&mut self, final_execution_head: Option<&Tip>) {
+        let height = final_execution_head
+            .map_or_else(|| self.chain_store.get_genesis_height(), |head| head.height);
+        let Some(from) = self.heights.update_final_execution_head(height) else {
             return;
         };
-        // TODO(#16768): keep tracking the receipts a shard being caught up still applies.
-        let live = self.items_by_height.split_off(&next_height);
-        let expired = mem::replace(&mut self.items_by_height, live);
-        self.pulls.forget_below(next_height);
-        self.processed_blocks.retain(|_, block_height| *block_height > height);
-        for id in expired.into_values().flatten() {
-            self.items.remove(&id).expect("index entry names a tracked item");
-            self.delivered_items.remove(&id);
-            self.done_items.remove(&id);
+        self.processed_blocks.retain(|_, block_height| *block_height >= height);
+        // Items expiring at the head are not tracked below it, so the heights below `from` hold
+        // none.
+        let expired: Vec<DataId> = self
+            .items_by_height
+            .range((from, Bound::Excluded(height)))
+            .flat_map(|(_, ids)| ids)
+            .filter(|id| self.items[*id].expiry == Expiry::AtFinalExecutionHead)
+            .cloned()
+            .collect();
+        for id in expired {
+            self.remove_item(&id);
         }
     }
 
-    /// Removes the items off the canonical chain at heights newly at or below the final head at
-    /// `final_height`.
+    /// Records the final execution head of `shard_id`, which the chunk executor reports, and stops
+    /// tracking the items below it that expire at it.
+    pub(crate) fn on_shard_final_execution_head(&mut self, shard_id: ShardId, height: BlockHeight) {
+        let previous = self.shard_final_execution_heads.get(&shard_id).copied();
+        if previous.is_some_and(|head| head >= height) {
+            return;
+        }
+        self.shard_final_execution_heads.insert(shard_id, height);
+        // The items below the previous head were dropped then, and none is tracked again.
+        let from = previous.map_or(Bound::Unbounded, Bound::Included);
+        let past: Vec<DataId> = self
+            .items_by_height
+            .range((from, Bound::Excluded(height)))
+            .flat_map(|(_, ids)| ids)
+            .filter(|id| self.items[*id].expiry == Expiry::AtShardFinalExecutionHead(shard_id))
+            .cloned()
+            .collect();
+        for id in past {
+            self.remove_item(&id);
+        }
+    }
+
+    /// Removes the items at heights newly at or below the final head at `final_height` that are
+    /// off the canonical chain, which can never be applied, or done. A done item is kept only to
+    /// settle late parts, and the head of the shard it goes to need not pass it: the shard may stop
+    /// being applied.
     fn on_final_head(&mut self, final_height: BlockHeight) {
         let Some(from) = self.heights.update_final_head(final_height) else {
             return;
         };
-        let mut forks = Vec::new();
+        let mut forks_or_expired = Vec::new();
         for (&height, ids) in self.items_by_height.range((from, Bound::Included(final_height))) {
             let canonical = match self.canonical_block_hash(height) {
                 Ok(canonical) => canonical,
@@ -430,9 +539,15 @@ impl SpiceDataManager {
                     continue;
                 }
             };
-            forks.extend(ids.iter().filter(|id| Some(*id.block_hash()) != canonical).cloned());
+            forks_or_expired.extend(
+                ids.iter()
+                    .filter(|id| {
+                        Some(*id.block_hash()) != canonical || self.done_items.contains(*id)
+                    })
+                    .cloned(),
+            );
         }
-        for id in forks {
+        for id in forks_or_expired {
             self.remove_item(&id);
         }
     }
@@ -451,8 +566,13 @@ impl SpiceDataManager {
         let done: Vec<DataId> =
             self.delivered_items.iter().filter(|id| self.is_done(id)).cloned().collect();
         for id in done {
+            let height = self.items[&id].height;
+            if self.heights.at_or_below_final_head(height) {
+                self.remove_item(&id);
+                continue;
+            }
             self.delivered_items.remove(&id);
-            self.pulls.forget(&id, self.items[&id].height);
+            self.pulls.forget(&id, height);
             self.done_items.insert(id);
         }
     }

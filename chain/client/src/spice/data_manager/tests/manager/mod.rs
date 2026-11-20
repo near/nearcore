@@ -113,7 +113,21 @@ impl TestManager {
         Self::with_pull_config(chain, shard, PullConfig::default())
     }
 
+    /// A manager whose node applies `shard` from the third epoch on, and no shard before it.
+    fn catching_up(chain: &Chain, shard: u64) -> Self {
+        let shard_tracker = even_epoch_shard_tracker(chain, &[shard]);
+        Self::with_shard_tracker(chain, shard_tracker, PullConfig::default())
+    }
+
     fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
+        Self::with_shard_tracker(chain, applying_shard_tracker(chain, shard), pull_config)
+    }
+
+    fn with_shard_tracker(
+        chain: &Chain,
+        shard_tracker: ShardTracker,
+        pull_config: PullConfig,
+    ) -> Self {
         let store = chain.chain_store.store();
         let shard_layout = chain.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         Self {
@@ -121,7 +135,7 @@ impl TestManager {
                 pull_config,
                 store.chain_store(),
                 chain.epoch_manager.clone(),
-                applying_shard_tracker(chain, shard),
+                shard_tracker,
             ),
             clock: FakeClock::default(),
             store,
@@ -147,6 +161,11 @@ impl TestManager {
 
     fn set_final_execution_head(&self, block: &Block) {
         set_final_execution_head(&self.store, block);
+    }
+
+    /// Reports `block` as the final execution head of `shard`, as the chunk executor does.
+    fn set_shard_final_execution_head(&mut self, shard: u64, block: &Block) {
+        self.manager.on_shard_final_execution_head(ShardId::new(shard), block.header().height());
     }
 
     /// Writes `block` to the store as the consensus final head.
@@ -240,6 +259,36 @@ impl TestManager {
     }
 }
 
+/// A two-shard chain of blocks from height 1 into the third epoch, each saved and recorded as
+/// canonical but not processed.
+fn chain_into_third_epoch() -> (Chain, Vec<Arc<Block>>) {
+    let (mut chain, _) = chain_with_blocks(0);
+    let mut prev = chain.genesis_block();
+    let mut blocks = Vec::new();
+    for height in 1..=(2 * chain.epoch_length + 1) {
+        let block = build_block_at(&chain, &prev, height);
+        save_and_record_block(&mut chain, &block);
+        let mut store_update = chain.chain_store.store().store_update();
+        store_update.chain_store_update().set_block_height(block.hash(), height);
+        store_update.commit();
+        blocks.push(block.clone());
+        prev = block;
+    }
+    (chain, blocks)
+}
+
+/// The blocks of `blocks` in the second epoch, the one before the third.
+fn second_epoch_blocks(chain: &Chain, blocks: &[Arc<Block>]) -> Vec<Arc<Block>> {
+    let epoch_height =
+        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
+    blocks
+        .iter()
+        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
+        .filter(|block| epoch_height(block.header().epoch_id()) == 1)
+        .cloned()
+        .collect()
+}
+
 /// One item from each of `blocks`, tracked and made pullable.
 fn pullable_items(manager: &mut TestManager, blocks: &[Arc<Block>]) -> Vec<DataId> {
     let ids = blocks.iter().map(|block| manager.track_needed_proof(block)).collect();
@@ -260,8 +309,13 @@ fn needed_receipt_ids(
     shard_tracker: &ShardTracker,
     block: &Block,
 ) -> HashSet<DataId> {
-    receipt_proof::needed_items(chain.epoch_manager.as_ref(), shard_tracker, block.header())
-        .unwrap()
-        .into_iter()
-        .collect()
+    receipt_proof::needed_items(
+        &chain.chain_store().chain_store(),
+        chain.epoch_manager.as_ref(),
+        shard_tracker,
+        block.header(),
+    )
+    .unwrap()
+    .into_iter()
+    .collect()
 }
