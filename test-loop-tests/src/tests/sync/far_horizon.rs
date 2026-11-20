@@ -19,6 +19,8 @@ use super::util::{
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, get_shared_block_hash, make_accounts};
 use near_async::messaging::Handler;
 use near_async::time::Duration;
@@ -45,8 +47,6 @@ use near_primitives::types::{AccountId, Balance, BlockId, BlockReference};
 //   - New node runs for 2+ additional epochs after catch-up
 //   - Account balances match source validator
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_full_pipeline() {
     init_test_logger();
 
@@ -80,6 +80,8 @@ fn test_far_horizon_full_pipeline() {
 
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: After a fresh node catches up via far-horizon sync, a second
@@ -99,8 +101,6 @@ fn test_far_horizon_full_pipeline() {
 //   - new_node1 syncs despite new_node0 lacking old headers (epoch-synced)
 //   - Account balances match source validator on both nodes
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_chained_epoch_sync() {
     init_test_logger();
 
@@ -152,6 +152,8 @@ fn test_far_horizon_chained_epoch_sync() {
 
     env.node_runner(new_node1_idx).run_for_number_of_blocks(3 * epoch_length as usize);
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node1_idx, &accounts);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A non-genesis node (one that has progressed past genesis) falls
@@ -171,8 +173,6 @@ fn test_far_horizon_chained_epoch_sync() {
 //   - Node 0 detects it is stale, triggers EpochSyncDataReset, and gets denylisted
 //   - Node 0's head remains near the kill height (did not sync)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown() {
     init_test_logger();
 
@@ -201,6 +201,8 @@ fn test_far_horizon_stale_node_shutdown() {
         env.test_loop.is_denylisted(&restart_id),
         "stale node should have been denylisted via EpochSyncDataReset shutdown signal"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: Same as above, but only one epoch past the horizon. The epoch sync
@@ -211,8 +213,6 @@ fn test_far_horizon_stale_node_shutdown() {
 // Assertions:
 //   - The restarted node is still denylisted via EpochSyncDataReset
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
     init_test_logger();
 
@@ -236,6 +236,8 @@ fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
         env.test_loop.is_denylisted(&restart_id),
         "a node one epoch past the horizon should still reset its store"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: An archival node that falls behind the network should NOT use
@@ -258,8 +260,6 @@ fn test_far_horizon_stale_node_shutdown_one_epoch_past_horizon() {
 //   - Sync status sequence does NOT include "EpochSync"
 //   - Near-horizon status sequence (BlockSync only)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_archival_skips_epoch_sync() {
     init_test_logger();
 
@@ -314,6 +314,8 @@ fn test_far_horizon_archival_skips_epoch_sync() {
         result.is_ok(),
         "archival node should have block at height {early_height} via split store"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-header-sync
@@ -329,8 +331,6 @@ fn test_far_horizon_archival_skips_epoch_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_header_sync() {
     init_test_logger();
 
@@ -385,6 +385,8 @@ fn test_far_horizon_restart_during_header_sync() {
     let expected =
         vec!["AwaitingPeers", "NoSync", "HeaderSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
@@ -400,8 +402,6 @@ fn test_far_horizon_restart_during_header_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_state_sync() {
     init_test_logger();
 
@@ -449,6 +449,8 @@ fn test_far_horizon_restart_during_state_sync() {
     // With ContinuousEpochSync the node catches up fully and reaches NoSync.
     let expected = vec!["AwaitingPeers", "NoSync", "StateSync", "BlockSync", "NoSync"];
     assert_eq!(*history.borrow(), expected, "unexpected restart recovery sync sequence");
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-block-sync
@@ -464,8 +466,6 @@ fn test_far_horizon_restart_during_state_sync() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_during_block_sync() {
     init_test_logger();
 
@@ -508,6 +508,8 @@ fn test_far_horizon_restart_during_block_sync() {
     restrict_to_single_peer(&env.shared_state, &env.node_datas, restarted_idx, 0);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node doing far-horizon sync is killed mid-state-sync
@@ -530,8 +532,6 @@ fn test_far_horizon_restart_during_block_sync() {
 // Assertions:
 //   - Restarted node is denylisted (data reset triggered)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_restart_after_long_downtime() {
     init_test_logger();
 
@@ -587,6 +587,8 @@ fn test_far_horizon_restart_after_long_downtime() {
         env.test_loop.is_denylisted(restart_id),
         "node should have been denylisted via EpochSyncDataReset after long downtime"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: Before a fresh node joins, some accounts submit staking
@@ -609,8 +611,6 @@ fn test_far_horizon_restart_after_long_downtime() {
 //   - Account balances match source validator (including staking accounts)
 //   - Full far-horizon sync status sequence
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_staking_state() {
     init_test_logger();
 
@@ -670,6 +670,9 @@ fn test_far_horizon_staking_state() {
     // accounts don't meet the validator seat price and their locked balance
     // returns to 0 at the epoch boundary.
     verify_balances_on_synced_node(&env.test_loop.data, &env.node_datas, new_node_idx, &accounts);
+    // TODO(spice-test): the test network delivers spice data over direct links only, so with a
+    // single peer this node misses the other producers' receipt proofs and stops executing.
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: While a fresh node is actively syncing through the far-horizon
@@ -690,8 +693,6 @@ fn test_far_horizon_staking_state() {
 //   - Sync status sequence is correct
 //   - At least some txs were injected (counter > 0)
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_tx_during_sync() {
     init_test_logger();
 
@@ -763,6 +764,8 @@ fn test_far_horizon_tx_during_sync() {
     env.node_runner(new_node_idx).run_for_number_of_blocks(2 * epoch_length as usize);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
     assert!(tx_counter > 0, "expected at least some txs to be injected during sync");
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node enters StateSync but state part downloads always
@@ -865,6 +868,8 @@ fn test_far_horizon_stale_sync_hash_detection() {
         validator_height > expected_threshold,
         "validator height {validator_height} should exceed threshold {expected_threshold}",
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: a far-behind node finishes state sync while it has not verified any peer at a
@@ -881,8 +886,6 @@ fn test_far_horizon_stale_sync_hash_detection() {
 //
 // The node must still reach the tip through a single uninterrupted BlockSync.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_far_horizon_block_sync_without_verified_peer_above_head() {
     init_test_logger();
 
@@ -922,4 +925,6 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
     let suppressed = env.shared_state.network_shared_state.suppressed_block_count(&new_account);
     assert!(suppressed > 0, "height window {tip}..{} covered no broadcast", tip + 2 * epoch_length);
     assert_far_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
