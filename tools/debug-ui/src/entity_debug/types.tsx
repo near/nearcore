@@ -32,7 +32,7 @@ export type EntityType =
     | 'ChunkExtra'
     | 'EpochInfo'
     | 'EpochConfig'
-    | 'EpochInfoAggregator'
+    | 'AggregatedEpochStats'
     | 'ExecutionOutcome'
     | 'FlatState'
     | 'OutcomeIds'
@@ -147,7 +147,7 @@ export type EntityQuery = {
     ChunkByHash?: { chunk_hash: string };
     ChunkExtraByBlockHashShardUId?: { block_hash: string; shard_uid: string };
     ChunkExtraByChunkHash?: { chunk_hash: string };
-    EpochInfoAggregator?: null;
+    AggregatedEpochStats?: null;
     EpochInfoByEpochId?: { epoch_id: string };
     EpochConfigByEpochId?: { epoch_id: string };
     FlatStateByTrieKey?: { trie_key: string };
@@ -201,7 +201,7 @@ export const entityQueryTypes: EntityQueryType[] = [
     'ChunkByHash',
     'ChunkExtraByBlockHashShardUId',
     'ChunkExtraByChunkHash',
-    'EpochInfoAggregator',
+    'AggregatedEpochStats',
     'EpochInfoByEpochId',
     'EpochConfigByEpochId',
     'FlatStateByTrieKey',
@@ -275,7 +275,7 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     ChunkByHash: [queryKey('chunk_hash')],
     ChunkExtraByBlockHashShardUId: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
     ChunkExtraByChunkHash: [queryKey('chunk_hash')],
-    EpochInfoAggregator: [],
+    AggregatedEpochStats: [],
     EpochInfoByEpochId: [queryKey('epoch_id')],
     EpochConfigByEpochId: [queryKey('epoch_id')],
     FlatStateByTrieKey: [queryKey('trie_key'), implicitQueryKey('shard_uid')],
@@ -323,7 +323,7 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     ChunkByHash: 'Chunk',
     ChunkExtraByBlockHashShardUId: 'ChunkExtra',
     ChunkExtraByChunkHash: 'ChunkExtra',
-    EpochInfoAggregator: 'EpochInfoAggregator',
+    AggregatedEpochStats: 'AggregatedEpochStats',
     EpochInfoByEpochId: 'EpochInfo',
     EpochConfigByEpochId: 'EpochConfig',
     FlatStateByTrieKey: 'FlatState',

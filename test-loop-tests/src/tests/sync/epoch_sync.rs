@@ -139,9 +139,9 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
     let proof = new_node_store.epoch_store().get_epoch_sync_proof().unwrap().unwrap();
     let synced_epoch_first_block = *proof.current_epoch.first_block_header_in_epoch.hash();
     let new_node_row =
-        new_node_store.get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref()).unwrap();
+        new_node_store.get(DBCol::AggregatedEpochStats, synced_epoch_first_block.as_ref()).unwrap();
     let source_node_row = source_node_store
-        .get(DBCol::EpochInfoAggregators, synced_epoch_first_block.as_ref())
+        .get(DBCol::AggregatedEpochStats, synced_epoch_first_block.as_ref())
         .unwrap();
     assert_eq!(&*new_node_row, &*source_node_row);
 

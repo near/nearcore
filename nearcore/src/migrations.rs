@@ -752,7 +752,7 @@ fn delete_old_block_headers(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Key of the single `EpochInfoAggregator` in `DBCol::EpochInfo` before DB version 55.
+/// Key of the single `AggregatedEpochStats` in `DBCol::EpochInfo` before DB version 55.
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 #[cfg(test)]

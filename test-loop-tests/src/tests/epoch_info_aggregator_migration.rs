@@ -26,12 +26,12 @@ fn test_migration_54_to_55_rebuilds_epoch_info_aggregator_rows() {
 
     let store = env.validator().store();
     let recorded_rows: HashMap<Vec<u8>, Vec<u8>> = store
-        .iter(DBCol::EpochInfoAggregators)
+        .iter(DBCol::AggregatedEpochStats)
         .map(|(key, value)| (key.to_vec(), value.to_vec()))
         .collect();
 
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.delete_all(DBCol::AggregatedEpochStats);
     store_update.set_raw_bytes(DBCol::EpochInfo, AGGREGATOR_KEY, b"legacy aggregator");
     store_update.commit();
 
@@ -43,7 +43,7 @@ fn test_migration_54_to_55_rebuilds_epoch_info_aggregator_rows() {
     .unwrap();
 
     assert!(store.get(DBCol::EpochInfo, AGGREGATOR_KEY).is_none(), "legacy row must be deleted");
-    for (key, value) in store.iter(DBCol::EpochInfoAggregators) {
+    for (key, value) in store.iter(DBCol::AggregatedEpochStats) {
         assert_eq!(
             recorded_rows.get(key.as_ref()).map(Vec::as_slice),
             Some(value.as_ref()),
@@ -61,7 +61,7 @@ fn test_migration_54_to_55_rebuilds_epoch_info_aggregator_rows() {
     let mut block_hash = chain_store.head().unwrap().last_block_hash;
     loop {
         assert!(
-            store.exists(DBCol::EpochInfoAggregators, block_hash.as_ref()),
+            store.exists(DBCol::AggregatedEpochStats, block_hash.as_ref()),
             "block {block_hash} must have a migrated row",
         );
         if block_hash == epoch_start {
@@ -106,12 +106,12 @@ fn test_migration_54_to_55_writes_rows_for_forks_above_final_head() {
     );
     assert!(chain_store.final_head().unwrap().height < withheld);
     let recorded_rows: HashMap<Vec<u8>, Vec<u8>> = store
-        .iter(DBCol::EpochInfoAggregators)
+        .iter(DBCol::AggregatedEpochStats)
         .map(|(key, value)| (key.to_vec(), value.to_vec()))
         .collect();
 
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.delete_all(DBCol::AggregatedEpochStats);
     store_update.commit();
     test_only_migrate_54_to_55(
         &store,
@@ -120,8 +120,8 @@ fn test_migration_54_to_55_writes_rows_for_forks_above_final_head() {
     )
     .unwrap();
 
-    assert!(store.exists(DBCol::EpochInfoAggregators, late_block.as_ref()));
-    for (key, value) in store.iter(DBCol::EpochInfoAggregators) {
+    assert!(store.exists(DBCol::AggregatedEpochStats, late_block.as_ref()));
+    for (key, value) in store.iter(DBCol::AggregatedEpochStats) {
         assert_eq!(
             recorded_rows.get(key.as_ref()).map(Vec::as_slice),
             Some(value.as_ref()),
@@ -154,7 +154,7 @@ fn test_migration_54_to_55_blacklist_with_last_final_block_in_previous_epoch() {
     assert_ne!(last_final_info.epoch_id(), final_head_info.epoch_id());
 
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.delete_all(DBCol::AggregatedEpochStats);
     store_update.commit();
     test_only_migrate_54_to_55(
         &store,
@@ -163,7 +163,7 @@ fn test_migration_54_to_55_blacklist_with_last_final_block_in_previous_epoch() {
     )
     .unwrap();
 
-    assert!(!store.exists(DBCol::EpochInfoAggregators, last_final_hash.as_ref()));
+    assert!(!store.exists(DBCol::AggregatedEpochStats, last_final_hash.as_ref()));
     let blacklist =
         epoch_manager.get_chunk_producer_blacklist(&final_head.last_block_hash).unwrap();
     assert!(blacklist.is_empty());
@@ -224,7 +224,7 @@ fn test_migration_54_to_55_during_header_sync_after_epoch_sync() {
     let header_head_hash = chain_store.header_head().unwrap().last_block_hash;
 
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.delete_all(DBCol::AggregatedEpochStats);
     store_update.commit();
     test_only_migrate_54_to_55(
         &store,
@@ -232,8 +232,8 @@ fn test_migration_54_to_55_during_header_sync_after_epoch_sync() {
         env.shared_state.epoch_config_store.clone(),
     )
     .unwrap();
-    assert!(store.exists(DBCol::EpochInfoAggregators, first_block_hash.as_ref()));
-    assert!(store.exists(DBCol::EpochInfoAggregators, header_head_hash.as_ref()));
+    assert!(store.exists(DBCol::AggregatedEpochStats, first_block_hash.as_ref()));
+    assert!(store.exists(DBCol::AggregatedEpochStats, header_head_hash.as_ref()));
 
     let restarted_idx = env.restart_node("new_node-restart", node_state);
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
@@ -283,7 +283,7 @@ fn test_migration_54_to_55_with_final_head_in_previous_epoch_after_epoch_sync() 
     chain_store_update.commit().unwrap();
 
     let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::EpochInfoAggregators);
+    store_update.delete_all(DBCol::AggregatedEpochStats);
     store_update.commit();
     test_only_migrate_54_to_55(
         &store,
@@ -291,6 +291,6 @@ fn test_migration_54_to_55_with_final_head_in_previous_epoch_after_epoch_sync() 
         env.shared_state.epoch_config_store.clone(),
     )
     .unwrap();
-    assert!(store.exists(DBCol::EpochInfoAggregators, first_block_hash.as_ref()));
-    assert!(!store.exists(DBCol::EpochInfoAggregators, prev_epoch_last_header.hash().as_ref()));
+    assert!(store.exists(DBCol::AggregatedEpochStats, first_block_hash.as_ref()));
+    assert!(!store.exists(DBCol::AggregatedEpochStats, prev_epoch_last_header.hash().as_ref()));
 }

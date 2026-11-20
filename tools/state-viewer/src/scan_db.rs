@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use near_chain::types::LatestKnown;
-use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
+use near_epoch_manager::aggregated_epoch_stats::AggregatedEpochStats;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -117,9 +117,9 @@ fn format_key_and_value<'a>(
             Box::new(EpochId::try_from_slice(key).unwrap()),
             Box::new(EpochInfo::try_from_slice(value).unwrap()),
         ),
-        DBCol::EpochInfoAggregators => (
+        DBCol::AggregatedEpochStats => (
             Box::new(CryptoHash::try_from(key).unwrap()),
-            Box::new(EpochInfoAggregator::try_from_slice(value).unwrap()),
+            Box::new(AggregatedEpochStats::try_from_slice(value).unwrap()),
         ),
         DBCol::EpochStart => (
             // TODO: Fix

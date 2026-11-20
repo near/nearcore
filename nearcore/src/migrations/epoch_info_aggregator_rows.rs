@@ -2,7 +2,7 @@ use super::AGGREGATOR_KEY;
 use near_chain::Error;
 use near_chain_configs::GenesisConfig;
 use near_epoch_manager::EpochManager;
-use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
+use near_epoch_manager::aggregated_epoch_stats::AggregatedEpochStats;
 #[cfg(feature = "test_features")]
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
@@ -12,8 +12,8 @@ use std::path::Path;
 
 const ROWS_PER_PROGRESS_LOG: usize = 1000;
 
-/// Replaces the single stored `EpochInfoAggregator` with one row per block in
-/// `DBCol::EpochInfoAggregators`.
+/// Replaces the single stored `AggregatedEpochStats` with one row per block in
+/// `DBCol::AggregatedEpochStats`.
 ///
 /// Writes rows for:
 /// - The final head's chain, from its epoch's first block to the final head.
@@ -99,10 +99,10 @@ fn migrate_54_to_55_with_epoch_manager(
             }
             for block_info in final_head_epoch_blocks_newest_first.iter().rev() {
                 let aggregator = if block_info.is_genesis() {
-                    EpochInfoAggregator::new(*block_info.epoch_id(), *block_info.hash())
+                    AggregatedEpochStats::new(*block_info.epoch_id(), *block_info.hash())
                 } else {
                     let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
-                    epoch_manager.compute_epoch_info_aggregator(block_info, &prev_block_info)?
+                    epoch_manager.compute_aggregated_epoch_stats(block_info, &prev_block_info)?
                 };
                 set_aggregator_row(hot_store, block_info.hash(), &aggregator, &mut written);
             }
@@ -116,13 +116,13 @@ fn migrate_54_to_55_with_epoch_manager(
         for hash in chain_store.get_all_header_hashes_by_height(height) {
             let block_info = epoch_manager.get_block_info(&hash)?;
             if block_info.epoch_first_block() != &hash
-                && !hot_store.exists(DBCol::EpochInfoAggregators, block_info.prev_hash().as_ref())
+                && !hot_store.exists(DBCol::AggregatedEpochStats, block_info.prev_hash().as_ref())
             {
                 continue;
             }
             let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
             let aggregator =
-                epoch_manager.compute_epoch_info_aggregator(&block_info, &prev_block_info)?;
+                epoch_manager.compute_aggregated_epoch_stats(&block_info, &prev_block_info)?;
             set_aggregator_row(hot_store, &hash, &aggregator, &mut written);
         }
     }
@@ -131,16 +131,16 @@ fn migrate_54_to_55_with_epoch_manager(
     Ok(())
 }
 
-/// Commits the aggregator row of `block_hash` at once: `compute_epoch_info_aggregator` reads
+/// Commits the aggregator row of `block_hash` at once: `compute_aggregated_epoch_stats` reads
 /// the parent's row from the store.
 fn set_aggregator_row(
     store: &Store,
     block_hash: &CryptoHash,
-    aggregator: &EpochInfoAggregator,
+    aggregator: &AggregatedEpochStats,
     written: &mut usize,
 ) {
     let mut store_update = store.store_update();
-    store_update.set_ser(DBCol::EpochInfoAggregators, block_hash.as_ref(), aggregator);
+    store_update.set_ser(DBCol::AggregatedEpochStats, block_hash.as_ref(), aggregator);
     store_update.commit();
     *written += 1;
     if written.is_multiple_of(ROWS_PER_PROGRESS_LOG) {

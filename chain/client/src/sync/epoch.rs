@@ -259,7 +259,7 @@ impl EpochSync {
             current_epoch_info,
         )?;
         // Same for its aggregator row: its children read it when they are recorded.
-        epoch_manager.set_epoch_info_aggregator_after_epoch_sync(
+        epoch_manager.set_aggregated_epoch_stats_after_epoch_sync(
             &mut store_update.epoch_store_update(),
             &first_block_info_in_epoch,
             &proof.last_epoch.last_block_in_epoch,
