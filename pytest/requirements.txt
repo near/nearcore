@@ -10,7 +10,6 @@ google-cloud-compute>=1.0.0
 nearup
 numpy
 prometheus-client
-psutil
 pydantic
 pynacl
 # SshSharingMachine in pytest/lib/mocknet_ssh.py depends on python-rc internals.

@@ -20,7 +20,7 @@ from utils import ScheduleContext
 # cspell:words setpath
 
 # Uploaded to the forknet home of each host.
-HOST_SCRIPTS_DIR = 'tests/mocknet/helpers/host/'
+HOST_SCRIPTS_DIR = f'{pathlib.Path(__file__).resolve().parent}/helpers/host/'
 
 
 def env_file_content(values: dict) -> str:
@@ -61,6 +61,15 @@ def require_state_cmd(state_file: str, expected: str) -> str:
     return (f'{{ [ "$(cat {state_file})" = {expected} ] || '
             f'{{ echo "state is $(cat {state_file}), expected {expected}" >&2; '
             f'exit 1; }}; }}')
+
+
+def check_env_key_values(key_values: list[str]):
+    """Exits unless each item is NAME=value with a valid variable name."""
+    for key_value in key_values:
+        key = key_value.split('=', 1)[0]
+        if '=' not in key_value or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',
+                                                    key):
+            sys.exit(f'invalid environment variable assignment: {key_value}')
 
 
 def parse_config_changes(key_value: str) -> list[tuple[list[str], object]]:
@@ -206,16 +215,25 @@ class NodeHandle:
             jq_set_cmd(f'{self.node.near_home}/config.json', config_changes),
             write_file_cmd(self.host_path('setup.env'),
                            env_file_content(setup_env)),
-            'systemd-run --user --collect --unit neard-setup '
-            f'/bin/bash {shlex.quote(self.host_path("setup-node.sh"))}',
+            self.systemd_run_cmd('neard-setup', 'setup-node.sh'),
         ]))
+
+    def systemd_run_cmd(self, unit, script):
+        """
+        Shell command that runs a host script as a transient user unit, with
+        the same environment files as the neard unit.
+        """
+        env_files = ['$HOME/.secrets', self.host_path('neard.env')]
+        env_props = ' '.join(f'-p EnvironmentFile=-{f}' for f in env_files)
+        return (f'systemd-run --user --collect --unit {unit} {env_props} '
+                f'/bin/bash {shlex.quote(self.host_path(script))}')
 
     def state(self):
         """The state of the test on the host. See helpers/host/common.sh."""
         state_file = shlex.quote(self.host_path('state'))
-        r = self.run_cmd_now(f'cat {state_file}', return_on_fail=True)
-        if r.exitcode != 0:
-            return 'no test'
+        r = self.run_cmd_now(
+            f'if [ -f {state_file} ]; then cat {state_file}; else echo "no test"; fi'
+        )
         return r.stdout.strip()
 
     def is_ready(self):
@@ -242,10 +260,16 @@ class NodeHandle:
         Starts reset-node.sh, which restores the start backup in the
         background. `is_ready` returns True when it has finished.
         """
-        return self.run_cmd(
-            f'{require_state_cmd(self.host_path("state"), "ready")} && '
-            'systemd-run --user --collect --unit neard-reset '
-            f'/bin/bash {shlex.quote(self.host_path("reset-node.sh"))}')
+        state_file = shlex.quote(self.host_path('state'))
+        start_reset = self.systemd_run_cmd('neard-reset', 'reset-node.sh')
+        # Write the state before the unit starts, so that a poll right after
+        # this command does not see "ready".
+        return self.run_cmd(' && '.join([
+            require_state_cmd(self.host_path('state'), 'ready'),
+            f'echo resetting > {state_file}',
+            f'{{ {start_reset} || {{ echo "error: failed to start neard-reset" '
+            f'> {state_file}; exit 1; }}; }}',
+        ]))
 
     def update_binaries(self, neard_binary_url=None, binary_idx=None):
         """
@@ -276,12 +300,11 @@ class NodeHandle:
         Sets variables in neard.env, which the neard unit loads. They take
         effect when neard restarts.
         """
+        check_env_key_values(key_values)
         env_file = shlex.quote(self.host_path('neard.env'))
         cmds = [f'touch {env_file}']
         for key_value in key_values:
-            key, value = key_value.split('=', 1)
-            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
-                sys.exit(f'invalid environment variable name: {key}')
+            key = key_value.split('=', 1)[0]
             cmds += [
                 f'sed -i "/^{key}=/d" {env_file}',
                 f'printf "%s\\n" {shlex.quote(key_value)} >> {env_file}',

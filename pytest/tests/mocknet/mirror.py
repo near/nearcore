@@ -12,7 +12,6 @@ import sys
 import time
 from typing import Callable
 import os
-import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -20,7 +19,7 @@ from configured_logger import logger
 import mocknet_ssh
 import node_config
 import remote_node
-from node_handle import NodeHandle
+from node_handle import NodeHandle, check_env_key_values
 from utils import ScheduleContext, ScheduleMode, build_stake_distribution, PartitionSelector
 
 MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH",
@@ -619,6 +618,7 @@ def run_env_cmd(ctx: CommandContext):
     if ctx.args.clear_all:
         func = lambda node: node.clear_env()
     else:
+        check_env_key_values(ctx.args.key_value)
         func = lambda node: node.update_env(ctx.args.key_value)
     pmap(func, ctx.get_targeted_with_schedule_ctx())
 
@@ -842,9 +842,7 @@ def register_base_commands(subparsers):
     new_test_parser.add_argument(
         '--gcs-state-sync',
         action='store_true',
-        help=
-        """Enable state dumper nodes to sync state to GCS. On localnet, it will dump locally."""
-    )
+        help="""Enable state dumper nodes to sync state to GCS.""")
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.add_argument('--stake-distribution',
                                  type=str,
@@ -999,7 +997,7 @@ def register_subcommands(subparsers):
                                         help='''
         0 based indexing.
         The index in the binary list that you want to replace.
-        If the index does not exist on the host this operation will not do anything.
+        The command fails if the index does not exist on the host.
         ''')
     amend_binaries_parsers.set_defaults(func=amend_binaries_cmd)
 

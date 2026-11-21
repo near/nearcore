@@ -16,10 +16,10 @@
 #                     arguments of setup-near-cli.sh
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+trap 'rc=$?; if [ $rc -ne 0 ]; then echo "error: setup-node.sh exited with code $rc, see $FORKNET_HOME/setup.log" >"$STATE_FILE"; fi' EXIT
 source "$FORKNET_HOME/setup.env"
 
 exec >>"$FORKNET_HOME/setup.log" 2>&1
-trap 'rc=$?; if [ $rc -ne 0 ]; then echo "error: setup-node.sh exited with code $rc, see $FORKNET_HOME/setup.log" >"$STATE_FILE"; fi' EXIT
 echo setting-up >"$STATE_FILE"
 echo "$(date -u) setup started"
 
@@ -60,13 +60,8 @@ args=(
     --epoch-length "$EPOCH_LENGTH"
     --genesis-time "$GENESIS_TIME"
     --num-seats "$NUM_SEATS"
+    --state-source "$STATE_SOURCE"
 )
-# 'dump' is the default. Binaries older than 2.7.0 do not know --state-source.
-# TODO(2.8): After we stop testing neard binaries with version < 2.7.0,
-# use the --state-source flag unconditionally.
-if [ "$STATE_SOURCE" != dump ]; then
-    args+=(--state-source "$STATE_SOURCE")
-fi
 if [ -n "$PATCHES_PATH" ]; then
     args+=(--patches-path "$PATCHES_PATH")
 fi

@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Resets the test chain to the start backup that setup-node.sh made.
-# mirror.py starts it as the neard-reset user unit and polls the state file
-# until it reads "ready".
+# mirror.py sets the state to "resetting", starts this script as the
+# neard-reset user unit, and polls the state file until it reads "ready".
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+trap 'rc=$?; if [ $rc -ne 0 ]; then echo "error: reset-node.sh exited with code $rc, see $FORKNET_HOME/setup.log" >"$STATE_FILE"; fi' EXIT
 source "$FORKNET_HOME/setup.env"
 
 exec >>"$FORKNET_HOME/setup.log" 2>&1
-trap 'rc=$?; if [ $rc -ne 0 ]; then echo "error: reset-node.sh exited with code $rc, see $FORKNET_HOME/setup.log" >"$STATE_FILE"; fi' EXIT
-echo resetting >"$STATE_FILE"
 echo "$(date -u) reset started"
 
 systemctl --user stop neard

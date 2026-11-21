@@ -10,6 +10,8 @@ i=0
 while read -r url; do
     dst="$BINARIES_DIR/neard$i"
     if [ -f "$url" ]; then
+        # Uploaded files, such as CI artifacts, may not be executable.
+        chmod 755 "$url"
         ln -sfn "$url" "$dst"
     else
         # Download to a temporary file so that a failed download does not
