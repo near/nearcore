@@ -746,7 +746,6 @@ def main():
         case=case,
         bm_params=bm_params,
         forknet_details=forknet_details,
-        local_test=False,
         host_filter=None,
         host_type="nodes",
         select_partition=None,

@@ -161,8 +161,6 @@ class TestSetup:
         init_args = copy.deepcopy(self.args)
         init_args.neard_binary_url = self.neard_binary_url
         init_args.neard_upgrade_binary_url = self.neard_upgrade_binary_url
-        # We are using schedule to start the nodes, so we don't need to upgrade by epoch.
-        init_args.upgrade_by_epoch = False
         init_args.yes = True
         init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))

@@ -173,8 +173,7 @@ update-binaries     Update the neard binaries by re-downloading them. The same u
 If you plan to use a binary from another branch, you need to alter the URL with `amend-binaries`:
 
 ```none
- amend-binaries      Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries. If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned on each
-                     host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade window for another binary.
+ amend-binaries      Replace the URL of the neard binary at the given index and download it again.
 ```
 
 ```bash

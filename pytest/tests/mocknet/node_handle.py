@@ -208,13 +208,11 @@ class NodeHandle:
 
     def neard_runner_update_binaries(self,
                                      neard_binary_url=None,
-                                     epoch_height=None,
                                      binary_idx=None):
         return self.neard_runner_jsonrpc(
             'update_binaries',
             params={
                 'neard_binary_url': neard_binary_url,
-                'epoch_height': epoch_height,
                 'binary_idx': binary_idx,
             })
 

@@ -251,9 +251,6 @@ class NeardRunner:
     def want_state_dump(self):
         return self.config.get('want_state_dump', False)
 
-    def should_upgrade_by_epoch(self):
-        return self.config.get('upgrade_by_epoch', False)
-
     def can_validate(self):
         return self.config.get('can_validate', False)
 
@@ -780,22 +777,17 @@ class NeardRunner:
         with self.lock:
             return self.data.get('backups', {})
 
-    # Updates the URL for the given epoch height or binary idx. adds a new one if the epoch height does not exit
-    def update_binaries_url(self, neard_binary_url, epoch_height, binary_idx):
-        if neard_binary_url is not None and ((epoch_height is None)
-                                             != (binary_idx is None)):
-            logging.info(
-                f'Updating binary list for height:{epoch_height} or idx:{binary_idx} with '
-                f'url: {neard_binary_url}')
-        else:
-            logging.error(
-                f'Update binaries failed. Wrong params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
-            )
+    # Updates the URL of the binary at binary_idx.
+    def update_binaries_url(self, neard_binary_url, binary_idx):
+        if neard_binary_url is None or binary_idx is None:
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32602,
                 message=
-                f'Invalid binary params: url: {neard_binary_url}, height:{epoch_height}, idx:{binary_idx}'
+                f'Invalid binary params: url: {neard_binary_url}, idx:{binary_idx}'
             )
+        logging.info(
+            f'Updating binary list for idx:{binary_idx} with url: {neard_binary_url}'
+        )
 
         if 'binaries' not in self.config:
             self.config['binaries'] = []
@@ -803,18 +795,6 @@ class NeardRunner:
         if not isinstance(self.config['binaries'], list):
             self.config['binaries'] = []
 
-        if epoch_height is not None:
-            binary = next((b for b in self.config['binaries']
-                           if b['epoch_height'] == epoch_height), None)
-            if binary:
-                binary['url'] = neard_binary_url
-            else:
-                self.config['binaries'].append({
-                    'url': neard_binary_url,
-                    'epoch_height': epoch_height
-                })
-                self.config['binaries'].sort(
-                    key=lambda binary: binary['epoch_height'])
         if binary_idx is not None:
             binaries_number = len(self.config['binaries'])
             if binary_idx >= binaries_number:
@@ -827,13 +807,11 @@ class NeardRunner:
                 )
             self.config['binaries'][binary_idx]['url'] = neard_binary_url
 
-    def do_update_binaries(self, neard_binary_url, epoch_height, binary_idx):
+    def do_update_binaries(self, neard_binary_url, binary_idx):
         with self.lock:
             logging.info('update binaries')
-            if any(arg is not None
-                   for arg in [neard_binary_url, epoch_height, binary_idx]):
-                self.update_binaries_url(neard_binary_url, epoch_height,
-                                         binary_idx)
+            if any(arg is not None for arg in [neard_binary_url, binary_idx]):
+                self.update_binaries_url(neard_binary_url, binary_idx)
                 self.save_config()
 
             try:
@@ -866,39 +844,6 @@ class NeardRunner:
                 logging.info(f'Updating env with {key_value}')
                 [key, value] = key_value.split("=", 1)
                 dotenv.set_key(env_file_path, key, value)
-
-    # check the current epoch height, and return the binary path that we should
-    # be running given the epoch heights specified in config.json
-    # TODO: should we update it at a random time in the middle of the
-    # epoch instead of the beginning?
-    def wanted_neard_path(self):
-        if not self.should_upgrade_by_epoch():
-            return self.data['current_neard_path']
-
-        j = {
-            'method': 'validators',
-            'params': [None],
-            'id': 'dontcare',
-            'jsonrpc': '2.0'
-        }
-        try:
-            r = requests.post(f'http://{self.data["neard_addr"]}',
-                              json=j,
-                              timeout=5)
-            r.raise_for_status()
-            response = json.loads(r.content)
-            epoch_height = response['result']['epoch_height']
-            path = self.data['binaries'][0]['system_path']
-            for b in self.data['binaries']:
-                # this logic assumes the binaries are sorted by epoch height
-                if b['epoch_height'] <= epoch_height:
-                    path = b['system_path']
-                else:
-                    break
-            return path
-        except (requests.exceptions.ConnectionError,
-                requests.exceptions.ReadTimeout, KeyError):
-            return self.data['current_neard_path']
 
     """
     Load the env variables from files. The order of override is:
@@ -1116,26 +1061,14 @@ class NeardRunner:
             self.num_restarts += 1
             return True
 
-    def check_upgrade_neard(self):
-        neard_path = self.wanted_neard_path()
-
+    # Restart neard if it exited.
+    def check_neard_alive(self):
         path, running, exit_code = self.poll_neard()
-        if path is None:
-            start_neard = self.on_neard_died()
-        elif not running:
-            if exit_code is not None:
-                logging.info(f'neard exited with code {exit_code}.')
-            start_neard = self.on_neard_died()
-        else:
-            if path == neard_path:
-                start_neard = False
-            else:
-                logging.info('upgrading neard upon new epoch')
-                self.kill_neard()
-                start_neard = True
-
-        if start_neard:
-            self.set_current_neard_path(neard_path)
+        if running:
+            return
+        if exit_code is not None:
+            logging.info(f'neard exited with code {exit_code}.')
+        if self.on_neard_died():
             self.start_neard()
 
     def get_neard_path(self, binary_idx=None):
@@ -1556,7 +1489,7 @@ class NeardRunner:
                 elif state == TestState.SETTING_UP_PROTOCOL:
                     self.check_setup_protocol()
                 elif state == TestState.RUNNING:
-                    self.check_upgrade_neard()
+                    self.check_neard_alive()
                 elif state == TestState.RESETTING:
                     self.reset_near_home()
                 elif state == TestState.MAKING_BACKUP:

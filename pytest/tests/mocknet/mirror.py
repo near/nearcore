@@ -7,8 +7,6 @@ import copy
 import datetime
 import pathlib
 import json
-import random
-import shutil
 from rc import pmap
 import re
 import sys
@@ -20,7 +18,6 @@ import tempfile
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-import local_test_node
 import mocknet_ssh
 import node_config
 import remote_node
@@ -90,7 +87,7 @@ class CommandContext:
         self.schedule_ctx = self._make_schedule_context()
 
         # will set the schedule context in the nodes if the command is scheduled
-        self._set_nodes()
+        self._get_remote_nodes()
         # Filter hosts based on the base args of the command
         self._filter_hosts()
 
@@ -119,32 +116,6 @@ class CommandContext:
         All the commands will be executed now.
         """
         return [node.with_schedule_ctx(None) for node in self.get_targeted()]
-
-    def _set_nodes(self):
-        """
-        Get the nodes in the network.
-        """
-        if self.args.local_test:
-            self._get_local_nodes()
-        else:
-            self._get_remote_nodes()
-
-    def _get_local_nodes(self):
-        """
-        Get nodes in the local infrastructure.
-        """
-        if (self.args.chain_id is not None or
-                self.args.start_height is not None or
-                self.args.unique_id is not None or
-                self.args.mocknet_id is not None):
-            sys.exit(
-                f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
-            )
-
-        traffic_generator, nodes = local_test_node.get_nodes()
-        node_config.configure_nodes(nodes + to_list(traffic_generator))
-        self.traffic_generator = traffic_generator
-        self.nodes = nodes
 
     def get_mocknet_id(self):
         mocknet_id = None
@@ -221,7 +192,6 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     args = ctx.args
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
-    upgrade_by_epoch = getattr(args, 'upgrade_by_epoch', False)
     prompt_init_flags(args)
 
     if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
@@ -236,16 +206,13 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
     for node in nodes:
         node_binaries = [{"url": args.neard_binary_url, "epoch_height": 0}]
         if neard_upgrade_binary_url:
-            # Upgrade the binary at a random epoch.
-            # TODO: Consider upgrading specific portions of stake at every
-            # epoch.
+            # The upgrade is started with `start-nodes --binary-idx 1`.
             node_binaries.append({
                 "url": neard_upgrade_binary_url,
-                "epoch_height": random.randint(1, 4),
+                "epoch_height": 1,
             })
 
         node_config = {
-            "upgrade_by_epoch": upgrade_by_epoch,
             "run_id": run_id,
             "is_traffic_generator": False,
             "binaries": node_binaries,
@@ -371,11 +338,6 @@ def _clear_state_parts_if_exists(location, nodes):
         return
     logger.info('State dumper node found, cleaning up state parts.')
 
-    if location.get('Filesystem') is not None:
-        root_dir = location['Filesystem']['root_dir']
-        shutil.rmtree(root_dir)
-        return
-
     # For GCS-based state sync, looks for the state dumper and clears the GCP
     # bucket where it dumped the parts.
     bucket_name = location['GCS']['bucket']
@@ -389,14 +351,6 @@ def _get_state_parts_bucket_name(args):
 
 
 def _get_state_parts_location(args):
-    if args.local_test:
-        return {
-            "Filesystem": {
-                "root_dir":
-                    str(local_test_node.DEFAULT_LOCAL_MOCKNET_DIR /
-                        'state-parts')
-            }
-        }
     return {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
 
 
@@ -636,8 +590,8 @@ def update_binaries_cmd(ctx: CommandContext):
 def amend_binaries_cmd(ctx: CommandContext):
     args = ctx.args
     pmap(
-        lambda node: node.neard_runner_update_binaries(
-            args.neard_binary_url, args.epoch_height, args.binary_idx),
+        lambda node: node.neard_runner_update_binaries(args.neard_binary_url,
+                                                       args.binary_idx),
         ctx.get_targeted_with_schedule_ctx())
 
 
@@ -823,7 +777,6 @@ def build_parser():
     parser.add_argument('--chain-id', type=str)
     parser.add_argument('--start-height', type=int)
     parser.add_argument('--unique-id', type=str)
-    parser.add_argument('--local-test', action='store_true')
     parser.add_argument('--host-type',
                         type=str,
                         choices=['all', 'nodes', 'traffic'],
@@ -931,12 +884,6 @@ def register_base_commands(subparsers):
     ''')
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
-    init_parser.add_argument('--upgrade-by-epoch',
-                             action='store_true',
-                             help='''
-    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
-    Otherwise, the upgrade needs to be triggered with the start-nodes command.
-    ''')
     init_parser.set_defaults(func=init_cmd)
 
     restart_parser = subparsers.add_parser(
@@ -954,12 +901,6 @@ def register_base_commands(subparsers):
         help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
-    hard_reset_parser.add_argument('--upgrade-by-epoch',
-                                   action='store_true',
-                                   help='''
-    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
-    Otherwise, the upgrade needs to be triggered with the start-nodes command.
-    ''')
     hard_reset_parser.add_argument('--yes', action='store_true')
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
 
@@ -1134,27 +1075,17 @@ def register_subcommands(subparsers):
 
     amend_binaries_parsers = subparsers.add_parser('amend-binaries',
                                                    help='''
-        Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries.
-
-        If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned
-        on each host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade
-        window for another binary.''')
+        Replace the URL of the neard binary at the given index and download it again.'''
+                                                  )
 
     amend_binaries_parsers.add_argument('--neard-binary-url',
                                         type=str,
                                         required=True,
                                         help='URL to the neard binary.')
-    group = amend_binaries_parsers.add_mutually_exclusive_group(required=True)
-    group.add_argument('--epoch-height',
-                       type=int,
-                       help='''
-        The epoch height where this binary will begin to run.
-        If a binary already exists on the host for this epoch height, the old one will be replaced.
-        Otherwise a new binary will be added with this epoch height.
-        ''')
-    group.add_argument('--binary-idx',
-                       type=int,
-                       help='''
+    amend_binaries_parsers.add_argument('--binary-idx',
+                                        type=int,
+                                        required=True,
+                                        help='''
         0 based indexing.
         The index in the binary list that you want to replace.
         If the index does not exist on the host this operation will not do anything.
