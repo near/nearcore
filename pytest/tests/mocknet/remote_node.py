@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
-defines the RemoteNeardRunner class meant to be interacted with over ssh
+defines the RemoteNode class meant to be interacted with over ssh
 """
 import pathlib
-import json
 import os
 import sys
 import re
 from typing import Optional
-import tempfile
-import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -18,16 +15,26 @@ from node_handle import NodeHandle
 import mocknet
 from utils import ScheduleContext
 
-from configured_logger import logger
-
 # cspell:words btrfs subvolume subvol
 
+FORKNET_DIR = 'forknet'
+NODE_NEAR_HOME = '/home/ubuntu/.near'
+TRAFFIC_NEAR_HOME = '/home/ubuntu/.near/target'
+TRAFFIC_SOURCE_HOME = '/home/ubuntu/.near/source'
+NEARD_LOGS_DIR = '/home/ubuntu/neard-logs'
 
-class RemoteNeardRunner:
 
-    def __init__(self, node, neard_runner_home):
+class RemoteNode:
+    """
+    A forknet host. neard runs there as the `neard` systemd user unit, and the
+    scripts in helpers/host/ manage it. They live in `forknet_home`.
+    """
+
+    def __init__(self, node, forknet_home, is_traffic=False):
         self.node = node
-        self.neard_runner_home = neard_runner_home
+        self.forknet_home = forknet_home
+        self.is_traffic = is_traffic
+        self.near_home = TRAFFIC_NEAR_HOME if is_traffic else NODE_NEAR_HOME
 
     def name(self):
         return self.node.instance_name
@@ -41,41 +48,19 @@ class RemoteNeardRunner:
     def neard_port(self):
         return 3030
 
-    def neard_runner_port(self):
-        return 3000
-
     def init(self):
         cmd_utils.init_node(self.node)
 
-    def mk_neard_runner_home(self, remove_home_dir):
-        cmd = f'mkdir -p {self.neard_runner_home}'
-        if remove_home_dir:
-            cmd = f'rm -rf {self.neard_runner_home} && {cmd}'
-        cmd_utils.run_cmd(self.node, cmd)
-
-    def upload_neard_runner(self):
-        self.mk_neard_runner_home(remove_home_dir=False)
-        files = [
-            # Defines the interaction between the node with neard and the user.
-            'neard_runner.py',
-            # Python dependencies for the node.
-            'requirements.txt',
-            # Script to setup near-cli for the node.
-            'setup-near-cli.sh',
-            # Script for the validator node to send a stake proposal.
-            'send-stake-proposal.sh'
-        ]
-        full_paths = [os.path.join('tests/mocknet/helpers', f) for f in files]
-        for f in full_paths:
-            if not os.path.isfile(f):
-                raise FileNotFoundError(f'Cannot find the source file: {f}')
-            self.upload_file(
-                f, os.path.join(self.neard_runner_home, os.path.basename(f)))
-
-    def upload_neard_runner_config(self, config):
-        mocknet.upload_json(self.node,
-                            os.path.join(self.neard_runner_home, 'config.json'),
-                            config)
+    def host_env(self, run_id, mocknet_store_path):
+        """Values of host.env, which the scripts in helpers/host/ source."""
+        return {
+            'NEAR_HOME': self.near_home,
+            'SOURCE_HOME': TRAFFIC_SOURCE_HOME,
+            'IS_TRAFFIC': int(self.is_traffic),
+            'RUN_ID': run_id,
+            'MOCKNET_STORE_PATH': mocknet_store_path,
+            'LOGS_DIR': NEARD_LOGS_DIR,
+        }
 
     def run_cmd(self,
                 schedule_ctx: Optional[ScheduleContext],
@@ -95,79 +80,6 @@ class RemoteNeardRunner:
     def download_file(self, src, dst):
         self.node.machine.download(src, dst)
 
-    def init_python(self):
-        cmd = f'cd {self.neard_runner_home} && python3 -m virtualenv venv -p $(which python3)' \
-        ' && ./venv/bin/pip install -r requirements.txt'
-        cmd_utils.run_cmd(self.node, cmd)
-
-    def update_python(self):
-        cmd = f'cd {self.neard_runner_home} && ./venv/bin/pip install -r requirements.txt'
-        cmd_utils.run_cmd(self.node, cmd)
-
-    def stop_neard_runner(self):
-        self.node.machine.run('sudo systemctl stop neard-runner;\
-                               sudo systemctl reset-failed neard-runner')
-
-    def start_neard_runner(self):
-        USER = 'ubuntu'
-        NEARD_RUNNER_CMD = f'{self.neard_runner_home}/venv/bin/python {self.neard_runner_home}/neard_runner.py\
-            --home {self.neard_runner_home}\
-            --neard-home "/home/ubuntu/.near"\
-            --neard-logs-dir "/home/ubuntu/neard-logs"\
-            --port {self.neard_runner_port()}'
-
-        SYSTEMD_RUN_NEARD_RUNNER_CMD = f'sudo systemd-run -u neard-runner \
-            --uid={USER} \
-            --property=StartLimitIntervalSec=500\
-            --property=StartLimitBurst=10\
-            --property=DefaultDependencies=no\
-            --property=TimeoutStartSec=300\
-            --property=Restart=always\
-            --property=RestartSec=5s\
-            -- {NEARD_RUNNER_CMD}'
-
-        self.node.machine.run(SYSTEMD_RUN_NEARD_RUNNER_CMD)
-        self.wait_neard_runner_up()
-
-    # systemd-run returns before the runner binds its port. Callers send
-    # JSON-RPC right after start, so wait until the runner answers.
-    # Poll GET /status: it does not take the runner lock. JSON-RPC methods
-    # such as `ready` take it, and the main loop holds it for minutes during
-    # network init, reset or backup.
-    # The runner downloads binaries before it binds the port, so allow time
-    # for that (300 s, same as the unit's TimeoutStartSec).
-    def wait_neard_runner_up(self, timeout_seconds=300):
-        cmd = f'curl -sS -f -m 3 localhost:{self.neard_runner_port()}/status'
-        deadline = time.time() + timeout_seconds
-        while True:
-            r = cmd_utils.run_cmd(self.node, cmd, return_on_fail=True)
-            if r.exitcode == 0:
-                logger.info(f'neard runner is up on {self.name()}')
-                return
-            if time.time() > deadline:
-                sys.exit(
-                    f'neard runner on {self.name()} did not come up within {timeout_seconds} seconds:\nstdout: {r.stdout}\nstderr: {r.stderr}'
-                )
-            time.sleep(3)
-
-    def neard_runner_post(self, schedule_ctx: Optional[ScheduleContext], body):
-        body = json.dumps(body)
-        # '"'"' will be interpreted as ending the first quote and then concatenating it with "'",
-        # followed by a new quote started with ' and the rest of the string, to get any single quotes
-        # in method or params into the command correctly
-        body = body.replace("'", "'\"'\"'")
-        cmd = f'curl localhost:{self.neard_runner_port()} -d \'{body}\''
-        if schedule_ctx is not None:
-            r = cmd_utils.schedule_cmd(self.node, cmd, schedule_ctx)
-            logger.info('{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
-                self.name(), r))
-            return {'result': r}
-        r = cmd_utils.run_cmd(self.node, cmd)
-        return json.loads(r.stdout)
-
-    def new_test_params(self):
-        return {}
-
     def get_validators(self):
         return self.node.get_validators()
 
@@ -183,8 +95,7 @@ class RemoteNeardRunner:
             raise ValueError(f'Invalid snapshot id: {snapshot_id}')
         # check if snapshot exists
         check_snapshot_cmd = f"""sudo btrfs subvolume show /mnt/btrfs-root/{snapshot_id} > /dev/null"""
-        # stop neard-runner if it is running
-        stop_neard_runner_cmd = """systemctl is-active --quiet neard-runner && sudo systemctl stop neard-runner"""
+        stop_neard_cmd = """systemctl --user stop neard"""
         # get current default subvolume
         get_default_cmd = """OLD=$(sudo btrfs subvolume get-default /mnt/btrfs-root | awk '{print $NF}')"""
         # umount old snapshot
@@ -199,7 +110,7 @@ class RemoteNeardRunner:
         set_default_cmd = """sudo btrfs subvolume set-default $(sudo btrfs subvolume list /mnt/btrfs-root | grep 'path current$' | awk '{print $2}') /mnt/btrfs-root"""
         # mount it back
         mount_cmd = f"""sudo mount -a"""
-        cmd = f"""{check_snapshot_cmd} && ({stop_neard_runner_cmd} ; {get_default_cmd} && {umount_cmd} && {reset_default_cmd} && {delete_old_cmd} && {restore_cmd} && {set_default_cmd} && {mount_cmd})"""
+        cmd = f"""{check_snapshot_cmd} && ({stop_neard_cmd} ; {get_default_cmd} && {umount_cmd} && {reset_default_cmd} && {delete_old_cmd} && {restore_cmd} && {set_default_cmd} && {mount_cmd})"""
         return self.node.machine.run(cmd)
 
     def list_snapshots(self):
@@ -217,17 +128,18 @@ def get_traffic_generator_handle(traffic_generator):
     if traffic_generator is None:
         return None
 
-    # Here we want the neard-runner home dir to be on the same disk as the target data dir since
-    # we'll be making backups on that disk.
+    # Keep the forknet home on the same disk as the target data dir, since the
+    # start backup is made there with hard links.
     traffic_target_home = cmd_utils.run_cmd(
         traffic_generator,
         'cat /proc/mounts | grep "/home/ubuntu/.near" | grep -v "source" | head -n 1 | awk \'{print $2};\''
     ).stdout.strip()
     # On Locust traffic generators, we don't need the data disk as we will not mirror the traffic.
     if not traffic_target_home:
-        traffic_target_home = "/home/ubuntu/.near"
-    traffic_runner_home = os.path.join(traffic_target_home, 'neard-runner')
-    return NodeHandle(RemoteNeardRunner(traffic_generator, traffic_runner_home),
+        traffic_target_home = NODE_NEAR_HOME
+    return NodeHandle(RemoteNode(traffic_generator,
+                                 os.path.join(traffic_target_home, FORKNET_DIR),
+                                 is_traffic=True),
                       can_validate=False)
 
 
@@ -250,6 +162,6 @@ def get_nodes(mocknet_id: str):
             nodes.append(n)
 
     return get_traffic_generator_handle(traffic_generator), [
-        NodeHandle(RemoteNeardRunner(node, '/home/ubuntu/.near/neard-runner'))
+        NodeHandle(RemoteNode(node, os.path.join(NODE_NEAR_HOME, FORKNET_DIR)))
         for node in nodes
     ]

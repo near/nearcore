@@ -19,7 +19,7 @@ from rc import pmap
 from types import SimpleNamespace
 from mirror import CommandContext, get_nodes_status, init_cmd, new_test_cmd, \
     reset_cmd, run_env_cmd, run_remote_cmd, run_remote_download_file, run_remote_upload_file, \
-    start_nodes_cmd, stop_nodes_cmd, update_binaries_cmd, upload_local_neard
+    start_nodes_cmd, stop_nodes_cmd, upload_local_neard
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
@@ -182,9 +182,6 @@ def handle_init(args):
     )
     init_cmd(CommandContext(init_args))
 
-    update_binaries_args = copy.deepcopy(args)
-    update_binaries_cmd(CommandContext(update_binaries_args))
-
     # TODO: check neard binary version
 
     # Grant CAP_SYS_NICE to neard binaries for realtime thread scheduling
@@ -192,7 +189,7 @@ def handle_init(args):
     if is_local_neard:
         run_cmd_args.cmd = f"sudo setcap cap_sys_nice+ep \"{args.neard_binary_url}\""
     else:
-        run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/neard-runner/binaries/neard*"
+        run_cmd_args.cmd = "sudo setcap cap_sys_nice+ep ~/.near/forknet/binaries/neard[0-9]*"
     run_remote_cmd(CommandContext(run_cmd_args))
 
     upload_json_patches(args)
@@ -492,7 +489,6 @@ def handle_reset(args):
     run_env_cmd(CommandContext(env_cmd_args))
 
     reset_cmd_args = copy.deepcopy(args)
-    reset_cmd_args.backup_id = "start"
     reset_cmd_args.yes = True
     reset_cmd(CommandContext(reset_cmd_args))
 

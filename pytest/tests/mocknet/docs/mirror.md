@@ -60,10 +60,10 @@ NODE_BINARY_URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearco
 
 ### Initialize the testing environment
 
-This will upload the orchestrator (\`neard-runner\`) to all the hosts and create the necessary folders: 
+This uploads the host scripts to `~/.near/forknet` on all the hosts, installs the `neard` systemd user unit and downloads the binary:
 
 ```javascript
-mirror init-neard-runner --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url ""
+mirror init --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url ""
 ```
 
 ### \[Optional\] genesis configs
@@ -156,7 +156,7 @@ mirror stop-traffic
 
 ```none
 mirror stop-nodes
-mirror reset --backup-id start --yes
+mirror reset --yes
 ```
 
 ### Update the binary
@@ -181,12 +181,12 @@ URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/som
 mirror amend-binaries --neard-binary-url $URL --binary-idx 0
 ```
 
-The following option is not recommended, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:`gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/neard-runner/binaries/neard0`
+The following option is not recommended, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:`gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/forknet/binaries/neard0`
 
 ### Run commands on the nodes
 
 ```javascript
-mirror run-cmd --cmd "cat .near/neard-runner/.env"
+mirror run-cmd --cmd "cat .near/forknet/neard.env"
 ```
 
 ### Target specific hosts
@@ -218,6 +218,8 @@ public key: ed25519:93zQfXQsfWEkDG2n5qKfbTQUxLZdMrvGpBtwpezWpWTJ
 
 ### Check the logs
 
-To get the logs of the `neard_runner.py` and see what commands were executed on the host during setup or operation, look at the `journalctl -ru neard-runner`
+To see what the `new-test` setup and the `reset` command did on a host, look at `~/.near/forknet/setup.log`. `mirror status` shows the state of each host that is not ready, including setup errors. On the traffic generator the forknet home is `~/.near/target/forknet`.
+
+To check whether neard is running, use `systemctl --user status neard`.
 
 To check the `neard` logs look at the files in `~/neard-logs/logs.txt`. This file is rotated so it does not become too big.

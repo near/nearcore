@@ -88,14 +88,14 @@ class Test290Long(Test290):
 
     def after_test_start(self):
         super().after_test_start()
-        # mirror schedule cmd --schedule-id "restake" --on 'calendar hourly' run-cmd --cmd "sh .near/neard-runner/send-stake-proposal.sh"
+        # mirror schedule cmd --schedule-id "restake" --on 'calendar hourly' run-cmd --cmd "sh .near/forknet/send-stake-proposal.sh"
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = 'nodes'
         # TODO: exclude the dumper and archival nodes
         # run_cmd_args.host_filter = "^(?!.*(dumper|archival))"
         run_cmd_args.schedule_id = "restake"
         run_cmd_args.on = ScheduleMode(mode="calendar", value="hourly")
-        run_cmd_args.cmd = "sh .near/neard-runner/send-stake-proposal.sh"
+        run_cmd_args.cmd = "sh .near/forknet/send-stake-proposal.sh"
         run_remote_cmd(CommandContext(run_cmd_args))
 
 

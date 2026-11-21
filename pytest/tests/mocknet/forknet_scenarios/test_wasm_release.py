@@ -156,7 +156,7 @@ class TestWasmCandidate(TestSetup):
         on the traffic node, so the scheduled stress-test script can be invoked
         from `pytest/tests/mocknet/` and import its `pytest/lib` helpers.
         Idempotent: clones if missing, otherwise fetches and hard-resets
-        to the upstream tip.
+        to the upstream tip. Also creates the venv that runs the script.
         """
         repo = "https://github.com/near/nearcore.git"
         branch = "master"
@@ -174,7 +174,9 @@ class TestWasmCandidate(TestSetup):
             f"git -C {checkout_dir} remote set-url origin {repo} "
             f"&& git -C {checkout_dir} fetch origin {branch} "
             f"&& git -C {checkout_dir} checkout -B wasm-stress-test origin/{branch} "
-            f"&& git -C {checkout_dir} reset --hard origin/{branch}")
+            f"&& git -C {checkout_dir} reset --hard origin/{branch} "
+            f"&& python3 -m virtualenv {checkout_dir}/venv "
+            f"&& {checkout_dir}/venv/bin/pip install base58 pynacl requests")
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = "traffic"
         run_cmd_args.cmd = cmd
@@ -209,7 +211,7 @@ class TestWasmCandidate(TestSetup):
         run_cmd_args.host_type = "traffic"
         run_cmd_args.cmd = (
             "cd /home/ubuntu/nearcore "
-            "&& /home/ubuntu/.near/target/neard-runner/venv/bin/python pytest/tests/mocknet/wasm_stress_test.py "
+            "&& venv/bin/python pytest/tests/mocknet/wasm_stress_test.py "
             "--rpc-url http://localhost:3030 "
             f"--concurrency {concurrency} " + " ".join(extra_flags))
         run_cmd_args.on = ScheduleMode(mode="calendar",
