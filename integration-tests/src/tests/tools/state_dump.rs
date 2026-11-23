@@ -20,9 +20,9 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::AccountState;
 use near_primitives_core::account::id::{AccountIdRef, AccountType};
 use near_state_viewer::state_dump;
+use near_store::Store;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use near_store::{ShardUId, Store};
 use nearcore::NightshadeRuntime;
 use nearcore::config::{Config, NearConfig};
 use std::collections::{HashMap, HashSet};
@@ -301,11 +301,7 @@ fn test_dump_state_return_locked() {
     let head = env.clients[0].chain.head().unwrap();
     let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     assert_eq!(last_block.chunks().len(), 1);
-    let chunk_extra = env.clients[0]
-        .chain
-        .get_chunk_extra(last_block.header().prev_hash(), &ShardUId::single_shard())
-        .unwrap();
-    let state_roots = vec![*chunk_extra.state_root()];
+    let state_roots = state_roots_at(&env, &last_block);
     initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime =
@@ -404,11 +400,7 @@ fn test_dump_state_not_track_shard() {
 
     let last_block = blocks.pop().unwrap();
     assert_eq!(last_block.chunks().len(), 1);
-    let chunk_extra = env.clients[0]
-        .chain
-        .get_chunk_extra(last_block.header().prev_hash(), &ShardUId::single_shard())
-        .unwrap();
-    let state_roots = vec![*chunk_extra.state_root()];
+    let state_roots = state_roots_at(&env, &last_block);
 
     let records_file = tempfile::NamedTempFile::new().unwrap();
     let _ = state_dump(
