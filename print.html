@@ -14912,7 +14912,9 @@ To add a new test scenario:</p>
 <pre><code class="language-javascript">mirror init-neard-runner --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url &quot;&quot;
 </code></pre>
 <h3 id="optional-genesis-configs"><a class="header" href="#optional-genesis-configs">[Optional] genesis configs</a></h3>
-<p>Reduce the min gas price to reduce the chance of running out of NEAR.</p>
+<p>Reduce the min gas price to reduce the chance of running out of NEAR.
+<code>forknet_scenario.py start</code> does this on its own, setting mainnet's 1e8
+(<code>TestSetup.genesis_min_gas_price</code>).</p>
 <pre><code class="language-javascript">mirror --host-type traffic run-cmd --cmd 'cp ~/.near/target/setup/genesis.json g.json ; jq &quot;.min_gas_price = \&quot;10000000\&quot;&quot; g.json &gt; ~/.near/target/setup/genesis.json'
 mirror --host-type nodes run-cmd --cmd 'cp ~/.near/setup/genesis.json g.json ; jq &quot;.min_gas_price = \&quot;10000000\&quot;&quot; g.json &gt; ~/.near/setup/genesis.json'
 </code></pre>
