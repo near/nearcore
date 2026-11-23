@@ -44,6 +44,17 @@ static DAEMON_POOL_SIZE: OnceLock<usize> = OnceLock::new();
 static DAEMON_POOL: OnceLock<DaemonPool> = OnceLock::new();
 static EXPECTED_COMPILER_COMPATIBILITY_HASH: OnceLock<Result<u64, String>> = OnceLock::new();
 
+/// Serializes worker spawns.
+///
+/// `Command::spawn` creates the stdio pipes and then starts the child. On
+/// platforms without `pipe2` (macOS) the pipes are created first and marked
+/// close-on-exec in a separate step, so a worker spawned concurrently by
+/// another thread can inherit the pipe ends of this one. The sibling then
+/// keeps the write ends open after this worker dies, and the parent never sees
+/// EOF on the dead worker's stdout or stderr: reads and the stderr relay join
+/// block forever.
+static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
 #[cfg(feature = "test_features")]
 thread_local! {
     static NEXT_TEST_ACTION: Cell<Option<super::protocol::TestAction>> = const { Cell::new(None) };
@@ -137,7 +148,10 @@ impl DaemonProcess {
                 Ok(())
             });
         }
-        let mut child = command.spawn()?;
+        let spawn_guard = SPAWN_LOCK.lock();
+        let spawn_result = command.spawn();
+        drop(spawn_guard);
+        let mut child = spawn_result?;
         let stdin = child.stdin.take().expect("stdio configured as piped");
         let stdout = child.stdout.take().expect("stdio configured as piped");
         let child_stderr = child.stderr.take().expect("stdio configured as piped");

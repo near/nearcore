@@ -43,25 +43,27 @@ struct TxSendInfo {
 }
 
 impl TxSendInfo {
+    // `tx` must have been sent, so that `tx.sent_target_tx` is set
     fn new(
         tx: &MappedTx,
         source_height: Option<BlockHeight>,
         target_height: BlockHeight,
         now: Instant,
-    ) -> Self {
-        let target_signer_id = if &tx.source_signer_id != tx.target_tx.transaction.signer_id() {
-            Some(tx.target_tx.transaction.signer_id().clone())
+    ) -> anyhow::Result<Self> {
+        let sent_target_tx =
+            tx.sent_target_tx.as_deref().cloned().context("transaction was not sent")?;
+        let target_signer_id = if &tx.source_signer_id != tx.target_tx.signer_id() {
+            Some(tx.target_tx.signer_id().clone())
         } else {
             None
         };
-        let target_receiver_id = if &tx.source_receiver_id != tx.target_tx.transaction.receiver_id()
-        {
-            Some(tx.target_tx.transaction.receiver_id().clone())
+        let target_receiver_id = if &tx.source_receiver_id != tx.target_tx.receiver_id() {
+            Some(tx.target_tx.receiver_id().clone())
         } else {
             None
         };
-        Self {
-            target_tx: tx.target_tx.clone(),
+        Ok(Self {
+            target_tx: sent_target_tx,
             source_height,
             provenance: tx.provenance,
             source_signer_id: tx.source_signer_id.clone(),
@@ -72,12 +74,11 @@ impl TxSendInfo {
             sent_at_target_height: target_height,
             actions: tx
                 .target_tx
-                .transaction
                 .actions()
                 .iter()
                 .map(|a| a.as_ref().to_string())
                 .collect::<Vec<_>>(),
-        }
+        })
     }
 }
 
@@ -488,7 +489,7 @@ impl TxTracker {
                     TxRef { source_height: block.source_height, shard_id: c.shard_id, tx_idx };
                 match tx {
                     crate::TargetChainTx::Ready(tx) => {
-                        let nonce_key = NonceLookupKey::from_tx(&tx.target_tx.transaction);
+                        let nonce_key = NonceLookupKey::from_tx(&tx.target_tx);
                         let info = self.nonces.get_mut(&nonce_key).unwrap();
                         info.queued_txs.insert(tx_ref.clone());
                         self.insert_access_key_updates(
@@ -743,7 +744,7 @@ impl TxTracker {
                                 tx.try_set_nonce(nonce);
                                 match tx {
                                     TargetChainTx::Ready(t) => {
-                                        tracing::debug!(target: "mirror", ?nonce_key, tx_ref = %r, nonce = %t.target_tx.transaction.nonce().nonce(), "set nonce for key");
+                                        tracing::debug!(target: "mirror", ?nonce_key, tx_ref = %r, nonce = %t.target_tx.nonce().nonce(), "set nonce for key");
                                     }
                                     _ => {
                                         tracing::warn!(target: "mirror", ?nonce_key, tx_ref = %r, "couldn't set nonce for key");
@@ -911,7 +912,9 @@ impl TxTracker {
         now: Instant,
         keys_to_remove: &mut HashSet<NonceLookupKey>,
     ) -> anyhow::Result<()> {
-        let hash = tx.target_tx.get_hash();
+        let source_height = tx_ref.as_ref().map(|t| t.source_height);
+        let send_info = TxSendInfo::new(&tx, source_height, target_height, now)?;
+        let hash = send_info.target_tx.get_hash();
         if self.sent_txs.contains_key(&hash) {
             tracing::warn!(target: "mirror", ?hash, "transaction sent twice");
             return Ok(());
@@ -925,29 +928,28 @@ impl TxTracker {
                 target: "mirror",
                 ?hash,
                 provenance = %tx.provenance,
-                actions = ?tx.target_tx.transaction.actions(),
+                actions = ?tx.target_tx.actions(),
                 "successfully sent transaction"
             );
         }
-        let nonce_key = NonceLookupKey::from_tx(&tx.target_tx.transaction);
-        let source_height = tx_ref.as_ref().map(|t| t.source_height);
+        let nonce_key = NonceLookupKey::from_tx(&tx.target_tx);
         // TODO: don't keep adding txs if we're not ever finding them on chain, since we'll OOM eventually
         // if that happens.
-        self.sent_txs.insert(hash, TxSendInfo::new(&tx, source_height, target_height, now));
+        self.sent_txs.insert(hash, send_info);
         let txs = self.txs_by_signer.entry(nonce_key.clone()).or_default();
 
         if let Some(highest_nonce) = txs.iter().next_back() {
-            if highest_nonce.nonce > tx.target_tx.transaction.nonce().nonce() {
+            if highest_nonce.nonce > tx.target_tx.nonce().nonce() {
                 tracing::warn!(
                     target: "mirror",
                     ?hash,
-                    nonce = %tx.target_tx.transaction.nonce().nonce(),
+                    nonce = %tx.target_tx.nonce().nonce(),
                     ?txs,
                     "transaction sent with out of order nonce, sent so far"
                 );
             }
         }
-        if !txs.insert(TxId { hash, nonce: tx.target_tx.transaction.nonce().nonce() }) {
+        if !txs.insert(TxId { hash, nonce: tx.target_tx.nonce().nonce() }) {
             tracing::warn!(target: "mirror", ?hash, "inserted tx twice into txs_by_signer");
         }
 
@@ -997,7 +999,7 @@ impl TxTracker {
         crate::put_pending_outcome(db, hash, tx.nonce_updates)?;
 
         let mut t = crate::read_target_nonce(db, &nonce_key)?.unwrap();
-        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.transaction.nonce().nonce()));
+        t.nonce = std::cmp::max(t.nonce, Some(tx.target_tx.nonce().nonce()));
         crate::put_target_nonce(db, &nonce_key, &t)?;
         let info = self.nonces.get_mut(&nonce_key).unwrap();
         if info.last_height <= source_height {
@@ -1093,7 +1095,7 @@ impl TxTracker {
                                         target_tx.try_set_nonce(None);
                                         match target_tx {
                                             TargetChainTx::Ready(t) => {
-                                                tracing::debug!(target: "mirror", %tx_ref, ?nonce_key, tx_awaiting_nonce = %r, nonce = %t.target_tx.transaction.nonce().nonce(), "after skipping setting nonce for key");
+                                                tracing::debug!(target: "mirror", %tx_ref, ?nonce_key, tx_awaiting_nonce = %r, nonce = %t.target_tx.nonce().nonce(), "after skipping setting nonce for key");
                                             }
                                             _ => {
                                                 tracing::warn!(target: "mirror", %tx_ref, ?nonce_key, tx_awaiting_nonce = %r, "after skipping could not set nonce for key");
@@ -1167,7 +1169,7 @@ impl TxTracker {
         for (tx_ref, tx) in txs_sent {
             match tx {
                 crate::TargetChainTx::Ready(t) => {
-                    if t.sent_successfully {
+                    if t.sent_target_tx.is_some() {
                         self.on_tx_sent(
                             tx_block_queue,
                             db,
@@ -1182,7 +1184,7 @@ impl TxTracker {
                         self.on_tx_skipped(
                             tx_block_queue,
                             &tx_ref,
-                            &t.target_tx.transaction,
+                            &t.target_tx,
                             &t.nonce_updates,
                             &mut keys_to_remove,
                         );
