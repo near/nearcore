@@ -95,22 +95,33 @@ land without another process on the store:
   up 3200 blocks, or to the bucket's block head if that is lower. The reader loop
   then stays at most 3200 blocks above the heights the mirror asks for, so a fork
   far behind the bucket's head does not copy the whole bucket before the first
-  transaction. The bucket has to hold that height and a block below it,
-  or the mirror fails to start; a bucket whose head has not reached that height
-  yet is polled until it has. Failed bucket reads are retried; a bootstrap that
-  fails part way is taken on by the reader loop. The log says which range got
-  bootstrapped. A home that already has a reader head, from a
-  `cloud-archive bootstrap` or an earlier run, is followed from that head, unless the
-  head is more than 3200 blocks below where the mirror goes on: the mirror then
-  stops and asks for the home's `data` directory to be removed, so the next start
-  bootstraps at the right height instead of copying everything in between.
+  transaction. The log says which range got bootstrapped.
+- The bootstrap always opens at that height, never above it. The bucket has to
+  hold that height and a block below it. A bucket whose head has not reached that
+  height yet is polled until it has. A failed bucket read is tried up to 5 times,
+  a polling interval apart; after that the mirror fails to start. A bootstrap that
+  fails part way, after it has written a reader head, is taken on by the reader
+  loop.
+- A home that already has a reader head, from a `cloud-archive bootstrap` or an
+  earlier run, is followed from that head, unless the head is more than 3200 blocks
+  below where the mirror goes on: the mirror then stops and asks for the home's
+  `data` directory to be removed, so the next start bootstraps at the right height
+  instead of copying everything in between.
+- The reader store is never pruned, and grows by about 190 KB per block. To free
+  the space, stop the mirror, remove the home's `data` directory and start it
+  again: it bootstraps at the height the mirror goes on from.
 - `--source-skip-state` copies no state out of the bucket, like
   `cloud-archive bootstrap --skip-state`, for a bucket without state snapshots. The
-  full access keys of an account cannot be looked up then, and every mirrored
-  transaction is signed with the default extra key. A home bootstrapped without
-  state (by that flag, or by `cloud-archive bootstrap --skip-state`) has to be
-  followed with `--source-skip-state` every time: without it the reader loop fails
-  its state checks at startup and the mirror stops.
+  mirror then cannot look up an account's full access keys. This lookup is only
+  used for the extra transactions the mirror adds when a receipt creates an
+  account or adds a key; regular mirrored transactions are not affected. Those
+  extra transactions are signed with the default extra key. The forked state
+  gives that key only to accounts that had no full access key at the fork, so an
+  extra transaction signed by an account that had one cannot be sent and is
+  skipped. This is rare. A home bootstrapped without state (by that flag, or by
+  `cloud-archive bootstrap --skip-state`) has to be followed with
+  `--source-skip-state` every time: without it the reader loop fails its state
+  checks at startup and the mirror stops.
 - Without `--stop-height` the mirror runs until stopped; when it catches up with the
   reader head it waits for the next batch. A `--stop-height` above the bucket's head
   makes it wait the same way (not fail) until the bucket gets there. A `SIGTERM` or
