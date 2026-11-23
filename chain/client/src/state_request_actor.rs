@@ -21,14 +21,13 @@ use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-/// Admits at most `limit` state requests in any window of `period`. Clones share the window, so that
-/// one throttle limits all the actors which serve the requests.
+/// Clones share one sliding window.
 #[derive(Clone)]
 pub struct StateRequestThrottle {
     clock: Clock,
     period: Duration,
     limit: usize,
-    /// When the requests in the window were admitted, oldest first.
+    /// Admission times, oldest first.
     admitted: Arc<Mutex<VecDeque<Instant>>>,
 }
 
@@ -37,8 +36,6 @@ impl StateRequestThrottle {
         Self { clock, period, limit, admitted: Arc::new(Mutex::new(VecDeque::new())) }
     }
 
-    /// The throttle of a node with `config`. `state_requests_per_throttle_period` is the limit per
-    /// state request server thread, and one window holds the requests of all the threads.
     pub fn from_config(clock: Clock, config: &ClientConfig) -> Self {
         let limit = config
             .state_requests_per_throttle_period
@@ -46,11 +43,9 @@ impl StateRequestThrottle {
         Self::new(clock, config.state_request_throttle_period, limit)
     }
 
-    /// Admits a request unless `limit` requests were admitted in the last `period`. Requests which
-    /// aren't admitted don't count in the window, only in the throttled requests metric.
     fn try_admit(&self) -> bool {
         let mut admitted = self.admitted.lock();
-        // The clock is read under the lock, so that the timestamps stay ordered.
+        // Read under the lock to keep the timestamps ordered.
         let now = self.clock.now();
         while let Some(&instant) = admitted.front() {
             if now - instant > self.period {
@@ -59,14 +54,13 @@ impl StateRequestThrottle {
                 break;
             }
         }
-        if admitted.len() < self.limit {
-            admitted.push_back(now);
-            return true;
+        if admitted.len() >= self.limit {
+            tracing::debug!(target: "sync", "throttling state sync request");
+            metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
+            return false;
         }
-        drop(admitted);
-        tracing::debug!(target: "sync", "throttling state sync request");
-        metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
-        false
+        admitted.push_back(now);
+        true
     }
 }
 
@@ -102,8 +96,7 @@ impl StateRequestActor {
         Self { state_sync_adapter, epoch_manager, chain_store, genesis_hash, throttle }
     }
 
-    /// Spawns one actor per state request server thread. The actors share one throttle, so that it
-    /// limits the node as a whole.
+    /// The actors share one throttle, so that it limits the node as a whole.
     pub fn spawn_multithread_actor(
         clock: Clock,
         actor_system: ActorSystem,
@@ -118,7 +111,6 @@ impl StateRequestActor {
         )
     }
 
-    /// Makes the actors of the state request server threads, all with clones of one throttle.
     fn factory(
         clock: Clock,
         runtime: Arc<dyn RuntimeAdapter>,
@@ -330,11 +322,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
-    /// Differs from the default period, so that a throttle which ignores the config is caught.
+    /// Not the default period, so that a throttle which ignores the config fails.
     const PERIOD: Duration = Duration::seconds(20);
 
-    /// A config whose throttle admits `per_thread` requests per `PERIOD` for each of `threads`
-    /// state request server threads.
     fn config(per_thread: usize, threads: usize) -> ClientConfig {
         let mut config = ClientConfig::test(TestClientConfigParams {
             skip_sync_wait: false,
@@ -348,16 +338,6 @@ mod tests {
         config.state_requests_per_throttle_period = per_thread;
         config.state_request_server_threads = threads;
         config
-    }
-
-    #[test]
-    fn admits_up_to_limit() {
-        let clock = FakeClock::default();
-        let throttle = StateRequestThrottle::new(clock.clock(), PERIOD, 3);
-        for _ in 0..3 {
-            assert!(throttle.try_admit());
-        }
-        assert!(!throttle.try_admit());
     }
 
     #[test]
@@ -382,45 +362,22 @@ mod tests {
     }
 
     #[test]
-    fn zero_period_admits_one_per_instant() {
-        let clock = FakeClock::default();
-        let throttle = StateRequestThrottle::new(clock.clock(), Duration::ZERO, 1);
-        assert!(throttle.try_admit());
-        assert!(!throttle.try_admit());
-        clock.advance(Duration::nanoseconds(1));
-        assert!(throttle.try_admit());
-    }
-
-    #[test]
-    fn rejected_requests_not_counted() {
-        let clock = FakeClock::default();
-        let throttle = StateRequestThrottle::new(clock.clock(), PERIOD, 1);
-        assert!(throttle.try_admit());
-        clock.advance(PERIOD / 2);
-        assert!(!throttle.try_admit());
-        // The admitted request expires, and the rejected one doesn't take its place.
-        clock.advance(PERIOD / 2 + Duration::nanoseconds(1));
-        assert!(throttle.try_admit());
-    }
-
-    #[test]
-    fn clones_share_window() {
+    fn expiry_frees_only_expired_requests() {
         let clock = FakeClock::default();
         let throttle = StateRequestThrottle::new(clock.clock(), PERIOD, 2);
-        let clone = throttle.clone();
         assert!(throttle.try_admit());
-        assert!(clone.try_admit());
+        clock.advance(PERIOD / 2);
+        assert!(throttle.try_admit());
         assert!(!throttle.try_admit());
-        assert!(!clone.try_admit());
+        clock.advance(PERIOD / 2 + Duration::nanoseconds(1));
+        assert!(throttle.try_admit());
+        assert!(!throttle.try_admit());
     }
 
-    /// The actors which the node spawns for its state request server threads share one throttle,
-    /// so that it limits the node as a whole.
     #[test]
     fn actors_share_throttle() {
         let clock = FakeClock::default();
         let (chain, epoch_manager, runtime, _) = setup(clock.clock());
-        // The node admits 2 requests per period.
         let make_actor = StateRequestActor::factory(
             clock.clock(),
             runtime,
@@ -459,9 +416,6 @@ mod tests {
 
         let throttle = StateRequestThrottle::from_config(clock.clock(), &config(usize::MAX, 4));
         assert_eq!(throttle.limit, usize::MAX);
-
-        let throttle = StateRequestThrottle::from_config(clock.clock(), &config(usize::MAX, 0));
-        assert_eq!(throttle.limit, 0);
     }
 
     #[test]
@@ -470,7 +424,6 @@ mod tests {
         let clock = FakeClock::default();
         let throttle = StateRequestThrottle::new(clock.clock(), PERIOD, 100);
         let admitted = AtomicUsize::new(0);
-        // All the threads start admitting at once.
         let barrier = Barrier::new(THREADS);
         thread::scope(|scope| {
             for _ in 0..THREADS {

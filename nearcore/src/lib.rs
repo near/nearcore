@@ -567,7 +567,6 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
     );
 
-    // Use dedicated thread pool for StateRequestActor
     let state_request_addr = StateRequestActor::spawn_multithread_actor(
         Clock::real(),
         actor_system.clone(),
