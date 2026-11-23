@@ -161,7 +161,7 @@ fn a_fork_item_at_or_below_the_final_head_is_dropped_and_frees_its_window_slot()
     let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
     let canonical_at_6 = process_block_at(&mut chain, &canonical_at_5, 6);
     let pull_config =
-        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+        PullConfig { push_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
     let mut manager = TestManager::with_pull_config(&chain, 1, pull_config);
     manager.set_final_head(&blocks[1]);
     manager.track_block(&canonical_at_4);

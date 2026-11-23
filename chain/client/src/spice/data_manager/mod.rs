@@ -316,8 +316,8 @@ impl SpiceDataManager {
         Ok(FetchItem::new(block.height(), *block.epoch_id(), *block.next_epoch_id(), producers))
     }
 
-    /// Applies a change in the receipt proofs into `to_shard` the chunk executor needs. Returns the
-    /// pull requests to send now.
+    /// Applies a change in the receipt proofs into `to_shard` the chunk executor needs, and stops
+    /// pulling the delivered items now saved. Returns the pull requests to send now.
     pub(crate) fn on_receipt_proof_needs(
         &mut self,
         to_shard: ShardId,
@@ -344,6 +344,7 @@ impl SpiceDataManager {
                 }
             }
         }
+        self.handle_done_items();
         DataManagerOutput {
             pull_requests: self.pulls.to_issue(now, &self.items),
             decoded: Vec::new(),
@@ -355,7 +356,8 @@ impl SpiceDataManager {
     fn track_missing_item(&mut self, id: &DataId) -> Result<(), Error> {
         if let Some(item) = self.items.get(id) {
             if !self.done_items.contains(id) {
-                self.pulls.mark_pullable(id.clone(), item.height);
+                let delivery = self.items.delivery(id).expect("a tracked item is in a map");
+                self.pulls.mark_pullable(id.clone(), item.height, delivery);
             }
             return Ok(());
         }
@@ -385,7 +387,8 @@ impl SpiceDataManager {
         } else {
             self.items.insert_pull_only(id.clone(), item);
         }
-        self.pulls.mark_pullable(id.clone(), block.height());
+        let delivery = self.items.delivery(id).expect("the item was just tracked");
+        self.pulls.mark_pullable(id.clone(), block.height(), delivery);
         Ok(())
     }
 
@@ -395,8 +398,8 @@ impl SpiceDataManager {
             if self.done_items.contains(&id) {
                 continue;
             }
-            if let Some(item) = self.items.get(&id) {
-                self.pulls.mark_pullable(id, item.height);
+            if let (Some(item), Some(delivery)) = (self.items.get(&id), self.items.delivery(&id)) {
+                self.pulls.mark_pullable(id, item.height, delivery);
             }
         }
         Ok(())
@@ -586,17 +589,19 @@ impl SpiceDataManager {
                 self.remove_item(&id);
                 continue;
             }
+            let delivery = self.items.delivery(&id).expect("a delivered item is tracked");
             self.delivered_items.remove(&id);
-            self.pulls.forget(&id, height);
+            self.pulls.forget(&id, height, delivery);
             self.done_items.insert(id);
         }
     }
 
     fn remove_item(&mut self, id: &DataId) {
-        let Some(item) = self.items.remove(id) else {
+        let Some(delivery) = self.items.delivery(id) else {
             return;
         };
-        self.pulls.forget(id, item.height);
+        let item = self.items.remove(id).expect("an item with a delivery is tracked");
+        self.pulls.forget(id, item.height, delivery);
         self.delivered_items.remove(id);
         self.done_items.remove(id);
     }

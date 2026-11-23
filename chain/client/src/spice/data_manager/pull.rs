@@ -1,8 +1,8 @@
 use super::item::FetchItem;
-use super::items::Items;
+use super::items::{Delivery, Items};
 use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, remove_indexed};
 use near_async::time::{Duration, Instant};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -22,8 +22,11 @@ pub(crate) struct PullRequest {
 pub(crate) struct Config {
     /// How long a request stays outstanding before it is repeated.
     pub(crate) request_timeout: Duration,
-    /// Heights pulled at one trigger: the lowest heights holding pullable items.
-    pub(crate) pulled_heights: NonZeroUsize,
+    /// Heights of pushed items pulled at one trigger: the lowest ones holding pullable items.
+    pub(crate) push_heights: NonZeroUsize,
+    /// Heights of pull-only items pulled at one trigger for each destination shard: the lowest
+    /// ones holding pullable items into it.
+    pub(crate) pull_only_heights: NonZeroUsize,
     /// Items one request may carry.
     pub(crate) max_ids_per_request: NonZeroUsize,
     /// Ordinals one request may carry, summed over its items.
@@ -34,7 +37,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             request_timeout: Duration::milliseconds(600),
-            pulled_heights: const { NonZeroUsize::new(4).unwrap() },
+            push_heights: const { NonZeroUsize::new(2).unwrap() },
+            pull_only_heights: const { NonZeroUsize::new(2).unwrap() },
             max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
             max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
         }
@@ -47,10 +51,30 @@ impl Default for Config {
 /// Packs all that into requests.
 pub(super) struct Pulls {
     config: Config,
-    /// Ids of tracked items that may be pulled, by height.
-    pullable: BTreeMap<BlockHeight, HashSet<DataId>>,
+    /// Pushed items that may be pulled.
+    push: PullWindow,
+    /// Pull-only items that may be pulled, by destination shard.
+    pull_only: HashMap<ShardId, PullWindow>,
     /// The last request made to each producer for each item.
     requests: HashMap<DataId, HashMap<AccountId, Request>>,
+}
+
+/// Ids of tracked items that may be pulled, by height.
+#[derive(Default)]
+struct PullWindow {
+    pullable: BTreeMap<BlockHeight, HashSet<DataId>>,
+}
+
+impl PullWindow {
+    /// The ids at the `heights` lowest heights.
+    fn lowest(&self, heights: NonZeroUsize) -> impl Iterator<Item = &DataId> {
+        self.pullable.values().take(heights.get()).flatten()
+    }
+
+    #[cfg(test)]
+    fn contains(&self, id: &DataId) -> bool {
+        self.pullable.values().any(|ids| ids.contains(id))
+    }
 }
 
 /// A request made to one producer for one item.
@@ -63,12 +87,21 @@ struct Request {
 
 impl Pulls {
     pub(super) fn new(config: Config) -> Self {
-        Self { config, pullable: BTreeMap::new(), requests: HashMap::new() }
+        Self {
+            config,
+            push: PullWindow::default(),
+            pull_only: HashMap::new(),
+            requests: HashMap::new(),
+        }
     }
 
     /// Makes `id`, tracked at `height`, open to pulling.
-    pub(super) fn mark_pullable(&mut self, id: DataId, height: BlockHeight) {
-        self.pullable.entry(height).or_default().insert(id);
+    pub(super) fn mark_pullable(&mut self, id: DataId, height: BlockHeight, delivery: Delivery) {
+        let window = match delivery {
+            Delivery::Pushed => &mut self.push,
+            Delivery::PullOnly(to_shard) => self.pull_only.entry(to_shard).or_default(),
+        };
+        window.pullable.entry(height).or_default().insert(id);
     }
 
     /// Records a verified answer from `producer` for `id`.
@@ -80,27 +113,37 @@ impl Pulls {
     }
 
     /// Removes `id`, tracked at `height`, from the pullable items and forgets its requests.
-    pub(super) fn forget(&mut self, id: &DataId, height: BlockHeight) {
-        remove_indexed(&mut self.pullable, height, id);
+    pub(super) fn forget(&mut self, id: &DataId, height: BlockHeight, delivery: Delivery) {
+        match delivery {
+            Delivery::Pushed => remove_indexed(&mut self.push.pullable, height, id),
+            Delivery::PullOnly(to_shard) => {
+                if let Some(window) = self.pull_only.get_mut(&to_shard) {
+                    remove_indexed(&mut window.pullable, height, id);
+                    if window.pullable.is_empty() {
+                        self.pull_only.remove(&to_shard);
+                    }
+                }
+            }
+        }
         self.requests.remove(id);
     }
 
-    /// The requests to issue at `now`, grouped by producer.
-    /// Traverses the pullable items of the `pulled_heights` lowest heights, looked up in `items`.
-    /// Records every request it returns as created at `now`.
+    /// The requests to issue at `now`, grouped by producer, those for pushed items first.
+    /// Traverses the pullable pushed items of the `push_heights` lowest heights and the pullable
+    /// pull-only items of the `pull_only_heights` lowest heights into each destination shard,
+    /// looked up in `items`. Records every request it returns as created at `now`.
     pub(super) fn to_issue(&mut self, now: Instant, items: &Items) -> Vec<PullRequest> {
         let trigger = Trigger::new(now, self.config.request_timeout);
-        let mut wants_by_producer: BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> =
-            BTreeMap::new();
-        for id in self.pullable.values().take(self.config.pulled_heights.get()).flatten() {
-            let item = items.get(id).expect("pullable id names a tracked item");
-            let requests = ItemRequests { id, requests: &mut self.requests, trigger: &trigger };
-            for (producer, ordinals) in requests.ordinals_to_request(item) {
-                wants_by_producer.entry(producer).or_default().insert(id.clone(), ordinals);
-            }
-        }
-        wants_by_producer
+        let push_ids = self.push.lowest(self.config.push_heights);
+        let push_wants = wants_by_producer(push_ids, items, &mut self.requests, &trigger);
+        let pull_only_ids =
+            self.pull_only.values().flat_map(|window| window.lowest(self.config.pull_only_heights));
+        let pull_only_wants = wants_by_producer(pull_only_ids, items, &mut self.requests, &trigger);
+        // TODO(spice-data-distribution): send pull-only requests in a serve-side lane of their own,
+        // so they cannot crowd out the requests for pushed items under the server's rate limit.
+        push_wants
             .into_iter()
+            .chain(pull_only_wants)
             .flat_map(|(producer, wants)| self.pack_requests(producer, wants))
             .collect()
     }
@@ -140,7 +183,7 @@ impl Pulls {
 
     #[cfg(test)]
     pub(super) fn is_pullable(&self, id: &DataId) -> bool {
-        self.pullable.values().any(|ids| ids.contains(id))
+        self.push.contains(id) || self.pull_only.values().any(|window| window.contains(id))
     }
 
     /// The producers with an outstanding request for `id` at `now`.
@@ -162,6 +205,25 @@ impl Pulls {
     pub(super) fn holds_state_for(&self, id: &DataId) -> bool {
         self.requests.contains_key(id)
     }
+}
+
+/// The ordinals to request for `ids`, looked up in `items`, grouped by producer.
+fn wants_by_producer<'a>(
+    ids: impl Iterator<Item = &'a DataId>,
+    items: &Items,
+    requests: &mut HashMap<DataId, HashMap<AccountId, Request>>,
+    trigger: &Trigger,
+) -> BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> {
+    let mut wants_by_producer: BTreeMap<AccountId, BTreeMap<DataId, BTreeSet<u64>>> =
+        BTreeMap::new();
+    for id in ids {
+        let item = items.get(id).expect("pullable id names a tracked item");
+        let item_requests = ItemRequests { id, requests, trigger };
+        for (producer, ordinals) in item_requests.ordinals_to_request(item) {
+            wants_by_producer.entry(producer).or_default().insert(id.clone(), ordinals);
+        }
+    }
+    wants_by_producer
 }
 
 impl Request {

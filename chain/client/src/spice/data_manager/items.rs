@@ -33,6 +33,14 @@ impl ItemMap {
     }
 }
 
+/// How a tracked item reaches this node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Delivery {
+    Pushed,
+    /// Only pulled, as a receipt proof into this destination shard.
+    PullOnly(ShardId),
+}
+
 /// Every tracked item. An id is in one map, decided when it is first tracked by whether it is
 /// pushed to this node, and never moves.
 #[derive(Default)]
@@ -50,6 +58,17 @@ impl Items {
             return Some(&self.push);
         }
         self.pull_only.get(&to_shard(id)?).filter(|map| map.items.contains_key(id))
+    }
+
+    pub(super) fn delivery(&self, id: &DataId) -> Option<Delivery> {
+        if self.push.items.contains_key(id) {
+            return Some(Delivery::Pushed);
+        }
+        let to_shard = to_shard(id)?;
+        self.pull_only
+            .get(&to_shard)
+            .is_some_and(|map| map.items.contains_key(id))
+            .then_some(Delivery::PullOnly(to_shard))
     }
 
     pub(super) fn get(&self, id: &DataId) -> Option<&FetchItem> {
