@@ -1540,7 +1540,7 @@ impl SpiceDataDistributorActor {
             &chunk_id.block_hash,
             chunk_id.shard_id,
         ) else {
-            tracing::warn!(
+            tracing::debug!(
                 target: "spice_data_distribution",
                 ?chunk_id,
                 ?requester,
