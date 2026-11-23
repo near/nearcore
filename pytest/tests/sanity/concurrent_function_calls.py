@@ -82,7 +82,10 @@ def process():
     logger.info("all done")
 
 
-ps = [multiprocessing.Process(target=process, args=()) for i in range(6)]
+# Children rely on fork semantics (they use the module-level `nodes`), and
+# Python 3.14 no longer defaults to fork on Linux.
+fork = multiprocessing.get_context('fork')
+ps = [fork.Process(target=process, args=()) for i in range(6)]
 for p in ps:
     p.start()
 
