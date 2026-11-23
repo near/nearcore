@@ -47,7 +47,9 @@ use near_primitives::errors::{
     DepositCostFailureReason, EpochError, ExternalCallChunkLimit, FunctionCallError,
     InvalidTxError, MissingTrieValue, ReceiptValidationError, RuntimeError, TxExecutionError,
 };
-use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
+use near_primitives::fees::{
+    compute_receipt_congestion_gas, compute_receipt_congestion_size, compute_receipt_size,
+};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
