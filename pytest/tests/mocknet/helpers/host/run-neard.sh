@@ -17,8 +17,7 @@ if [ -f "$secret_file" ]; then
 else
     args+=(--no-secret)
 fi
-# start-neard.sh writes this file when `start-traffic` gets
-# --batch-interval-millis.
+# mirror.py writes this file when `start-traffic` gets --batch-interval-millis.
 mirror_config="$FORKNET_HOME/mirror-config.json"
 if [ -f "$mirror_config" ]; then
     args+=(--config-path "$mirror_config")

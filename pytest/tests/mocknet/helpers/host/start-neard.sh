@@ -28,11 +28,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-state=$(cat "$STATE_FILE" 2>/dev/null || echo "no test")
-if [ "$state" != ready ]; then
-    echo "cannot start neard: state is $state" >&2
-    exit 1
-fi
+require_state ready
 
 old_binary=$(readlink "$BINARIES_DIR/current")
 if [ -n "$binary_idx" ]; then

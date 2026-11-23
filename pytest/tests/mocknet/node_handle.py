@@ -17,8 +17,6 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from utils import ScheduleContext
 
-# cspell:words setpath
-
 # Uploaded to the forknet home of each host.
 HOST_SCRIPTS_DIR = f'{pathlib.Path(__file__).resolve().parent}/helpers/host/'
 
@@ -37,30 +35,6 @@ def write_file_cmd(path: str, content: str) -> str:
     """Shell command that writes `content` to `path`."""
     encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
     return f'echo {encoded} | base64 -d > {shlex.quote(path)}'
-
-
-def jq_set_cmd(path: str, changes: list[tuple[list[str], object]]) -> str:
-    """
-    Shell command that sets each JSON path in `changes` to its value in the
-    JSON file at `path`. Missing objects on the way are created.
-    """
-    args = []
-    program = []
-    for i, (keys, value) in enumerate(changes):
-        args += ['--argjson', f'v{i}', json.dumps(value)]
-        program.append(f'setpath({json.dumps(keys)}; $v{i})')
-    new_path = f'{path}.new'
-    return (f'jq {shlex.join(args)} {shlex.quote(" | ".join(program) or ".")} '
-            f'{shlex.quote(path)} > {shlex.quote(new_path)} '
-            f'&& mv {shlex.quote(new_path)} {shlex.quote(path)}')
-
-
-def require_state_cmd(state_file: str, expected: str) -> str:
-    """Shell command that fails unless `state_file` contains `expected`."""
-    state_file = shlex.quote(state_file)
-    return (f'{{ [ "$(cat {state_file})" = {expected} ] || '
-            f'{{ echo "state is $(cat {state_file}), expected {expected}" >&2; '
-            f'exit 1; }}; }}')
 
 
 def check_env_key_values(key_values: list[str]):
@@ -144,6 +118,10 @@ class NodeHandle:
     def host_path(self, *parts):
         return '/'.join([self.node.forknet_home, *parts])
 
+    def script_cmd(self, script, *args):
+        """Shell command that runs a script from helpers/host/ on the host."""
+        return shlex.join(['bash', self.host_path(script), *map(str, args)])
+
     def init_host(self,
                   binary_urls: list[str],
                   run_id: str,
@@ -172,7 +150,7 @@ class NodeHandle:
                            env_file_content(host_env)),
             write_file_cmd(self.host_path('binaries', 'urls'),
                            ''.join(f'{url}\n' for url in binary_urls)),
-            f'bash {forknet_home}/init-host.sh',
+            self.script_cmd('init-host.sh'),
         ]))
 
     # cspell:ignore culted
@@ -200,41 +178,27 @@ class NodeHandle:
         Stops neard and creates new keys and config. Returns the node key,
         the validator key (None on the traffic generator) and the listen port.
         """
-        r = self.run_cmd_now(f'bash {self.host_path("new-test.sh")}')
+        r = self.run_cmd_now(self.script_cmd('new-test.sh'))
         return json.loads(r.stdout.strip().splitlines()[-1])
 
     def network_init(self, validators, config_changes, setup_env):
         """
         Starts setup-node.sh, which builds the genesis state in the background.
-        `is_ready` returns True when it has finished.
+        `is_ready` returns True when it has finished. config_changes is a list
+        of (path, value) pairs for config.json.
         """
         self.run_cmd_now(' && '.join([
-            require_state_cmd(self.host_path('state'), 'awaiting-network-init'),
-            write_file_cmd(self.host_path('validators.json'),
+            # network-init.sh moves them into place if the state allows it.
+            write_file_cmd(self.host_path('validators.json.new'),
                            json.dumps(validators, indent=2)),
-            jq_set_cmd(f'{self.node.near_home}/config.json', config_changes),
-            write_file_cmd(self.host_path('setup.env'),
+            write_file_cmd(self.host_path('setup.env.new'),
                            env_file_content(setup_env)),
-            self.systemd_run_cmd('neard-setup', 'setup-node.sh'),
+            self.script_cmd('network-init.sh', json.dumps(config_changes)),
         ]))
-
-    def systemd_run_cmd(self, unit, script):
-        """
-        Shell command that runs a host script as a transient user unit, with
-        the same environment files as the neard unit.
-        """
-        env_files = ['$HOME/.secrets', self.host_path('neard.env')]
-        env_props = ' '.join(f'-p EnvironmentFile=-{f}' for f in env_files)
-        return (f'systemd-run --user --collect --unit {unit} {env_props} '
-                f'/bin/bash {shlex.quote(self.host_path(script))}')
 
     def state(self):
         """The state of the test on the host. See helpers/host/common.sh."""
-        state_file = shlex.quote(self.host_path('state'))
-        r = self.run_cmd_now(
-            f'if [ -f {state_file} ]; then cat {state_file}; else echo "no test"; fi'
-        )
-        return r.stdout.strip()
+        return self.run_cmd_now(self.script_cmd('state.sh')).stdout.strip()
 
     def is_ready(self):
         return self.state() == 'ready'
@@ -243,14 +207,14 @@ class NodeHandle:
                     binary_idx=None,
                     force_restart=False,
                     batch_interval_millis=None):
-        cmd = f'bash {shlex.quote(self.host_path("start-neard.sh"))}'
+        args = []
         if binary_idx is not None:
-            cmd += f' --binary-idx {int(binary_idx)}'
+            args += ['--binary-idx', int(binary_idx)]
         if force_restart:
-            cmd += ' --force-restart'
+            args += ['--force-restart']
         if batch_interval_millis is not None:
-            cmd += f' --batch-interval-millis {int(batch_interval_millis)}'
-        return self.run_cmd(cmd)
+            args += ['--batch-interval-millis', int(batch_interval_millis)]
+        return self.run_cmd(self.script_cmd('start-neard.sh', *args))
 
     def stop_neard(self):
         return self.run_cmd('systemctl --user stop neard')
@@ -260,40 +224,23 @@ class NodeHandle:
         Starts reset-node.sh, which restores the start backup in the
         background. `is_ready` returns True when it has finished.
         """
-        state_file = shlex.quote(self.host_path('state'))
-        start_reset = self.systemd_run_cmd('neard-reset', 'reset-node.sh')
-        # Write the state before the unit starts, so that a poll right after
-        # this command does not see "ready".
-        return self.run_cmd(' && '.join([
-            require_state_cmd(self.host_path('state'), 'ready'),
-            f'echo resetting > {state_file}',
-            f'{{ {start_reset} || {{ echo "error: failed to start neard-reset" '
-            f'> {state_file}; exit 1; }}; }}',
-        ]))
+        return self.run_cmd(self.script_cmd('reset.sh'))
 
     def update_binaries(self, neard_binary_url=None, binary_idx=None):
         """
         Downloads the binaries again. If neard_binary_url is set, it first
         replaces the URL of the binary at binary_idx.
         """
-        cmds = []
-        if neard_binary_url is not None:
-            urls = shlex.quote(self.host_path('binaries', 'urls'))
-            line = int(binary_idx) + 1
-            cmds += [
-                f'[ "$(wc -l < {urls})" -ge {line} ]',
-                f'awk -v n={line} -v url={shlex.quote(neard_binary_url)} '
-                f'\'NR == n {{ $0 = url }} {{ print }}\' {urls} > {urls}.new',
-                f'mv {urls}.new {urls}',
-            ]
-        cmds.append(
-            f'bash {shlex.quote(self.host_path("download-binaries.sh"))}')
-        return self.run_cmd(' && '.join(cmds))
+        if neard_binary_url is None:
+            return self.run_cmd(self.script_cmd('download-binaries.sh'))
+        return self.run_cmd(
+            self.script_cmd('amend-binary.sh', int(binary_idx),
+                            neard_binary_url))
 
     def update_config(self, key_value):
         changes = parse_config_changes(key_value)
         return self.run_cmd(
-            jq_set_cmd(f'{self.node.near_home}/config.json', changes))
+            self.script_cmd('patch-config.sh', json.dumps(changes)))
 
     def update_env(self, key_values):
         """
@@ -301,15 +248,7 @@ class NodeHandle:
         effect when neard restarts.
         """
         check_env_key_values(key_values)
-        env_file = shlex.quote(self.host_path('neard.env'))
-        cmds = [f'touch {env_file}']
-        for key_value in key_values:
-            key = key_value.split('=', 1)[0]
-            cmds += [
-                f'sed -i "/^{key}=/d" {env_file}',
-                f'printf "%s\\n" {shlex.quote(key_value)} >> {env_file}',
-            ]
-        return self.run_cmd(' && '.join(cmds))
+        return self.run_cmd(self.script_cmd('set-env.sh', *key_values))
 
     def clear_env(self):
-        return self.run_cmd(f': > {shlex.quote(self.host_path("neard.env"))}')
+        return self.run_cmd(self.script_cmd('set-env.sh', '--clear'))

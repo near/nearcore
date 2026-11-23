@@ -21,7 +21,6 @@ FORKNET_DIR = 'forknet'
 NODE_NEAR_HOME = '/home/ubuntu/.near'
 TRAFFIC_NEAR_HOME = '/home/ubuntu/.near/target'
 TRAFFIC_SOURCE_HOME = '/home/ubuntu/.near/source'
-NEARD_LOGS_DIR = '/home/ubuntu/neard-logs'
 
 
 class RemoteNode:
@@ -59,7 +58,6 @@ class RemoteNode:
             'IS_TRAFFIC': int(self.is_traffic),
             'RUN_ID': run_id,
             'MOCKNET_STORE_PATH': mocknet_store_path,
-            'LOGS_DIR': NEARD_LOGS_DIR,
         }
 
     def run_cmd(self,
