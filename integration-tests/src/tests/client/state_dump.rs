@@ -334,8 +334,6 @@ fn run_state_sync_with_dumped_parts(
     let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();
     let synced_block_header = env.clients[1].chain.get_block_header(&sync_hash).unwrap();
     let synced_block_tip = Tip::from_header(&synced_block_header);
-    // Under spice the state a sync block's state sync hands out is what the block's execution left
-    // behind.
     let response = env.clients[1].runtime_adapter.query(
         ShardUId::single_shard(),
         &state_root_at(&env.clients[1], &synced_block, ShardUId::single_shard()),
