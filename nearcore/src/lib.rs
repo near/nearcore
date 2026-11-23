@@ -3,7 +3,7 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-use crate::state_sync::StateSyncDumper;
+use crate::state_sync_dumper::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::thread_pool::{
@@ -73,7 +73,7 @@ pub mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
-pub mod state_sync;
+pub mod state_sync_dumper;
 use near_async::ActorSystem;
 use near_async::futures::FutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
