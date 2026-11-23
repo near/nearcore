@@ -42,7 +42,9 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId, StateRoot,
+};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
@@ -558,11 +560,8 @@ impl TestEnv {
         let shard_id =
             account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
                 .unwrap();
-        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
-        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid =
             shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_index];
 
         for i in 0..self.clients.len() {
             let tracks_shard = self.clients[i]
@@ -574,11 +573,12 @@ impl TestEnv {
                 )
                 .unwrap();
             if tracks_shard {
+                let state_root = state_root_at(&self.clients[i], &last_block, shard_uid);
                 let response = self.clients[i]
                     .runtime_adapter
                     .query(
                         shard_uid,
-                        &last_chunk_header.prev_state_root(),
+                        &state_root,
                         last_block.header().height(),
                         last_block.header().raw_timestamp(),
                         last_block.header().prev_hash(),
@@ -907,6 +907,23 @@ impl TestEnv {
                 }
             }
         }
+    }
+}
+
+/// The state root of `shard_uid` at `block`:
+/// - without spice, the one the block's chunk applies onto, from the chunk header;
+/// - under spice, where a chunk header carries none, the one the block's execution left behind,
+///   so `block` must already be executed.
+pub(crate) fn state_root_at(client: &Client, block: &Block, shard_uid: ShardUId) -> StateRoot {
+    if block.header().is_spice() {
+        *client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap().state_root()
+    } else {
+        block
+            .chunks()
+            .iter()
+            .find(|chunk| chunk.shard_id() == shard_uid.shard_id())
+            .unwrap()
+            .prev_state_root()
     }
 }
 

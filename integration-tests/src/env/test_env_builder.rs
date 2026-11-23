@@ -9,7 +9,7 @@ use near_async::ActorSystem;
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
-use near_chain::state_snapshot_actor::SnapshotCallbacks;
+use near_chain::state_snapshot_actor::{SnapshotCallbacks, snapshot_hash_for_block};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ChainGenesis};
 use near_chain_configs::{
@@ -536,6 +536,9 @@ impl TestEnvBuilder {
             })
             .collect_vec();
         let actor_system = ActorSystem::new();
+        // A client's spice chunk executor shares its snapshot callbacks: under spice the executor
+        // takes the snapshot.
+        let mut spice_snapshot_callbacks = Vec::new();
         let (clients, chunk_validation_actors): (Vec<Client>, Vec<ChunkValidationActor>) =
             (0..num_clients)
                 .map(|i| {
@@ -557,10 +560,10 @@ impl TestEnvBuilder {
                         shard_uids: Vec<(ShardIndex, ShardUId)>,
                         block: Arc<Block>
                     | {
-                        let prev_block_hash = *block.header().prev_hash();
-                        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+                        let snapshot_hash = snapshot_hash_for_block(block.header());
+                        tracing::info!(target: "state_snapshot", ?snapshot_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
-                        tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
+                        tries.create_state_snapshot(snapshot_hash, &shard_uids, &block).unwrap();
                     });
                     let tries = runtime.get_tries();
                     let delete_snapshot_callback = Arc::new(move || {
@@ -571,6 +574,7 @@ impl TestEnvBuilder {
                         make_snapshot_callback,
                         delete_snapshot_callback,
                     };
+                    spice_snapshot_callbacks.push(snapshot_callbacks.clone());
                     setup_client_with_runtime(
                         clock.clone(),
                         actor_system.clone(),
@@ -625,6 +629,7 @@ impl TestEnvBuilder {
                         save_receipt_to_tx: self.save_receipt_to_tx,
                         ..Default::default()
                     },
+                    Some(spice_snapshot_callbacks[i].clone()),
                 )
             })
             .collect();

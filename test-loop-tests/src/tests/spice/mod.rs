@@ -13,4 +13,5 @@ mod pre_activation;
 mod receipt_proof_push;
 mod resharding;
 mod state_sync;
+mod state_sync_dumper;
 mod utils;

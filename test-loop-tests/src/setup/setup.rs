@@ -176,10 +176,11 @@ pub fn setup_client(
     const DEFAULT_TASK_DELAY: Duration = Duration::milliseconds(80);
     let task_delay_fn = task_delay_fn.clone();
     let acc = account_id.clone();
+    let task_delay = move |task_name: &str| {
+        task_delay_fn.as_ref().and_then(|f| f(&acc, task_name)).unwrap_or(DEFAULT_TASK_DELAY)
+    };
     let multi_spawner = AsyncComputationMultiSpawner::all_custom(Arc::new(
-        test_loop.async_computation_spawner(identifier, move |task_name| {
-            task_delay_fn.as_ref().and_then(|f| f(&acc, task_name)).unwrap_or(DEFAULT_TASK_DELAY)
-        }),
+        test_loop.async_computation_spawner(identifier, task_delay.clone()),
     ));
 
     let chunk_validation_client_sender = LateBoundSender::<ChunkValidationSender>::new();
@@ -480,7 +481,7 @@ pub fn setup_client(
         shard_tracker.clone(),
         network_adapter.as_multi_sender(),
         validator_signer.clone(),
-        Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
+        Arc::new(test_loop.async_computation_spawner(identifier, task_delay)),
         chunk_executor_adapter.as_sender(),
         spice_core_writer_adapter.as_sender(),
         spice_data_distributor_adapter.as_multi_sender(),

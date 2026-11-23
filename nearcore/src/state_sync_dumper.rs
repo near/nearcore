@@ -22,6 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{StatePartId, StatePartIndex};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
+use near_store::ShardUId;
 use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -606,6 +607,9 @@ impl StateDumper {
     }
 
     /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
+    /// Under spice, only once final blocks certify the sync block's chunks of the tracked shards
+    /// and this node has executed them: their state sync headers are proven against the
+    /// certification and read the state the execution left behind.
     fn latest_sync_header(&self) -> anyhow::Result<Option<Arc<BlockHeader>>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
@@ -620,7 +624,20 @@ impl StateDumper {
         else {
             return Ok(None);
         };
-        self.get_block_header(&sync_hash).map(Some)
+        let sync_header = self.get_block_header(&sync_hash)?;
+        if sync_header.is_spice() {
+            let tracked_shard_uids =
+                self.shard_tracker.tracked_shard_uids(sync_header.prev_hash())?;
+            let chain_store = self.chain.chain_store();
+
+            if !chain_store
+                .are_chunks_certified(&sync_hash, tracked_shard_uids.iter().map(ShardUId::shard_id))
+                || !chain_store.are_chunks_applied(&sync_hash, tracked_shard_uids)?
+            {
+                return Ok(None);
+            }
+        }
+        Ok(Some(sync_header))
     }
 
     /// Generates the state sync header for the shard and initializes the `ShardDump` struct which
@@ -1020,11 +1037,6 @@ async fn do_state_sync_dump(
     handle: Arc<StateSyncDumpHandle>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) {
-    // TODO(spice): Make state sync work with spice.
-    if cfg!(feature = "protocol_feature_spice") {
-        return;
-    }
-
     if let Err(error) = state_sync_dump(
         clock,
         chain,
