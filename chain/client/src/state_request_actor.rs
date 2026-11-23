@@ -107,11 +107,11 @@ impl StateRequestActor {
     ) -> MultithreadRuntimeHandle<Self> {
         actor_system.spawn_multithread_actor(
             config.state_request_server_threads,
-            Self::factory(clock, runtime, epoch_manager, genesis_hash, config),
+            Self::make_actor_fn(clock, runtime, epoch_manager, genesis_hash, config),
         )
     }
 
-    fn factory(
+    fn make_actor_fn(
         clock: Clock,
         runtime: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -378,7 +378,7 @@ mod tests {
     fn actors_share_throttle() {
         let clock = FakeClock::default();
         let (chain, epoch_manager, runtime, _) = setup(clock.clock());
-        let make_actor = StateRequestActor::factory(
+        let make_actor = StateRequestActor::make_actor_fn(
             clock.clock(),
             runtime,
             epoch_manager,
