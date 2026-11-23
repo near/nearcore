@@ -115,8 +115,8 @@ pub struct Config {
     #[serde(default = "default_max_inbound_tier3_connections")]
     pub max_inbound_tier3_connections: u32,
     /// Number of the inbound Tier3 connections from peers requesting state which are reserved for
-    /// validators of the current and the next epoch. Other peers can take only the rest. If unset,
-    /// a quarter of `max_inbound_tier3_connections` is reserved.
+    /// validators. Other peers can take only the rest. If unset, a quarter of
+    /// `max_inbound_tier3_connections` is reserved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbound_tier3_connections_reserved_for_validators: Option<u32>,
     #[serde(default = "default_so_recv_buffer_size")]

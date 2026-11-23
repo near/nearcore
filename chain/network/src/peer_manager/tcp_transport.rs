@@ -101,7 +101,8 @@ impl TcpTransport {
                 let config = &self.state.config;
                 let limit = connection::Tier3RequesterLimit {
                     max: config.max_inbound_tier3_connections as usize,
-                    reserved_for_validators: config.tier3_connections_reserved_for_validators()
+                    reserved_for_validators: config
+                        .inbound_tier3_connections_reserved_for_validators
                         as usize,
                 };
                 (&self.tier3, Some(limit))

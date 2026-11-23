@@ -255,10 +255,6 @@ pub(crate) enum PoolError {
     PermitDropped,
     #[error("too many tier3 connections from peers requesting state")]
     TooManyTier3Requesters,
-    #[error(
-        "the remaining tier3 connections from peers requesting state are reserved for validators"
-    )]
-    Tier3RequestersReservedForValidators,
 }
 
 /// Limit on the inbound Tier3 connections from peers requesting state from us.
@@ -336,19 +332,16 @@ impl Pool {
                 && let Some(limit) = tier3_requester_limit
             {
                 let requesters = pool.ready.values().filter(|conn| conn.tier3_requester).count();
-                if requesters >= limit.max {
-                    return Err(PoolError::TooManyTier3Requesters);
-                }
                 let non_validator_requesters = pool
                     .ready
                     .values()
                     .filter(|conn| conn.tier3_requester && !conn.validator)
                     .count();
-                if !peer.validator
-                    && non_validator_requesters
-                        >= limit.max.saturating_sub(limit.reserved_for_validators)
+                let max_non_validators = limit.max.saturating_sub(limit.reserved_for_validators);
+                if requesters >= limit.max
+                    || (!peer.validator && non_validator_requesters >= max_non_validators)
                 {
-                    return Err(PoolError::Tier3RequestersReservedForValidators);
+                    return Err(PoolError::TooManyTier3Requesters);
                 }
             }
             if pool.ready.insert(id.clone(), peer.clone()).is_some() {

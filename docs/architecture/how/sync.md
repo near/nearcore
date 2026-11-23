@@ -179,8 +179,8 @@ state headers and parts back over the same connection. Concurrent requests to a
 host share one connection. A host accepts up to
 `network.max_inbound_tier3_connections` (64 by default) connections from
 requesters at a time. A quarter of them is reserved for requesters that prove
-in their handshake that they own the account key of a validator of the current
-or the next epoch, and other requesters can take only the rest
+in their handshake that they own the account key of a validator, and other
+requesters can take only the rest
 (`network.inbound_tier3_connections_reserved_for_validators` changes the
 number).
 
