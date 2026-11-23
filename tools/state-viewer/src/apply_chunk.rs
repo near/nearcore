@@ -553,6 +553,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::{EccTransaction, SignedTransaction, TransactionEnvelope};
     use near_primitives::types::Balance;
+    use near_primitives::universal_state_init::RawStateInit;
     use near_primitives::utils::create_ecc_outcome_id;
 
     #[test]
@@ -576,8 +577,20 @@ mod tests {
 
         // The outcome of an ECC is its unique id, which depends on the block.
         let unsigned = TransactionEnvelope::Unsigned(ecc.clone());
-        assert_eq!(outcome_id(&unsigned, 10), create_ecc_outcome_id(ecc.hash(), 10));
+        let expected = create_ecc_outcome_id(ecc.hash_without_state_init(), 10);
+        assert_eq!(outcome_id(&unsigned, 10), expected);
         assert_ne!(outcome_id(&unsigned, 10), outcome_id(&unsigned, 11));
         assert_ne!(outcome_id(&unsigned, 10), ecc.get_hash());
+
+        // A copy that carries a state init has another hash but the same outcome id.
+        let with_init = EccTransaction::new_with_state_init(
+            "bob.near".parse().unwrap(),
+            vec![1, 2, 3],
+            Some(RawStateInit(vec![7])),
+        );
+        assert_ne!(with_init.hash(), ecc.hash());
+        let with_init = TransactionEnvelope::Unsigned(with_init);
+        assert_eq!(outcome_id(&with_init, 10), expected);
+        assert_ne!(outcome_id(&with_init, 10), outcome_id(&with_init, 11));
     }
 }
