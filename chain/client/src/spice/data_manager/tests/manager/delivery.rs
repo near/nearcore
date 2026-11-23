@@ -30,7 +30,7 @@ fn parts_signed_with_a_key_not_valid_for_the_items_block_are_rejected_and_change
 
     assert_matches!(result, Err(SenderFault::InvalidSignature));
     let result = manager.receive_from(&producers()[0], &id, &commitment, parts);
-    assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == receipt_data(0, 1));
+    assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == decoded_data(&id, receipt_data(0, 1)));
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn received_data_is_delivered_on_decode_and_its_commitment_settled() {
 
     let delivered = manager.receive_from(&producers()[0], &id, &commitment, parts).unwrap();
 
-    assert_matches!(delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
+    assert_matches!(delivered, PartsOutcome::Decoded(data) if data == decoded_data(&id, receipt_data(0, 1)));
     // Nothing more can arrive under a decoded commitment, so a re-pushed part cannot
     // deliver twice. The item stays until it expires.
     let result = manager.receive_from(&producers()[1], &id, &commitment, late_part);
@@ -69,10 +69,13 @@ fn a_second_commitment_for_a_delivered_id_is_delivered_too() {
     let second_delivered =
         manager.receive_from(&producers()[1], &id, &second, second_parts).unwrap();
 
-    assert_matches!(first_delivered, PartsOutcome::Decoded(data) if data == receipt_data(0, 1));
+    assert_matches!(
+        first_delivered,
+        PartsOutcome::Decoded(data) if data == decoded_data(&id, receipt_data(0, 1))
+    );
     assert_matches!(
         second_delivered,
-        PartsOutcome::Decoded(data) if data == other_receipt_data(0, 1)
+        PartsOutcome::Decoded(data) if data == decoded_data(&id, other_receipt_data(0, 1))
     );
 }
 

@@ -86,7 +86,7 @@ impl ItemMap {
 /// pushed to this node, and never moves.
 #[derive(Default)]
 pub(super) struct Items {
-    /// Items pushed to this node. They expire at the final execution head.
+    /// Items pushed to this node. They expire below their kind's horizon.
     push: ItemMap,
     /// Items only pulled, by destination shard. The chunk executor declares and releases them.
     // TODO(spice-data-distribution): consider a fallback for a shard whose release never arrives.

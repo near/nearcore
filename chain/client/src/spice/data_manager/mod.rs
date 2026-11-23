@@ -11,10 +11,12 @@ mod pull;
 mod sender;
 mod serve;
 
+pub(crate) use data_id::Decoded;
 pub use data_id::{DataId, ReceiptProofId};
 pub(crate) use encode::{EncodedData, encode};
-use heights::ChainHeights;
-pub(crate) use item::{AssembledDataError, SpiceData, VerifiedCodedPart};
+use heights::{ChainHeights, Horizons};
+use item::VerifiedCodedPart;
+pub(crate) use item::{AssembledDataError, SpiceData};
 use item::{FetchItem, PartInsertResult};
 use items::Items;
 use lru::LruCache;
@@ -24,6 +26,7 @@ use near_chain_configs::MutableValidatorSigner;
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, epoch_chunk_producers_for_shard};
+use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
@@ -39,7 +42,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use orphans::ParkedParts;
 pub(crate) use policy::ServePolicies;
-use policy::receipt_proof;
+use policy::{receipt_proof, witness};
 use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
 use sender::AuthenticatedSender;
@@ -63,6 +66,10 @@ pub(crate) const MAX_REQUESTED_PARTS: usize = 128;
 /// Max number of entries `(data_id, ordinals)` a single batched request may carry.
 /// This caps the encodes (CPU).
 pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
+
+/// Max number of witness entries a single batched request may carry. Serving one encodes a
+/// witness of up to 64 MiB.
+pub(crate) const MAX_REQUESTED_WITNESSES: usize = 2;
 
 /// Blocks parts are parked for.
 pub(crate) const MAX_ORPHAN_BLOCKS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
@@ -98,7 +105,7 @@ pub(crate) enum PartsOutcome {
     /// Parts accepted; no commitment decoded.
     Collecting,
     /// A commitment decoded to this data, which matches the committed hash and the id.
-    Decoded(SpiceData),
+    Decoded(Decoded),
     /// The item is done, or the commitment was already settled, to data or to garbage; The parts
     /// were probably OK, but we don't need them any more.
     AlreadySettled,
@@ -123,7 +130,7 @@ pub(crate) struct ProcessedBlockOutput {
     /// Requests for the pullable items, grouped by producer.
     pub(crate) pull_requests: Vec<PullRequest>,
     /// Data decoded from the parts parked for the block.
-    pub(crate) decoded: Vec<(DataId, SpiceData)>,
+    pub(crate) decoded: Vec<Decoded>,
 }
 
 /// A change in which receipt proofs into one shard the chunk executor needs.
@@ -140,8 +147,6 @@ pub enum NeedChange {
 /// Owns the per-item fetch state: what this node still needs, the parts received so far
 /// and who sent them, the pull requests outstanding, and when an item stops being
 /// relevant.
-// TODO(spice-data-distribution): only receipt proofs route here; witnesses still live
-// on the old actor path (#16275).
 pub(crate) struct SpiceDataManager {
     encoders: ReedSolomonEncoderCache,
     chain_store: ChainStoreAdapter,
@@ -159,7 +164,7 @@ pub(crate) struct SpiceDataManager {
     /// Parts for blocks not processed yet, by block hash; the most recently parked blocks.
     // TODO(spice-data-distribution): bound the data parked per sender.
     orphans: LruCache<CryptoHash, Vec<ParkedParts>>,
-    /// Processed blocks at or above the final execution head, with their heights.
+    /// Processed blocks at or above the lowest horizon of any kind, with their heights.
     processed_blocks: HashMap<CryptoHash, BlockHeight>,
 }
 
@@ -191,15 +196,15 @@ impl SpiceDataManager {
     }
 
     /// The ids of every data kind pushed to this node from `block`.
-    // TODO(spice-data-distribution): each id comes with a tri-state `Interest` once
-    // witnesses move onto the engine (#16275).
     fn needed_items(&self, block: &BlockHeader) -> Result<Vec<DataId>, Error> {
-        receipt_proof::needed_items(
-            self.epoch_manager.as_ref(),
-            &self.shard_tracker,
-            self.me().as_ref(),
-            block,
-        )
+        let epoch_manager = self.epoch_manager.as_ref();
+        let me = self.me();
+        let mut ids =
+            receipt_proof::needed_items(epoch_manager, &self.shard_tracker, me.as_ref(), block)?;
+        if let Some(me) = &me {
+            ids.extend(witness::needed_items(epoch_manager, &self.shard_tracker, me, block)?);
+        }
+        Ok(ids)
     }
 
     /// Whether `id` is pushed to this node.
@@ -216,23 +221,30 @@ impl SpiceDataManager {
                 )?;
                 Ok(recipients.contains(&me))
             }
-            DataId::Witness(_) => Ok(true),
+            // Nothing is pushed to a node without an account.
+            DataId::Witness(_) => Ok(self.me().is_some()),
         }
     }
 
     /// Whether the item is completed as far as data distribution is concerned.
     fn is_done(&self, id: &DataId) -> bool {
+        let store = self.chain_store.store();
         match id {
-            DataId::ReceiptProof(id) => {
-                receipt_proof::is_done(&self.chain_store.store(), &id.source, id.to_shard)
+            DataId::ReceiptProof(id) => receipt_proof::is_done(&store, &id.source, id.to_shard),
+            DataId::Witness(chunk_id) => {
+                self.me().is_some_and(|me| witness::is_done(&store, &me, chunk_id))
             }
-            DataId::Witness(_) => unreachable!("the data manager tracks no witnesses"),
         }
     }
 
     /// The ids `block` makes pullable, tracked or not.
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        receipt_proof::made_pullable_by(&self.chain_store, self.epoch_manager.as_ref(), block)
+        let epoch_manager = self.epoch_manager.as_ref();
+        let mut ids = receipt_proof::made_pullable_by(&self.chain_store, epoch_manager, block)?;
+        if let Some(me) = &self.me() {
+            ids.extend(witness::made_pullable_by(&self.chain_store, epoch_manager, me, block)?);
+        }
+        Ok(ids)
     }
 
     /// The keys the producer `account_id` of `item` may sign its parts with.
@@ -261,12 +273,15 @@ impl SpiceDataManager {
         self.items.contains(id)
     }
 
-    /// Tracks the items a processed block needs or makes pullable. Returns the data decoded from
-    /// parts that waited for it. Idempotent. Fails only on a read of the block's stored chain or
-    /// epoch data.
-    fn track_block(&mut self, block: &Block) -> Result<Vec<(DataId, SpiceData)>, Error> {
+    /// Tracks the items a processed block needs or makes pullable, and drops the witnesses of
+    /// the chunks its parent certifies. Returns the data decoded from parts that waited for it.
+    /// Idempotent. Fails only on a read of the block's stored chain or epoch data.
+    fn track_block(&mut self, block: &Block) -> Result<Vec<Decoded>, Error> {
         self.track_needed_items(block)?;
         self.mark_pullable_by(block)?;
+        for id in witness::certified_by_parent(&self.chain_store, block)? {
+            self.remove_item(&id);
+        }
         Ok(self.release_parked(block.header()))
     }
 
@@ -275,14 +290,15 @@ impl SpiceDataManager {
     fn track_needed_items(&mut self, block: &Block) -> Result<(), Error> {
         let block = block.header();
         let height = block.height();
-        if self.is_fork_at_or_below_final_head(block)? || self.heights.below_final_execution(height)
-        {
+        if self.is_fork_at_or_below_final_head(block)? {
             return Ok(());
         }
         let new_items = self
             .needed_items(block)?
             .into_iter()
-            .filter(|id| !self.items.contains(id) && !self.is_done(id))
+            .filter(|id| {
+                !self.heights.expired(id, height) && !self.items.contains(id) && !self.is_done(id)
+            })
             .map(|id| Ok((self.new_item(block, &id)?, id)))
             .collect::<Result<Vec<_>, Error>>()?;
         for (item, id) in new_items {
@@ -339,7 +355,7 @@ impl SpiceDataManager {
     }
 
     /// Tracks `id`, which the chunk executor misses, unless it is tracked or done, and makes it
-    /// pullable. An item pushed to this node is skipped below the final execution head, where it
+    /// pullable. An item pushed to this node is skipped below its kind's horizon, where it
     /// expires.
     fn track_missing_item(&mut self, id: &DataId) -> Result<(), Error> {
         if self.items.contains(id) || self.is_done(id) {
@@ -350,7 +366,7 @@ impl SpiceDataManager {
             return Ok(());
         }
         let pushed = self.is_pushed_to_me(id)?;
-        if pushed && self.heights.below_final_execution(block.height()) {
+        if pushed && self.heights.expired(id, block.height()) {
             return Ok(());
         }
         let source = id.producing_chunk();
@@ -389,10 +405,10 @@ impl SpiceDataManager {
         block_hash: &CryptoHash,
         now: Instant,
     ) -> ProcessedBlockOutput {
-        match self.final_execution_head_height() {
-            Ok(height) => self.on_final_execution_head(height),
+        match self.horizons() {
+            Ok(horizons) => self.on_horizons(horizons),
             Err(err) => {
-                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
+                tracing::error!(target: "spice_data_distribution", ?err, "failed to read the horizons");
             }
         }
         match self.chain_store.final_head() {
@@ -414,13 +430,43 @@ impl SpiceDataManager {
         ProcessedBlockOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
     }
 
-    /// Height of the final execution head; the genesis height before the first one is recorded.
-    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
-        match self.chain_store.spice_final_execution_head() {
-            Ok(head) => Ok(head.height),
-            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
-            Err(err) => Err(err),
+    /// The lowest height whose pushed items of each kind may still be needed.
+    fn horizons(&self) -> Result<Horizons, Error> {
+        Ok(Horizons {
+            receipt_proofs: receipt_proof::lowest_needed_height(&self.chain_store)?,
+            witnesses: witness::lowest_needed_height(&self.chain_store)?,
+        })
+    }
+
+    /// The block from which the processed blocks are walked on startup: the lower of the final
+    /// execution head and the last block certified as of the final head, raised so that every
+    /// canonical block from it up to the final execution head has its uncertified chunks. After
+    /// state sync, the blocks below the sync block's grandparent have none. Fails before the
+    /// first final execution head is recorded.
+    pub(crate) fn startup_cutoff(&self) -> Result<Tip, Error> {
+        let final_execution_head = self.chain_store.spice_final_execution_head()?;
+        let last_certified = witness::last_certified_as_of_final_head(&self.chain_store)?;
+        let lowest = final_execution_head.height.min(last_certified.height());
+        let mut cutoff = Arc::unwrap_or_clone(final_execution_head);
+        for height in (lowest..cutoff.height).rev() {
+            let block_hash = match self.chain_store.get_block_hash_by_height(height) {
+                Ok(block_hash) => block_hash,
+                Err(Error::DBNotFoundErr(_)) => continue,
+                Err(err) => return Err(err),
+            };
+            let header = self.chain_store.get_block_header(&block_hash)?;
+            let has_uncertified_chunks = header.is_genesis()
+                || !header.is_spice()
+                || self
+                    .chain_store
+                    .store()
+                    .exists(DBCol::uncertified_chunks(), block_hash.as_ref());
+            if !has_uncertified_chunks {
+                break;
+            }
+            cutoff = Tip::from_header(&header);
         }
+        Ok(cutoff)
     }
 
     /// Handles a signed message of parts. Parts for a block not processed yet wait for it.
@@ -497,19 +543,31 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Records the final execution head at `height` and stops tracking the items pushed to this node
-    /// below it. Below it, processed blocks are forgotten and parts for untracked items are no longer
-    /// wanted.
-    fn on_final_execution_head(&mut self, height: BlockHeight) {
-        let Some(from) = self.heights.update_final_execution_head(height) else {
+    /// Records the horizons and stops tracking the items pushed to this node below their kind's.
+    /// Below the lowest one, processed blocks are forgotten.
+    fn on_horizons(&mut self, horizons: Horizons) {
+        let passed = self.heights.update_horizons(horizons);
+        if passed.is_empty() {
             return;
-        };
-        self.processed_blocks.retain(|_, block_height| *block_height >= height);
-        // Pushed items are not tracked below the head, so the heights below `from` hold none.
-        let expired: Vec<DataId> =
-            self.items.push_ids_in((from, Bound::Excluded(height))).cloned().collect();
-        for id in expired {
-            self.remove_item(&id);
+        }
+        for heights in passed {
+            // Pushed items are not tracked below their horizon, so a horizon's previous heights
+            // hold none of its kind.
+            let expired: Vec<DataId> = self
+                .items
+                .push_ids_in(heights)
+                .filter(|id| {
+                    let height = self.items.get(id).expect("indexed ids are tracked").height;
+                    self.heights.expired(id, height)
+                })
+                .cloned()
+                .collect();
+            for id in expired {
+                self.remove_item(&id);
+            }
+        }
+        if let Some(lowest) = self.heights.lowest_horizon() {
+            self.processed_blocks.retain(|_, block_height| *block_height >= lowest);
         }
     }
 

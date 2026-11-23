@@ -1,7 +1,9 @@
 mod fetch;
 mod serve;
 
-pub(in crate::spice::data_manager) use fetch::{is_done, made_pullable_by, needed_items};
+pub(in crate::spice::data_manager) use fetch::{
+    is_done, lowest_needed_height, made_pullable_by, needed_items,
+};
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;

@@ -10,11 +10,12 @@ use near_primitives::spice::partial_data::SpiceDataPart;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
+use near_primitives::types::{ChunkExecutionResult, SpiceChunkId, SpiceUncertifiedChunkInfo};
 use near_primitives::utils::get_execution_results_key;
 use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, Store};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::RangeInclusive;
 
 mod batching;
 mod delivery;
@@ -22,6 +23,7 @@ mod lifecycle;
 mod orphans;
 mod recovery;
 mod retries;
+mod witnesses;
 
 /// A block on `prev` whose core statements certify `chunk_ids`. Not validated or processed.
 fn certifying_block(prev: &Block, chunk_ids: &[SpiceChunkId]) -> Arc<Block> {
@@ -74,15 +76,11 @@ fn by_producer(requests: Vec<PullRequest>) -> WantsByProducer {
     by_producer
 }
 
-/// The requests as `producer -> ordinals` for the one item `id`.
+/// The requests for `id`, as `producer -> ordinals`.
 fn wants_for(requests: Vec<PullRequest>, id: &DataId) -> BTreeMap<AccountId, BTreeSet<u64>> {
     by_producer(requests)
         .into_iter()
-        .map(|(producer, mut wants)| {
-            let ordinals = wants.remove(id).unwrap_or_else(|| panic!("no wants for {id:?}"));
-            assert!(wants.is_empty(), "wants for other items: {wants:?}");
-            (producer, ordinals)
-        })
+        .filter_map(|(producer, mut wants)| Some((producer, wants.remove(id)?)))
         .collect()
 }
 
@@ -154,8 +152,9 @@ impl TestManager {
         }
     }
 
-    /// Marks the tracked items pullable as a block certifying every shard's chunks of every
-    /// canonical block up to `height` would.
+    /// Certifies every shard's chunks of every canonical block up to `height`, as the block after
+    /// it would: the stored uncertified chunks of the canonical blocks above it drop them, the
+    /// tracked items are marked pullable, and their witnesses are dropped.
     fn certify_up_to(&mut self, height: BlockHeight) {
         let chain_store = self.store.chain_store();
         let chunk_ids: Vec<SpiceChunkId> = (1..=height)
@@ -165,8 +164,56 @@ impl TestManager {
             })
             .collect();
         let head = chain_store.get_block(&chain_store.head().unwrap().last_block_hash).unwrap();
+        self.drop_uncertified_chunks(height + 1..=head.header().height(), &chunk_ids);
         self.manager.mark_pullable_by(&certifying_block(&head, &chunk_ids)).unwrap();
+        for chunk_id in chunk_ids {
+            self.manager.remove_item(&DataId::Witness(chunk_id));
+        }
         self.certified_height = self.certified_height.max(height);
+    }
+
+    /// Removes `chunk_ids` from the stored uncertified chunks of the canonical blocks at `heights`.
+    /// The column is written once, so each row is deleted before it is rewritten.
+    fn drop_uncertified_chunks(
+        &self,
+        heights: RangeInclusive<BlockHeight>,
+        chunk_ids: &[SpiceChunkId],
+    ) {
+        let chain_store = self.store.chain_store();
+        let col = DBCol::uncertified_chunks();
+        let mut rows = Vec::new();
+        for height in heights {
+            let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
+                continue;
+            };
+            let Some(mut row) =
+                self.store.get_ser::<Vec<SpiceUncertifiedChunkInfo>>(col, block_hash.as_ref())
+            else {
+                continue;
+            };
+            row.retain(|info| !chunk_ids.contains(&info.chunk_id));
+            rows.push((block_hash, row));
+        }
+        let mut deletes = self.store.store_update();
+        for (block_hash, _) in &rows {
+            deletes.delete(col, block_hash.as_ref());
+        }
+        deletes.commit();
+        let mut inserts = self.store.store_update();
+        for (block_hash, row) in &rows {
+            inserts.insert_ser(col, block_hash.as_ref(), row);
+        }
+        inserts.commit();
+    }
+
+    /// A node with `me`'s account that applies `shard`.
+    fn as_validator(chain: &Chain, shard: u64, me: AccountId) -> Self {
+        Self::with_shard_tracker(
+            chain,
+            applying_shard_tracker(chain, shard),
+            Some(me),
+            PullConfig::default(),
+        )
     }
 
     fn set_final_execution_head(&self, block: &Block) {
@@ -212,9 +259,16 @@ impl TestManager {
         chunk_id
     }
 
-    /// The heights holding tracked items, lowest first.
-    fn tracked_heights(&self) -> Vec<BlockHeight> {
-        self.manager.items.ids_in(..).map(|(height, _)| height).sorted().dedup().collect()
+    /// The heights holding tracked receipt proofs, lowest first.
+    fn tracked_proof_heights(&self) -> Vec<BlockHeight> {
+        self.manager
+            .items
+            .ids_in(..)
+            .filter(|(_, id)| matches!(id, DataId::ReceiptProof(_)))
+            .map(|(height, _)| height)
+            .sorted()
+            .dedup()
+            .collect()
     }
 
     fn is_tracking(&self, id: &DataId) -> bool {
@@ -274,7 +328,7 @@ impl TestManager {
         let (commitment, mut parts) = encode_to_wire(&encoder(), data);
         parts.truncate(DATA_PARTS);
         let result = self.manager.receive_from(sender, id, &commitment, parts).unwrap();
-        assert_matches!(result, PartsOutcome::Decoded(decoded) if &decoded == data);
+        assert_matches!(result, PartsOutcome::Decoded(decoded) if decoded == decoded_data(id, data.clone()));
     }
 
     fn item(&self, id: &DataId) -> &FetchItem {

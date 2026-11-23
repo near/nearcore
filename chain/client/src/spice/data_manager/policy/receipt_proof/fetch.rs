@@ -6,7 +6,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, ShardId, SpiceChunkId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, SpiceChunkId};
 use near_store::Store;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::HashMap;
@@ -61,6 +61,17 @@ pub(crate) fn needed_items(
         }
     }
     Ok(ids)
+}
+
+/// The lowest height whose receipt proofs pushed to this node may still be needed: the final
+/// execution head's, whose proofs the next block applies. The genesis height before the first head
+/// is recorded.
+pub(crate) fn lowest_needed_height(chain_store: &ChainStoreAdapter) -> Result<BlockHeight, Error> {
+    match chain_store.spice_final_execution_head() {
+        Ok(head) => Ok(head.height),
+        Err(Error::DBNotFoundErr(_)) => Ok(chain_store.get_genesis_height()),
+        Err(err) => Err(err),
+    }
 }
 
 /// Whether the proof from `source` into `to_shard` is persisted.

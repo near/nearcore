@@ -1,5 +1,5 @@
 use super::sender::AuthenticatedSender;
-use super::{DataId, PartsOutcome, SenderFault, SpiceData, SpiceDataManager, producers_in_epoch};
+use super::{DataId, Decoded, PartsOutcome, SenderFault, SpiceDataManager, producers_in_epoch};
 use itertools::Itertools as _;
 use near_chain::Error;
 use near_crypto::PublicKey;
@@ -21,7 +21,7 @@ pub(super) struct ParkedParts {
 impl SpiceDataManager {
     /// Records the block as processed and feeds the parts parked for it to its items. Returns the
     /// data decoded.
-    pub(super) fn release_parked(&mut self, block: &BlockHeader) -> Vec<(DataId, SpiceData)> {
+    pub(super) fn release_parked(&mut self, block: &BlockHeader) -> Vec<Decoded> {
         self.processed_blocks.insert(*block.hash(), block.height());
         let mut decoded = Vec::new();
         for ParkedParts { sender, id, commitment, parts } in
@@ -34,7 +34,7 @@ impl SpiceDataManager {
             let result =
                 producer_index.and_then(|index| self.add_parts(&id, index, &commitment, parts));
             match result {
-                Ok(PartsOutcome::Decoded(data)) => decoded.push((id, data)),
+                Ok(PartsOutcome::Decoded(data)) => decoded.push(data),
                 Ok(
                     PartsOutcome::Collecting
                     | PartsOutcome::AlreadySettled
@@ -62,8 +62,7 @@ impl SpiceDataManager {
         // for an item no longer tracked. A recipient set that cannot be read leaves the parts
         // parked for the block's trigger to decide.
         if header.as_ref().is_some_and(|header| {
-            self.heights.below_final_execution(header.height())
-                || !self.is_pushed_to_me(&id).unwrap_or(true)
+            self.heights.expired(&id, header.height()) || !self.is_pushed_to_me(&id).unwrap_or(true)
         }) {
             return Ok(PartsOutcome::NotWanted);
         }
