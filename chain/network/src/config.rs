@@ -243,6 +243,14 @@ impl Default for NetworkTransitionConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(strum::EnumIter))]
+pub enum DecodeMemoryTier {
+    Low,
+    Medium,
+    High,
+}
+
 /// Per-decode limits on what bounded borsh charges: the decoded value's size and its allocations.
 /// `low`, `medium` and `high` apply to small, medium, and large or huge message kinds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,6 +279,14 @@ impl DecodeMemoryLimits {
             low_bytes: low_bytes.unwrap_or(default.low_bytes),
             medium_bytes: medium_bytes.unwrap_or(default.medium_bytes),
             high_bytes: high_bytes.unwrap_or(default.high_bytes),
+        }
+    }
+
+    pub fn limit_bytes(&self, tier: DecodeMemoryTier) -> usize {
+        match tier {
+            DecodeMemoryTier::Low => self.low_bytes,
+            DecodeMemoryTier::Medium => self.medium_bytes,
+            DecodeMemoryTier::High => self.high_bytes,
         }
     }
 
@@ -830,7 +846,9 @@ impl std::ops::Deref for VerifiedConfig {
 mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
-    use crate::config::{ConnectionEncoding, DecodeMemoryLimits, SignedStructFormat};
+    use crate::config::{
+        ConnectionEncoding, DecodeMemoryLimits, DecodeMemoryTier, SignedStructFormat,
+    };
     use crate::config_json;
     use crate::config_json::{DecodeMemoryLimitsConfig, NetworkConfigOverrides};
     use crate::network_protocol;
@@ -847,6 +865,7 @@ mod test {
     use near_crypto::{KeyType, SecretKey};
     use serde_json::error::Category;
     use serde_json::{Value, from_str, from_value, json, to_value};
+    use strum::IntoEnumIterator;
 
     #[test]
     fn test_network_config() {
@@ -1112,6 +1131,19 @@ mod test {
         let nc = new_network_config(config_json::Config::default()).unwrap();
         assert_eq!(nc.decode_memory_limits, expected);
         nc.verify().unwrap();
+    }
+
+    #[test]
+    fn decode_memory_limits_limit_bytes() {
+        let limits = decode_memory_limits(1, 2, 3);
+        for tier in DecodeMemoryTier::iter() {
+            let expected = match tier {
+                DecodeMemoryTier::Low => 1,
+                DecodeMemoryTier::Medium => 2,
+                DecodeMemoryTier::High => 3,
+            };
+            assert_eq!(limits.limit_bytes(tier), expected, "{tier:?}");
+        }
     }
 
     #[test]
