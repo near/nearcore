@@ -39,7 +39,8 @@ last_height = nodes[0].get_latest_block().height
 
 for seconds in [20, 120]:
     ps = [
-        multiprocessing.Process(target=one_process, args=(i, seconds))
+        multiprocessing.get_context('fork').Process(target=one_process,
+                                                    args=(i, seconds))
         for i in range(N_PROCESSES)
     ]
 
