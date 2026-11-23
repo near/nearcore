@@ -215,16 +215,23 @@ impl TxTracker {
         }
         let mut t = me.lock();
         t.next_heights = next_heights;
-        let next_height = t.next_heights.get(0).cloned();
+        // Blocks above the stop height are read for the create account lookahead, but not sent.
+        let stop_height = t.stop_height;
+        let next_height =
+            t.next_heights.get(0).cloned().filter(|h| stop_height.is_none_or(|stop| *h <= stop));
         let create_account_height = t.next_heights.get(crate::CREATE_ACCOUNT_DELTA).cloned();
         Ok((next_height, create_account_height))
     }
 
     pub(crate) fn finished(&self) -> bool {
         match self.stop_height {
-            Some(_) => {
-                self.height_popped >= self.stop_height
-                    && self.height_seen >= self.nonempty_height_queued
+            Some(stop_height) => {
+                // Every block up to the stop height was sent. There may be no block at the
+                // stop height itself, so also check that the next block is above it.
+                let all_sent = self.height_popped >= self.stop_height
+                    || (self.height_popped == self.height_queued
+                        && self.next_heights.front().is_some_and(|h| *h > stop_height));
+                all_sent && self.height_seen >= self.nonempty_height_queued
             }
             None => false,
         }

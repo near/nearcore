@@ -123,8 +123,10 @@ land without another process on the store:
   `--source-skip-state` every time: without it the reader loop fails its state
   checks at startup and the mirror stops.
 - Without `--stop-height` the mirror runs until stopped; when it catches up with the
-  reader head it waits for the next batch. A `--stop-height` above the bucket's head
-  makes it wait the same way (not fail) until the bucket gets there. A `SIGTERM` or
+  reader head it waits for the next batch. With `--stop-height` it sends no block
+  above that height, but still reads the blocks after it for the create account
+  lookahead. A `--stop-height` above the bucket's head makes it wait the same way
+  (not fail) until the bucket gets there. A `SIGTERM` or
   `SIGINT` drains the transactions already sent and stops the reader loop after the
   batch in flight.
 - Progress is logged every 16 batches, and the `near_mirror_source_reader_head` and
