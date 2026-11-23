@@ -8,7 +8,6 @@ use super::{
     MAX_HUGE_MESSAGE_SIZE, MAX_LARGE_MESSAGE_SIZE, MAX_MEDIUM_MESSAGE_SIZE, MAX_SMALL_MESSAGE_SIZE,
     PeerMessage, T1MessageBody, T2MessageBody, TieredMessageBody,
 };
-use crate::config::DecodeMemoryTier;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Kind of a `PeerMessage`.
@@ -96,47 +95,9 @@ pub enum T2MessageKind {
     StateRequestAck = 11,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(test, derive(strum::EnumIter))]
-pub(crate) enum MessageSizeClass {
-    Small,
-    Medium,
-    Large,
-    Huge,
-}
-
-impl MessageSizeClass {
-    pub(crate) fn max_size(self) -> usize {
-        match self {
-            MessageSizeClass::Small => MAX_SMALL_MESSAGE_SIZE,
-            MessageSizeClass::Medium => MAX_MEDIUM_MESSAGE_SIZE,
-            MessageSizeClass::Large => MAX_LARGE_MESSAGE_SIZE,
-            MessageSizeClass::Huge => MAX_HUGE_MESSAGE_SIZE,
-        }
-    }
-
-    pub(crate) fn decode_memory_tier(self) -> DecodeMemoryTier {
-        match self {
-            MessageSizeClass::Small => DecodeMemoryTier::Low,
-            MessageSizeClass::Medium => DecodeMemoryTier::Medium,
-            MessageSizeClass::Large | MessageSizeClass::Huge => DecodeMemoryTier::High,
-        }
-    }
-}
-
 impl PeerMessageKind {
     /// Maximum allowed size (in bytes) of the encoded form of a message of this kind.
     pub(crate) fn max_size(&self) -> usize {
-        self.size_class().max_size()
-    }
-
-    // Unused until message bodies are decoded with a memory limit.
-    #[allow(dead_code)]
-    pub(crate) fn decode_memory_tier(&self) -> DecodeMemoryTier {
-        self.size_class().decode_memory_tier()
-    }
-
-    pub(crate) fn size_class(&self) -> MessageSizeClass {
         use T1MessageKind::*;
         use T2MessageKind::*;
         use TieredMessageKind::{T1, T2};
@@ -156,7 +117,7 @@ impl PeerMessageKind {
             | PeerMessageKind::LastEdge
             | PeerMessageKind::PeersRequest
             | PeerMessageKind::Challenge // challenges are disabled
-            | PeerMessageKind::EpochSyncRequest => MessageSizeClass::Small,
+            | PeerMessageKind::EpochSyncRequest => MAX_SMALL_MESSAGE_SIZE,
 
             PeerMessageKind::PeersResponse
             | PeerMessageKind::Transaction
@@ -165,14 +126,14 @@ impl PeerMessageKind {
             | PeerMessageKind::SyncSnapshotHosts
             | PeerMessageKind::BlockHeaders
             | PeerMessageKind::Block
-            | PeerMessageKind::OptimisticBlock => MessageSizeClass::Medium,
+            | PeerMessageKind::OptimisticBlock => MAX_MEDIUM_MESSAGE_SIZE,
 
-            PeerMessageKind::VersionedStateResponse => MessageSizeClass::Large,
-            PeerMessageKind::EpochSyncResponse => MessageSizeClass::Huge,
+            PeerMessageKind::VersionedStateResponse => MAX_LARGE_MESSAGE_SIZE,
+            PeerMessageKind::EpochSyncResponse => MAX_HUGE_MESSAGE_SIZE,
             PeerMessageKind::Routed(kind) => match kind {
                 T1(kind) => match kind {
                     BlockApproval | VersionedChunkEndorsement | SpiceChunkEndorsement => {
-                        MessageSizeClass::Small
+                        MAX_SMALL_MESSAGE_SIZE
                     }
 
                     PartialEncodedChunkForward
@@ -181,7 +142,7 @@ impl PeerMessageKind {
                     | SpiceDataRequest
                     | SpiceChunkContractAccesses
                     | SpiceContractCodeRequest
-                    | VersionedPartialEncodedChunk => MessageSizeClass::Medium,
+                    | VersionedPartialEncodedChunk => MAX_MEDIUM_MESSAGE_SIZE,
 
                     PartialEncodedStateWitness
                     | PartialEncodedStateWitnessForward
@@ -189,7 +150,7 @@ impl PeerMessageKind {
                     | VersionedPartialEncodedStateWitnessForward
                     | ContractCodeResponse
                     | SpicePartialData
-                    | SpiceContractCodeResponse => MessageSizeClass::Large,
+                    | SpiceContractCodeResponse => MAX_LARGE_MESSAGE_SIZE,
                 },
                 T2(kind) => match kind {
                     TxStatusRequest
@@ -198,14 +159,14 @@ impl PeerMessageKind {
                     | ChunkStateWitnessAck
                     | StatePartRequest
                     | StateHeaderRequest
-                    | StateRequestAck => MessageSizeClass::Small,
+                    | StateRequestAck => MAX_SMALL_MESSAGE_SIZE,
 
                     ForwardTx
                     | PartialEncodedChunkRequest
                     | TxStatusResponse
-                    | PartialEncodedChunkResponse => MessageSizeClass::Medium,
+                    | PartialEncodedChunkResponse => MAX_MEDIUM_MESSAGE_SIZE,
 
-                    PartialEncodedContractDeploys => MessageSizeClass::Large,
+                    PartialEncodedContractDeploys => MAX_LARGE_MESSAGE_SIZE,
                 },
             },
         }
@@ -314,88 +275,5 @@ impl T2MessageBody {
             T2MessageBody::StateHeaderRequest(_) => T2MessageKind::StateHeaderRequest,
             T2MessageBody::StateRequestAck(_) => T2MessageKind::StateRequestAck,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        MessageSizeClass, PeerMessageKind, T1MessageKind, T2MessageKind, TieredMessageKind,
-    };
-    use crate::config::{DecodeMemoryLimits, DecodeMemoryTier};
-    use crate::network_protocol::{
-        MAX_HUGE_MESSAGE_SIZE, MAX_LARGE_MESSAGE_SIZE, MAX_MEDIUM_MESSAGE_SIZE,
-        MAX_SMALL_MESSAGE_SIZE,
-    };
-    use strum::IntoEnumIterator;
-
-    #[test]
-    fn size_class_max_size() {
-        assert_eq!(MessageSizeClass::Small.max_size(), MAX_SMALL_MESSAGE_SIZE);
-        assert_eq!(MessageSizeClass::Medium.max_size(), MAX_MEDIUM_MESSAGE_SIZE);
-        assert_eq!(MessageSizeClass::Large.max_size(), MAX_LARGE_MESSAGE_SIZE);
-        assert_eq!(MessageSizeClass::Huge.max_size(), MAX_HUGE_MESSAGE_SIZE);
-    }
-
-    #[test]
-    fn size_class_decode_memory_tier() {
-        assert_eq!(MessageSizeClass::Small.decode_memory_tier(), DecodeMemoryTier::Low);
-        assert_eq!(MessageSizeClass::Medium.decode_memory_tier(), DecodeMemoryTier::Medium);
-        assert_eq!(MessageSizeClass::Large.decode_memory_tier(), DecodeMemoryTier::High);
-        assert_eq!(MessageSizeClass::Huge.decode_memory_tier(), DecodeMemoryTier::High);
-    }
-
-    #[test]
-    fn kind_size_class_and_decode_memory_tier() {
-        use MessageSizeClass::{Huge, Large, Medium, Small};
-        let cases = [
-            (PeerMessageKind::Routed(TieredMessageKind::T2(T2MessageKind::Ping)), Small),
-            (PeerMessageKind::Tier2Handshake, Small),
-            (PeerMessageKind::Routed(TieredMessageKind::T1(T1MessageKind::BlockApproval)), Small),
-            (PeerMessageKind::Block, Medium),
-            (
-                PeerMessageKind::Routed(TieredMessageKind::T1(
-                    T1MessageKind::VersionedPartialEncodedChunk,
-                )),
-                Medium,
-            ),
-            (PeerMessageKind::Routed(TieredMessageKind::T2(T2MessageKind::ForwardTx)), Medium),
-            (PeerMessageKind::VersionedStateResponse, Large),
-            (
-                PeerMessageKind::Routed(TieredMessageKind::T1(
-                    T1MessageKind::PartialEncodedStateWitness,
-                )),
-                Large,
-            ),
-            (
-                PeerMessageKind::Routed(TieredMessageKind::T2(
-                    T2MessageKind::PartialEncodedContractDeploys,
-                )),
-                Large,
-            ),
-            (PeerMessageKind::EpochSyncResponse, Huge),
-        ];
-        for (kind, class) in cases {
-            assert_eq!(kind.size_class(), class, "{kind:?}");
-            assert_eq!(kind.max_size(), class.max_size(), "{kind:?}");
-            assert_eq!(kind.decode_memory_tier(), class.decode_memory_tier(), "{kind:?}");
-        }
-    }
-
-    #[test]
-    fn default_decode_memory_limits_cover_max_size() {
-        let limits = DecodeMemoryLimits::default();
-        for class in MessageSizeClass::iter() {
-            let limit = limits.limit_bytes(class.decode_memory_tier());
-            assert!(limit >= class.max_size(), "{class:?}: limit {limit} < {}", class.max_size());
-        }
-    }
-
-    #[test]
-    fn default_decode_memory_limits_are_8x_max_size() {
-        let limits = DecodeMemoryLimits::default();
-        assert_eq!(limits.low_bytes, 8 * MAX_SMALL_MESSAGE_SIZE);
-        assert_eq!(limits.medium_bytes, 8 * MAX_MEDIUM_MESSAGE_SIZE);
-        assert_eq!(limits.high_bytes, 8 * MAX_LARGE_MESSAGE_SIZE);
     }
 }
