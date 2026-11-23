@@ -1,7 +1,9 @@
 use crate::config::Config;
 use near_jsonrpc::RpcConfig;
 use near_network::config::{ConnectionEncoding, SignedStructFormat};
-use near_network::config_json::{ExperimentalConfig, NetworkConfigOverrides};
+use near_network::config_json::{
+    DecodeMemoryLimitsConfig, ExperimentalConfig, NetworkConfigOverrides,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 use near_store::StoreConfig;
@@ -51,6 +53,11 @@ fn test_config_duration_all_std() {
         state_sync: Some(Default::default()),
         trie_viewer_state_size_limit: Some(Default::default()),
         network: near_network::config_json::Config {
+            decode_memory_limits: Some(DecodeMemoryLimitsConfig {
+                low_bytes: Some(0),
+                medium_bytes: Some(0),
+                high_bytes: Some(0),
+            }),
             experimental: ExperimentalConfig {
                 network_config_overrides: NetworkConfigOverrides {
                     accounts_data_broadcast_rate_limit_burst: Some(0),

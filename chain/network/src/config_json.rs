@@ -219,6 +219,9 @@ pub struct Config {
     /// connection. If unset, defaults to `DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_write_buffer_capacity_bytes: Option<usize>,
+    /// See `config::DecodeMemoryLimits`. Unset limits use the defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decode_memory_limits: Option<DecodeMemoryLimitsConfig>,
 
     /// Configuration for Tier1 network.
     /// Tier1 network is a special network between validator nodes that provides faster
@@ -230,6 +233,16 @@ pub struct Config {
     // Field names in here can change/disappear at any moment without warning.
     #[serde(default)]
     pub experimental: ExperimentalConfig,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct DecodeMemoryLimitsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub medium_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high_bytes: Option<usize>,
 }
 
 fn default_tier1_enable_inbound() -> bool {
@@ -391,6 +404,7 @@ impl Default for Config {
             trusted_stun_servers: default_trusted_stun_servers(),
             outgoing_queue_limiter_capacity_bytes: None,
             max_write_buffer_capacity_bytes: None,
+            decode_memory_limits: None,
             tier1: Tier1Config::default(),
             experimental: ExperimentalConfig::default(),
         }

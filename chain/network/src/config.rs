@@ -1,6 +1,6 @@
 use crate::blacklist;
 use crate::concurrency::rate;
-use crate::config_json::Tier1Config;
+use crate::config_json::{DecodeMemoryLimitsConfig, Tier1Config};
 use crate::network_protocol::Encoding;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
@@ -38,6 +38,11 @@ pub const DEFAULT_ROUTING_GRAPH_MAX_EDGES: usize = 1_000_000;
 pub const DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES: usize = 3 * GIB as usize;
 /// Default maximum capacity of the write buffer of a single connection.
 pub const DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = 700 * MIB as usize;
+
+// 8x the encoded size limit of small, medium and large kinds.
+pub const DEFAULT_DECODE_MEMORY_LIMIT_LOW_BYTES: usize = 4 * MIB as usize;
+pub const DEFAULT_DECODE_MEMORY_LIMIT_MEDIUM_BYTES: usize = 256 * MIB as usize;
+pub const DEFAULT_DECODE_MEMORY_LIMIT_HIGH_BYTES: usize = GIB as usize;
 
 /// Maximum number of PeerAddrs in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
@@ -238,6 +243,71 @@ impl Default for NetworkTransitionConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(strum::EnumIter))]
+pub enum DecodeMemoryTier {
+    Low,
+    Medium,
+    High,
+}
+
+/// Per-decode limits on what bounded borsh charges: the decoded value's size and its allocations.
+/// `low`, `medium` and `high` apply to small, medium, and large or huge message kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecodeMemoryLimits {
+    pub low_bytes: usize,
+    pub medium_bytes: usize,
+    pub high_bytes: usize,
+}
+
+impl Default for DecodeMemoryLimits {
+    fn default() -> Self {
+        Self {
+            low_bytes: DEFAULT_DECODE_MEMORY_LIMIT_LOW_BYTES,
+            medium_bytes: DEFAULT_DECODE_MEMORY_LIMIT_MEDIUM_BYTES,
+            high_bytes: DEFAULT_DECODE_MEMORY_LIMIT_HIGH_BYTES,
+        }
+    }
+}
+
+impl DecodeMemoryLimits {
+    fn from_config(config: Option<DecodeMemoryLimitsConfig>) -> Self {
+        let DecodeMemoryLimitsConfig { low_bytes, medium_bytes, high_bytes } =
+            config.unwrap_or_default();
+        let default = Self::default();
+        Self {
+            low_bytes: low_bytes.unwrap_or(default.low_bytes),
+            medium_bytes: medium_bytes.unwrap_or(default.medium_bytes),
+            high_bytes: high_bytes.unwrap_or(default.high_bytes),
+        }
+    }
+
+    pub fn limit_bytes(&self, tier: DecodeMemoryTier) -> usize {
+        match tier {
+            DecodeMemoryTier::Low => self.low_bytes,
+            DecodeMemoryTier::Medium => self.medium_bytes,
+            DecodeMemoryTier::High => self.high_bytes,
+        }
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.low_bytes > 0, "low_bytes({}) must be > 0", self.low_bytes);
+        anyhow::ensure!(
+            self.low_bytes <= self.medium_bytes,
+            "low_bytes({}) must be <= medium_bytes({})",
+            self.low_bytes,
+            self.medium_bytes
+        );
+        anyhow::ensure!(
+            self.medium_bytes <= self.high_bytes,
+            "medium_bytes({}) must be <= high_bytes({})",
+            self.medium_bytes,
+            self.high_bytes
+        );
+        Ok(())
+    }
+}
+
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
@@ -335,6 +405,7 @@ pub struct NetworkConfig {
     pub outgoing_queue_limiter_capacity_bytes: usize,
     /// Maximum capacity of the write buffer of a single connection.
     pub max_write_buffer_capacity_bytes: usize,
+    pub decode_memory_limits: DecodeMemoryLimits,
     /// Controls the transition from protobuf to borsh serialization.
     pub transition: NetworkTransitionConfig,
 
@@ -560,6 +631,7 @@ impl NetworkConfig {
             max_write_buffer_capacity_bytes: cfg
                 .max_write_buffer_capacity_bytes
                 .unwrap_or(DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES),
+            decode_memory_limits: DecodeMemoryLimits::from_config(cfg.decode_memory_limits),
             transition: NetworkTransitionConfig::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
@@ -567,6 +639,7 @@ impl NetworkConfig {
             ),
         };
         this.override_config(cfg.experimental.network_config_overrides);
+        this.decode_memory_limits.validate().context("decode_memory_limits")?;
         Ok(this)
     }
 
@@ -649,6 +722,7 @@ impl NetworkConfig {
             routing_graph_max_edges: DEFAULT_ROUTING_GRAPH_MAX_EDGES,
             outgoing_queue_limiter_capacity_bytes: DEFAULT_OUTGOING_QUEUE_LIMITER_CAPACITY_BYTES,
             max_write_buffer_capacity_bytes: DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES,
+            decode_memory_limits: DecodeMemoryLimits::default(),
             transition: NetworkTransitionConfig::default(),
             #[cfg(test)]
             event_sink: near_async::messaging::IntoSender::into_sender(
@@ -723,6 +797,7 @@ impl NetworkConfig {
             self.routing_graph_max_edges_per_source <= self.routing_graph_max_edges,
             "routing_graph_max_edges_per_source must be <= routing_graph_max_edges"
         );
+        self.decode_memory_limits.validate().context("decode_memory_limits")?;
 
         // A struct signed with borsh can't be expressed in protobuf. A handshake sent in protobuf
         // would lack the OwnedAccount, and the peer wouldn't know that this node is a validator.
@@ -771,8 +846,11 @@ impl std::ops::Deref for VerifiedConfig {
 mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
-    use crate::config::{ConnectionEncoding, SignedStructFormat};
-    use crate::config_json::NetworkConfigOverrides;
+    use crate::config::{
+        ConnectionEncoding, DecodeMemoryLimits, DecodeMemoryTier, SignedStructFormat,
+    };
+    use crate::config_json;
+    use crate::config_json::{DecodeMemoryLimitsConfig, NetworkConfigOverrides};
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::{AccountData, Encoding, VersionedAccountData, to_unix_nanos};
@@ -781,8 +859,13 @@ mod test {
     };
     use crate::tcp;
     use crate::testonly::make_rng;
+    use bytesize::{GIB, MIB};
     use near_async::time;
-    use serde_json::from_str;
+    use near_chain_configs::MutableConfigValue;
+    use near_crypto::{KeyType, SecretKey};
+    use serde_json::error::Category;
+    use serde_json::{Value, from_str, from_value, json, to_value};
+    use strum::IntoEnumIterator;
 
     #[test]
     fn test_network_config() {
@@ -1012,5 +1095,247 @@ mod test {
             .rate_limits
             .insert(BlockHeaders, SingleMessageConfig::new(1, 4.0, None));
         assert!(nc.verify().is_ok());
+    }
+
+    fn new_network_config(cfg: config_json::Config) -> anyhow::Result<config::NetworkConfig> {
+        config::NetworkConfig::new(
+            cfg,
+            SecretKey::from_seed(KeyType::ED25519, "123"),
+            MutableConfigValue::new(None, "validator_signer"),
+            false,
+        )
+    }
+
+    fn config_with_decode_memory_limits(
+        limits: Option<DecodeMemoryLimitsConfig>,
+    ) -> config_json::Config {
+        config_json::Config { decode_memory_limits: limits, ..Default::default() }
+    }
+
+    fn decode_memory_limits(low: usize, medium: usize, high: usize) -> DecodeMemoryLimits {
+        DecodeMemoryLimits { low_bytes: low, medium_bytes: medium, high_bytes: high }
+    }
+
+    #[test]
+    fn decode_memory_limits_defaults() {
+        let expected = decode_memory_limits(4 * MIB as usize, 256 * MIB as usize, GIB as usize);
+        assert_eq!(DecodeMemoryLimits::default(), expected);
+        assert_eq!(config::DEFAULT_DECODE_MEMORY_LIMIT_LOW_BYTES, expected.low_bytes);
+        assert_eq!(config::DEFAULT_DECODE_MEMORY_LIMIT_MEDIUM_BYTES, expected.medium_bytes);
+        assert_eq!(config::DEFAULT_DECODE_MEMORY_LIMIT_HIGH_BYTES, expected.high_bytes);
+
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        assert_eq!(nc.decode_memory_limits, expected);
+        nc.verify().unwrap();
+
+        let nc = new_network_config(config_json::Config::default()).unwrap();
+        assert_eq!(nc.decode_memory_limits, expected);
+        nc.verify().unwrap();
+    }
+
+    #[test]
+    fn decode_memory_limits_limit_bytes() {
+        let limits = decode_memory_limits(1, 2, 3);
+        for tier in DecodeMemoryTier::iter() {
+            let expected = match tier {
+                DecodeMemoryTier::Low => 1,
+                DecodeMemoryTier::Medium => 2,
+                DecodeMemoryTier::High => 3,
+            };
+            assert_eq!(limits.limit_bytes(tier), expected, "{tier:?}");
+        }
+    }
+
+    #[test]
+    fn decode_memory_limits_partial_config() {
+        let default = DecodeMemoryLimits::default();
+        // Differ from the defaults and stay ordered for every subset.
+        let set = decode_memory_limits(8 * MIB as usize, 512 * MIB as usize, 2 * GIB as usize);
+        for mask in 0..8u8 {
+            let (set_low, set_medium, set_high) = (mask & 1 != 0, mask & 2 != 0, mask & 4 != 0);
+            let limits_config = DecodeMemoryLimitsConfig {
+                low_bytes: set_low.then_some(set.low_bytes),
+                medium_bytes: set_medium.then_some(set.medium_bytes),
+                high_bytes: set_high.then_some(set.high_bytes),
+            };
+            let expected = decode_memory_limits(
+                if set_low { set.low_bytes } else { default.low_bytes },
+                if set_medium { set.medium_bytes } else { default.medium_bytes },
+                if set_high { set.high_bytes } else { default.high_bytes },
+            );
+            assert_eq!(
+                DecodeMemoryLimits::from_config(Some(limits_config.clone())),
+                expected,
+                "{limits_config:?}"
+            );
+            let nc =
+                new_network_config(config_with_decode_memory_limits(Some(limits_config))).unwrap();
+            assert_eq!(nc.decode_memory_limits, expected);
+            nc.verify().unwrap();
+        }
+
+        assert_eq!(DecodeMemoryLimits::from_config(None), default);
+        assert_eq!(
+            DecodeMemoryLimits::from_config(Some(DecodeMemoryLimitsConfig::default())),
+            default
+        );
+    }
+
+    #[test]
+    fn decode_memory_limits_validate() {
+        let rejected = [
+            (decode_memory_limits(0, 10, 20), "low_bytes(0) must be > 0".to_string()),
+            (decode_memory_limits(0, 0, 0), "low_bytes(0) must be > 0".to_string()),
+            (
+                decode_memory_limits(11, 10, 20),
+                "low_bytes(11) must be <= medium_bytes(10)".to_string(),
+            ),
+            (
+                decode_memory_limits(1, 21, 20),
+                "medium_bytes(21) must be <= high_bytes(20)".to_string(),
+            ),
+            (
+                decode_memory_limits(30, 20, 10),
+                "low_bytes(30) must be <= medium_bytes(20)".to_string(),
+            ),
+            (
+                decode_memory_limits(usize::MAX, usize::MAX, usize::MAX - 1),
+                format!("medium_bytes({}) must be <= high_bytes({})", usize::MAX, usize::MAX - 1),
+            ),
+        ];
+        for (limits, expected) in rejected {
+            let err = limits.validate().err().expect("limits must be rejected");
+            assert_eq!(err.to_string(), expected, "{limits:?}");
+        }
+
+        let accepted = [
+            DecodeMemoryLimits::default(),
+            decode_memory_limits(1, 1, 1),
+            decode_memory_limits(1, 2, 3),
+            decode_memory_limits(10, 10, 20),
+            decode_memory_limits(1, 20, 20),
+            decode_memory_limits(1, 2, usize::MAX),
+            decode_memory_limits(usize::MAX, usize::MAX, usize::MAX),
+        ];
+        for limits in accepted {
+            limits.validate().unwrap_or_else(|err| panic!("{limits:?}: {err:#}"));
+        }
+    }
+
+    /// `new` is the path of config loading and `neard validate-config`.
+    #[test]
+    fn decode_memory_limits_new_rejects_invalid() {
+        let cases = [
+            (
+                DecodeMemoryLimitsConfig { low_bytes: Some(0), ..Default::default() },
+                "decode_memory_limits: low_bytes(0) must be > 0",
+            ),
+            (
+                DecodeMemoryLimitsConfig { medium_bytes: Some(MIB as usize), ..Default::default() },
+                "decode_memory_limits: low_bytes(4194304) must be <= medium_bytes(1048576)",
+            ),
+            (
+                DecodeMemoryLimitsConfig { high_bytes: Some(MIB as usize), ..Default::default() },
+                "decode_memory_limits: medium_bytes(268435456) must be <= high_bytes(1048576)",
+            ),
+        ];
+        for (limits_config, expected) in cases {
+            let err =
+                new_network_config(config_with_decode_memory_limits(Some(limits_config.clone())))
+                    .err()
+                    .expect("invalid limits must be rejected");
+            assert_eq!(format!("{err:#}"), expected, "{limits_config:?}");
+        }
+    }
+
+    #[test]
+    fn decode_memory_limits_verify_rejects_invalid() {
+        let cases = [
+            (decode_memory_limits(0, 2, 3), "decode_memory_limits: low_bytes(0) must be > 0"),
+            (
+                decode_memory_limits(3, 2, 3),
+                "decode_memory_limits: low_bytes(3) must be <= medium_bytes(2)",
+            ),
+            (
+                decode_memory_limits(1, 3, 2),
+                "decode_memory_limits: medium_bytes(3) must be <= high_bytes(2)",
+            ),
+        ];
+        let seed_config =
+            config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        for (limits, expected) in cases {
+            let mut nc = seed_config.clone();
+            nc.decode_memory_limits = limits;
+            let err = nc.verify().err().expect("invalid limits must be rejected");
+            assert_eq!(format!("{err:#}"), expected, "{limits:?}");
+        }
+    }
+
+    #[test]
+    fn decode_memory_limits_json() {
+        let default_json = to_value(config_json::Config::default()).unwrap();
+        assert!(default_json.get("decode_memory_limits").is_none(), "{default_json}");
+        let parse = |value: Value| -> config_json::Config {
+            let mut json = default_json.clone();
+            json["decode_memory_limits"] = value;
+            from_value(json).unwrap()
+        };
+
+        let cfg: config_json::Config = from_value(default_json.clone()).unwrap();
+        assert_eq!(cfg.decode_memory_limits, None);
+        assert_eq!(parse(Value::Null).decode_memory_limits, None);
+
+        let cfg = parse(json!({ "high_bytes": 2 * GIB }));
+        assert_eq!(
+            cfg.decode_memory_limits,
+            Some(DecodeMemoryLimitsConfig {
+                high_bytes: Some(2 * GIB as usize),
+                ..Default::default()
+            })
+        );
+        let nc = new_network_config(cfg).unwrap();
+        assert_eq!(
+            nc.decode_memory_limits,
+            DecodeMemoryLimits { high_bytes: 2 * GIB as usize, ..Default::default() }
+        );
+
+        assert_eq!(
+            parse(json!({})).decode_memory_limits,
+            Some(DecodeMemoryLimitsConfig::default())
+        );
+        assert_eq!(
+            parse(json!({ "low_bytes": null, "medium_bytes": null, "high_bytes": null }))
+                .decode_memory_limits,
+            Some(DecodeMemoryLimitsConfig::default())
+        );
+
+        assert_eq!(to_value(DecodeMemoryLimitsConfig::default()).unwrap(), json!({}));
+        for field in ["low_bytes", "medium_bytes", "high_bytes"] {
+            let value = json!({ field: 7 });
+            let limits_config: DecodeMemoryLimitsConfig = from_value(value.clone()).unwrap();
+            assert_ne!(limits_config, DecodeMemoryLimitsConfig::default(), "{field}");
+            assert_eq!(to_value(&limits_config).unwrap(), value);
+        }
+        let partial = DecodeMemoryLimitsConfig {
+            medium_bytes: Some(512 * MIB as usize),
+            ..Default::default()
+        };
+        let value = to_value(config_with_decode_memory_limits(Some(partial.clone()))).unwrap();
+        assert_eq!(value["decode_memory_limits"], json!({ "medium_bytes": 512 * MIB }));
+        let cfg: config_json::Config = from_value(value).unwrap();
+        assert_eq!(cfg.decode_memory_limits, Some(partial));
+
+        for bad in ["-1", "1.5", "18446744073709551616", "\"1\""] {
+            for field in ["low_bytes", "medium_bytes", "high_bytes"] {
+                let json = format!(r#"{{"{field}": {bad}}}"#);
+                let err = from_str::<DecodeMemoryLimitsConfig>(&json).unwrap_err();
+                assert_eq!(err.classify(), Category::Data, "{json}: {err}");
+            }
+        }
+        let json = format!(r#"{{"high_bytes": {}}}"#, usize::MAX);
+        assert_eq!(
+            from_str::<DecodeMemoryLimitsConfig>(&json).unwrap().high_bytes,
+            Some(usize::MAX)
+        );
     }
 }
