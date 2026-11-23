@@ -815,7 +815,9 @@ pub struct ClientConfig {
     #[cfg_attr(feature = "schemars", schemars(with = "DurationSchemarsProvider"))]
     #[serde(alias = "view_client_throttle_period")]
     pub state_request_throttle_period: Duration,
-    /// Maximum number of state requests served per throttle period
+    /// Maximum number of state requests admitted per throttle period, per state request server
+    /// thread. All the threads share one window, which admits this value times
+    /// `state_request_server_threads` requests.
     #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
     pub state_requests_per_throttle_period: usize,
     /// Number of threads for StateRequestActor pool.

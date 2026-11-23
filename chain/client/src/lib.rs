@@ -7,7 +7,7 @@ pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{StartClientResult, start_client};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::rpc_handler::{RpcHandlerActor, RpcHandlerConfig, spawn_rpc_handler_actor};
-pub use crate::state_request_actor::StateRequestActor;
+pub use crate::state_request_actor::{StateRequestActor, StateRequestThrottle};
 pub use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
     HandleOrphanWitnessOutcome,
