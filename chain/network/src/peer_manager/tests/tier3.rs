@@ -627,13 +627,13 @@ async fn validator_cannot_connect_twice_with_encoding(encoding: Encoding) {
 // Verify that non-validators can take all the requester slots of a host which reserves none of
 // them for validators.
 #[tokio::test]
-async fn non_validators_take_all_slots_without_reserve() {
+async fn zero_reserve_admits_non_validators() {
     for encoding in [Encoding::Proto, Encoding::Borsh] {
-        non_validators_take_all_slots_without_reserve_with_encoding(encoding).await;
+        zero_reserve_admits_non_validators_with_encoding(encoding).await;
     }
 }
 
-async fn non_validators_take_all_slots_without_reserve_with_encoding(encoding: Encoding) {
+async fn zero_reserve_admits_non_validators_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853259);
     let rng = &mut rng;
@@ -653,13 +653,13 @@ async fn non_validators_take_all_slots_without_reserve_with_encoding(encoding: E
 // Verify that only validators can connect to a host which reserves all of its requester slots for
 // them.
 #[tokio::test]
-async fn only_validators_connect_with_all_slots_reserved() {
+async fn full_reserve_admits_only_validators() {
     for encoding in [Encoding::Proto, Encoding::Borsh] {
-        only_validators_connect_with_all_slots_reserved_with_encoding(encoding).await;
+        full_reserve_admits_only_validators_with_encoding(encoding).await;
     }
 }
 
-async fn only_validators_connect_with_all_slots_reserved_with_encoding(encoding: Encoding) {
+async fn full_reserve_admits_only_validators_with_encoding(encoding: Encoding) {
     init_test_logger();
     let mut rng = make_rng(921853260);
     let rng = &mut rng;
