@@ -1,11 +1,13 @@
 use super::item::FetchItem;
-use super::items::{Delivery, Items};
-use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, remove_indexed};
+use super::items::Items;
+use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS};
 use near_async::time::{Duration, Instant};
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::AccountId;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+#[cfg(test)]
+use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::mem::take;
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
@@ -51,30 +53,8 @@ impl Default for Config {
 /// Packs all that into requests.
 pub(super) struct Pulls {
     config: Config,
-    /// Pushed items that may be pulled.
-    push: PullWindow,
-    /// Pull-only items that may be pulled, by destination shard.
-    pull_only: HashMap<ShardId, PullWindow>,
     /// The last request made to each producer for each item.
     requests: HashMap<DataId, HashMap<AccountId, Request>>,
-}
-
-/// Ids of tracked items that may be pulled, by height.
-#[derive(Default)]
-struct PullWindow {
-    pullable: BTreeMap<BlockHeight, HashSet<DataId>>,
-}
-
-impl PullWindow {
-    /// The ids at the `heights` lowest heights.
-    fn lowest(&self, heights: NonZeroUsize) -> impl Iterator<Item = &DataId> {
-        self.pullable.values().take(heights.get()).flatten()
-    }
-
-    #[cfg(test)]
-    fn contains(&self, id: &DataId) -> bool {
-        self.pullable.values().any(|ids| ids.contains(id))
-    }
 }
 
 /// A request made to one producer for one item.
@@ -87,21 +67,7 @@ struct Request {
 
 impl Pulls {
     pub(super) fn new(config: Config) -> Self {
-        Self {
-            config,
-            push: PullWindow::default(),
-            pull_only: HashMap::new(),
-            requests: HashMap::new(),
-        }
-    }
-
-    /// Makes `id`, tracked at `height`, open to pulling.
-    pub(super) fn mark_pullable(&mut self, id: DataId, height: BlockHeight, delivery: Delivery) {
-        let window = match delivery {
-            Delivery::Pushed => &mut self.push,
-            Delivery::PullOnly(to_shard) => self.pull_only.entry(to_shard).or_default(),
-        };
-        window.pullable.entry(height).or_default().insert(id);
+        Self { config, requests: HashMap::new() }
     }
 
     /// Records a verified answer from `producer` for `id`.
@@ -112,19 +78,8 @@ impl Pulls {
         }
     }
 
-    /// Removes `id`, tracked at `height`, from the pullable items and forgets its requests.
-    pub(super) fn forget(&mut self, id: &DataId, height: BlockHeight, delivery: Delivery) {
-        match delivery {
-            Delivery::Pushed => remove_indexed(&mut self.push.pullable, height, id),
-            Delivery::PullOnly(to_shard) => {
-                if let Some(window) = self.pull_only.get_mut(&to_shard) {
-                    remove_indexed(&mut window.pullable, height, id);
-                    if window.pullable.is_empty() {
-                        self.pull_only.remove(&to_shard);
-                    }
-                }
-            }
-        }
+    /// Forgets the requests made for `id`.
+    pub(super) fn forget_requests(&mut self, id: &DataId) {
         self.requests.remove(id);
     }
 
@@ -134,10 +89,9 @@ impl Pulls {
     /// looked up in `items`. Records every request it returns as created at `now`.
     pub(super) fn to_issue(&mut self, now: Instant, items: &Items) -> Vec<PullRequest> {
         let trigger = Trigger::new(now, self.config.request_timeout);
-        let push_ids = self.push.lowest(self.config.push_heights);
+        let push_ids = items.lowest_pullable_pushed(self.config.push_heights);
         let push_wants = wants_by_producer(push_ids, items, &mut self.requests, &trigger);
-        let pull_only_ids =
-            self.pull_only.values().flat_map(|window| window.lowest(self.config.pull_only_heights));
+        let pull_only_ids = items.lowest_pullable_pull_only(self.config.pull_only_heights);
         let pull_only_wants = wants_by_producer(pull_only_ids, items, &mut self.requests, &trigger);
         // TODO(spice-data-distribution): send pull-only requests in a serve-side lane of their own,
         // so they cannot crowd out the requests for pushed items under the server's rate limit.
@@ -179,11 +133,6 @@ impl Pulls {
             requests.push(PullRequest { producer, wants: current });
         }
         requests
-    }
-
-    #[cfg(test)]
-    pub(super) fn is_pullable(&self, id: &DataId) -> bool {
-        self.push.contains(id) || self.pull_only.values().any(|window| window.contains(id))
     }
 
     /// The producers with an outstanding request for `id` at `now`.

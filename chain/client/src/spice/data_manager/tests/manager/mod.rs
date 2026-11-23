@@ -228,7 +228,7 @@ impl TestManager {
     }
 
     fn is_pullable(&self, id: &DataId) -> bool {
-        self.manager.pulls.is_pullable(id)
+        self.manager.items.is_pullable(id)
     }
 
     /// Asserts no item and no index entry is left for `id`.

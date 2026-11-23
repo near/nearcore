@@ -23,8 +23,7 @@ fn needed_shards(
         return Ok(NeededShards { sources: Vec::new(), destinations: Vec::new() });
     };
     let shard_layout = epoch_manager.get_shard_layout(block.epoch_id())?;
-    // Applying the source shard ourselves produces the proof locally; this is
-    // also why a producer never fetches its own proof.
+    // Applying the source shard ourselves produces the proof locally
     let applied_itself = shards_applied_itself(shard_tracker, epoch_manager, block)?;
     let sources =
         shard_layout.shard_ids().filter(|shard_id| !applied_itself.contains(shard_id)).collect();

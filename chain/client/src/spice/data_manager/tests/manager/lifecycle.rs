@@ -1,5 +1,4 @@
 use super::*;
-use crate::spice::data_manager::items::Delivery;
 use std::slice;
 
 #[test]
@@ -592,10 +591,7 @@ fn a_release_removes_only_the_pull_only_items_into_its_shard() {
     let sources = [manager.certified_chunk(&blocks[0], 2), manager.certified_chunk(&blocks[1], 2)];
     manager.need(0, &sources);
     manager.need(1, &sources);
-    assert_eq!(
-        manager.manager.items.delivery(&receipt_id(&blocks[0], 2, 0)),
-        Some(Delivery::PullOnly(ShardId::new(0)))
-    );
+    assert!(manager.manager.items.is_pull_only(&receipt_id(&blocks[0], 2, 0)));
 
     manager.change_needs(0, NeedChange::NoLongerNeededBelow(blocks[1].header().height()));
     manager.assert_forgotten(&receipt_id(&blocks[0], 2, 0));

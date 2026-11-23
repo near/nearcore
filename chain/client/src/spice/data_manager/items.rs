@@ -1,7 +1,8 @@
-use super::DataId;
 use super::item::FetchItem;
+use super::{DataId, remove_indexed};
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::ops::RangeBounds;
 
 /// Tracked items, indexed by their block's height.
@@ -9,6 +10,8 @@ use std::ops::RangeBounds;
 struct ItemMap {
     items: HashMap<DataId, FetchItem>,
     by_height: BTreeMap<BlockHeight, HashSet<DataId>>,
+    /// The ids of the items that may be pulled, by height.
+    pullable: BTreeMap<BlockHeight, HashSet<DataId>>,
 }
 
 impl ItemMap {
@@ -19,26 +22,31 @@ impl ItemMap {
 
     fn remove(&mut self, id: &DataId) -> Option<FetchItem> {
         let item = self.items.remove(id)?;
-        if let Some(ids) = self.by_height.get_mut(&item.height) {
-            ids.remove(id);
-            if ids.is_empty() {
-                self.by_height.remove(&item.height);
-            }
-        }
+        remove_indexed(&mut self.by_height, item.height, id);
+        remove_indexed(&mut self.pullable, item.height, id);
         Some(item)
+    }
+
+    fn mark_pullable(&mut self, id: &DataId) {
+        if let Some(item) = self.items.get(id) {
+            self.pullable.entry(item.height).or_default().insert(id.clone());
+        }
+    }
+
+    fn stop_pulling(&mut self, id: &DataId) {
+        if let Some(item) = self.items.get(id) {
+            remove_indexed(&mut self.pullable, item.height, id);
+        }
+    }
+
+    /// The pullable ids at the `heights` lowest heights holding any.
+    fn lowest_pullable(&self, heights: NonZeroUsize) -> impl Iterator<Item = &DataId> {
+        self.pullable.values().take(heights.get()).flatten()
     }
 
     fn ids_in(&self, heights: impl RangeBounds<BlockHeight>) -> impl Iterator<Item = &DataId> {
         self.by_height.range(heights).flat_map(|(_, ids)| ids)
     }
-}
-
-/// How a tracked item reaches this node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Delivery {
-    Pushed,
-    /// Only pulled, as a receipt proof into this destination shard.
-    PullOnly(ShardId),
 }
 
 /// Every tracked item. An id is in one map, decided when it is first tracked by whether it is
@@ -60,15 +68,11 @@ impl Items {
         self.pull_only.get(&to_shard(id)?).filter(|map| map.items.contains_key(id))
     }
 
-    pub(super) fn delivery(&self, id: &DataId) -> Option<Delivery> {
+    fn map_of_mut(&mut self, id: &DataId) -> Option<&mut ItemMap> {
         if self.push.items.contains_key(id) {
-            return Some(Delivery::Pushed);
+            return Some(&mut self.push);
         }
-        let to_shard = to_shard(id)?;
-        self.pull_only
-            .get(&to_shard)
-            .is_some_and(|map| map.items.contains_key(id))
-            .then_some(Delivery::PullOnly(to_shard))
+        self.pull_only.get_mut(&to_shard(id)?).filter(|map| map.items.contains_key(id))
     }
 
     pub(super) fn get(&self, id: &DataId) -> Option<&FetchItem> {
@@ -76,10 +80,7 @@ impl Items {
     }
 
     pub(super) fn get_mut(&mut self, id: &DataId) -> Option<&mut FetchItem> {
-        if self.push.items.contains_key(id) {
-            return self.push.items.get_mut(id);
-        }
-        self.pull_only.get_mut(&to_shard(id)?)?.items.get_mut(id)
+        self.map_of_mut(id)?.items.get_mut(id)
     }
 
     pub(super) fn contains(&self, id: &DataId) -> bool {
@@ -110,6 +111,36 @@ impl Items {
         item
     }
 
+    /// Makes the tracked item `id` open to pulling; does nothing for an untracked one.
+    pub(super) fn mark_pullable(&mut self, id: &DataId) {
+        if let Some(map) = self.map_of_mut(id) {
+            map.mark_pullable(id);
+        }
+    }
+
+    pub(super) fn stop_pulling(&mut self, id: &DataId) {
+        if let Some(map) = self.map_of_mut(id) {
+            map.stop_pulling(id);
+        }
+    }
+
+    /// The pullable pushed items at the `heights` lowest heights holding any.
+    pub(super) fn lowest_pullable_pushed(
+        &self,
+        heights: NonZeroUsize,
+    ) -> impl Iterator<Item = &DataId> {
+        self.push.lowest_pullable(heights)
+    }
+
+    /// The pullable pull-only items at the `heights` lowest heights holding any, for each
+    /// destination shard.
+    pub(super) fn lowest_pullable_pull_only(
+        &self,
+        heights: NonZeroUsize,
+    ) -> impl Iterator<Item = &DataId> {
+        self.pull_only.values().flat_map(move |map| map.lowest_pullable(heights))
+    }
+
     /// The pushed items at `heights`.
     pub(super) fn push_ids_in(
         &self,
@@ -137,6 +168,16 @@ impl Items {
         self.pull_only
             .get(&to_shard)
             .map_or_else(Vec::new, |map| map.ids_in(heights).cloned().collect())
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_pullable(&self, id: &DataId) -> bool {
+        self.map_of(id).is_some_and(|map| map.pullable.values().any(|ids| ids.contains(id)))
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_pull_only(&self, id: &DataId) -> bool {
+        self.contains(id) && !self.push.items.contains_key(id)
     }
 }
 

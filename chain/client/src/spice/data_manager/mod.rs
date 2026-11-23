@@ -380,19 +380,15 @@ impl SpiceDataManager {
         } else {
             self.items.insert_pull_only(id.clone(), item);
         }
-        let delivery = self.items.delivery(id).expect("the item was just tracked");
-        self.pulls.mark_pullable(id.clone(), block.height(), delivery);
+        self.items.mark_pullable(id);
         Ok(())
     }
 
-    /// Adds the tracked items `block` makes pullable to `pulls`.
+    /// Makes the tracked items `block` makes pullable open to pulling.
     fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
         for id in self.made_pullable_by(block)? {
-            if self.done_items.contains(&id) {
-                continue;
-            }
-            if let (Some(item), Some(delivery)) = (self.items.get(&id), self.items.delivery(&id)) {
-                self.pulls.mark_pullable(id, item.height, delivery);
+            if !self.done_items.contains(&id) {
+                self.items.mark_pullable(&id);
             }
         }
         Ok(())
@@ -578,20 +574,18 @@ impl SpiceDataManager {
         let done: Vec<DataId> =
             self.delivered_items.iter().filter(|id| self.is_done(id)).cloned().collect();
         for id in done {
-            let height = self.items.get(&id).expect("a delivered item is tracked").height;
-            let delivery = self.items.delivery(&id).expect("a delivered item is tracked");
             self.delivered_items.remove(&id);
-            self.pulls.forget(&id, height, delivery);
+            self.items.stop_pulling(&id);
+            self.pulls.forget_requests(&id);
             self.done_items.insert(id);
         }
     }
 
     fn remove_item(&mut self, id: &DataId) {
-        let Some(delivery) = self.items.delivery(id) else {
+        if self.items.remove(id).is_none() {
             return;
-        };
-        let item = self.items.remove(id).expect("an item with a delivery is tracked");
-        self.pulls.forget(id, item.height, delivery);
+        }
+        self.pulls.forget_requests(id);
         self.delivered_items.remove(id);
         self.done_items.remove(id);
     }
