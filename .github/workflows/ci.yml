@@ -1,6 +1,6 @@
 name: CI
 
-#cspell:ignore SCCACHE
+#cspell:ignore SCCACHE endgroup etime ppid
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -86,9 +86,31 @@ jobs:
       # Run the tests
       - name: just nextest-slow ${{ matrix.type }} (with coverage)
         if: (github.event_name != 'pull_request' || matrix.run_on_pr)
+        # The slowest healthy run of this step takes ~31 minutes (macOS). Fail
+        # before the merge queue's 60 minute limit removes the whole group.
+        timeout-minutes: 45
         run: |
           mkdir -p coverage/codecov
+          # If the step is still running after 35 minutes it is most likely
+          # stuck. Dump the process tree, and on macOS the stacks of the test
+          # processes, before the timeout above kills everything.
+          (
+            sleep 2100
+            echo "::group::Still running after 35 minutes, process list"
+            ps -axo pid,ppid,etime,stat,command
+            echo "::endgroup::"
+            if command -v sample > /dev/null; then
+              for pid in $(pgrep -f "$PWD/target/" | head -n 8); do
+                echo "::group::sample $pid"
+                sample "$pid" 3 2>&1 | head -n 400
+                echo "::endgroup::"
+              done
+            fi
+          ) &
+          watchdog=$!
           just codecov-ci "nextest-slow ${{ matrix.type }}"
+          pkill -P "$watchdog" || true
+          kill "$watchdog" || true
 
       # Upload the coverage files
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
