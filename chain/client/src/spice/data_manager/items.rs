@@ -12,6 +12,8 @@ struct ItemMap {
     by_height: BTreeMap<BlockHeight, HashSet<DataId>>,
     /// The ids of the items that may be pulled, by height.
     pullable: BTreeMap<BlockHeight, HashSet<DataId>>,
+    /// The ids of the done items, by height.
+    done: BTreeMap<BlockHeight, HashSet<DataId>>,
 }
 
 impl ItemMap {
@@ -24,6 +26,7 @@ impl ItemMap {
         let item = self.items.remove(id)?;
         remove_indexed(&mut self.by_height, item.height, id);
         remove_indexed(&mut self.pullable, item.height, id);
+        remove_indexed(&mut self.done, item.height, id);
         Some(item)
     }
 
@@ -39,6 +42,22 @@ impl ItemMap {
         }
     }
 
+    fn mark_done(&mut self, id: &DataId) {
+        if let Some(item) = self.items.get(id) {
+            self.done.entry(item.height).or_default().insert(id.clone());
+        }
+    }
+
+    fn is_marked_done(&self, id: &DataId) -> bool {
+        self.items
+            .get(id)
+            .is_some_and(|item| self.done.get(&item.height).is_some_and(|ids| ids.contains(id)))
+    }
+
+    fn done_ids_in(&self, heights: impl RangeBounds<BlockHeight>) -> impl Iterator<Item = &DataId> {
+        self.done.range(heights).flat_map(|(_, ids)| ids)
+    }
+
     /// The pullable ids at the `heights` lowest heights holding any.
     fn lowest_pullable(&self, heights: NonZeroUsize) -> impl Iterator<Item = &DataId> {
         self.pullable.values().take(heights.get()).flatten()
@@ -46,6 +65,13 @@ impl ItemMap {
 
     fn ids_in(&self, heights: impl RangeBounds<BlockHeight>) -> impl Iterator<Item = &DataId> {
         self.by_height.range(heights).flat_map(|(_, ids)| ids)
+    }
+
+    fn heights_and_ids_in(
+        &self,
+        heights: impl RangeBounds<BlockHeight>,
+    ) -> impl Iterator<Item = (BlockHeight, &DataId)> {
+        self.by_height.range(heights).flat_map(|(height, ids)| ids.iter().map(|id| (*height, id)))
     }
 }
 
@@ -87,13 +113,15 @@ impl Items {
         self.map_of(id).is_some()
     }
 
-    /// Tracks `id`, pushed to this node.
+    /// Tracks the untracked `id`, pushed to this node.
     pub(super) fn insert_push(&mut self, id: DataId, item: FetchItem) {
+        debug_assert!(!self.contains(&id), "an item is tracked once");
         self.push.insert(id, item);
     }
 
-    /// Tracks the receipt proof `id`, which is only pulled.
+    /// Tracks the untracked receipt proof `id`, which is only pulled.
     pub(super) fn insert_pull_only(&mut self, id: DataId, item: FetchItem) {
+        debug_assert!(!self.contains(&id), "an item is tracked once");
         let to_shard = to_shard(&id).expect("only receipt proofs are pulled only");
         self.pull_only.entry(to_shard).or_default().insert(id, item);
     }
@@ -124,6 +152,27 @@ impl Items {
         }
     }
 
+    /// Marks the tracked item `id` done; does nothing for an untracked one.
+    pub(super) fn mark_done(&mut self, id: &DataId) {
+        if let Some(map) = self.map_of_mut(id) {
+            map.mark_done(id);
+        }
+    }
+
+    pub(super) fn is_marked_done(&self, id: &DataId) -> bool {
+        self.map_of(id).is_some_and(|map| map.is_marked_done(id))
+    }
+
+    /// The done items of every map at `heights`.
+    pub(super) fn done_ids_in(
+        &self,
+        heights: impl RangeBounds<BlockHeight> + Clone,
+    ) -> impl Iterator<Item = &DataId> {
+        self.push
+            .done_ids_in(heights.clone())
+            .chain(self.pull_only.values().flat_map(move |map| map.done_ids_in(heights.clone())))
+    }
+
     /// The pullable pushed items at the `heights` lowest heights holding any.
     pub(super) fn lowest_pullable_pushed(
         &self,
@@ -149,14 +198,14 @@ impl Items {
         self.push.ids_in(heights)
     }
 
-    /// The items of every map at `heights`.
+    /// The items of every map at `heights`, with their heights.
     pub(super) fn ids_in(
         &self,
         heights: impl RangeBounds<BlockHeight> + Clone,
-    ) -> impl Iterator<Item = &DataId> {
-        self.push
-            .ids_in(heights.clone())
-            .chain(self.pull_only.values().flat_map(move |map| map.ids_in(heights.clone())))
+    ) -> impl Iterator<Item = (BlockHeight, &DataId)> {
+        self.push.heights_and_ids_in(heights.clone()).chain(
+            self.pull_only.values().flat_map(move |map| map.heights_and_ids_in(heights.clone())),
+        )
     }
 
     /// The pulled-only items into `to_shard` at `heights`.

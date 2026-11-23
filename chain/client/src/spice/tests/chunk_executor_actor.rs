@@ -666,6 +666,43 @@ fn test_a_missing_receipt_proof_from_a_block_another_executor_applies_is_not_dec
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_missing_receipt_proof_from_a_block_a_catching_up_executor_parks_is_declared() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let blocks = produce_n_blocks(&mut actors, 2);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    record_endorsements(&mut actors, &blocks[0]);
+    declared_missing(&mut outgoing_rc);
+    let node = &mut actors[1];
+    let shard_uids = node.actor.epoch_manager.shard_uids(blocks[0].header().epoch_id()).unwrap();
+    let (source_shard, waiting_shard) = (shard_uids[0], shard_uids[1]);
+
+    // The source shard is being caught up through the first block's epoch.
+    let epoch_first_block =
+        *node.actor.epoch_manager.get_block_info(blocks[0].hash()).unwrap().epoch_first_block();
+    let mut store_update = node.chain.chain_store.store().store_update();
+    store_update.set_ser(
+        DBCol::StateDlInfos,
+        epoch_first_block.as_ref(),
+        &StateSyncInfo::new(epoch_first_block, vec![source_shard.shard_id()]),
+    );
+    store_update.commit();
+
+    // The waiting shard applies the first block; the source shard parks it.
+    node.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    assert!(node.actor.parked_blocks(source_shard.shard_id()).contains(blocks[0].hash()));
+
+    // The second block misses the source shard's proof from the first, which is declared.
+    node.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    assert!(!node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
+    assert_eq!(
+        declared_missing(&mut outgoing_rc),
+        vec![SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: source_shard.shard_id() }]
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_releasing_the_receipts_below_the_shard_final_execution_head() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_shards(1, outgoing_sc);

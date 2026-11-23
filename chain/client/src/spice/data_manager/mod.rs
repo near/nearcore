@@ -152,8 +152,6 @@ pub(crate) struct SpiceDataManager {
     items: Items,
     /// Items whose decode was handed to the consumer. Only their data can be "done".
     delivered_items: HashSet<DataId>,
-    /// Items that are done. Their parts are settled.
-    done_items: HashSet<DataId>,
     /// Handles pull recovery.
     pulls: Pulls,
     /// Tracks the heights observed.
@@ -182,7 +180,6 @@ impl SpiceDataManager {
             validator_signer,
             items: Items::default(),
             delivered_items: HashSet::new(),
-            done_items: HashSet::new(),
             heights: ChainHeights::default(),
             orphans: LruCache::new(MAX_ORPHAN_BLOCKS),
             processed_blocks: HashMap::new(),
@@ -387,7 +384,7 @@ impl SpiceDataManager {
     /// Makes the tracked items `block` makes pullable open to pulling.
     fn mark_pullable_by(&mut self, block: &Block) -> Result<(), Error> {
         for id in self.made_pullable_by(block)? {
-            if !self.done_items.contains(&id) {
+            if !self.items.is_marked_done(&id) {
                 self.items.mark_pullable(&id);
             }
         }
@@ -468,12 +465,13 @@ impl SpiceDataManager {
         commitment: &SpiceDataCommitment,
         parts: Vec<SpiceDataPart>,
     ) -> Result<PartsOutcome, SenderFault> {
+        let done = self.items.is_marked_done(id);
         let item = self.items.get_mut(id).expect("parts are added only to a tracked item");
         let total_parts = item.producers.len();
         if parts.len() > total_parts {
             return Err(SenderFault::TooManyParts);
         }
-        if self.done_items.contains(id) {
+        if done {
             return Ok(PartsOutcome::AlreadySettled);
         }
         let mut ordinals = HashSet::with_capacity(parts.len());
@@ -533,14 +531,8 @@ impl SpiceDataManager {
             return;
         };
         let mut canonical_hashes = HashMap::new();
-        let mut removed: Vec<DataId> = self
-            .done_items
-            .iter()
-            .filter(|id| self.items.get(id).expect("a done item is tracked").height <= final_height)
-            .cloned()
-            .collect();
-        for id in self.items.ids_in((from, Bound::Included(final_height))) {
-            let height = self.items.get(id).expect("indexed ids are tracked").height;
+        let mut removed: Vec<DataId> = self.items.done_ids_in(..=final_height).cloned().collect();
+        for (height, id) in self.items.ids_in((from, Bound::Included(final_height))) {
             let canonical = match canonical_hashes.get(&height) {
                 Some(canonical) => *canonical,
                 None => match self.canonical_block_hash(height) {
@@ -577,7 +569,7 @@ impl SpiceDataManager {
             self.delivered_items.remove(&id);
             self.items.stop_pulling(&id);
             self.pulls.forget_requests(&id);
-            self.done_items.insert(id);
+            self.items.mark_done(&id);
         }
     }
 
@@ -587,7 +579,6 @@ impl SpiceDataManager {
         }
         self.pulls.forget_requests(id);
         self.delivered_items.remove(id);
-        self.done_items.remove(id);
     }
 }
 

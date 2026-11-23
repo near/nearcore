@@ -296,7 +296,7 @@ impl ChunkExecutorActor {
     }
 
     /// Tells the data distributor which receipt proofs the executors found missing, leaving out
-    /// those from a block an executor of the source shard holds: applying it saves them.
+    /// those from a block an executor of the source shard will apply: applying it saves them.
     fn declare_missing_receipt_proofs(&mut self) {
         let mut missing = Vec::new();
         for executor in self.per_shard_executors.values_mut() {
@@ -311,7 +311,7 @@ impl ChunkExecutorActor {
                 .filter(|(height, source)| {
                     !self.per_shard_executors.values().any(|executor| {
                         executor.shard_uid().shard_id() == source.shard_id
-                            && executor.holds(*height, &source.block_hash)
+                            && matches!(executor.will_apply(*height, &source.block_hash), Ok(true))
                     })
                 })
                 .map(|(_, source)| source)

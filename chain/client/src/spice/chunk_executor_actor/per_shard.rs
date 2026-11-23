@@ -217,10 +217,27 @@ impl PerShardChunkExecutor {
         }
     }
 
-    /// Whether the block at `height` with `block_hash` is parked or being applied.
-    pub(crate) fn holds(&self, height: BlockHeight, block_hash: &CryptoHash) -> bool {
-        self.parked_blocks.parents.contains_key(&(height, *block_hash))
-            || self.blocks_in_execution.contains(block_hash)
+    /// Whether this executor is applying the block at `height` with `block_hash`, or has it parked
+    /// while its shard is not being caught up.
+    pub(crate) fn will_apply(
+        &self,
+        height: BlockHeight,
+        block_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
+        if self.blocks_in_execution.contains(block_hash) {
+            return Ok(true);
+        }
+        if !self.parked_blocks.parents.contains_key(&(height, *block_hash)) {
+            return Ok(false);
+        }
+        let header = self.chain_store.get_block_header(block_hash)?;
+        let catching_up = is_catching_up(
+            &self.chain_store,
+            self.epoch_manager.as_ref(),
+            &header,
+            self.shard_uid.shard_id(),
+        )?;
+        Ok(!catching_up)
     }
 
     /// Takes the receipt proofs into this shard found missing since the last call.

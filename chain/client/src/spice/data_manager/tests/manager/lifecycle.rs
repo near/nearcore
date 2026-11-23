@@ -202,6 +202,10 @@ fn a_fork_block_at_or_below_the_final_head_is_not_tracked() {
 
     assert!(!manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+
+    let fork_chunk = manager.certified_chunk(&fork_at_3, 0);
+    manager.need(1, &[fork_chunk]);
+    assert!(!manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
 }
 
 #[test]

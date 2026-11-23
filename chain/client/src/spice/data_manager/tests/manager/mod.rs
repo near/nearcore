@@ -216,7 +216,7 @@ impl TestManager {
 
     /// The heights holding tracked items, lowest first.
     fn tracked_heights(&self) -> Vec<BlockHeight> {
-        self.manager.items.ids_in(..).map(|id| self.item(id).height).sorted().dedup().collect()
+        self.manager.items.ids_in(..).map(|(height, _)| height).sorted().dedup().collect()
     }
 
     fn is_tracking(&self, id: &DataId) -> bool {
@@ -234,11 +234,11 @@ impl TestManager {
     /// Asserts no item and no index entry is left for `id`.
     fn assert_forgotten(&self, id: &DataId) {
         assert!(!self.is_tracking(id));
-        assert!(!self.manager.items.ids_in(..).any(|indexed| indexed == id));
+        assert!(!self.manager.items.ids_in(..).any(|(_, indexed)| indexed == id));
         assert!(!self.is_pullable(id));
         assert!(!self.manager.pulls.holds_state_for(id));
         assert!(!self.manager.delivered_items.contains(id));
-        assert!(!self.manager.done_items.contains(id));
+        assert!(!self.manager.items.done_ids_in(..).any(|indexed| indexed == id));
     }
 
     /// Tracks `block` and returns the id of the one proof the policy needs from it.
