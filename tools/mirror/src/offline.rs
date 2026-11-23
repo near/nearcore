@@ -31,6 +31,12 @@ use tokio_util::sync::CancellationToken;
 /// Pause between two looks at the head of a store another task appends to.
 const WAIT_FOR_BLOCKS_INTERVAL: Duration = Duration::from_millis(500);
 
+/// How many heights a block must be below the reader head before the mirror reads it from
+/// a store another task appends to. The create account lookahead follows a block's receipts
+/// to their outcomes, which land in later blocks. Above the reader head those outcomes are
+/// not in the store yet, and the extra transactions would be lost.
+const OUTCOME_MARGIN: BlockHeight = 100;
+
 /// A source store another task keeps appending to (the cloud archive reader).
 pub(crate) struct Follow {
     /// Cancelled on shutdown. A read that waits for blocks stops then.
@@ -288,8 +294,9 @@ impl crate::ChainAccess for ChainAccess {
         let hash = self.chain.get_block_hash_by_height(height)?;
         let hash = self.chain.get_next_block_hash(&hash)?;
         let next_height = self.chain.get_block_header(&hash)?.height();
-        // Not there yet, as far as the caller is concerned, when its chunks may not be.
-        if self.follow.is_some() && next_height > self.complete_head()? {
+        // Not there yet, as far as the caller is concerned, when its chunks or the outcomes
+        // of its receipts may not be.
+        if self.follow.is_some() && next_height + OUTCOME_MARGIN > self.complete_head()? {
             return Err(ChainError::Unknown);
         }
         Ok(next_height)

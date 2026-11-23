@@ -122,13 +122,16 @@ land without another process on the store:
   `cloud-archive bootstrap --skip-state`) has to be followed with
   `--source-skip-state` every time: without it the reader loop fails its state
   checks at startup and the mirror stops.
-- Without `--stop-height` the mirror runs until stopped; when it catches up with the
-  reader head it waits for the next batch. With `--stop-height` it sends no block
-  above that height, but still reads the blocks after it for the create account
-  lookahead. A `--stop-height` above the bucket's head makes it wait the same way
-  (not fail) until the bucket gets there. A `SIGTERM` or
-  `SIGINT` drains the transactions already sent and stops the reader loop after the
-  batch in flight.
+- The mirror reads only blocks at least 100 heights below the reader head, so the
+  outcomes of their receipts are in the store when the create account lookahead
+  follows them. When it catches up to that point it waits for the next batch.
+- Without `--stop-height` the mirror runs until stopped. With `--stop-height` it
+  sends no block above that height, but still reads the 5 blocks after it for the
+  create account lookahead. So it finishes only once the reader head is about 105
+  heights past the stop height, and waits until then (it does not fail), also when
+  the stop height is above the bucket's head.
+- A `SIGTERM` or `SIGINT` drains the transactions already sent and stops the reader
+  loop after the batch in flight.
 - Progress is logged every 16 batches, and the `near_mirror_source_reader_head` and
   `near_mirror_source_bucket_head` gauges report the reader head and the bucket's
   block head as last read.
