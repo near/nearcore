@@ -41,6 +41,7 @@ use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use std::collections::{HashMap, HashSet};
+use std::iter;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -70,11 +71,9 @@ pub struct ChunkExecutorActor {
     /// `ShardUId` so per-shard state can't be conflated across shard layouts.
     /// Each owns its own network-receipt buffer (no coordinator-side receipt state).
     per_shard_executors: HashMap<ShardUId, PerShardChunkExecutor>,
-    /// The shards whose executor was evicted, with the height and hash of the block that evicted
-    /// it, until that block is final, see [`Self::report_stopped_shards`]. Not persisted: startup
-    /// replays the blocks from the final execution head, so a shard the data distributor tracks
-    /// proofs into again gets its executor back, and the block that stopped it evicts it again.
-    stopped_shards: HashMap<ShardUId, (BlockHeight, CryptoHash)>,
+    /// The final head's height when executors were last evicted: eviction runs when the final
+    /// head moves, see [`Self::reconcile_tracked_shards`].
+    last_eviction_height: BlockHeight,
 
     pub(crate) validator_signer: MutableValidatorSigner,
     pub(crate) core_reader: SpiceCoreReader,
@@ -134,6 +133,9 @@ impl ChunkExecutorActor {
         // `ChainStore` gate its own write methods, which spice never calls
         // (writes go through `apply_chunk_postprocessing` with `ChunkPersistenceConfig`).
         let chain_store = store.chain_store();
+        let last_eviction_height = chain_store
+            .final_head()
+            .map_or_else(|_| chain_store.get_genesis_height(), |final_head| final_head.height);
         Self {
             chain_store,
             transaction_validity_period: genesis.transaction_validity_period,
@@ -144,7 +146,7 @@ impl ChunkExecutorActor {
             apply_chunks_spawner,
             myself_sender,
             per_shard_executors: HashMap::new(),
-            stopped_shards: HashMap::new(),
+            last_eviction_height,
             validator_signer,
             core_reader,
             data_distributor_adapter,
@@ -245,57 +247,53 @@ impl ChunkExecutorActor {
         Ok(())
     }
 
-    /// Spawn executors for shards tracked this or next epoch and evict ones no
-    /// longer tracked. The this-or-next-epoch set matches the
-    /// `should_apply_chunk(IncludeCatchupShards, ..)` gate the monolithic executor used:
-    /// a shard rotating in next epoch must keep executing through the boundary
-    /// so it can endorse, otherwise certification stalls at the rotation.
-    /// Eviction is immediate; the apply-done handler's graceful-drop guard covers
-    /// any in-flight apply that lands after eviction. An evicted shard is reported to the data
-    /// distributor once the block that evicted it is final, see [`Self::report_stopped_shards`].
-    fn reconcile_tracked_shards(&mut self, block: &Block) -> Result<(), Error> {
+    /// Spawn executors for the shards `block` applies, those tracked this or next epoch, and
+    /// return them. The this-or-next-epoch set matches the
+    /// `should_apply_chunk(IncludeCatchupShards, ..)` gate the monolithic executor used: a shard
+    /// rotating in next epoch must keep executing through the boundary so it can endorse,
+    /// otherwise certification stalls at the rotation.
+    ///
+    /// When the final head moves, evict the executors of shards that no block from the final head
+    /// up to the head applies, and report the final head as their final execution head: the node
+    /// applies them at no block from there on. A fork block can then never evict an executor the
+    /// canonical chain needs. The apply-done handler's graceful-drop guard covers any in-flight
+    /// apply that lands after eviction.
+    fn reconcile_tracked_shards(&mut self, block: &Block) -> Result<Vec<ShardUId>, Error> {
         let tracked =
             self.shard_tracker.tracked_shard_uids_this_or_next_epoch(block.header().prev_hash())?;
         for shard_uid in &tracked {
             self.get_or_create_per_shard_executor(*shard_uid);
         }
-        let tracked_set: HashSet<ShardUId> = tracked.iter().copied().collect();
+        let final_head = self.chain_store.final_head()?;
+        if final_head.height <= self.last_eviction_height {
+            return Ok(tracked);
+        }
+
+        let mut applied = HashSet::new();
+        for block_hash in iter::once(final_head.last_block_hash)
+            .chain(self.chain_store.get_processed_descendants(&final_head)?)
+        {
+            applied.extend(self.shard_tracker.tracked_shard_uids_this_or_next_epoch(
+                self.chain_store.get_block_header(&block_hash)?.prev_hash(),
+            )?);
+        }
+
         let evicted: Vec<ShardUId> = self
             .per_shard_executors
             .keys()
-            .filter(|shard_uid| !tracked_set.contains(shard_uid))
+            .filter(|shard_uid| !applied.contains(shard_uid))
             .copied()
             .collect();
         for shard_uid in evicted {
             self.per_shard_executors.remove(&shard_uid);
-            self.stopped_shards.insert(shard_uid, (block.header().height(), *block.hash()));
+            self.data_distributor_adapter.send(SpiceShardFinalExecutionHead {
+                shard_id: shard_uid.shard_id(),
+                height: final_head.height,
+            });
         }
-        Ok(())
-    }
+        self.last_eviction_height = final_head.height;
 
-    /// Reports the block that evicted a shard's executor as the shard's final execution head, once
-    /// that block is final and canonical: the node applies the shard at no block from there on. A
-    /// fork block gives its place to `block`, the one being processed, if that one does not apply
-    /// the shard either.
-    fn report_stopped_shards(&mut self, block: &Block) -> Result<(), Error> {
-        let final_height = self.chain_store.final_head()?.height;
-        self.stopped_shards.retain(|shard_uid, stopped_at| {
-            let (height, hash) = *stopped_at;
-            if height > final_height {
-                return true;
-            }
-            if is_canonical(&self.chain_store, height, &hash) {
-                self.data_distributor_adapter
-                    .send(SpiceShardFinalExecutionHead { shard_id: shard_uid.shard_id(), height });
-                return false;
-            }
-            if self.per_shard_executors.contains_key(shard_uid) {
-                return false;
-            }
-            *stopped_at = (block.header().height(), *block.hash());
-            true
-        });
-        Ok(())
+        Ok(tracked)
     }
 
     /// Route a processed block: reconcile the tracked-shard set, hand the block to
@@ -311,18 +309,17 @@ impl ChunkExecutorActor {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
-        self.reconcile_tracked_shards(&block)?;
-        for executor in self.per_shard_executors.values_mut() {
-            executor.handle_processed_block(&block);
+        let tracked = self.reconcile_tracked_shards(&block)?;
+        for shard_uid in &tracked {
+            if let Some(executor) = self.per_shard_executors.get_mut(shard_uid) {
+                executor.handle_processed_block(&block);
+            }
         }
         // TODO(spice): replay once when `run_catchup` finishes a catchup, and once at startup,
         // instead of on every processed block: only a shard that lost its parked blocks, to a
         // restart or an executor eviction, needs it.
         if let Err(err) = self.replay_caught_up_shards(block_hash) {
             tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
-        }
-        if let Err(err) = self.report_stopped_shards(&block) {
-            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to report the shards this node stopped applying");
         }
         // A node tracking zero shards schedules no applies, so the apply-done
         // postprocess trigger never fires; postprocess the block here instead.

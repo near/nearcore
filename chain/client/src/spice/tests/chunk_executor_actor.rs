@@ -63,7 +63,7 @@ use near_primitives::test_utils::{
 use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
+    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -185,6 +185,16 @@ impl TestActor {
         outgoing_sc: UnboundedSender<OutgoingMessage>,
     ) -> TestActor {
         let chain = get_chain_with_genesis(Clock::real(), genesis.clone());
+        Self::with_chain(chain, &genesis, validator_signer, tracked_shards_config, outgoing_sc)
+    }
+
+    fn with_chain(
+        chain: Chain,
+        genesis: &Genesis,
+        validator_signer: MutableValidatorSigner,
+        tracked_shards_config: TrackedShardsConfig,
+        outgoing_sc: UnboundedSender<OutgoingMessage>,
+    ) -> TestActor {
         let epoch_manager = chain.epoch_manager.clone();
 
         let shard_tracker = ShardTracker::new(
@@ -1186,45 +1196,11 @@ fn test_reporting_the_head_of_a_shard_the_node_stops_applying() {
         block = produce_block(&mut actors, &block);
     }
 
-    // The first block evicts the executor. It is final, and reported, once the block two heights
-    // above it is processed.
+    // The final head first moves, to the first block, when the block two heights above it is
+    // processed. No block from it up to the head applies the shard, so the executor is evicted
+    // and the first block reported.
     let first_height = first_block.header().height();
     assert_eq!(reports, vec![(first_height + 2, first_height)]);
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_reporting_a_shard_whose_executor_a_fork_block_evicted() {
-    const NUM_SHARDS: usize = 2;
-    const NODE: usize = 0;
-    const FINALITY_LAG: BlockHeight = 2;
-
-    let (outgoing_sc, mut outgoing_rc) = unbounded();
-    let mut actors = setup_with_shards(NUM_SHARDS, outgoing_sc);
-    let genesis = actors[NODE].chain.genesis_block();
-    let first_block = produce_block(&mut actors, &genesis);
-    let fork_block = produce_block(&mut actors, &genesis);
-    let stopped_shard = untracked_shard_uid(&actors[NODE], &first_block);
-    actors[NODE].actor.park_block(stopped_shard, first_block.header());
-
-    actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *fork_block.hash() });
-    let mut reports = Vec::new();
-    let mut block = first_block.clone();
-    for _ in 0..=2 * FINALITY_LAG {
-        actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-        while let Ok(message) = outgoing_rc.try_recv() {
-            let OutgoingMessage::SpiceShardFinalExecutionHead(head) = message else {
-                continue;
-            };
-            if head.shard_id == stopped_shard.shard_id() {
-                reports.push((block.header().height(), head.height));
-            }
-        }
-        block = produce_block(&mut actors, &block);
-    }
-
-    let first_height = first_block.header().height();
-    assert_eq!(reports, vec![(first_height + 2 * FINALITY_LAG, first_height + FINALITY_LAG)]);
 }
 
 #[test]
@@ -1246,13 +1222,14 @@ fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() 
             &[],
         ))
         .build();
-    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let (outgoing_sc, _outgoing_rc) = unbounded();
     // Tracked one epoch in three, so the node stops applying it at the first block of the epoch
     // after.
+    let tracked_shards_config = TrackedShardsConfig::Schedule(vec![vec![shard_id], vec![], vec![]]);
     let mut actor = TestActor::with_tracked_shards_config(
         genesis.clone(),
         MutableConfigValue::new(None, "validator_signer"),
-        TrackedShardsConfig::Schedule(vec![vec![shard_id], vec![], vec![]]),
+        tracked_shards_config.clone(),
         outgoing_sc,
     );
     let shard_tracker = actor.actor.shard_tracker.clone();
@@ -1279,9 +1256,22 @@ fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() 
     let stopping_height = stopping_block.header().height();
     assert!(actor.chain.chain_store.final_head().unwrap().height >= stopping_height);
 
-    // The node restarts with no record of the eviction, and its final execution head at genesis.
+    // The node restarts: a new actor on the same store, with no record of the eviction and its
+    // final execution head at genesis. Its replay gets the shard an executor back.
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actor = TestActor::with_chain(
+        actor.chain,
+        &genesis,
+        MutableConfigValue::new(None, "validator_signer"),
+        tracked_shards_config,
+        outgoing_sc,
+    );
     actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
     actor.run_internal_events();
+    // The next move of the final head, past every block that applies the shard, evicts it again.
+    block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    let final_height = actor.chain.chain_store.final_head().unwrap().height;
 
     let mut reports = Vec::new();
     while let Ok(message) = outgoing_rc.try_recv() {
@@ -1289,7 +1279,7 @@ fn test_reporting_after_a_restart_the_head_of_a_shard_the_node_stops_applying() 
             reports.push((head.shard_id, head.height));
         }
     }
-    assert_eq!(reports, vec![(shard_id, stopping_height)]);
+    assert_eq!(reports, vec![(shard_id, final_height)]);
 }
 
 /// The `ShardUId` of [`untracked_shard`].
