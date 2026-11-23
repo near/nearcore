@@ -1,4 +1,5 @@
 use super::*;
+use crate::spice::data_manager::items::Delivery;
 use std::slice;
 
 #[test]
@@ -345,6 +346,31 @@ fn a_done_item_is_not_pulled() {
     assert_eq!(requests, vec![]);
 }
 
+/// One item is done before the final head reaches it, the other only after.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_done_item_is_dropped_once_the_final_head_reaches_it() {
+    let (chain, blocks) = chain_with_blocks(6);
+    let mut manager = TestManager::new(&chain);
+    let ids = pullable_items(&mut manager, &blocks[..2]);
+    manager.set_final_head(&blocks[0]);
+    manager.deliver(&producers()[0], &ids[1], &receipt_data(0, 1));
+    save_proof(&chain, &blocks[1], &receipt_data(0, 1));
+    manager.on_block_processed(&blocks[2]);
+
+    manager.set_final_head(&blocks[1]);
+    manager.on_block_processed(&blocks[3]);
+    manager.assert_forgotten(&ids[1]);
+    assert!(manager.is_tracking(&ids[0]));
+
+    manager.deliver(&producers()[0], &ids[0], &receipt_data(0, 1));
+    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+    manager.on_block_processed(&blocks[4]);
+    manager.set_final_head(&blocks[2]);
+    manager.on_block_processed(&blocks[5]);
+    manager.assert_forgotten(&ids[0]);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_late_part_for_a_done_item_is_already_settled() {
@@ -566,6 +592,10 @@ fn a_release_removes_only_the_pull_only_items_into_its_shard() {
     let sources = [manager.certified_chunk(&blocks[0], 2), manager.certified_chunk(&blocks[1], 2)];
     manager.need(0, &sources);
     manager.need(1, &sources);
+    assert_eq!(
+        manager.manager.items.delivery(&receipt_id(&blocks[0], 2, 0)),
+        Some(Delivery::PullOnly(ShardId::new(0)))
+    );
 
     manager.change_needs(0, NeedChange::NoLongerNeededBelow(blocks[1].header().height()));
     manager.assert_forgotten(&receipt_id(&blocks[0], 2, 0));
@@ -613,14 +643,17 @@ fn an_undelivered_pull_only_item_stays_past_the_final_head_until_released() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_need_for_a_tracked_pushed_item_makes_it_pullable() {
-    let (chain, blocks) = chain_with_blocks(1);
+fn a_need_for_a_tracked_item_leaves_it_to_the_block_that_certifies_its_chunk() {
+    let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
     let id = manager.track_needed_proof(&blocks[0]);
-    assert!(!manager.is_pullable(&id));
 
     let source = manager.certified_chunk(&blocks[0], 0);
-    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
+    assert_eq!(manager.need(1, &[source]), vec![]);
+    assert!(!manager.is_pullable(&id));
+
+    manager.certify_up_to(1);
+    assert_eq!(wants_for(manager.on_block_processed(&blocks[1]), &id), own_ordinal_pulls());
 }
 
 /// After state sync the final execution head is the sync block, which the manager was never handed,
@@ -656,6 +689,20 @@ fn a_need_for_an_item_pushed_to_this_node_below_the_final_execution_head_is_igno
 
     assert_eq!(manager.need(1, &[source]), vec![]);
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_need_for_a_pull_only_item_below_the_final_execution_head_is_tracked_and_pulled() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    let source = manager.certified_chunk(&blocks[0], 0);
+    let id = receipt_id(&blocks[0], 0, 1);
+
+    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
+    assert!(manager.is_tracking(&id));
 }
 
 #[test]

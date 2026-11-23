@@ -264,6 +264,22 @@ fn parts_for_an_untracked_item_of_a_processed_block_at_the_final_execution_head_
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
 
+/// No block below the final execution head is processed again, so parked parts would never be released.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_an_untracked_item_of_a_stored_block_below_the_final_execution_head_are_not_wanted() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    let id = receipt_id(&blocks[0], 0, 1);
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+}
+
 /// Proofs only pulled are never pushed, so their parts answer a request for an item gone.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]

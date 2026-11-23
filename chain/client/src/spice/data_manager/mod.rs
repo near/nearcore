@@ -24,7 +24,6 @@ use near_chain_configs::MutableValidatorSigner;
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, epoch_chunk_producers_for_shard};
-use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
@@ -162,7 +161,7 @@ pub(crate) struct SpiceDataManager {
     /// Parts for blocks not processed yet, by block hash; the most recently parked blocks.
     // TODO(spice-data-distribution): bound the data parked per sender.
     orphans: LruCache<CryptoHash, Vec<ParkedParts>>,
-    /// Processed blocks above the final execution head, with their heights.
+    /// Processed blocks at or above the final execution head, with their heights.
     processed_blocks: HashMap<CryptoHash, BlockHeight>,
 }
 
@@ -351,17 +350,11 @@ impl SpiceDataManager {
         }
     }
 
-    /// Tracks `id`, which the chunk executor misses, unless it is done, and makes it pullable. An
-    /// item pushed to this node is skipped below the final execution head, where it expires.
+    /// Tracks `id`, which the chunk executor misses, unless it is tracked or done, and makes it
+    /// pullable. An item pushed to this node is skipped below the final execution head, where it
+    /// expires.
     fn track_missing_item(&mut self, id: &DataId) -> Result<(), Error> {
-        if let Some(item) = self.items.get(id) {
-            if !self.done_items.contains(id) {
-                let delivery = self.items.delivery(id).expect("a tracked item is in a map");
-                self.pulls.mark_pullable(id.clone(), item.height, delivery);
-            }
-            return Ok(());
-        }
-        if self.is_done(id) {
+        if self.items.contains(id) || self.is_done(id) {
             return Ok(());
         }
         let block = self.chain_store.get_block_header(id.block_hash())?;
@@ -412,10 +405,8 @@ impl SpiceDataManager {
         block_hash: &CryptoHash,
         now: Instant,
     ) -> DataManagerOutput {
-        match self.final_execution_head() {
-            Ok(final_execution_head) => {
-                self.on_final_execution_head(final_execution_head.as_deref())
-            }
+        match self.final_execution_head_height() {
+            Ok(height) => self.on_final_execution_head(height),
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final execution head");
             }
@@ -439,11 +430,11 @@ impl SpiceDataManager {
         DataManagerOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
     }
 
-    /// The final execution head; `None` before the first one is recorded.
-    fn final_execution_head(&self) -> Result<Option<Arc<Tip>>, Error> {
+    /// Height of the final execution head; the genesis height before the first one is recorded.
+    fn final_execution_head_height(&self) -> Result<BlockHeight, Error> {
         match self.chain_store.spice_final_execution_head() {
-            Ok(head) => Ok(Some(head)),
-            Err(Error::DBNotFoundErr(_)) => Ok(None),
+            Ok(head) => Ok(head.height),
+            Err(Error::DBNotFoundErr(_)) => Ok(self.chain_store.get_genesis_height()),
             Err(err) => Err(err),
         }
     }
@@ -521,12 +512,10 @@ impl SpiceDataManager {
         Ok(PartsOutcome::Collecting)
     }
 
-    /// Records the final execution head and stops tracking the items pushed to this node below it.
-    /// Below it, processed blocks are forgotten and parts for untracked items are no longer wanted.
-    /// Before the first head is recorded, the genesis height stands in for it.
-    fn on_final_execution_head(&mut self, final_execution_head: Option<&Tip>) {
-        let height = final_execution_head
-            .map_or_else(|| self.chain_store.get_genesis_height(), |head| head.height);
+    /// Records the final execution head at `height` and stops tracking the items pushed to this node
+    /// below it. Below it, processed blocks are forgotten and parts for untracked items are no longer
+    /// wanted.
+    fn on_final_execution_head(&mut self, height: BlockHeight) {
         let Some(from) = self.heights.update_final_execution_head(height) else {
             return;
         };
@@ -540,15 +529,20 @@ impl SpiceDataManager {
     }
 
     /// Removes the items at heights newly at or below the final head at `final_height` that are
-    /// off the canonical chain, which can never be applied, or done. A done item is kept only to
-    /// settle late parts, and the head of the shard it goes to need not pass it: the shard may stop
-    /// being applied.
+    /// off the canonical chain, which can never be applied, and every done item at or below it. A
+    /// done item is kept only to settle late parts, and the head of the shard it goes to need not
+    /// pass it: the shard may stop being applied.
     fn on_final_head(&mut self, final_height: BlockHeight) {
         let Some(from) = self.heights.update_final_head(final_height) else {
             return;
         };
         let mut canonical_hashes = HashMap::new();
-        let mut forks_or_expired = Vec::new();
+        let mut removed: Vec<DataId> = self
+            .done_items
+            .iter()
+            .filter(|id| self.items.get(id).expect("a done item is tracked").height <= final_height)
+            .cloned()
+            .collect();
         for id in self.items.ids_in((from, Bound::Included(final_height))) {
             let height = self.items.get(id).expect("indexed ids are tracked").height;
             let canonical = match canonical_hashes.get(&height) {
@@ -561,11 +555,11 @@ impl SpiceDataManager {
                     }
                 },
             };
-            if Some(*id.block_hash()) != canonical || self.done_items.contains(id) {
-                forks_or_expired.push(id.clone());
+            if Some(*id.block_hash()) != canonical {
+                removed.push(id.clone());
             }
         }
-        for id in forks_or_expired {
+        for id in removed {
             self.remove_item(&id);
         }
     }
@@ -585,10 +579,6 @@ impl SpiceDataManager {
             self.delivered_items.iter().filter(|id| self.is_done(id)).cloned().collect();
         for id in done {
             let height = self.items.get(&id).expect("a delivered item is tracked").height;
-            if self.heights.at_or_below_final_head(height) {
-                self.remove_item(&id);
-                continue;
-            }
             let delivery = self.items.delivery(&id).expect("a delivered item is tracked");
             self.delivered_items.remove(&id);
             self.pulls.forget(&id, height, delivery);
