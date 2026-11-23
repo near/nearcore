@@ -514,20 +514,7 @@ impl PerShardChunkExecutor {
             Ok(result) => result,
             Err(err) => panic!("failed to apply block {block_hash:?}: {err}"),
         };
-        let receipt_proofs = self.apply_chunk_postprocessing_and_emit(block_hash, result)?;
-        // An apply discarded for a block that can no longer become canonical leaves no chunk extra.
-        match self.chunk_extra_exists(&block_hash, &self.shard_uid) {
-            Ok(true) => {
-                if let Err(err) = self.advance_final_execution_head(&block_hash) {
-                    tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to advance the shard's final execution head");
-                }
-            }
-            Ok(false) => {}
-            Err(err) => {
-                tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to read the chunk extra of an applied block");
-            }
-        }
-        Ok(receipt_proofs)
+        self.apply_chunk_postprocessing_and_emit(block_hash, result)
     }
 
     /// Moves the shard's final execution head to the last final block of `block_hash`, which the
@@ -559,11 +546,11 @@ impl PerShardChunkExecutor {
     }
 
     /// Postprocess one applied chunk for this shard: persist artifacts, emit the
-    /// endorsement / witness / outgoing receipts, and return the produced receipt
-    /// proofs so the coordinator can do local-path fanout. Block-level
-    /// postprocessing stays on the coordinator.
+    /// endorsement / witness / outgoing receipts, advance the shard's final execution head,
+    /// and return the produced receipt proofs so the coordinator can do local-path fanout.
+    /// Block-level postprocessing stays on the coordinator.
     fn apply_chunk_postprocessing_and_emit(
-        &self,
+        &mut self,
         block_hash: CryptoHash,
         result: ShardUpdateResult,
     ) -> Result<Vec<ReceiptProof>, Error> {
@@ -644,6 +631,9 @@ impl PerShardChunkExecutor {
             &self.config,
         )?;
         store_update.commit();
+        if let Err(err) = self.advance_final_execution_head(&block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to advance the shard's final execution head");
+        }
         Ok(receipt_proofs)
     }
 
