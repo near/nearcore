@@ -15,7 +15,6 @@ use near_client::sync::external::{
     is_part_filename,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_external_storage::S3AccessConfig;
 use near_primitives::block::BlockHeader;
@@ -23,6 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::{StatePartId, StatePartIndex};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
+use near_store::ShardUId;
 use parking_lot::RwLock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -626,31 +626,15 @@ impl StateDumper {
         };
         let sync_header = self.get_block_header(&sync_hash)?;
         if sync_header.is_spice() {
-            let tracked_shard_ids: Vec<ShardId> = self
-                .epoch_manager
-                .shard_ids(sync_header.epoch_id())
-                .with_context(|| format!("failed getting shard ids {:?}", sync_header.epoch_id()))?
-                .into_iter()
-                .filter(|&shard_id| {
-                    self.shard_tracker.cares_about_shard(sync_header.prev_hash(), shard_id)
-                })
-                .collect();
-            if !self
-                .chain
-                .chain_store()
-                .are_chunks_certified(&sync_hash, tracked_shard_ids.iter().copied())
+            let tracked_shard_uids =
+                self.shard_tracker.tracked_shard_uids(sync_header.prev_hash())?;
+            let chain_store = self.chain.chain_store();
+
+            if !chain_store
+                .are_chunks_certified(&sync_hash, tracked_shard_uids.iter().map(ShardUId::shard_id))
+                || !chain_store.are_chunks_applied(&sync_hash, tracked_shard_uids)?
             {
                 return Ok(None);
-            }
-            for shard_id in tracked_shard_ids {
-                let shard_uid =
-                    shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, sync_header.epoch_id())?;
-                match self.chain.get_chunk_extra(&sync_hash, &shard_uid) {
-                    Ok(_) => {}
-                    // Not executed here yet: the chunk executor can lag behind certification.
-                    Err(near_chain::Error::DBNotFoundErr(_)) => return Ok(None),
-                    Err(err) => return Err(err.into()),
-                }
             }
         }
         Ok(Some(sync_header))

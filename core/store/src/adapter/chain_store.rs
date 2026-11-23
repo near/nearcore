@@ -10,6 +10,7 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::{ProcessedReceiptMetadata, Receipt, ReceiptToTxInfo};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardProof};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, TransactionEnvelope};
@@ -442,6 +443,24 @@ impl ChainStoreAdapter {
             let chunk_id = SpiceChunkId { block_hash: *block_hash, shard_id };
             self.get_chunk_certifying_block(&chunk_id).is_some()
         })
+    }
+
+    /// For spice, whether this node has applied the chunks of `block_hash` in all of
+    /// `shard_uids`: the chunk executor can lag behind certification.
+    pub fn are_chunks_applied(
+        &self,
+        block_hash: &CryptoHash,
+        shard_uids: impl IntoIterator<Item = ShardUId>,
+    ) -> Result<bool, Error> {
+        let chunk_store = self.chunk_store();
+        for shard_uid in shard_uids {
+            match chunk_store.get_chunk_extra(block_hash, &shard_uid) {
+                Ok(_) => {}
+                Err(Error::DBNotFoundErr(_)) => return Ok(false),
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(true)
     }
 
     /// Hashes of every processed block descending from `start`, `start` excluded, in

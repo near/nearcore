@@ -612,17 +612,10 @@ impl ChunkExecutorActor {
 
     fn all_tracked_shards_applied(&self, block_hash: &CryptoHash) -> Result<bool, Error> {
         let prev_hash = *self.chain_store.get_block_header(block_hash)?.prev_hash();
-        let chunk_store = self.chain_store.chunk_store();
         // Gate on shards tracked THIS epoch only: a shard tracked solely for the
         // next epoch has no current-epoch chunk extra and would stall the head.
-        for shard_uid in self.shard_tracker.tracked_shard_uids(&prev_hash)? {
-            match chunk_store.get_chunk_extra(block_hash, &shard_uid) {
-                Ok(_) => {}
-                Err(Error::DBNotFoundErr(_)) => return Ok(false),
-                Err(err) => return Err(err),
-            }
-        }
-        Ok(true)
+        self.chain_store
+            .are_chunks_applied(block_hash, self.shard_tracker.tracked_shard_uids(&prev_hash)?)
     }
 
     fn process_all_ready_blocks(&mut self) -> Result<(), Error> {
