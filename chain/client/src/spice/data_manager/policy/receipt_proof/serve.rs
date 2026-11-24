@@ -24,33 +24,12 @@ impl ReceiptProofServePolicy {
         Self { chain_store, epoch_manager }
     }
 
-    /// The next block's chunk producers of the destination shard; across a resharding, of the
-    /// shards it splits into.
+    /// The nodes `id` is pushed to.
     pub(in crate::spice::data_manager::policy) fn recipients(
         &self,
         id: &ReceiptProofId,
     ) -> Result<HashSet<AccountId>, Error> {
-        let ReceiptProofId { source, to_shard } = id;
-        let source_epoch_id = self.epoch_manager.get_epoch_id(&source.block_hash)?;
-        let next_block_epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&source.block_hash)?;
-        let source_layout = self.epoch_manager.get_shard_layout(&source_epoch_id)?;
-        let next_block_layout = self.epoch_manager.get_shard_layout(&next_block_epoch_id)?;
-        let destination_shards = if next_block_layout == source_layout {
-            vec![*to_shard]
-        } else {
-            next_block_layout
-                .get_children_shards_ids(*to_shard)
-                .ok_or(Error::InvalidShardId(*to_shard))?
-        };
-        let mut recipients = HashSet::new();
-        for shard_id in destination_shards {
-            recipients.extend(
-                self.epoch_manager
-                    .get_epoch_chunk_producers_for_shard(&next_block_epoch_id, shard_id)?,
-            );
-        }
-        Ok(recipients)
+        super::recipients(self.epoch_manager.as_ref(), &id.source.block_hash, id.to_shard)
     }
 
     /// The receipt proof, if this node has it in the store.

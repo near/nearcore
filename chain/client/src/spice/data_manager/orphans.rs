@@ -58,9 +58,12 @@ impl SpiceDataManager {
             return Ok(PartsOutcome::NotWanted);
         }
         let header = self.chain_store.get_block_header_if_exists(id.block_hash());
-        // An expiry that cannot be read leaves the parts parked for the block's trigger to decide.
+        // Only items pushed to this node are parked: parts for an item only pulled answer a request
+        // for an item no longer tracked. A recipient set that cannot be read leaves the parts
+        // parked for the block's trigger to decide.
         if header.as_ref().is_some_and(|header| {
-            self.expiry(&id).is_ok_and(|expiry| self.is_expired(expiry, header.height()))
+            self.heights.below_final_execution(header.height())
+                || !self.is_pushed_to_me(&id).unwrap_or(true)
         }) {
             return Ok(PartsOutcome::NotWanted);
         }
@@ -95,12 +98,11 @@ impl SpiceDataManager {
         let (sender, SpiceVerifiedPartialData { commitment, parts, .. }) =
             AuthenticatedSender::verify(data, &keys).ok_or(SenderFault::InvalidSignature)?;
         // A block off the canonical chain at or below the final head is never processed.
-        if let Some(header) = &header {
-            if self.heights.at_or_below_final_head(header.height())
-                && !matches!(self.canonical_block_hash(header.height()), Ok(Some(hash)) if hash == *header.hash())
-            {
-                return Ok(PartsOutcome::NotWanted);
-            }
+        if header
+            .as_ref()
+            .is_some_and(|header| self.is_fork_at_or_below_final_head(header).unwrap_or(true))
+        {
+            return Ok(PartsOutcome::NotWanted);
         }
         let block_hash = *id.block_hash();
         self.orphans.get_or_insert_mut(block_hash, Vec::new).push(ParkedParts {

@@ -387,7 +387,7 @@ fn only_the_lowest_pullable_heights_are_pulled() {
     let pulled_heights = 4;
     assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
     let config = PullConfig {
-        pulled_heights: NonZeroUsize::new(pulled_heights).unwrap(),
+        pulled_heights_of_pushed_items: NonZeroUsize::new(pulled_heights).unwrap(),
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 2, config);
@@ -419,7 +419,7 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
     let pulled_heights = 4;
     assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
     let config = PullConfig {
-        pulled_heights: NonZeroUsize::new(pulled_heights).unwrap(),
+        pulled_heights_of_pushed_items: NonZeroUsize::new(pulled_heights).unwrap(),
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 2, config);
@@ -448,8 +448,10 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn an_unfinished_height_keeps_the_next_one_waiting_and_is_requested_again_once_stale() {
     let (chain, blocks) = chain_with_blocks(5);
-    let config =
-        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let request_timeout = config.request_timeout;
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
@@ -470,8 +472,10 @@ fn an_unfinished_height_keeps_the_next_one_waiting_and_is_requested_again_once_s
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn removing_the_lowest_item_clears_its_requests_and_lets_the_next_height_be_pulled() {
     let (chain, blocks) = chain_with_blocks(4);
-    let config =
-        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
     manager.on_block_processed(&blocks[2]);
@@ -490,8 +494,10 @@ fn removing_the_lowest_item_clears_its_requests_and_lets_the_next_height_be_pull
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn expiring_the_lowest_item_lets_the_next_height_be_pulled() {
     let (chain, blocks) = chain_with_blocks(4);
-    let config =
-        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
     manager.on_block_processed(&blocks[2]);
@@ -514,7 +520,7 @@ fn a_burst_of_processed_blocks_re_sends_nothing_while_requests_are_outstanding()
     let pulled_heights = 4;
     assert!(pulled_heights < 5, "the burst must leave heights waiting");
     let config = PullConfig {
-        pulled_heights: NonZeroUsize::new(pulled_heights).unwrap(),
+        pulled_heights_of_pushed_items: NonZeroUsize::new(pulled_heights).unwrap(),
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
@@ -546,6 +552,90 @@ fn a_burst_of_processed_blocks_re_sends_nothing_while_requests_are_outstanding()
     }
 }
 
+/// Each producer pulled from for its own ordinal of every one of `ids`.
+fn own_ordinal_pulls_of(producers: &[AccountId], ids: &[DataId]) -> WantsByProducer {
+    producers
+        .iter()
+        .enumerate()
+        .map(|(ordinal, producer)| {
+            let wants = ids.iter().map(|id| (id.clone(), ordinals(&[ordinal as u64]))).collect();
+            (producer.clone(), wants)
+        })
+        .collect()
+}
+
+/// The node applies shard 2 and is catching up shard 1. Shard 1's proofs at the four lowest heights
+/// are pulled only, the pushed proofs at the height above them are pulled all the same.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_catch_up_shards_backlog_does_not_delay_the_requests_for_pushed_items() {
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 6);
+    let mut manager = TestManager::applying(&chain, 2);
+    manager.track_block(&blocks[4]);
+    let backlog: Vec<SpiceChunkId> =
+        blocks[..4].iter().map(|block| manager.certified_chunk(block, 0)).collect();
+    manager.need(1, &backlog);
+    manager.certify_up_to(blocks[4].header().height());
+
+    // The clock stands still: the backlog's requests are outstanding.
+    let requests = by_producer(manager.on_block_processed(&blocks[5]));
+
+    let mut expected = own_ordinal_pulls_of(&shard_producers(0), &[receipt_id(&blocks[4], 0, 2)]);
+    expected.extend(own_ordinal_pulls_of(&shard_producers(1), &[receipt_id(&blocks[4], 1, 2)]));
+    assert_eq!(requests, expected);
+}
+
+/// Shard 0 misses proofs at three heights, shard 1 at two heights above them: shard 1's are pulled
+/// at once, while shard 0's highest waits for its lower two.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn two_catch_up_shards_at_different_heights_are_pulled_together() {
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 5);
+    let mut manager = TestManager::pull_only(&chain, 2);
+    let lower: Vec<SpiceChunkId> =
+        blocks[..3].iter().map(|block| manager.certified_chunk(block, 2)).collect();
+    let higher: Vec<SpiceChunkId> =
+        blocks[3..].iter().map(|block| manager.certified_chunk(block, 2)).collect();
+    manager.need(0, &lower);
+
+    // The clock stands still: shard 0's lowest requests are outstanding.
+    let requests = by_producer(manager.need(1, &higher));
+
+    let higher_ids: Vec<DataId> = blocks[3..].iter().map(|block| receipt_id(block, 2, 1)).collect();
+    assert_eq!(requests, own_ordinal_pulls_of(&shard_producers(2), &higher_ids));
+    for block in &blocks[..2] {
+        assert!(!manager.pulling_from(&receipt_id(block, 2, 0)).is_empty());
+    }
+    assert!(manager.pulling_from(&receipt_id(&blocks[2], 2, 0)).is_empty());
+}
+
+/// Shard 0's producers are asked for a pushed and a pull-only proof at one trigger.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn the_requests_for_pushed_items_precede_and_never_share_a_request_with_pull_only_ones() {
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 2);
+    let mut manager = TestManager::applying(&chain, 2);
+    manager.track_block(&blocks[1]);
+    manager.certify_up_to(blocks[1].header().height());
+    let pull_only_source = manager.certified_chunk(&blocks[0], 0);
+    let pull_only_id = receipt_id(&blocks[0], 0, 1);
+
+    let requests = manager.need(1, &[pull_only_source]);
+
+    let first_pull_only = requests
+        .iter()
+        .position(|request| request.wants.contains_key(&pull_only_id))
+        .expect("the pull-only item is requested");
+    assert!(first_pull_only > 0, "no request for a pushed item comes first");
+    for request in &requests[..first_pull_only] {
+        assert!(!request.wants.contains_key(&pull_only_id));
+    }
+    for request in &requests[first_pull_only..] {
+        assert_eq!(request.wants.keys().collect::<Vec<_>>(), vec![&pull_only_id]);
+    }
+    assert_eq!(requests.len() - first_pull_only, TOTAL_PARTS);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn an_answer_clears_its_senders_request_so_the_next_trigger_requests_from_it_again() {
@@ -573,4 +663,24 @@ fn an_answer_clears_its_senders_request_so_the_next_trigger_requests_from_it_aga
             BTreeMap::from([(ids[0].clone(), ordinals(&[1, 2, 3, 4]))]),
         )])
     );
+}
+
+/// The chunk executor misses one proof per height, as it applies the blocks of a catch-up shard one
+/// after another; no block is processed meanwhile.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_saved_pull_only_item_frees_its_window_slot_for_the_next_need() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    let producers = producers();
+    for block in &blocks[..2] {
+        let source = manager.certified_chunk(block, 0);
+        manager.need(1, &[source]);
+        manager.deliver(&producers[0], &receipt_id(block, 0, 1), &receipt_data(0, 1));
+        save_proof(&chain, block, &receipt_data(0, 1));
+    }
+
+    let source = manager.certified_chunk(&blocks[2], 0);
+    let id = receipt_id(&blocks[2], 0, 1);
+    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
 }

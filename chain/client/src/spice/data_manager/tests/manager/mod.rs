@@ -1,23 +1,19 @@
 use super::*;
-use crate::spice::tests::{build_to_last_pre_spice_block, save_and_record_block};
+use crate::spice::tests::save_and_record_block;
 use itertools::Itertools;
 use near_async::time::{Clock, Duration, FakeClock};
-use near_chain::test_utils::get_chain_with_genesis;
 use near_chain::{Block, Chain, ChainStoreAccess};
-use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::MutableConfigValue;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block_body::SpiceCoreStatement;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::spice::partial_data::SpiceDataPart;
-use near_primitives::test_utils::pre_spice_protocol_version;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
-use near_store::Store;
+use near_primitives::utils::get_execution_results_key;
 use near_store::adapter::StoreAdapter;
+use near_store::{DBCol, Store};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod batching;
@@ -90,9 +86,9 @@ fn wants_for(requests: Vec<PullRequest>, id: &DataId) -> BTreeMap<AccountId, BTr
         .collect()
 }
 
-/// A manager whose node applies one shard, shard 1 unless built with `applying`: it needs
-/// the proof from every other shard into that one, unless that proof is on disk. On the
-/// two-shard chain that is `(0 -> 1)` only. Nothing is certified until
+/// A manager whose node applies one shard, shard 1 unless built with `applying`, as a chunk producer
+/// of it: the proof from every other shard into that one is pushed to it, and it needs it unless
+/// that proof is on disk. On the two-shard chain that is `(0 -> 1)` only. Nothing is certified until
 /// `certify_up_to` says so, and nothing is finally executed until
 /// `set_final_execution_head` says so. Time stands still until `clock` is advanced.
 struct TestManager {
@@ -113,19 +109,29 @@ impl TestManager {
         Self::with_pull_config(chain, shard, PullConfig::default())
     }
 
-    /// A manager whose node applies `shard` from the third epoch on, and no shard before it.
-    fn catching_up(chain: &Chain, shard: u64) -> Self {
-        let shard_tracker = even_epoch_shard_tracker(chain, &[shard]);
-        Self::with_shard_tracker(chain, shard_tracker, PullConfig::default())
+    /// A manager whose node produces no chunk and applies `shard` without a push reaching it.
+    fn pull_only(chain: &Chain, shard: u64) -> Self {
+        Self::with_shard_tracker(
+            chain,
+            applying_shard_tracker(chain, shard),
+            Some(account("observer.near")),
+            PullConfig::default(),
+        )
     }
 
     fn with_pull_config(chain: &Chain, shard: u64, pull_config: PullConfig) -> Self {
-        Self::with_shard_tracker(chain, applying_shard_tracker(chain, shard), pull_config)
+        Self::with_shard_tracker(
+            chain,
+            applying_shard_tracker(chain, shard),
+            Some(shard_producer(shard, 0)),
+            pull_config,
+        )
     }
 
     fn with_shard_tracker(
         chain: &Chain,
         shard_tracker: ShardTracker,
+        me: Option<AccountId>,
         pull_config: PullConfig,
     ) -> Self {
         let store = chain.chain_store.store();
@@ -136,6 +142,10 @@ impl TestManager {
                 store.chain_store(),
                 chain.epoch_manager.clone(),
                 shard_tracker,
+                MutableConfigValue::new(
+                    me.map(|me| Arc::new(create_test_signer(me.as_str()))),
+                    "validator_signer",
+                ),
             ),
             clock: FakeClock::default(),
             store,
@@ -163,9 +173,15 @@ impl TestManager {
         set_final_execution_head(&self.store, block);
     }
 
-    /// Reports `block` as the final execution head of `shard`, as the chunk executor does.
-    fn set_shard_final_execution_head(&mut self, shard: u64, block: &Block) {
-        self.manager.on_shard_final_execution_head(ShardId::new(shard), block.header().height());
+    /// Applies `change` to the proofs into `shard`, as the chunk executor sends it, and returns the
+    /// pull requests.
+    fn change_needs(&mut self, shard: u64, change: NeedChange) -> Vec<PullRequest> {
+        self.manager.on_receipt_proof_needs(ShardId::new(shard), change, self.clock.now())
+    }
+
+    /// The chunk executor misses the proofs from `sources` into `shard`.
+    fn need(&mut self, shard: u64, sources: &[SpiceChunkId]) -> Vec<PullRequest> {
+        self.change_needs(shard, NeedChange::Needed(sources.to_vec()))
     }
 
     /// Writes `block` to the store as the consensus final head.
@@ -179,6 +195,28 @@ impl TestManager {
         self.manager.track_block(block).unwrap();
     }
 
+    /// The chunk of `shard` in `block`, with its execution result stored as its certification does.
+    fn certified_chunk(&self, block: &Block, shard: u64) -> SpiceChunkId {
+        let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) };
+        let execution_result = ChunkExecutionResult {
+            chunk_extra: ChunkExtra::new_with_only_state_root(block.hash()),
+            outgoing_receipts_root: CryptoHash::default(),
+        };
+        let mut store_update = self.store.store_update();
+        store_update.insert_ser(
+            DBCol::execution_results(),
+            &get_execution_results_key(block.hash(), chunk_id.shard_id),
+            &execution_result,
+        );
+        store_update.commit();
+        chunk_id
+    }
+
+    /// The heights holding tracked items, lowest first.
+    fn tracked_heights(&self) -> Vec<BlockHeight> {
+        self.manager.items.ids_in(..).map(|(height, _)| height).sorted().dedup().collect()
+    }
+
     fn is_tracking(&self, id: &DataId) -> bool {
         self.manager.is_tracking(id)
     }
@@ -188,17 +226,17 @@ impl TestManager {
     }
 
     fn is_pullable(&self, id: &DataId) -> bool {
-        self.manager.pulls.is_pullable(id)
+        self.manager.items.is_pullable(id)
     }
 
     /// Asserts no item and no index entry is left for `id`.
     fn assert_forgotten(&self, id: &DataId) {
         assert!(!self.is_tracking(id));
-        assert!(!self.manager.items_by_height.values().any(|ids| ids.contains(id)));
+        assert!(!self.manager.items.ids_in(..).any(|(_, indexed)| indexed == id));
         assert!(!self.is_pullable(id));
         assert!(!self.manager.pulls.holds_state_for(id));
         assert!(!self.manager.delivered_items.contains(id));
-        assert!(!self.manager.done_items.contains(id));
+        assert!(!self.manager.items.done_ids_in(..).any(|indexed| indexed == id));
     }
 
     /// Tracks `block` and returns the id of the one proof the policy needs from it.
@@ -259,36 +297,6 @@ impl TestManager {
     }
 }
 
-/// A two-shard chain of blocks from height 1 into the third epoch, each saved and recorded as
-/// canonical but not processed.
-fn chain_into_third_epoch() -> (Chain, Vec<Arc<Block>>) {
-    let (mut chain, _) = chain_with_blocks(0);
-    let mut prev = chain.genesis_block();
-    let mut blocks = Vec::new();
-    for height in 1..=(2 * chain.epoch_length + 1) {
-        let block = build_block_at(&chain, &prev, height);
-        save_and_record_block(&mut chain, &block);
-        let mut store_update = chain.chain_store.store().store_update();
-        store_update.chain_store_update().set_block_height(block.hash(), height);
-        store_update.commit();
-        blocks.push(block.clone());
-        prev = block;
-    }
-    (chain, blocks)
-}
-
-/// The blocks of `blocks` in the second epoch, the one before the third.
-fn second_epoch_blocks(chain: &Chain, blocks: &[Arc<Block>]) -> Vec<Arc<Block>> {
-    let epoch_height =
-        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
-    blocks
-        .iter()
-        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
-        .filter(|block| epoch_height(block.header().epoch_id()) == 1)
-        .cloned()
-        .collect()
-}
-
 /// One item from each of `blocks`, tracked and made pullable.
 fn pullable_items(manager: &mut TestManager, blocks: &[Arc<Block>]) -> Vec<DataId> {
     let ids = blocks.iter().map(|block| manager.track_needed_proof(block)).collect();
@@ -303,16 +311,17 @@ fn encode_garbage_to_wire(encoded_length: usize) -> (SpiceDataCommitment, Vec<Sp
     wire_parts(parts, encoded_length as u64, CryptoHash::default())
 }
 
-/// The ids of the receipt proofs a node with `shard_tracker` needs from `block`.
+/// The ids of the receipt proofs pushed to `me` that a node with `shard_tracker` needs from `block`.
 fn needed_receipt_ids(
     chain: &Chain,
     shard_tracker: &ShardTracker,
+    me: &AccountId,
     block: &Block,
 ) -> HashSet<DataId> {
     receipt_proof::needed_items(
-        &chain.chain_store().chain_store(),
         chain.epoch_manager.as_ref(),
         shard_tracker,
+        Some(me),
         block.header(),
     )
     .unwrap()
