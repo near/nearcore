@@ -8,7 +8,6 @@ StartLimitBurst=5
 [Service]
 EnvironmentFile=-%h/.secrets
 EnvironmentFile=-%h/.near/forknet/neard.env
-ExecStartPre=-/usr/sbin/logrotate -f -s %h/neard-logs/.logrotate_status %h/.near/forknet/systemd/logrotate.conf
 ExecStart=/bin/bash %h/.near/forknet/run-neard.sh
 StandardOutput=append:%h/neard-logs/logs.txt
 StandardError=inherit
