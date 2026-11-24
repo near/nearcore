@@ -10,7 +10,7 @@ config files with a naming scheme like `V.yaml`, where `V` is the new version.
 
 The content of the base configuration file is one flat list of typed keys and
 typed values (possibly with nested structure). Key names are defined in
-`core/primitives-core/src/parameter.rs`.
+`core/parameters/src/parameter.rs`.
 
 The format of the differential files is slightly different. Inserting new
 parameters uses the following syntax: `key: { new: value }`.

@@ -62,18 +62,19 @@ charge gas, please also consider that when defining a new parameter.
 
 Adding the parameter in code involves several steps.
 
-1. Define the parameter by adding it to the list in `core/primitives/res/runtime_configs/parameters.yaml.`
+1. Define the parameter by adding it to the list in `core/parameters/res/runtime_configs/parameters.yaml`.
 2. Update the Rust view of parameters by adding a variant to `enum Parameter`
-   in `core/primitives-core/src/parameter.rs`. In the same file, update
+   in `core/parameters/src/parameter.rs`. In the same file, update
    `enum FeeParameter` if you add an action cost or update `ext_costs()`
    if you add a cost inside function calls.
 3. Update `RuntimeConfig`, the configuration used to reference parameters in
    code. Depending on the type of parameter, you will need to update
    `RuntimeFeesConfig` (for action costs) or `ExtCostsConfig` (for gas costs).
-4. Update the list used for gas profiles. This is defined by `enum Cost` in
-   `core/primitives-core/src/profile.rs`. You need to add a variant to either
-   `enum ActionCosts` or `enum ExtCost`. Please also update `fn index()` that
-   maps each profile entry to a unique position in serialized gas profiles.
+4. Update the list used for gas profiles by adding a variant to either
+   `enum ActionCosts` or `enum ExtCosts` in `core/parameters/src/cost.rs`.
+   Gas profiles (`ProfileDataV3` in `core/primitives/src/profile_data_v3.rs`)
+   are keyed by these enums. The old `enum Cost` and its `fn index()` mapping
+   belong to the deprecated `ProfileDataV2`, kept only to read old profiles.
 5. The parameter should be available to use in the code section you need it in.
    Now is a good time to ensure `cargo check` and `cargo test --no-run` pass.
    Most likely you have to update some testing code, such as
