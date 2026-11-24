@@ -7,7 +7,6 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::Error as ChainStoreError;
 use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError};
-use near_client::archive::cloud_recent_reader::PullLimit;
 use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -25,6 +24,7 @@ use near_store::genesis::initialize_genesis_state;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -37,14 +37,13 @@ const WAIT_FOR_BLOCKS_INTERVAL: Duration = Duration::from_millis(500);
 /// not in the store yet, and the extra transactions would be lost.
 const OUTCOME_MARGIN: BlockHeight = 100;
 
-/// A source store another task keeps appending to (the cloud archive reader).
+/// A source store another task keeps extending (the cloud archive source).
 pub(crate) struct Follow {
     /// Cancelled on shutdown. A read that waits for blocks stops then.
     pub(crate) shutdown: CancellationToken,
-    /// Raised as the mirror asks for heights, so the reader stays at most
-    /// `read_ahead` blocks above them.
-    pub(crate) pull_limit: PullLimit,
-    pub(crate) read_ahead: BlockHeight,
+    /// The highest height the mirror has asked about, raised as it asks. The extending
+    /// task keeps the store a bounded distance above it.
+    pub(crate) asked: Arc<AtomicU64>,
 }
 
 fn is_on_current_chain(
@@ -60,10 +59,10 @@ pub(crate) struct ChainAccess {
     epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
     /// Set when another task keeps appending blocks to the store (the cloud archive
-    /// reader): reads past the head then wait for them until shutdown, instead of
+    /// source): reads past the head then wait for them until shutdown, instead of
     /// ending the run.
     follow: Option<Follow>,
-    /// Set when the store was built without state (`--source-skip-state`): a state
+    /// Set when the store was built without state (the cloud archive source): a state
     /// query that fails in the trie then reports `ChainError::NoState`, which the
     /// mirror falls back from, instead of the error aborting the run.
     skip_state: bool,
@@ -108,8 +107,8 @@ impl ChainAccess {
     }
 
     /// The last height the store holds in full. With `follow`, that is the reader head:
-    /// the reader writes a window's block rows and height index before its chunks, and
-    /// moves the reader head (and the chain heads with it) once the whole window is in.
+    /// the extending task writes a batch's block rows and height index before its chunks,
+    /// and moves the reader head (and the chain heads with it) once the whole batch is in.
     /// The height index above the reader head can name blocks whose chunks are not in
     /// yet. Without `follow`, the chain head.
     fn complete_head(&self) -> Result<BlockHeight, ChainError> {
@@ -159,11 +158,11 @@ impl ChainAccess {
             .all(|chunk| self.chain.get_chunk(&chunk.chunk_hash()).is_ok()))
     }
 
-    /// Lets the appending task pull up to `read_ahead` blocks above `height`, the
-    /// highest height the mirror has asked about.
-    fn raise_pull_limit(&self, height: BlockHeight) {
+    /// Records `height` as asked about, so the extending task copies up to a bounded
+    /// distance above it.
+    fn raise_asked_height(&self, height: BlockHeight) {
         if let Some(follow) = &self.follow {
-            follow.pull_limit.raise_to(height + follow.read_ahead);
+            follow.asked.fetch_max(height, Ordering::Relaxed);
         }
     }
 }
@@ -177,8 +176,8 @@ impl crate::ChainAccess for ChainAccess {
     ) -> anyhow::Result<Vec<BlockHeight>> {
         let mut block_heights = Vec::with_capacity(num_initial_blocks);
         // On a restart the reader head can be at `last_height`, and the wait below
-        // needs the reader to pull past it.
-        self.raise_pull_limit(last_height);
+        // needs the store extended past it.
+        self.raise_asked_height(last_height);
 
         let mut height = last_height + 1;
         let mut logged_wait = false;
@@ -290,7 +289,7 @@ impl crate::ChainAccess for ChainAccess {
     }
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError> {
-        self.raise_pull_limit(height);
+        self.raise_asked_height(height);
         let hash = self.chain.get_block_hash_by_height(height)?;
         let hash = self.chain.get_next_block_hash(&hash)?;
         let next_height = self.chain.get_block_header(&hash)?.height();
@@ -380,7 +379,7 @@ impl crate::ChainAccess for ChainAccess {
                 }
                 // For `ViewAccessKeyList`, `InternalError` wraps a `StorageError` raised while
                 // reading the trie (e.g. `MissingTrieValue`). On a store built without state
-                // (`--source-skip-state`) that is expected at every block, and the caller
+                // (the cloud archive source) that is expected at every block, and the caller
                 // falls back; on any other store it is corruption or state garbage-collected
                 // under the mirror, and it aborts the run like every other error.
                 Err(QueryError::InternalError { error_message, .. }) if self.skip_state => {

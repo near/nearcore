@@ -328,8 +328,8 @@ struct SourceBlock {
 enum ChainError {
     #[error("unknown")]
     Unknown,
-    /// The source store holds no state by design (a cloud archive reader store
-    /// bootstrapped with `--skip-state`), so a state query cannot be answered.
+    /// The source store holds no state by design (the `--source-cloud-archive` store,
+    /// which is filled without state), so a state query cannot be answered.
     #[error("the source store has no state")]
     NoState,
     #[error(transparent)]
@@ -1358,8 +1358,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
             }
             Err(ChainError::NoState) => {
-                // The source store has no state by design (a cloud archive reader store
-                // bootstrapped with `--skip-state`), so the account's full access keys
+                // The source store has no state by design (the `--source-cloud-archive`
+                // store, which is filled without state), so the account's full access keys
                 // cannot be looked up. Fall back to the default extra key, as we already
                 // do when the account has no full access keys. Any other error, a
                 // missing block or chunk extra included, aborts the run as it always has.
@@ -2562,7 +2562,6 @@ async fn run<P: AsRef<Path>>(
     stop_height: Option<BlockHeight>,
     online_source: bool,
     source_cloud_archive: bool,
-    source_skip_state: bool,
     config_path: Option<P>,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
@@ -2591,7 +2590,6 @@ async fn run<P: AsRef<Path>>(
             mirror_db_path.as_deref(),
             secret,
             stop_height,
-            source_skip_state,
             config,
             actor_system,
             shutdown,
@@ -2626,8 +2624,8 @@ async fn run<P: AsRef<Path>>(
     }
 }
 
-/// `run` with `--source-cloud-archive`: the source store is opened out of the bucket and
-/// followed by a reader loop for as long as the mirror runs.
+/// `run` with `--source-cloud-archive`: the source store is filled out of the bucket and
+/// extended by a background task for as long as the mirror runs.
 async fn run_from_cloud_archive(
     source_home: &Path,
     target_home: &Path,
@@ -2635,7 +2633,6 @@ async fn run_from_cloud_archive(
     mirror_db_path: Option<&Path>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     stop_height: Option<BlockHeight>,
-    source_skip_state: bool,
     config: MirrorConfig,
     actor_system: near_async::ActorSystem,
     shutdown: CancellationToken,
@@ -2653,37 +2650,26 @@ async fn run_from_cloud_archive(
     let source = Box::pin(crate::cloud_archive::CloudArchiveSource::open(
         source_home,
         start_height.max(genesis_height),
-        source_skip_state,
         shutdown.clone(),
     ))
     .await?;
-    let result = TxMirror::new(
-        source.chain_access,
-        target_home,
-        target_config,
-        mirror_db_path,
-        secret,
-        config,
-    )?
-    .run(stop_height, target_home.to_path_buf(), actor_system, shutdown)
-    .await;
-    // A reader failure cancels the shutdown token, and the mirror then either stops
-    // cleanly or, when it was waiting for source blocks, with a shutdown error of its
-    // own: the reader's error is the cause, so it is the one reported, and the mirror's
-    // goes to the log.
-    let reader_result = source.follower.stop().await;
-    match (result, reader_result) {
-        (Err(mirror_error), Err(reader_error)) => {
-            tracing::error!(
-                target: "mirror",
-                error = format!("{:#}", mirror_error),
-                "the mirror stopped with an error after the cloud archive reader loop failed"
-            );
-            Err(reader_error)
-        }
-        (Ok(()), Err(reader_error)) => Err(reader_error),
-        (result, Ok(())) => result,
+    let result = async {
+        TxMirror::new(
+            source.chain_access,
+            target_home,
+            target_config,
+            mirror_db_path,
+            secret,
+            config,
+        )?
+        .run(stop_height, target_home.to_path_buf(), actor_system, shutdown)
+        .await
     }
+    .await;
+    // The extender retries a failed extend on its next tick, so it fails only by
+    // panicking. It is stopped either way, before the mirror's error is returned.
+    let extender_result = source.extender.stop().await;
+    result.and(extender_result)
 }
 
 #[cfg(test)]

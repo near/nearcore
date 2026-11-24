@@ -46,15 +46,11 @@ struct RunCmd {
     online_source: bool,
     /// Stream the source chain out of a cloud archive bucket. --source-home is then a
     /// cloud archive reader home (a config.json with cloud_archival.location and
-    /// cloud_archival.reader), whose store the mirror bootstraps from the bucket when it
-    /// is empty and keeps following while it runs
+    /// cloud_archival.reader), whose store the mirror fills from the bucket when it is
+    /// empty and keeps extending while it runs. No state is copied, so the access key
+    /// lookups for extra transactions fall back to the default extra key
     #[clap(long, conflicts_with = "online_source")]
     source_cloud_archive: bool,
-    /// With --source-cloud-archive, copy no state out of the bucket (what
-    /// `cloud-archive bootstrap --skip-state` does), for a bucket without state
-    /// snapshots. Access key lookups then fall back to the default extra key
-    #[clap(long, requires = "source_cloud_archive")]
-    source_skip_state: bool,
     /// If provided, we will stop after sending transactions coming from
     /// this height in the source chain
     #[clap(long)]
@@ -92,7 +88,6 @@ impl RunCmd {
             self.stop_height,
             self.online_source,
             self.source_cloud_archive,
-            self.source_skip_state,
             self.config_path,
             signal_handler.shutdown_token(),
         ));

@@ -1,14 +1,13 @@
 //! The `--source-cloud-archive` source: a cloud archive reader store the mirror opens once
-//! and shares between its own reads and a background copy of the recent reader loop, which
-//! keeps pulling batches out of the bucket while the mirror runs.
+//! and shares between its own reads and a background task that keeps extending it out of
+//! the bucket with `bootstrap_range` while the mirror runs. The store holds no state.
 
+use crate::metrics::{SOURCE_BUCKET_HEAD, SOURCE_READER_HEAD};
 use crate::offline::{ChainAccess, Follow};
 use anyhow::Context;
 use near_async::time::{Clock, Duration};
 use near_chain_configs::GenesisValidationMode;
-use near_client::archive::cloud_archival_utils::CloudArchivalReaderError;
 use near_client::archive::cloud_historical_reader::bootstrap_range;
-use near_client::archive::cloud_recent_reader::{CloudArchivalRecentReader, PullLimit};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::types::BlockHeight;
@@ -19,40 +18,44 @@ use near_store::genesis::initialize_genesis_state;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-/// Batches the reader pulls between two progress lines.
-const LOG_EVERY_BATCHES: u64 = 16;
-
-/// How far, in blocks, the reader store runs ahead of the heights the mirror asks for.
-/// The bootstrap copies this many blocks, and the reader then pulls only up to this far
-/// above the mirror. Without the bound the reader copies everything up to the bucket
-/// head, which for a fork days behind mainnet is millions of blocks. 3200 blocks are
-/// 100 batches: about 70 s to bootstrap, about 30 minutes of mirror traffic.
+/// How far, in blocks, the source store runs ahead of the heights the mirror asks for.
+/// The first fill copies this many blocks, and an extend runs only while the store is less
+/// than this far above the mirror, copying at most this many. Without the bound the store
+/// would copy everything up to the bucket head, which for a fork days behind mainnet is
+/// millions of blocks. 3200 blocks are 100 batches: about 70 s to copy, about 30 minutes
+/// of mirror traffic.
 const SOURCE_READ_AHEAD: BlockHeight = 3200;
 
-/// How many times in a row a bucket read may fail while the source store opens before
-/// `open` gives up. The reads are retried a polling interval apart.
+/// How many extends in a row may fail while the source store opens before `open` gives
+/// up. They are retried a polling interval apart.
 const OPEN_MAX_ATTEMPTS: u32 = 5;
+
+/// How many extends in a row may fail, once the mirror runs, before each failure is logged
+/// as a warning. At the bucket's head the writer moves the block head before it uploads
+/// the window's shard batches, so an extend there can fail a time or two before it goes
+/// through.
+const QUIET_FAILURES: u32 = 3;
 
 /// What `mirror run --source-cloud-archive` reads the source chain through.
 pub(crate) struct CloudArchiveSource {
     pub(crate) chain_access: ChainAccess,
-    pub(crate) follower: ReaderFollower,
+    pub(crate) extender: StoreExtender,
 }
 
 impl CloudArchiveSource {
-    /// Opens the reader home at `home`, bootstraps its store out of the bucket when it
-    /// holds no reader head yet, and starts following the bucket. `start_height` is the
-    /// first height the mirror wants; the bootstrap opens there, so the bucket has to
-    /// hold it and a block below it. The reader stays at most `SOURCE_READ_AHEAD` blocks
-    /// above the heights the mirror asks for. A store whose reader head is more than that
-    /// below `start_height` is refused: following it would copy everything in between.
+    /// Opens the reader home at `home`, fills its store out of the bucket from
+    /// `start_height` when it holds no reader head yet, and starts extending it. The bucket
+    /// has to hold `start_height` and a block below it. An extend runs only while the store
+    /// is less than `SOURCE_READ_AHEAD` blocks above the heights the mirror asks for. A
+    /// store whose reader head is more than that below `start_height` is refused: extending
+    /// it would copy everything in between.
     pub(crate) async fn open(
         home: &Path,
         start_height: BlockHeight,
-        skip_state: bool,
         shutdown: CancellationToken,
     ) -> anyhow::Result<Self> {
         let config = nearcore::config::load_config(home, GenesisValidationMode::UnsafeFast)
@@ -88,7 +91,13 @@ impl CloudArchiveSource {
             NightshadeRuntime::from_config(home, store.clone(), &config, epoch_manager.clone())
                 .context("could not create the transaction runtime")?;
 
-        let pull_limit = PullLimit::new(start_height + SOURCE_READ_AHEAD);
+        let source = SourceStore {
+            store: store.clone(),
+            cloud_storage,
+            shard_tracker,
+            first_height: start_height,
+            asked: Arc::new(AtomicU64::new(start_height)),
+        };
         match store.cloud_archival_store().reader_head() {
             Some(reader_head) if reader_head.height + SOURCE_READ_AHEAD < start_height => {
                 anyhow::bail!(
@@ -101,178 +110,149 @@ impl CloudArchiveSource {
                     ),
                 )
             }
-            // A bootstrap that stopped part way left a reader head too, and the reader
-            // loop takes the archive on from there.
+            // A fill that stopped part way left a reader head too, and the extends go on
+            // from there.
             Some(reader_head) => tracing::info!(
                 target: "mirror",
                 reader_head = reader_head.height,
                 start_height,
-                "the source store has a reader head; following the cloud archive from there"
+                "the source store has a reader head; extending it from there"
             ),
-            None => {
-                bootstrap(
-                    &store,
-                    &cloud_storage,
-                    &shard_tracker,
-                    start_height,
-                    skip_state,
-                    polling_interval,
-                    &pull_limit,
-                    &shutdown,
-                )
-                .await?
-            }
+            None => source.fill(polling_interval, &shutdown).await?,
         }
 
-        let reader = CloudArchivalRecentReader::new(
-            Clock::real(),
-            store.clone(),
-            cloud_storage.clone(),
-            shard_tracker.epoch_manager().clone(),
-            shard_tracker,
-            polling_interval,
-        )
-        .with_skip_state(skip_state)
-        .with_pull_limit(pull_limit.clone());
-        let follower = ReaderFollower::spawn(
-            reader,
-            store.clone(),
-            cloud_storage,
-            polling_interval,
-            shutdown.clone(),
-        );
+        let asked = source.asked.clone();
+        let extender = StoreExtender::spawn(source, polling_interval, shutdown.child_token());
         let chain_access = ChainAccess::from_parts(
             store,
             &config,
             epoch_manager,
             runtime,
-            Some(Follow { shutdown, pull_limit, read_ahead: SOURCE_READ_AHEAD }),
-            skip_state,
+            Some(Follow { shutdown, asked }),
+            true,
         );
-        Ok(Self { chain_access, follower })
+        Ok(Self { chain_access, extender })
     }
 }
 
-/// Fills a fresh reader store out of the bucket, from `start_height` up
-/// `SOURCE_READ_AHEAD` blocks, or to the bucket's block head if that is lower. Raises
-/// `pull_limit` to the same height, so the reader goes on from there. The bootstrap
-/// anchors on the block below `start_height`, so the bucket has to hold one.
-async fn bootstrap(
-    store: &Store,
-    cloud_storage: &CloudStorage,
-    shard_tracker: &ShardTracker,
-    start_height: BlockHeight,
-    skip_state: bool,
-    polling_interval: Duration,
-    pull_limit: &PullLimit,
-    shutdown: &CancellationToken,
-) -> anyhow::Result<()> {
-    let cloud_head =
-        wait_for_cloud_head(cloud_storage, start_height, polling_interval, shutdown).await?;
-    let end_height = cloud_head.min(start_height + SOURCE_READ_AHEAD);
-    pull_limit.raise_to(end_height);
-    tracing::info!(
-        target: "mirror",
-        start_height,
-        end_height,
-        cloud_head,
-        skip_state,
-        "bootstrapping the source store from the cloud archive"
-    );
-    // The writer moves the block head before it writes the window's shard batches, so the
-    // last windows can be missing a shard batch for a while, and a bucket read can fail.
-    // The bootstrap saves the reader head after every window, so once it has one the
-    // reader loop takes the rest on, waiting for each shard. Before that it is retried.
-    let mut attempt = 1;
-    loop {
-        let result = bootstrap_range(
-            store,
-            cloud_storage,
-            shard_tracker.epoch_manager().as_ref(),
-            shard_tracker,
-            start_height,
-            end_height,
-            skip_state,
-        )
-        .await;
-        let Err(error) = result else { break };
-        if let Some(reader_head) = store.cloud_archival_store().reader_head() {
-            tracing::warn!(
-                target: "mirror",
-                reader_head = reader_head.height,
-                error = format!("{:#}", error),
-                "the bootstrap stopped part way; the reader loop goes on from its head"
-            );
+/// The source store and what extends it out of the bucket.
+struct SourceStore {
+    store: Store,
+    cloud_storage: Arc<CloudStorage>,
+    shard_tracker: ShardTracker,
+    /// Where the store opens when it has no reader head yet.
+    first_height: BlockHeight,
+    /// The highest height the mirror has asked about.
+    asked: Arc<AtomicU64>,
+}
+
+impl SourceStore {
+    fn reader_head(&self) -> Option<BlockHeight> {
+        self.store.cloud_archival_store().reader_head().map(|reader_head| reader_head.height)
+    }
+
+    /// Copies the next range out of the bucket: from above the reader head, or from
+    /// `first_height` when there is none, up `SOURCE_READ_AHEAD` blocks, or to the bucket's
+    /// block head if that is lower. Does nothing when the store already reaches
+    /// `SOURCE_READ_AHEAD` above the heights the mirror asked for, or the bucket holds
+    /// nothing new.
+    ///
+    /// `bootstrap_range` anchors the range on the block below it, which is the reader
+    /// head's, and saves the reader head after every batch, so a failed extend is taken on
+    /// from there by the next one. It runs without state: with state, every call would
+    /// rebuild each shard from a snapshot.
+    async fn extend(&self) -> anyhow::Result<()> {
+        let start = self.reader_head().map_or(self.first_height, |height| height + 1);
+        let cloud_head = self
+            .cloud_storage
+            .get_cloud_block_head()
+            .await
+            .context("could not read the bucket's block head")?;
+        if let Some(cloud_head) = cloud_head {
+            SOURCE_BUCKET_HEAD.set(cloud_head as i64);
+        }
+        if start > self.asked.load(Ordering::Relaxed) + SOURCE_READ_AHEAD {
             return Ok(());
         }
-        if attempt >= OPEN_MAX_ATTEMPTS {
-            return Err(error).with_context(|| {
-                format!(
-                    "bootstrapping the source store from the cloud archive failed; \
-                     the archive must cover the start height #{} and hold a block below it",
-                    start_height
-                )
-            });
-        }
-        tracing::warn!(
-            target: "mirror",
-            attempt,
-            error = format!("{:#}", error),
-            "bootstrapping the source store failed; retrying"
-        );
-        attempt += 1;
-        sleep_or_shutdown(polling_interval, shutdown).await?;
+        let Some(cloud_head) = cloud_head.filter(|cloud_head| *cloud_head >= start) else {
+            return Ok(());
+        };
+        let end = cloud_head.min(start + SOURCE_READ_AHEAD);
+        bootstrap_range(
+            &self.store,
+            &self.cloud_storage,
+            self.shard_tracker.epoch_manager().as_ref(),
+            &self.shard_tracker,
+            start,
+            end,
+            true,
+        )
+        .await
     }
-    let reader_head = store
-        .cloud_archival_store()
-        .reader_head()
-        .context("the bootstrap left no reader head in the source store")?;
-    tracing::info!(
-        target: "mirror",
-        start_height,
-        reader_head = reader_head.height,
-        "bootstrapped the source store from the cloud archive"
-    );
-    Ok(())
-}
 
-/// The bucket's block head once it is at or above `height`. A fork taken near the chain's
-/// head can run ahead of the writer, so a bucket that is not there yet is polled.
-async fn wait_for_cloud_head(
-    cloud_storage: &CloudStorage,
-    height: BlockHeight,
-    polling_interval: Duration,
-    shutdown: &CancellationToken,
-) -> anyhow::Result<BlockHeight> {
-    let mut failed_reads = 0;
-    loop {
-        match cloud_storage.get_cloud_block_head().await {
-            Ok(cloud_head) => {
-                failed_reads = 0;
-                if let Some(cloud_head) = cloud_head.filter(|head| *head >= height) {
-                    return Ok(cloud_head);
+    /// Extends an empty store until it has a reader head, which the mirror reads up to.
+    /// Waits while the bucket's block head is below `first_height`, which a fork taken near
+    /// the chain's head can be. Fails after `OPEN_MAX_ATTEMPTS` failed extends in a row.
+    async fn fill(
+        &self,
+        polling_interval: Duration,
+        shutdown: &CancellationToken,
+    ) -> anyhow::Result<()> {
+        tracing::info!(
+            target: "mirror",
+            start_height = self.first_height,
+            "bootstrapping the source store from the cloud archive"
+        );
+        let mut failures = 0;
+        loop {
+            let result = self.extend().await;
+            // The writer moves the block head before it writes the window's shard batches,
+            // so the last windows can be missing a shard batch for a while. Once a batch
+            // is in, the extends after `open` take the rest on.
+            if let Some(reader_head) = self.reader_head() {
+                if let Err(error) = result {
+                    tracing::warn!(
+                        target: "mirror",
+                        reader_head,
+                        error = format!("{:#}", error),
+                        "the bootstrap stopped part way; extending goes on from its head"
+                    );
                 }
                 tracing::info!(
                     target: "mirror",
-                    ?cloud_head,
-                    height,
-                    "the bucket's block head is below the height the source store opens at; waiting"
+                    start_height = self.first_height,
+                    reader_head,
+                    "bootstrapped the source store from the cloud archive"
                 );
+                return Ok(());
             }
-            Err(error) => {
-                failed_reads += 1;
-                if failed_reads >= OPEN_MAX_ATTEMPTS {
-                    return Err(error).context("could not read the bucket's block head");
-                }
-                tracing::warn!(
+            match result {
+                Ok(()) => tracing::info!(
                     target: "mirror",
-                    failed_reads,
-                    %error,
-                    "could not read the bucket's block head; retrying"
-                );
+                    start_height = self.first_height,
+                    "the bucket's block head is below the height the source store opens at; waiting"
+                ),
+                Err(error) => {
+                    failures += 1;
+                    if failures >= OPEN_MAX_ATTEMPTS {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "bootstrapping the source store from the cloud archive failed; \
+                                 the archive must cover the start height #{} and hold a block below it",
+                                self.first_height
+                            )
+                        });
+                    }
+                    tracing::warn!(
+                        target: "mirror",
+                        attempt = failures,
+                        error = format!("{:#}", error),
+                        "bootstrapping the source store failed; retrying"
+                    );
+                }
             }
+            sleep_or_shutdown(polling_interval, shutdown).await?;
         }
-        sleep_or_shutdown(polling_interval, shutdown).await?;
     }
 }
 
@@ -287,98 +267,55 @@ async fn sleep_or_shutdown(duration: Duration, shutdown: &CancellationToken) -> 
     }
 }
 
-/// The recent reader loop running next to the mirror on the shared store, with a monitor
-/// task that reports its progress and stops it on shutdown.
-pub(crate) struct ReaderFollower {
-    reader: CloudArchivalRecentReader,
-    loop_task: JoinHandle<Result<(), CloudArchivalReaderError>>,
-    monitor_task: JoinHandle<()>,
+/// The task that extends the source store once per polling interval while the mirror runs,
+/// and keeps the head gauges current. A failed extend is retried on the next tick.
+pub(crate) struct StoreExtender {
+    stop: CancellationToken,
+    task: JoinHandle<()>,
 }
 
-impl ReaderFollower {
-    fn spawn(
-        reader: CloudArchivalRecentReader,
-        store: Store,
-        cloud_storage: Arc<CloudStorage>,
-        polling_interval: Duration,
-        shutdown: CancellationToken,
-    ) -> Self {
-        let loop_task = tokio::spawn({
-            let reader = reader.clone();
-            let shutdown = shutdown.clone();
+impl StoreExtender {
+    fn spawn(source: SourceStore, polling_interval: Duration, stop: CancellationToken) -> Self {
+        let task = tokio::spawn({
+            let stop = stop.clone();
             async move {
-                let result = reader.cloud_archival_loop().await;
-                if let Err(error) = &result {
-                    // The loop only fails in its startup checks; the mirror would
-                    // otherwise run to the store's head and wait there for good.
-                    tracing::error!(
-                        target: "mirror",
-                        %error,
-                        "the cloud archive reader loop failed; stopping the mirror"
-                    );
-                    shutdown.cancel();
+                let clock = Clock::real();
+                let mut failures = 0;
+                loop {
+                    tokio::select! {
+                        _ = stop.cancelled() => return,
+                        result = source.extend() => match result {
+                            Ok(()) => failures = 0,
+                            Err(error) => {
+                                failures += 1;
+                                let error = format!("{:#}", error);
+                                if failures > QUIET_FAILURES {
+                                    tracing::warn!(target: "mirror", failures, error, "extending the source store failed; retrying");
+                                } else {
+                                    tracing::debug!(target: "mirror", failures, error, "extending the source store failed; retrying");
+                                }
+                            }
+                        },
+                    }
+                    if let Some(reader_head) = source.reader_head() {
+                        SOURCE_READER_HEAD.set(reader_head as i64);
+                    }
+                    tokio::select! {
+                        _ = stop.cancelled() => return,
+                        _ = clock.sleep(polling_interval) => {}
+                    }
                 }
-                result
             }
         });
-        let monitor_task = tokio::spawn(monitor(store, cloud_storage, polling_interval, shutdown));
-        Self { reader, loop_task, monitor_task }
+        Self { stop, task }
     }
 
-    /// Stops the reader loop after the batch in flight and reports how it ended. The
-    /// monitor is aborted and awaited, so its `Store` clone is gone before the caller's.
+    /// Stops extending, dropping an extend in flight, and waits for the task, so its
+    /// `Store` clone is gone before the caller's. A dropped extend leaves the reader head
+    /// at its last whole batch.
     pub(crate) async fn stop(self) -> anyhow::Result<()> {
-        self.reader.stop();
-        self.monitor_task.abort();
-        let _ = self.monitor_task.await;
-        match self.loop_task.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(error).context("the cloud archive reader loop failed"),
-            Err(join_error) => Err(join_error).context("the cloud archive reader loop panicked"),
-        }
-    }
-}
-
-/// Keeps the head gauges current on every poll (the bucket head is one small read) and
-/// logs the reader's progress every `LOG_EVERY_BATCHES` batches, until shutdown. The
-/// reader loop is left to `ReaderFollower::stop`, which runs once the mirror has
-/// stopped: its interrupt handle asserts against a second stop.
-async fn monitor(
-    store: Store,
-    cloud_storage: Arc<CloudStorage>,
-    polling_interval: Duration,
-    shutdown: CancellationToken,
-) {
-    let log_every = LOG_EVERY_BATCHES * cloud_storage.batch_size() as u64;
-    let mut last_logged: Option<BlockHeight> = None;
-    let clock = Clock::real();
-    loop {
-        let cloud_head = match cloud_storage.get_cloud_block_head().await {
-            Ok(cloud_head) => cloud_head,
-            Err(error) => {
-                tracing::warn!(target: "mirror", %error, "could not read the bucket's block head");
-                None
-            }
-        };
-        if let Some(cloud_head) = cloud_head {
-            crate::metrics::SOURCE_BUCKET_HEAD.set(cloud_head as i64);
-        }
-        if let Some(reader_head) = store.cloud_archival_store().reader_head() {
-            crate::metrics::SOURCE_READER_HEAD.set(reader_head.height as i64);
-            if last_logged.is_none_or(|height| reader_head.height >= height + log_every) {
-                tracing::info!(
-                    target: "mirror",
-                    reader_head = reader_head.height,
-                    ?cloud_head,
-                    "cloud archive reader progress"
-                );
-                last_logged = Some(reader_head.height);
-            }
-        }
-        tokio::select! {
-            _ = shutdown.cancelled() => return,
-            _ = clock.sleep(polling_interval) => {}
-        }
+        self.stop.cancel();
+        self.task.await.context("the source store extender panicked")
     }
 }
 
@@ -390,9 +327,9 @@ mod test {
     use near_store::archive::cloud_storage::config::create_test_cloud_storage;
 
     /// A bucket whose head is above the start but which holds no block below it: the
-    /// bootstrap fails, and does not move the start.
+    /// fill fails, and does not move the start.
     #[tokio::test]
-    async fn test_bootstrap_fails_when_the_bucket_does_not_cover_the_start() {
+    async fn test_fill_fails_when_the_bucket_does_not_cover_the_start() {
         let tmp = tempfile::tempdir().unwrap();
         let bucket = create_test_cloud_storage(
             tmp.path().to_path_buf(),
@@ -402,19 +339,16 @@ mod test {
         bucket.update_cloud_block_head(2000).await.unwrap();
         let (chain, epoch_manager, _, _) = setup(Clock::real());
         let store = chain.chain_store().store();
+        let source = SourceStore {
+            store: store.clone(),
+            cloud_storage: bucket,
+            shard_tracker: ShardTracker::new_empty(epoch_manager),
+            first_height: 1000,
+            asked: Arc::new(AtomicU64::new(1000)),
+        };
 
-        let error = bootstrap(
-            &store,
-            &bucket,
-            &ShardTracker::new_empty(epoch_manager),
-            1000,
-            true,
-            Duration::milliseconds(1),
-            &PullLimit::new(1000),
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap_err();
+        let error =
+            source.fill(Duration::milliseconds(1), &CancellationToken::new()).await.unwrap_err();
         assert!(format!("{error:#}").contains("must cover the start height #1000"), "{error:#}");
         assert!(store.cloud_archival_store().reader_head().is_none());
     }
