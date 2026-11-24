@@ -89,10 +89,18 @@ impl ChunkStoreAdapter {
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
         option_to_not_found(
-            self.store
-                .caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
+            self.get_chunk_extra_if_exists(block_hash, shard_uid),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
+    }
+
+    /// Information from applying chunk, if stored.
+    pub fn get_chunk_extra_if_exists(
+        &self,
+        block_hash: &CryptoHash,
+        shard_uid: &ShardUId,
+    ) -> Option<Arc<ChunkExtra>> {
+        self.store.caching_get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid))
     }
 
     pub fn get_chunk_apply_stats(

@@ -84,15 +84,6 @@ impl Pulls {
         self.requests.remove(id);
     }
 
-    /// Removes every item below `height` from the pullable items and forgets their requests.
-    pub(super) fn forget_below(&mut self, height: BlockHeight) {
-        let mut below = take(&mut self.pullable);
-        self.pullable = below.split_off(&height);
-        for id in below.into_values().flatten() {
-            self.requests.remove(&id);
-        }
-    }
-
     /// The requests to issue at `now`, grouped by producer.
     /// Traverses the pullable items of the `pulled_heights` lowest heights, looked up in `items`.
     /// Records every request it returns as created at `now`.

@@ -7,6 +7,7 @@ use super::storage::{save_receipt_proof, save_witness_and_contract_accesses};
 use crate::spice::chunk_validator_actor::send_spice_chunk_endorsement;
 use crate::spice::data_distributor_actor::{
     SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    SpiceShardFinalExecutionHead,
 };
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
@@ -94,6 +95,10 @@ pub(crate) struct PerShardChunkExecutor {
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
+    /// Height of the shard's final execution head: the last final block of the highest block this
+    /// executor applied. Kept in memory and reported to the data distributor as it moves, see
+    /// [`SpiceShardFinalExecutionHead`].
+    final_execution_head: Option<BlockHeight>,
     /// For a shard the node catches up for the next epoch, the sync block after which the canonical
     /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
     pub(super) replayed_after_sync_block: Option<CryptoHash>,
@@ -199,6 +204,7 @@ impl PerShardChunkExecutor {
             blocks_in_execution: HashSet::new(),
             parked_blocks: ParkedBlocks::default(),
             replayed_after_sync_block: None,
+            final_execution_head: None,
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
     }
@@ -268,11 +274,6 @@ impl PerShardChunkExecutor {
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)?;
         self.try_apply_children(source_block);
         Ok(())
-    }
-
-    /// Drop receipts buffered against source blocks at or below the final execution head.
-    pub(crate) fn prune_unverified_receipts_below_final_head(&mut self) -> Result<(), Error> {
-        self.unverified_receipts.prune_below_final_head(&self.chain_store)
     }
 
     /// Hashes of the parked blocks (test accessor).
@@ -516,6 +517,27 @@ impl PerShardChunkExecutor {
         self.apply_chunk_postprocessing_and_emit(block_hash, result)
     }
 
+    /// Moves the shard's final execution head to the last final block of `block_hash`, which the
+    /// shard applied, reports it to the data distributor, and drops the receipts buffered from the
+    /// blocks below it. The head is a final block, as the final execution head is: below it no fork
+    /// can become canonical, and the shard applied every canonical block.
+    fn advance_final_execution_head(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let last_final_block = *self.chain_store.get_block_header(block_hash)?.last_final_block();
+        if last_final_block == CryptoHash::default() {
+            return Ok(());
+        }
+        let last_final_height = self.chain_store.get_block_header(&last_final_block)?.height();
+        if self.final_execution_head.is_some_and(|head| head >= last_final_height) {
+            return Ok(());
+        }
+        self.final_execution_head = Some(last_final_height);
+        self.data_distributor_adapter.send(SpiceShardFinalExecutionHead {
+            shard_id: self.shard_uid.shard_id(),
+            height: last_final_height,
+        });
+        self.unverified_receipts.prune_below(&self.chain_store, last_final_height)
+    }
+
     fn send_outgoing_receipts(&self, block: &Block, receipt_proofs: Vec<ReceiptProof>) {
         let block_hash = *block.hash();
         tracing::debug!(target: "chunk_executor", %block_hash, ?receipt_proofs, "sending outgoing receipts");
@@ -524,11 +546,11 @@ impl PerShardChunkExecutor {
     }
 
     /// Postprocess one applied chunk for this shard: persist artifacts, emit the
-    /// endorsement / witness / outgoing receipts, and return the produced receipt
-    /// proofs so the coordinator can do local-path fanout. Block-level
-    /// postprocessing stays on the coordinator.
+    /// endorsement / witness / outgoing receipts, advance the shard's final execution head,
+    /// and return the produced receipt proofs so the coordinator can do local-path fanout.
+    /// Block-level postprocessing stays on the coordinator.
     fn apply_chunk_postprocessing_and_emit(
-        &self,
+        &mut self,
         block_hash: CryptoHash,
         result: ShardUpdateResult,
     ) -> Result<Vec<ReceiptProof>, Error> {
@@ -609,6 +631,9 @@ impl PerShardChunkExecutor {
             &self.config,
         )?;
         store_update.commit();
+        if let Err(err) = self.advance_final_execution_head(&block_hash) {
+            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to advance the shard's final execution head");
+        }
         Ok(receipt_proofs)
     }
 
