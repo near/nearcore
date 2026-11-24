@@ -12195,6 +12195,34 @@ fn test_lone_delete_account_of_other_account_is_instant_before_the_feature() {
 }
 
 #[test]
+fn test_lone_delete_account_of_other_shard_account_fails_with_account_does_not_exist_before_feature()
+ {
+    // Apply: at the protocol version before the feature, alice's delegate action deletes an
+    // account that is not in this shard's state, as an account on another shard would be.
+    let other_shard_account: AccountId = "dave.near".parse().unwrap();
+    let (apply_result, _) = apply_delegate_delete_account(
+        other_shard_account.clone(),
+        ProtocolFeature::InstantDeleteAccountOnlyForSelf.protocol_version() - 1,
+    );
+
+    // Check: the receipt runs in this apply, on the sender's shard, where the account is
+    // missing, so it fails with `AccountDoesNotExist` instead of `ActorNoPermission`.
+    assert!(!apply_result.outgoing_receipts.iter().any(is_lone_delete_account));
+    let delete_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.outcome.executor_id == other_shard_account)
+        .expect("the delete receipt runs in this apply");
+    assert_matches!(
+        &delete_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::AccountDoesNotExist { account_id },
+            ..
+        })) if account_id == &other_shard_account
+    );
+}
+
+#[test]
 fn test_lone_delete_account_of_own_account_is_instant() {
     // Apply: alice's delegate action creates a lone DeleteAccount receipt for alice herself.
     let (apply_result, state) = apply_delegate_delete_account(
