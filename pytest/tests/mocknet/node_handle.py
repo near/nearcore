@@ -137,7 +137,6 @@ class NodeHandle:
                            binary_idx=None,
                            force_restart=False,
                            source_cloud_archive=False,
-                           source_skip_state=False,
                            source_home=None,
                            source_rpc_backup=False):
         params = []
@@ -149,8 +148,6 @@ class NodeHandle:
             params.append(('force_restart', True))
         if source_cloud_archive:
             params.append(('source_cloud_archive', True))
-        if source_skip_state:
-            params.append(('source_skip_state', True))
         if source_home is not None:
             params.append(('source_home', source_home))
         if source_rpc_backup:

@@ -9,7 +9,7 @@ class TestCloudArchiveStream(TestSetup):
     Small forknet for iterating on the mirror tool with a cloud archive source.
     - 10 chunk producers, one host each, no validator-only hosts.
     - All hosts, the traffic host too, in europe-west4, the region of the
-      mainnet cloud archive bucket (gs://mainnet-nearone-cloud-archive).
+      mainnet cloud archive bucket.
     - No shard shuffling, no archival nodes, no state dumper.
     - Epoch length 14500 (about 2h at forknet block speed).
     - No upgrade step. The neard binary comes from --neard-binary-url and must
@@ -34,8 +34,8 @@ class TestCloudArchiveStream(TestSetup):
         # archive bucket named in the reader home's config.json. The reader
         # home must already exist on the traffic host (config.json,
         # genesis.json and node_key.json; its store is bootstrapped from the
-        # bucket on the first start). A later improvement is for the runner to
-        # create it from the source genesis before the source disk goes away.
+        # bucket on the first start, without state). A later improvement is for
+        # the runner to create it from the source genesis before the source disk
+        # goes away.
         self.source_cloud_archive = True
-        self.source_skip_state = True
         self.source_home = '/home/ubuntu/reader2'

@@ -97,7 +97,6 @@ class TestSetup:
         # backup home by default, or a cloud archive reader home on the traffic
         # host (`mirror.py start-traffic --source-cloud-archive`).
         self.source_cloud_archive: bool = False
-        self.source_skip_state: bool = False
         self.source_home: Optional[str] = None
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
@@ -351,7 +350,6 @@ class TestSetup:
         start_nodes_args = copy.deepcopy(self.args)
         start_nodes_args.batch_interval_millis = None
         start_nodes_args.source_cloud_archive = self.source_cloud_archive
-        start_nodes_args.source_skip_state = self.source_skip_state
         start_nodes_args.source_home = self.source_home
         start_traffic_cmd(CommandContext(start_nodes_args))
 

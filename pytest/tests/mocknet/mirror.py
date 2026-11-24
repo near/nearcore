@@ -599,11 +599,8 @@ def start_traffic_cmd(ctx: CommandContext):
     traffic_generator = ctx.traffic_generator
     force_restart = getattr(ctx.args, 'force_restart', False)
     source_cloud_archive = getattr(ctx.args, 'source_cloud_archive', False)
-    source_skip_state = getattr(ctx.args, 'source_skip_state', False)
     source_home = getattr(ctx.args, 'source_home', None)
     source_rpc_backup = getattr(ctx.args, 'source_rpc_backup', False)
-    if source_skip_state and not source_cloud_archive:
-        sys.exit('--source-skip-state needs --source-cloud-archive')
     if source_cloud_archive and source_home is None:
         sys.exit(
             '--source-cloud-archive needs --source-home, a cloud archive reader home'
@@ -637,7 +634,6 @@ def start_traffic_cmd(ctx: CommandContext):
         batch_interval_millis=ctx.args.batch_interval_millis,
         force_restart=force_restart,
         source_cloud_archive=source_cloud_archive,
-        source_skip_state=source_skip_state,
         source_home=source_home,
         source_rpc_backup=source_rpc_backup)
     if not ctx.is_scheduled():
@@ -1096,16 +1092,11 @@ def register_subcommands(subparsers):
         action='store_true',
         help=
         '''Stream the source chain out of a cloud archive bucket (neard mirror run --source-cloud-archive).
-        Needs --source-home, a cloud archive reader home on the traffic generator. The source
-        settings are kept by the neard-runner, so a later start-traffic without --source-* flags
-        reuses them; one with any --source-* flag replaces them all.
+        No state is copied, so a bucket without state snapshots works. Needs --source-home, a
+        cloud archive reader home on the traffic generator. The source settings are kept by the
+        neard-runner, so a later start-traffic without --source-* flags reuses them; one with any
+        --source-* flag replaces them all.
         ''')
-    start_traffic_parser.add_argument(
-        '--source-skip-state',
-        action='store_true',
-        help=
-        'With --source-cloud-archive, copy no state out of the bucket (for a bucket without state snapshots).'
-    )
     start_traffic_parser.add_argument(
         '--source-home',
         type=str,

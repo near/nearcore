@@ -162,9 +162,6 @@ def validate_traffic_source(traffic_source, rpc_backup):
     if rpc_backup and len(traffic_source) != 0:
         raise ValueError(
             'source_rpc_backup cannot be combined with other source params')
-    if traffic_source.get('source_skip_state'
-                         ) and not traffic_source.get('source_cloud_archive'):
-        raise ValueError('source_skip_state needs source_cloud_archive')
     if traffic_source.get(
             'source_cloud_archive') and not traffic_source.get('source_home'):
         raise ValueError(
@@ -697,7 +694,6 @@ class NeardRunner:
         # start with any of them replaces the whole saved source, and
         # source_rpc_backup goes back to the RPC backup home.
         source_cloud_archive: bool | None = None
-        source_skip_state: bool | None = None
         source_home: str | None = None
         source_rpc_backup: bool = False
 
@@ -712,7 +708,6 @@ class NeardRunner:
             traffic_source = {
                 k: v for k, v in (
                     ('source_cloud_archive', params.source_cloud_archive),
-                    ('source_skip_state', params.source_skip_state),
                     ('source_home', params.source_home),
                 ) if v is not None
             }
@@ -1120,8 +1115,6 @@ class NeardRunner:
         ]
         if traffic_source.get('source_cloud_archive'):
             cmd.append('--source-cloud-archive')
-        if traffic_source.get('source_skip_state'):
-            cmd.append('--source-skip-state')
         if os.path.exists(self.setup_path('mirror-secret.json')):
             cmd.append('--secret-file')
             cmd.append(self.setup_path('mirror-secret.json'))
