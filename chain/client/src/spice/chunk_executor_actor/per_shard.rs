@@ -926,13 +926,9 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
-/// Whether the block `hash` at `height` is on the canonical chain.
-pub(super) fn is_canonical(
-    chain_store: &ChainStoreAdapter,
-    height: BlockHeight,
-    hash: &CryptoHash,
-) -> bool {
-    chain_store.get_block_hash_by_height(height).is_ok_and(|canonical| &canonical == hash)
+/// Whether `header` is on the canonical chain.
+pub(super) fn is_canonical(chain_store: &ChainStoreAdapter, header: &BlockHeader) -> bool {
+    chain_store.get_block_hash_by_height(header.height()).is_ok_and(|hash| &hash == header.hash())
 }
 
 /// Whether `header` is the final execution head, a block before it on the canonical chain, or a
@@ -945,7 +941,7 @@ fn is_canonical_or_descends_from_final_execution_head(
         .spice_final_execution_head()
         .expect("spice final execution head is seeded at genesis or at spice activation");
     if header.height() <= final_execution_head.height {
-        return is_canonical(chain_store, header.height(), header.hash());
+        return is_canonical(chain_store, header);
     }
     is_descendant_of_final_execution_head(chain_store, header)
 }

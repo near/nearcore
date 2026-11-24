@@ -468,7 +468,7 @@ impl ChunkExecutorActor {
         let header = self.chain_store.get_block_header(block_hash)?;
         if !self.shard_tracker.tracked_shard_uids(header.prev_hash())?.contains(&shard_uid) {
             if is_descendant_of_final_execution_head(&self.chain_store, &header)
-                || !is_canonical(&self.chain_store, header.height(), header.hash())
+                || !is_canonical(&self.chain_store, &header)
             {
                 return Ok(());
             }
