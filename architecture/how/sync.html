@@ -176,9 +176,32 @@ many peers relay it.</li>
 <p>A peer with no proved height reads as level with our head, so it stays a
 candidate to download from but never sets the target. Once the head has not
 advanced for about one epoch, the node falls back to the unvalidated claimed
-heights, because the validator sets it knows no longer cover the tip. During
+heights, because the validator sets it knows no longer cover the tip. The
+target is then the lower median of those heights. If some peers advertise
+above the height that starts sync, only those count. Of the peers that count,
+those that failed recently are left out, unless all of them failed. During
 block sync the node's own header head can also set the target, since header
 sync has already validated it.</p>
+<p>The target height selects the sync phase and download targets. Only an epoch
+sync proof can cause a data reset.</p>
+<h3 id="choosing-a-peer-to-ask"><a class="header" href="#choosing-a-peer-to-ask">Choosing a peer to ask</a></h3>
+<p>Candidates are connected peers whose advertised head is above ours and is not a
+known invalid block. <code>PeerSelector</code> picks a random suitable candidate that
+advertises at least the lower median of the suitable candidates' heights minus
+<code>PEER_HEIGHT_WINDOW</code>. The median moves only when more than half of the
+candidates advertise above it, so a few peers that claim a very high height
+cannot push the other peers out. It skips peers that failed in the last
+<code>PEER_FAILURE_COOLDOWN_SECONDS</code>, unless all candidates failed.</p>
+<p>A peer fails when:</p>
+<ul>
+<li>Epoch sync: the request times out, or the proof is not usable.</li>
+<li>Header sync: the batch is below the expected rate after the timeout. A batch
+is complete when the header head reaches the end of the batch or the peer's
+advertised head.</li>
+<li>State sync: a sync block request times out.</li>
+<li>Block sync: a requested block does not arrive in time and is still on the
+canonical chain.</li>
+</ul>
 <h3 id="the-two-horizons"><a class="header" href="#the-two-horizons">The two horizons</a></h3>
 <pre><code>         ┌───────────────┐
          │  Sync Needed  │
@@ -225,8 +248,8 @@ not header head. Archival nodes always take the near-horizon path regardless of
 how far behind they are — they need the full block history and cannot use epoch
 sync. This means an archival node that falls far behind will do header + block
 sync over the entire gap, which can be slow.</p>
-<p>The entry decision is made once when sync starts. It is not re-evaluated during
-sync — the current path completes naturally.</p>
+<p>The entry decision is made once when sync starts. A stale sync hash (Step 3)
+and an epoch sync proof inside the horizon (&quot;Stale node handling&quot;) change it.</p>
 <h3 id="far-horizon-full-pipeline"><a class="header" href="#far-horizon-full-pipeline">Far horizon: full pipeline</a></h3>
 <p>When the node is too far behind for block-by-block sync, it follows the full
 pipeline:</p>
@@ -325,10 +348,17 @@ non-archival nodes, as that data would be garbage collected after a few epochs
 anyway.</p>
 <p>This step never runs on archival nodes — they need the complete history and
 cannot have gaps.</p>
-<p>If state sync takes too long and the network advances past the sync hash's
-epoch, state parts become unavailable from peers. When the node detects this
-(the network tip is more than one epoch ahead of the sync hash), it triggers
-the same data-reset-and-restart flow used for stale nodes.</p>
+<p>State sync also downloads the sync hash block, its previous block, and extra
+blocks for incoming receipts. The node validates each block before it saves it.
+If the block hash or signature is invalid, the node bans the peer that sent it.</p>
+<p>State parts are limited in size and entry count. The chunk headers in the state
+header must be at the requested shard's index in their block. Receipt proofs in
+the state header must have a <code>from_shard_id</code> whose shard index matches their
+merkle path index.</p>
+<p>If the network moves past the sync hash's epoch, peers no longer serve its state
+parts. When the verified highest height is above
+<code>sync_hash_height + epoch_length + STALE_SYNC_HASH_THRESHOLD</code> (100), state sync
+stops and the node returns to epoch sync.</p>
 <h5 id="state-sync-under-spice"><a class="header" href="#state-sync-under-spice">State sync under spice</a></h5>
 <p>Spice picks a different sync point and a different state to sync to.</p>
 <p>The sync hash is the epoch's <strong>first</strong> block, recorded once that block is
@@ -379,6 +409,9 @@ process.</p>
 <p>The node handles this by:</p>
 <ol>
 <li>Downloading and validating the epoch sync proof</li>
+<li>Checking that the proof shows the head beyond the horizon
+(<code>EpochSync::proof_shows_head_beyond_horizon</code>). If not, the node keeps its
+store and continues with block sync.</li>
 <li>Writing a <code>.EPOCH_SYNC_DATA_RESET</code> marker file</li>
 <li>Shutting down actors and re-executing the process (via <code>exec</code> on Unix;
 on non-Unix platforms, the operator must restart manually)</li>
