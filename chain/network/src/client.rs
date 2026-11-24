@@ -54,11 +54,21 @@ pub struct BlockHeadersRequest(pub Vec<CryptoHash>);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockHeadersResponse(pub Vec<Arc<BlockHeader>>, pub PeerId);
 
+/// Whether a state request comes from a validator. The throttle reserves some admissions for
+/// validators.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum StateRequester {
+    Validator,
+    Other,
+}
+
 /// State request header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateRequestHeader {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
+    pub requester: StateRequester,
 }
 
 /// State request part.
@@ -67,6 +77,7 @@ pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub part_idx: StatePartIndex,
+    pub requester: StateRequester,
 }
 
 /// Outgoing response to received state request.

@@ -1125,13 +1125,22 @@ impl PeerActor {
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
+        let peer_account_key =
+            conn.owned_account.as_ref().map(|account| account.account_key.clone());
 
         let mut handle = self.handle.clone();
         self.handle.spawn(
             "handle message",
             async move {
                 let result = network_state
-                    .handle_peer_message(&clock, peer_id.clone(), msg, was_requested, recv_permit)
+                    .handle_peer_message(
+                        &clock,
+                        peer_id.clone(),
+                        peer_account_key,
+                        msg,
+                        was_requested,
+                        recv_permit,
+                    )
                     .await;
                 handle.run_later("message handle result", Duration::ZERO, move |act, _| {
                     match result {

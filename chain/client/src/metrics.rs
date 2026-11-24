@@ -525,13 +525,16 @@ pub(crate) static STATE_SYNC_REQUESTS_SERVED_TOTAL: LazyLock<IntCounterVec> = La
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_state_sync_requests_throttled_total",
-        "Total number of state sync requests which were received and ignored",
-    )
-    .unwrap()
-});
+pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounterVec> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "near_state_sync_requests_throttled_total",
+            "Total number of state sync requests which were received and ignored, by requester \
+             (validator, other)",
+            &["requester"],
+        )
+        .unwrap()
+    });
 
 pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(

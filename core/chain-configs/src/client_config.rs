@@ -820,6 +820,10 @@ pub struct ClientConfig {
     /// `state_request_server_threads` requests.
     #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
     pub state_requests_per_throttle_period: usize,
+    /// Number of the admissions per throttle period which only validators can take, per state
+    /// request server thread. Other requesters can take only the rest. If unset, a quarter of all
+    /// the admissions is reserved.
+    pub state_requests_reserved_for_validators: Option<usize>,
     /// Number of threads for StateRequestActor pool.
     pub state_request_server_threads: usize,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit

@@ -1,7 +1,7 @@
 use crate::broadcast;
 use crate::client::{
     StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestResponse,
-    StateRequestUpdate, StateRequestUpdateMessage,
+    StateRequestUpdate, StateRequestUpdateMessage, StateRequester,
 };
 use crate::config::{NetworkConfig, SocketOptions};
 use crate::network_protocol::testonly as data;
@@ -15,7 +15,7 @@ use crate::peer::testonly::PeerHandle;
 use crate::peer_manager;
 use crate::peer_manager::connection::PoolError;
 use crate::peer_manager::peer_manager_actor::{Event, TIER3_IDLE_TIMEOUT};
-use crate::peer_manager::testonly::ActorHandler;
+use crate::peer_manager::testonly::{ActorHandler, make_chain_info};
 use crate::private_messages::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
@@ -70,13 +70,15 @@ async fn start_pm(
     let mut cfg = chain.make_config(rng);
     cfg.max_inbound_tier3_connections = MAX_INBOUND_TIER3_CONNECTIONS as u32;
     let state_request_sender = StateRequestSenderForNetwork {
-        state_request_header: AsyncSender::from_fn(|StateRequestHeader { shard_id, sync_hash }| {
-            StateRequestResponse::Respond(StatePartOrHeader(Box::new(state_response(
-                shard_id, sync_hash, None,
-            ))))
-        }),
+        state_request_header: AsyncSender::from_fn(
+            |StateRequestHeader { shard_id, sync_hash, .. }| {
+                StateRequestResponse::Respond(StatePartOrHeader(Box::new(state_response(
+                    shard_id, sync_hash, None,
+                ))))
+            },
+        ),
         state_request_part: AsyncSender::from_fn(
-            |StateRequestPart { shard_id, sync_hash, part_idx }| {
+            |StateRequestPart { shard_id, sync_hash, part_idx, .. }| {
                 StateRequestResponse::Respond(StatePartOrHeader(Box::new(state_response(
                     shard_id,
                     sync_hash,
@@ -382,6 +384,50 @@ fn client_answering(response: StateRequestResponse) -> StateRequestSenderForNetw
         }),
         state_request_part: AsyncSender::from_fn(move |_: StateRequestPart| response.clone()),
     }
+}
+
+/// The answer of a host started with `start_host_serving_validators`.
+fn serve_validators(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    part_idx: Option<StatePartIndex>,
+    requester: StateRequester,
+) -> StateRequestResponse {
+    match requester {
+        StateRequester::Validator => StateRequestResponse::Respond(StatePartOrHeader(Box::new(
+            state_response(shard_id, sync_hash, part_idx),
+        ))),
+        StateRequester::Other => StateRequestResponse::Busy,
+    }
+}
+
+/// Starts a host whose client answers the state requests of validators, and is busy for the
+/// others. So the ack shows how the host classified the requester.
+async fn start_host_serving_validators(
+    clock: &time::Clock,
+    chain: &Arc<data::Chain>,
+    rng: &mut impl Rng,
+) -> ActorHandler {
+    let state_request_sender = StateRequestSenderForNetwork {
+        state_request_header: AsyncSender::from_fn(
+            |StateRequestHeader { shard_id, sync_hash, requester }| {
+                serve_validators(shard_id, sync_hash, None, requester)
+            },
+        ),
+        state_request_part: AsyncSender::from_fn(
+            |StateRequestPart { shard_id, sync_hash, part_idx, requester }| {
+                serve_validators(shard_id, sync_hash, Some(part_idx), requester)
+            },
+        ),
+    };
+    peer_manager::testonly::start_with_state_request_sender(
+        clock.clone(),
+        TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+        state_request_sender,
+    )
+    .await
 }
 
 // Verify that a host acks over the Tier3 connection the state header and part requests which it
@@ -774,6 +820,197 @@ async fn requests_sent_to_advertised_addr() {
     assert_eq!(parts, part_ids);
     let host_tier3: Vec<PeerId> = host.tcp.tier3.load().ready.keys().cloned().collect();
     assert_eq!(host_tier3, vec![requester.cfg.node_id()]);
+}
+
+/// Requests from `host` the state header of `shard_id` at `sync_hash`, or its part `part_idx` if
+/// set. The requester knows that `host` advertises its address with `snapshot_hash`, so it sends
+/// the request over Tier3. Returns the body of the host's ack, after the response if the ack
+/// promises one.
+async fn direct_request_ack(
+    requester: &ActorHandler,
+    host: &ActorHandler,
+    snapshot_hash: CryptoHash,
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    part_idx: Option<StatePartIndex>,
+) -> StateRequestAckBody {
+    let (request, part_or_header) = match part_idx {
+        None => (
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, snapshot_hash },
+            PartOrHeader::Header,
+        ),
+        Some(part_idx) => (
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, snapshot_hash, part_idx },
+            PartOrHeader::Part { part_idx },
+        ),
+    };
+    let events = requester.events.from_now();
+    assert_eq!(
+        send_request(requester, request).await,
+        NetworkResponses::SelectedDestination(host.cfg.node_id())
+    );
+    let ack = events
+        .clone()
+        .recv_until(|ev| match ev {
+            Event::MessageProcessed(tcp::Tier::T3, PeerMessage::StateRequestAck(ack)) => Some(ack),
+            _ => None,
+        })
+        .await;
+    assert_eq!(
+        (ack.shard_id, ack.sync_hash, ack.part_or_header),
+        (shard_id, sync_hash, part_or_header)
+    );
+    if ack.body == StateRequestAckBody::WillRespond {
+        let want_response = state_response(shard_id, sync_hash, part_idx);
+        events
+            .clone()
+            .recv_until(|ev| match ev {
+                Event::MessageProcessed(
+                    tcp::Tier::T3,
+                    PeerMessage::VersionedStateResponse(response),
+                ) if response == want_response => Some(()),
+                _ => None,
+            })
+            .await;
+    }
+    ack.body
+}
+
+// Verify that a host classes a state request received over Tier3 as a validator's only while the
+// account key which the requester proved in its handshake is in the host's set of validator keys.
+// The host checks the key for each request, so changes to the set apply to an open connection.
+#[tokio::test]
+async fn requester_class_follows_validator_set() {
+    init_test_logger();
+    let mut rng = make_rng(921853251);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let host = start_host_serving_validators(&clock, &chain, rng).await;
+    let requester = start_pm(&clock, &chain, rng).await;
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    advertise_snapshot(&requester, &host.cfg, snapshot_hash, shard_id, host.peer_info().addr).await;
+    let (requester_ref, host_ref) = (&requester, &host);
+    let request = move |part_idx| {
+        direct_request_ack(requester_ref, host_ref, snapshot_hash, shard_id, sync_hash, part_idx)
+    };
+    let validators = make_chain_info(&chain, &[&requester.cfg]);
+    let no_validators = make_chain_info(&chain, &[]);
+
+    // The host doesn't know the requester's key yet.
+    assert_eq!(request(None).await, StateRequestAckBody::Busy);
+    let connection = host.tcp.tier3.load().ready[&requester.cfg.node_id()].clone();
+
+    host.set_chain_info(validators.clone()).await;
+    assert_eq!(request(None).await, StateRequestAckBody::WillRespond);
+    assert_eq!(request(Some(7)).await, StateRequestAckBody::WillRespond);
+
+    host.set_chain_info(no_validators).await;
+    assert_eq!(request(Some(7)).await, StateRequestAckBody::Busy);
+
+    host.set_chain_info(validators).await;
+    assert_eq!(request(None).await, StateRequestAckBody::WillRespond);
+
+    // All the requests went over the same connection.
+    let host_tier3 = host.tcp.tier3.load();
+    assert_eq!(host_tier3.ready.len(), 1);
+    assert!(Arc::ptr_eq(&host_tier3.ready[&requester.cfg.node_id()], &connection));
+}
+
+// Verify that a host classes a state request as another requester's if the requester proved no
+// account key in its handshake.
+#[tokio::test]
+async fn requester_without_owned_account_classified_other() {
+    init_test_logger();
+    let mut rng = make_rng(921853252);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let host = start_host_serving_validators(&clock, &chain, rng).await;
+    let validator = chain.make_config(rng);
+    host.set_chain_info(make_chain_info(&chain, &[&validator])).await;
+    let (_, mut stream) = connect_requester(&host, &chain, &clock, rng, Encoding::Borsh).await;
+
+    let shard_id = ShardId::new(0);
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    stream.write(&PeerMessage::StateRequestHeader(shard_id, sync_hash)).await;
+    let ack = StateRequestAck {
+        shard_id,
+        sync_hash,
+        part_or_header: PartOrHeader::Header,
+        body: StateRequestAckBody::Busy,
+    };
+    assert_eq!(stream.read().await.unwrap(), PeerMessage::StateRequestAck(ack));
+}
+
+// Verify that a host classes a routed state request as another requester's, even if its author is
+// a validator connected to the host directly. The connection which delivers a routed message
+// doesn't prove who wrote it.
+#[tokio::test]
+async fn routed_requests_classified_other() {
+    init_test_logger();
+    let mut rng = make_rng(921853253);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+
+    let host = start_host_serving_validators(&clock, &chain, rng).await;
+    // The requester puts its address in the requests, so that the host could connect to it.
+    let mut cfg = chain.make_config(rng);
+    cfg.tier3_public_addr = cfg.node_addr.as_ref().map(|addr| **addr);
+    let requester =
+        peer_manager::testonly::start(clock.clone(), TestDB::new(), cfg, chain.clone()).await;
+    let host_id = host.cfg.node_id();
+    let requester_id = requester.cfg.node_id();
+    requester.connect_to(&host.peer_info(), tcp::Tier::T2).await;
+    requester.wait_for_routing_table(&[(host_id.clone(), vec![host_id.clone()])]).await;
+    host.wait_for_routing_table(&[(requester_id.clone(), vec![requester_id.clone()])]).await;
+
+    // The host knows the requester's key, and the Tier2 connection which delivers the request
+    // carries the requester's proof of the key.
+    host.set_chain_info(make_chain_info(&chain, &[&requester.cfg])).await;
+    let key = requester.cfg.validator.signer.get().unwrap().public_key();
+    let known = key.clone();
+    assert!(host.with_state(|s| async move { s.accounts_data.load().keys.contains(&known) }).await);
+    let tier2 = host.tcp.tier2.load();
+    let owned_account = tier2.ready[&requester_id].owned_account.as_ref().unwrap();
+    assert_eq!(owned_account.account_key, key);
+
+    let shard_id = ShardId::new(0);
+    let snapshot_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    advertise_snapshot(&requester, &host.cfg, snapshot_hash, shard_id, None).await;
+
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let mut events = requester.events.from_now();
+    let request = NetworkRequests::StateRequestHeader { shard_id, sync_hash, snapshot_hash };
+    assert_eq!(
+        send_request(&requester, request).await,
+        NetworkResponses::SelectedDestination(host_id)
+    );
+    let ack = StateRequestAck {
+        shard_id,
+        sync_hash,
+        part_or_header: PartOrHeader::Header,
+        body: StateRequestAckBody::Busy,
+    };
+    let want_ack: TieredMessageBody = T2MessageBody::StateRequestAck(ack).into();
+    events
+        .recv_until(|ev| match ev {
+            Event::MessageProcessed(tcp::Tier::T2, PeerMessage::Routed(msg))
+                if msg.body() == &want_ack =>
+            {
+                Some(())
+            }
+            _ => None,
+        })
+        .await;
 }
 
 // Verify that state requests to a snapshot host which doesn't advertise its address are routed

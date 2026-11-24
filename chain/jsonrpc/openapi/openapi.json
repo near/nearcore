@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "NEAR Protocol JSON RPC API",
-    "version": "1.3.41"
+    "version": "1.3.42"
   },
   "paths": {
     "/EXPERIMENTAL_call_function": {
@@ -15153,6 +15153,13 @@
             "description": "Maximum number of state requests admitted per throttle period, per state request server\nthread. All the threads share one window, which admits this value times\n`state_request_server_threads` requests.",
             "format": "uint",
             "minimum": 0,
+            "type": "integer"
+          },
+          "state_requests_reserved_for_validators": {
+            "description": "Number of the admissions per throttle period which only validators can take, per state\nrequest server thread. Other requesters can take only the rest. If unset, a quarter of all\nthe admissions is reserved.",
+            "format": "uint",
+            "minimum": 0,
+            "nullable": true,
             "type": "integer"
           },
           "state_sync": {

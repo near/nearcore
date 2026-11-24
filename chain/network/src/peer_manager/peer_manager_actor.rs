@@ -1,6 +1,7 @@
 use crate::client::{
     ClientSenderForNetwork, SetNetworkInfo, SpiceChunkEndorsementMessage, StateRequestHeader,
     StateRequestPart, StateRequestResponse, StateRequestUpdate, StateRequestUpdateMessage,
+    StateRequester,
 };
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config;
@@ -1613,6 +1614,12 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
             .with_label_values::<&str>(&[(&request.body).into()])
             .start_timer();
 
+        let requester = match &request.requester_key {
+            Some(key) if self.state.accounts_data.load().keys.contains(key) => {
+                StateRequester::Validator
+            }
+            _ => StateRequester::Other,
+        };
         let state = self.state.clone();
         let clock = self.clock.clone();
         let transport = self.transport.clone();
@@ -1634,7 +1641,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
                         } else {
-                            match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash }).await {
+                            match state.state_request_adapter.send_async(StateRequestHeader { shard_id, sync_hash, requester }).await {
                                 Ok(StateRequestResponse::Respond(client_response)) => {
                                     (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                                 }
@@ -1670,7 +1677,7 @@ impl messaging::Handler<Tier3Request> for PeerManagerActor {
                                 .inc_msg_type("VersionedStateResponse");
                             (StateRequestAckBody::Busy, None)
                         } else {
-                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_idx }).await {
+                            match state.state_request_adapter.send_async(StateRequestPart { shard_id, sync_hash, part_idx, requester }).await {
                                 Ok(StateRequestResponse::Respond(client_response)) => {
                                     (StateRequestAckBody::WillRespond, Some(PeerMessage::VersionedStateResponse(*client_response.0)))
                                 }

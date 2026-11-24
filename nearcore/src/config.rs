@@ -338,6 +338,11 @@ pub struct Config {
     /// `state_request_server_threads` requests.
     #[serde(alias = "view_client_num_state_requests_per_throttle_period")]
     pub state_requests_per_throttle_period: usize,
+    /// Number of the admissions per throttle period which only validators can take, per state
+    /// request server thread. Other requesters can take only the rest. If unset, a quarter of all
+    /// the admissions is reserved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_requests_reserved_for_validators: Option<usize>,
     /// Number of threads for StateRequestActor pool.
     pub state_request_server_threads: usize,
     pub trie_viewer_state_size_limit: Option<u64>,
@@ -518,6 +523,7 @@ impl Default for Config {
             chunk_validation_threads: None,
             state_request_throttle_period: default_state_request_throttle_period(),
             state_requests_per_throttle_period: default_state_requests_per_throttle_period(),
+            state_requests_reserved_for_validators: None,
             state_request_server_threads: default_state_request_server_threads(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             view_access_keys_limit: None,
@@ -824,6 +830,8 @@ impl NearConfig {
                     .unwrap_or_else(default_chunk_validation_threads),
                 state_request_throttle_period: config.state_request_throttle_period,
                 state_requests_per_throttle_period: config.state_requests_per_throttle_period,
+                state_requests_reserved_for_validators: config
+                    .state_requests_reserved_for_validators,
                 state_request_server_threads: config.state_request_server_threads,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 view_access_keys_limit: config
@@ -1885,12 +1893,15 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        CONFIG_FILENAME, Config, create_localnet_configs, generate_or_load_key, init_configs,
+        CONFIG_FILENAME, Config, NearConfig, create_localnet_configs, generate_or_load_key,
+        init_configs,
     };
     use itertools::Itertools;
     use near_async::time::Duration;
-    use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode, TrackedShardsConfig};
-    use near_crypto::InMemorySigner;
+    use near_chain_configs::{
+        GCConfig, Genesis, GenesisValidationMode, MutableConfigValue, TrackedShardsConfig,
+    };
+    use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::types::{AccountId, NumShards, ShardId};
     use near_store::ShardUId;
     use serde_json::json;
@@ -2379,5 +2390,44 @@ mod tests {
     fn no_deprecated_fields_on_clean_config() {
         let json = r#"{ "state_request_throttle_period": "10s" }"#;
         assert!(Config::deprecated_fields_in_json(json).is_empty());
+    }
+
+    #[test]
+    fn state_requests_reserved_for_validators_unset_by_default() {
+        let json = serde_json::to_value(Config::default()).unwrap();
+        assert_eq!(json.get("state_requests_reserved_for_validators"), None);
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.state_requests_reserved_for_validators, None);
+    }
+
+    #[test]
+    fn state_requests_reserved_for_validators_round_trip() {
+        for reserved in [0, 5] {
+            let mut config = Config::default();
+            config.state_requests_reserved_for_validators = Some(reserved);
+            let json = serde_json::to_value(&config).unwrap();
+            assert_eq!(json["state_requests_reserved_for_validators"], json!(reserved));
+            let config: Config = serde_json::from_value(json).unwrap();
+            assert_eq!(config.state_requests_reserved_for_validators, Some(reserved));
+        }
+    }
+
+    #[test]
+    fn near_config_passes_state_requests_reserved_for_validators() {
+        let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        for reserved in [None, Some(5)] {
+            let mut config = Config::default();
+            config.state_requests_reserved_for_validators = reserved;
+            let signer =
+                InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, "node");
+            let near_config = NearConfig::new(
+                config,
+                genesis.clone(),
+                signer.into(),
+                MutableConfigValue::new(None, "validator_signer"),
+            )
+            .unwrap();
+            assert_eq!(near_config.client_config.state_requests_reserved_for_validators, reserved);
+        }
     }
 }

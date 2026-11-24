@@ -9686,6 +9686,15 @@
             "minimum": 0,
             "type": "integer"
           },
+          "state_requests_reserved_for_validators": {
+            "description": "Number of the admissions per throttle period which only validators can take, per state\nrequest server thread. Other requesters can take only the rest. If unset, a quarter of all\nthe admissions is reserved.",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "state_sync": {
             "allOf": [
               {

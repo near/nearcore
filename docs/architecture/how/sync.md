@@ -194,6 +194,19 @@ A host admits up to `state_requests_per_throttle_period` (30 by default) times
 one window. The host acknowledges the requests over the limit as busy and
 doesn't serve them.
 
+Some of these admissions are reserved for validators. By default, the reserve
+is a quarter of all the admissions (30 of 120).
+`state_requests_reserved_for_validators` sets it per server thread instead.
+Other requesters can take only the admissions outside the reserve. Validators
+can take any free admission.
+
+A request counts as a validator's only if it arrives directly over Tier 3, and
+the requester proved in its handshake that it owns an account key. The host
+checks for each request that the key belongs to a validator of the current or
+the next epoch. Routed requests count as requests of other requesters. The
+reserve covers admission only. It doesn't make the host serve validators
+faster.
+
 A node puts its own public address into the state requests it routes, so that
 hosts can connect back to it, and into its snapshot advertisements, described
 below. It is `network.experimental.tier3_public_addr` if configured. Otherwise

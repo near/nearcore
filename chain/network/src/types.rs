@@ -546,6 +546,9 @@ pub struct Tier3Request {
     /// Tier3 connection to `peer_info.addr`. Requests received directly over a Tier3 connection
     /// opened by the requester are answered over that connection.
     pub is_direct: bool,
+    /// Account key which the requester proved it owns in its handshake. Set only for requests
+    /// received directly over Tier3.
+    pub requester_key: Option<PublicKey>,
     /// Contents of the request
     pub body: Tier3RequestBody,
     pub recv_permit: RecvMessagePermit,

@@ -53,6 +53,7 @@ use forwarded_txs::ForwardedTxCounters;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{new_owned_future_spawner, time};
+use near_crypto::PublicKey;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -1072,6 +1073,7 @@ impl NetworkState {
                             account_id: None,
                         },
                         is_direct: false,
+                        requester_key: None,
                         body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
@@ -1088,6 +1090,7 @@ impl NetworkState {
                             account_id: None,
                         },
                         is_direct: false,
+                        requester_key: None,
                         body: Tier3RequestBody::StatePart(StatePartRequestBody {
                             shard_id: request.shard_id,
                             sync_hash: request.sync_hash,
@@ -1200,6 +1203,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         peer_id: PeerId,
+        peer_account_key: Option<PublicKey>,
         msg: PeerMessage,
         was_requested: bool,
         recv_permit: RecvMessagePermit,
@@ -1270,6 +1274,7 @@ impl NetworkState {
                 self.peer_manager_adapter.send(Tier3Request {
                     peer_info: PeerInfo { id: peer_id, addr: None, account_id: None },
                     is_direct: true,
+                    requester_key: peer_account_key,
                     body: Tier3RequestBody::StateHeader(StateHeaderRequestBody {
                         shard_id,
                         sync_hash,
@@ -1282,6 +1287,7 @@ impl NetworkState {
                 self.peer_manager_adapter.send(Tier3Request {
                     peer_info: PeerInfo { id: peer_id, addr: None, account_id: None },
                     is_direct: true,
+                    requester_key: peer_account_key,
                     body: Tier3RequestBody::StatePart(StatePartRequestBody {
                         shard_id,
                         sync_hash,
