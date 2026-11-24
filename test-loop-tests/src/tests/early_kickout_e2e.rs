@@ -50,6 +50,8 @@ use crate::tests::sync::util::{TEST_EPOCH_SYNC_HORIZON, far_horizon_height};
 use crate::utils::account::{
     create_account_id, create_validator_id, create_validators_spec, validators_spec_clients,
 };
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::node::{NodeRunner, TestLoopNode};
 use crate::utils::setups::derive_new_epoch_config_from_boundary;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
@@ -491,7 +493,6 @@ fn test_early_kickout_reassignment() {
 /// The 151->152 activation edge is intentionally not exercised here; it is
 /// covered by the epoch-manager unit tests and the cold-storage boundary test.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_epoch_sync_bootstrap() {
     init_test_logger();
 
@@ -868,6 +869,8 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
           blacklisting_anchors={blacklisting_anchors})",
         synced_head.height
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 /// State sync under an ACTIVE early kickout.
@@ -881,7 +884,6 @@ fn slow_test_early_kickout_epoch_sync_bootstrap() {
 /// never runs. Here the grace is shrunk, and the blacklist has to rebuild from each epoch's own
 /// stats since it resets at every boundary.
 #[test]
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_early_kickout_state_sync_under_active_kickout() {
     init_test_logger();
 
@@ -985,6 +987,8 @@ fn slow_test_early_kickout_state_sync_under_active_kickout() {
              reassignment from a blanket deviation ({walk:?})"
         );
     }
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 /// Early kickout across a resharding split.
