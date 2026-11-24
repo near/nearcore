@@ -6,10 +6,10 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    CheckedDataRequest, DATA_PARTS_RATIO, DataManagerOutput, EncodedData, MAX_ORPHAN_BLOCKS,
-    PartsOutcome, PullConfig, PullRequest, Push, ReceiptProofId, RequestedItem, SenderFault,
-    ServeError, ServeOutcome, ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer,
-    VerifiedCodedPart, encode,
+    CheckedDataRequest, DATA_PARTS_RATIO, EncodedData, MAX_ORPHAN_BLOCKS, PartsOutcome,
+    ProcessedBlockOutput, PullConfig, PullRequest, Push, ReceiptProofId, RequestedItem,
+    SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData, SpiceDataManager,
+    SpiceDataServer, VerifiedCodedPart, encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest, NeedChange};
 use itertools::Itertools as _;
@@ -407,8 +407,8 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
 impl Handler<SpiceReceiptProofNeeds> for SpiceDataDistributorActor {
     fn handle(&mut self, needs: SpiceReceiptProofNeeds) {
         let SpiceReceiptProofNeeds { to_shard, change } = needs;
-        let output = self.data_manager.on_receipt_proof_needs(to_shard, change, self.clock.now());
-        self.handle_data_manager_output(output);
+        let requests = self.data_manager.on_receipt_proof_needs(to_shard, change, self.clock.now());
+        self.send_pull_requests(requests);
     }
 }
 
@@ -531,7 +531,14 @@ impl SpiceDataDistributorActor {
         }
     }
 
-    fn send_pull_requests(&self, requester: &AccountId, requests: Vec<PullRequest>) {
+    /// Sends the pull requests the data manager issued.
+    fn send_pull_requests(&self, requests: Vec<PullRequest>) {
+        // TODO(spice): Allow requesting data without signer using route back. Until then the
+        // manager records the requests below as outstanding on a node that cannot send them.
+        let Some(signer) = self.validator_signer.get() else {
+            return;
+        };
+        let requester = signer.validator_id();
         for PullRequest { producer, wants } in requests {
             let wants =
                 wants.into_iter().map(|(id, ordinals)| (SpiceDataIdentifier::from(&id), ordinals));
@@ -1695,15 +1702,9 @@ impl SpiceDataDistributorActor {
     }
 
     /// Sends the pull requests the data manager issued and delivers the data it decoded.
-    fn handle_data_manager_output(&self, output: DataManagerOutput) {
-        // TODO(spice): Allow requesting data without signer using route back. Until then the
-        // manager records the requests below as outstanding on a node that cannot send them.
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
-        let DataManagerOutput { pull_requests, decoded } = output;
-        if let Some(requester) = me {
-            self.send_pull_requests(requester, pull_requests);
-        }
+    fn handle_data_manager_output(&self, output: ProcessedBlockOutput) {
+        let ProcessedBlockOutput { pull_requests, decoded } = output;
+        self.send_pull_requests(pull_requests);
         for (data_id, data) in decoded {
             self.deliver_decoded(data_id, data);
         }

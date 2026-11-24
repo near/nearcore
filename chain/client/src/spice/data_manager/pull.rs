@@ -25,10 +25,10 @@ pub(crate) struct Config {
     /// How long a request stays outstanding before it is repeated.
     pub(crate) request_timeout: Duration,
     /// Heights of pushed items pulled at one trigger: the lowest ones holding pullable items.
-    pub(crate) push_heights: NonZeroUsize,
+    pub(crate) pulled_heights_of_pushed_items: NonZeroUsize,
     /// Heights of pull-only items pulled at one trigger for each destination shard: the lowest
     /// ones holding pullable items into it.
-    pub(crate) pull_only_heights: NonZeroUsize,
+    pub(crate) pulled_heights_of_pull_only_items: NonZeroUsize,
     /// Items one request may carry.
     pub(crate) max_ids_per_request: NonZeroUsize,
     /// Ordinals one request may carry, summed over its items.
@@ -39,8 +39,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             request_timeout: Duration::milliseconds(600),
-            push_heights: const { NonZeroUsize::new(2).unwrap() },
-            pull_only_heights: const { NonZeroUsize::new(2).unwrap() },
+            pulled_heights_of_pushed_items: const { NonZeroUsize::new(4).unwrap() },
+            pulled_heights_of_pull_only_items: const { NonZeroUsize::new(2).unwrap() },
             max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
             max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
         }
@@ -84,14 +84,15 @@ impl Pulls {
     }
 
     /// The requests to issue at `now`, grouped by producer, those for pushed items first.
-    /// Traverses the pullable pushed items of the `push_heights` lowest heights and the pullable
-    /// pull-only items of the `pull_only_heights` lowest heights into each destination shard,
+    /// Traverses the pullable pushed items of the `pulled_heights_of_pushed_items` lowest heights and the pullable
+    /// pull-only items of the `pulled_heights_of_pull_only_items` lowest heights into each destination shard,
     /// looked up in `items`. Records every request it returns as created at `now`.
     pub(super) fn to_issue(&mut self, now: Instant, items: &Items) -> Vec<PullRequest> {
         let trigger = Trigger::new(now, self.config.request_timeout);
-        let push_ids = items.lowest_pullable_pushed(self.config.push_heights);
+        let push_ids = items.lowest_pullable_pushed(self.config.pulled_heights_of_pushed_items);
         let push_wants = wants_by_producer(push_ids, items, &mut self.requests, &trigger);
-        let pull_only_ids = items.lowest_pullable_pull_only(self.config.pull_only_heights);
+        let pull_only_ids =
+            items.lowest_pullable_pull_only(self.config.pulled_heights_of_pull_only_items);
         let pull_only_wants = wants_by_producer(pull_only_ids, items, &mut self.requests, &trigger);
         // TODO(spice-data-distribution): send pull-only requests in a serve-side lane of their own,
         // so they cannot crowd out the requests for pushed items under the server's rate limit.

@@ -609,8 +609,8 @@ fn test_executing_blocks() {
     }
 }
 
-/// The sources of the receipt proofs declared missing, from the messages not read yet.
-fn declared_missing(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec<SpiceChunkId> {
+/// The sources of the receipt proofs declared needed, from the messages not read yet.
+fn declared_needs(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec<SpiceChunkId> {
     let mut declared = Vec::new();
     while let Ok(message) = outgoing_rc.try_recv() {
         if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
@@ -624,17 +624,17 @@ fn declared_missing(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec
     declared
 }
 
-/// Applying a block saves the receipt proofs it produces before the block stops being held, so a
-/// shard missing a proof from a block another shard of the node is applying waits for it.
+/// A shard missing a receipt proof from a block that another shard of the node applies, and has not
+/// applied yet, waits for that application, which saves the proof.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_missing_receipt_proof_from_a_block_another_executor_applies_is_not_declared() {
+fn test_a_missing_receipt_proof_from_a_block_another_executor_applies_is_not_declared_needed() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 2);
     actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
     record_endorsements(&mut actors, &blocks[0]);
-    declared_missing(&mut outgoing_rc);
+    declared_needs(&mut outgoing_rc);
     let node = &mut actors[1];
     let shard_uids = node.actor.epoch_manager.shard_uids(blocks[0].header().epoch_id()).unwrap();
     let (source_shard, waiting_shard) = (shard_uids[0], shard_uids[1]);
@@ -654,25 +654,25 @@ fn test_a_missing_receipt_proof_from_a_block_another_executor_applies_is_not_dec
     // applying.
     node.actor.handle(ProcessedBlock { block_hash: *blocks[1].hash() });
     assert!(!node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
-    assert_eq!(declared_missing(&mut outgoing_rc), vec![]);
+    assert_eq!(declared_needs(&mut outgoing_rc), vec![]);
 
     // Once done, the source shard's proof is on disk and the second block is scheduled.
     for event in source_done {
         node.actor.handle(event);
     }
     assert!(node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
-    assert_eq!(declared_missing(&mut outgoing_rc), vec![]);
+    assert_eq!(declared_needs(&mut outgoing_rc), vec![]);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_missing_receipt_proof_from_a_block_a_catching_up_executor_parks_is_declared() {
+fn test_a_missing_receipt_proof_from_a_block_a_catching_up_executor_parks_is_declared_needed() {
     let (outgoing_sc, mut outgoing_rc) = unbounded();
     let mut actors = setup_with_non_validator(outgoing_sc);
     let blocks = produce_n_blocks(&mut actors, 2);
     actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
     record_endorsements(&mut actors, &blocks[0]);
-    declared_missing(&mut outgoing_rc);
+    declared_needs(&mut outgoing_rc);
     let node = &mut actors[1];
     let shard_uids = node.actor.epoch_manager.shard_uids(blocks[0].header().epoch_id()).unwrap();
     let (source_shard, waiting_shard) = (shard_uids[0], shard_uids[1]);
@@ -696,7 +696,7 @@ fn test_a_missing_receipt_proof_from_a_block_a_catching_up_executor_parks_is_dec
     node.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
     assert!(!node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
     assert_eq!(
-        declared_missing(&mut outgoing_rc),
+        declared_needs(&mut outgoing_rc),
         vec![SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: source_shard.shard_id() }]
     );
 }
@@ -2633,7 +2633,7 @@ fn test_declaring_the_receipts_from_the_sync_block_a_caught_up_shard_misses() {
             change: NeedChange::Needed(sources),
         }) = message
         {
-            needs.push((to_shard, sources));
+            needs.push((to_shard, sources.into_iter().sorted().collect_vec()));
         }
     }
     let sync_block = catch_up.sync_block.header();

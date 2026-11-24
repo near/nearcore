@@ -1,7 +1,7 @@
 use super::item::FetchItem;
 use super::{DataId, remove_indexed};
 use near_primitives::types::{BlockHeight, ShardId};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::ops::RangeBounds;
 
@@ -65,6 +65,13 @@ impl ItemMap {
 
     fn ids_in(&self, heights: impl RangeBounds<BlockHeight>) -> impl Iterator<Item = &DataId> {
         self.by_height.range(heights).flat_map(|(_, ids)| ids)
+    }
+
+    fn heights_in(
+        &self,
+        heights: impl RangeBounds<BlockHeight>,
+    ) -> impl Iterator<Item = BlockHeight> + '_ {
+        self.by_height.range(heights).map(|(height, _)| *height)
     }
 
     fn heights_and_ids_in(
@@ -196,6 +203,17 @@ impl Items {
         heights: impl RangeBounds<BlockHeight>,
     ) -> impl Iterator<Item = &DataId> {
         self.push.ids_in(heights)
+    }
+
+    /// The heights in `heights` at which any map holds an item.
+    pub(super) fn heights_in(
+        &self,
+        heights: impl RangeBounds<BlockHeight> + Clone,
+    ) -> BTreeSet<BlockHeight> {
+        self.push
+            .heights_in(heights.clone())
+            .chain(self.pull_only.values().flat_map(move |map| map.heights_in(heights.clone())))
+            .collect()
     }
 
     /// The items of every map at `heights`, with their heights.

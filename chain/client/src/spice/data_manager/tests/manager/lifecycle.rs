@@ -160,8 +160,10 @@ fn a_fork_item_at_or_below_the_final_head_is_dropped_and_frees_its_window_slot()
     let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
     let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
     let canonical_at_6 = process_block_at(&mut chain, &canonical_at_5, 6);
-    let pull_config =
-        PullConfig { push_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let pull_config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let mut manager = TestManager::with_pull_config(&chain, 1, pull_config);
     manager.set_final_head(&blocks[1]);
     manager.track_block(&canonical_at_4);
@@ -263,17 +265,17 @@ fn a_certified_chunk_of_a_block_without_a_stored_header_is_skipped() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
-    let (chain, blocks) = chain_with_blocks(1);
-    let manager = TestManager::new(&chain);
-    let chunk_ids: Vec<SpiceChunkId> = (0..2)
-        .map(|shard| SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(shard) })
-        .collect();
-    let certifier = certifying_block(&blocks[0], &chunk_ids);
+fn a_pushed_proof_tracked_before_this_nodes_account_changes_is_pulled_once_certified() {
+    let (mut chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+    manager.manager.validator_signer.update(Some(Arc::new(create_test_signer("observer.near"))));
+    let certified = SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
+    let certifier = certifying_block(&blocks[0], &[certified]);
+    save_and_record_block(&mut chain, &certifier);
 
-    let made_pullable: HashSet<DataId> =
-        manager.manager.made_pullable_by(&certifier).unwrap().into_iter().collect();
-    assert_eq!(made_pullable, HashSet::from([receipt_id(&blocks[0], 0, 1)]));
+    let requests = wants_for(manager.on_block_processed(&certifier), &id);
+    assert_eq!(requests, own_ordinal_pulls());
 }
 
 #[test]

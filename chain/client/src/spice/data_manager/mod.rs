@@ -116,13 +116,13 @@ fn producers_in_epoch(
     Ok(epoch_chunk_producers_for_shard(epoch_info, shard_layout, id.producing_chunk().shard_id)?)
 }
 
-/// What an event handled by the manager yields.
+/// What a processed block yields.
 #[must_use]
 #[derive(Debug, Default)]
-pub(crate) struct DataManagerOutput {
+pub(crate) struct ProcessedBlockOutput {
     /// Requests for the pullable items, grouped by producer.
     pub(crate) pull_requests: Vec<PullRequest>,
-    /// Data decoded from parts parked for a block.
+    /// Data decoded from the parts parked for the block.
     pub(crate) decoded: Vec<(DataId, SpiceData)>,
 }
 
@@ -230,15 +230,9 @@ impl SpiceDataManager {
         }
     }
 
-    /// The ids pushed to this node that `block` makes pullable, tracked or not.
+    /// The ids `block` makes pullable, tracked or not.
     fn made_pullable_by(&self, block: &Block) -> Result<Vec<DataId>, Error> {
-        receipt_proof::made_pullable_by(
-            &self.chain_store,
-            self.epoch_manager.as_ref(),
-            &self.shard_tracker,
-            self.me().as_ref(),
-            block,
-        )
+        receipt_proof::made_pullable_by(&self.chain_store, self.epoch_manager.as_ref(), block)
     }
 
     /// The keys the producer `account_id` of `item` may sign its parts with.
@@ -319,7 +313,7 @@ impl SpiceDataManager {
         to_shard: ShardId,
         change: NeedChange,
         now: Instant,
-    ) -> DataManagerOutput {
+    ) -> Vec<PullRequest> {
         match change {
             NeedChange::Needed(sources) => {
                 for source in sources {
@@ -341,10 +335,7 @@ impl SpiceDataManager {
             }
         }
         self.handle_done_items();
-        DataManagerOutput {
-            pull_requests: self.pulls.to_issue(now, &self.items),
-            decoded: Vec::new(),
-        }
+        self.pulls.to_issue(now, &self.items)
     }
 
     /// Tracks `id`, which the chunk executor misses, unless it is tracked or done, and makes it
@@ -397,7 +388,7 @@ impl SpiceDataManager {
         &mut self,
         block_hash: &CryptoHash,
         now: Instant,
-    ) -> DataManagerOutput {
+    ) -> ProcessedBlockOutput {
         match self.final_execution_head_height() {
             Ok(height) => self.on_final_execution_head(height),
             Err(err) => {
@@ -420,7 +411,7 @@ impl SpiceDataManager {
             }
         };
         self.handle_done_items();
-        DataManagerOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
+        ProcessedBlockOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
     }
 
     /// Height of the final execution head; the genesis height before the first one is recorded.
@@ -530,22 +521,21 @@ impl SpiceDataManager {
         let Some(from) = self.heights.update_final_head(final_height) else {
             return;
         };
-        let mut canonical_hashes = HashMap::new();
         let mut removed: Vec<DataId> = self.items.done_ids_in(..=final_height).cloned().collect();
-        for (height, id) in self.items.ids_in((from, Bound::Included(final_height))) {
-            let canonical = match canonical_hashes.get(&height) {
-                Some(canonical) => *canonical,
-                None => match self.canonical_block_hash(height) {
-                    Ok(canonical) => *canonical_hashes.entry(height).or_insert(canonical),
-                    Err(err) => {
-                        tracing::error!(target: "spice_data_distribution", ?err, height, "failed to read the canonical block");
-                        continue;
-                    }
-                },
+        for height in self.items.heights_in((from, Bound::Included(final_height))) {
+            let canonical = match self.canonical_block_hash(height) {
+                Ok(canonical) => canonical,
+                Err(err) => {
+                    tracing::error!(target: "spice_data_distribution", ?err, height, "failed to read the canonical block");
+                    continue;
+                }
             };
-            if Some(*id.block_hash()) != canonical {
-                removed.push(id.clone());
-            }
+            removed.extend(
+                self.items
+                    .ids_in(height..=height)
+                    .filter(|(_, id)| Some(*id.block_hash()) != canonical)
+                    .map(|(_, id)| id.clone()),
+            );
         }
         for id in removed {
             self.remove_item(&id);

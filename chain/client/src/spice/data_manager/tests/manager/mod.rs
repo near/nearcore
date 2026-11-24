@@ -176,9 +176,7 @@ impl TestManager {
     /// Applies `change` to the proofs into `shard`, as the chunk executor sends it, and returns the
     /// pull requests.
     fn change_needs(&mut self, shard: u64, change: NeedChange) -> Vec<PullRequest> {
-        self.manager
-            .on_receipt_proof_needs(ShardId::new(shard), change, self.clock.now())
-            .pull_requests
+        self.manager.on_receipt_proof_needs(ShardId::new(shard), change, self.clock.now())
     }
 
     /// The chunk executor misses the proofs from `sources` into `shard`.

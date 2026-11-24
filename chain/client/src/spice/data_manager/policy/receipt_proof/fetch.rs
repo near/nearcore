@@ -68,18 +68,17 @@ pub(crate) fn is_done(store: &Store, source: &SpiceChunkId, to_shard: ShardId) -
     receipt_proof_exists(store, &source.block_hash, to_shard, source.shard_id)
 }
 
-/// The proofs pushed to `me` from every chunk `block` certifies.
+/// The proofs into every shard from every chunk `block` certifies, whether or not they are pushed
+/// to this node: the item's map, chosen when it was tracked, decides.
 pub(crate) fn made_pullable_by(
     chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-    shard_tracker: &ShardTracker,
-    me: Option<&AccountId>,
     block: &Block,
 ) -> Result<Vec<DataId>, Error> {
-    let mut needed_by_source_block: HashMap<CryptoHash, NeededShards> = HashMap::new();
+    let mut shards_by_source_block: HashMap<CryptoHash, Vec<ShardId>> = HashMap::new();
     let mut ids = Vec::new();
     for (source, _) in block.spice_core_statements().iter_execution_results() {
-        let needed = match needed_by_source_block.entry(source.block_hash) {
+        let to_shards = match shards_by_source_block.entry(source.block_hash) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 // A block whose header is not stored precedes this node's sync point, so none of
@@ -88,13 +87,11 @@ pub(crate) fn made_pullable_by(
                 else {
                     continue;
                 };
-                entry.insert(needed_shards(epoch_manager, shard_tracker, me, &header)?)
+                let shard_layout = epoch_manager.get_shard_layout(header.epoch_id())?;
+                entry.insert(shard_layout.shard_ids().collect())
             }
         };
-        if !needed.sources.contains(&source.shard_id) {
-            continue;
-        }
-        for to_shard in &needed.destinations {
+        for to_shard in to_shards.iter() {
             ids.push(DataId::ReceiptProof(ReceiptProofId {
                 source: source.clone(),
                 to_shard: *to_shard,

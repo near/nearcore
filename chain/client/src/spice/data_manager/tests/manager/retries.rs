@@ -384,10 +384,10 @@ fn a_source_unanswered_on_a_pool_of_one_is_asked_again_never_excluded() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn only_the_lowest_pullable_heights_are_pulled() {
     let (chain, blocks) = chain_with_shards_and_blocks(3, 7);
-    let push_heights = 4;
-    assert!(push_heights < 6, "heights must be left over above the pulled ones");
+    let pulled_heights = 4;
+    assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
     let config = PullConfig {
-        push_heights: NonZeroUsize::new(push_heights).unwrap(),
+        pulled_heights_of_pushed_items: NonZeroUsize::new(pulled_heights).unwrap(),
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 2, config);
@@ -401,7 +401,7 @@ fn only_the_lowest_pullable_heights_are_pulled() {
     assert_eq!(requests.len(), 2 * TOTAL_PARTS);
     for from_shard in [0, 1] {
         let expected_ids: BTreeSet<DataId> =
-            blocks[..push_heights].iter().map(|block| receipt_id(block, from_shard, 2)).collect();
+            blocks[..pulled_heights].iter().map(|block| receipt_id(block, from_shard, 2)).collect();
         for (ordinal, producer) in shard_producers(from_shard).iter().enumerate() {
             let wants = &requests[producer];
             assert_eq!(wants.keys().cloned().collect::<BTreeSet<_>>(), expected_ids);
@@ -416,10 +416,10 @@ fn only_the_lowest_pullable_heights_are_pulled() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished() {
     let (chain, blocks) = chain_with_shards_and_blocks(3, 8);
-    let push_heights = 4;
-    assert!(push_heights < 6, "heights must be left over above the pulled ones");
+    let pulled_heights = 4;
+    assert!(pulled_heights < 6, "heights must be left over above the pulled ones");
     let config = PullConfig {
-        push_heights: NonZeroUsize::new(push_heights).unwrap(),
+        pulled_heights_of_pushed_items: NonZeroUsize::new(pulled_heights).unwrap(),
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 2, config);
@@ -439,7 +439,7 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
     // The clock stands still: shard 0's items keep the two lowest heights in the window, so
     // shard 1's next heights wait.
     assert_eq!(manager.on_block_processed(&blocks[7]), vec![]);
-    for block in &blocks[push_heights..6] {
+    for block in &blocks[pulled_heights..6] {
         assert!(manager.pulling_from(&receipt_id(block, 1, 2)).is_empty());
     }
 }
@@ -448,8 +448,10 @@ fn a_height_holds_back_higher_heights_until_every_shards_item_at_it_is_finished(
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn an_unfinished_height_keeps_the_next_one_waiting_and_is_requested_again_once_stale() {
     let (chain, blocks) = chain_with_blocks(5);
-    let config =
-        PullConfig { push_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let request_timeout = config.request_timeout;
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
@@ -470,8 +472,10 @@ fn an_unfinished_height_keeps_the_next_one_waiting_and_is_requested_again_once_s
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn removing_the_lowest_item_clears_its_requests_and_lets_the_next_height_be_pulled() {
     let (chain, blocks) = chain_with_blocks(4);
-    let config =
-        PullConfig { push_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
     manager.on_block_processed(&blocks[2]);
@@ -490,8 +494,10 @@ fn removing_the_lowest_item_clears_its_requests_and_lets_the_next_height_be_pull
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn expiring_the_lowest_item_lets_the_next_height_be_pulled() {
     let (chain, blocks) = chain_with_blocks(4);
-    let config =
-        PullConfig { push_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
     let ids = pullable_items(&mut manager, &blocks[..2]);
     manager.on_block_processed(&blocks[2]);
@@ -511,10 +517,10 @@ fn expiring_the_lowest_item_lets_the_next_height_be_pulled() {
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_burst_of_processed_blocks_re_sends_nothing_while_requests_are_outstanding() {
     let (chain, blocks) = chain_with_blocks(9);
-    let push_heights = 4;
-    assert!(push_heights < 5, "the burst must leave heights waiting");
+    let pulled_heights = 4;
+    assert!(pulled_heights < 5, "the burst must leave heights waiting");
     let config = PullConfig {
-        push_heights: NonZeroUsize::new(push_heights).unwrap(),
+        pulled_heights_of_pushed_items: NonZeroUsize::new(pulled_heights).unwrap(),
         ..PullConfig::default()
     };
     let mut manager = TestManager::with_pull_config(&chain, 1, config);
@@ -528,7 +534,7 @@ fn a_burst_of_processed_blocks_re_sends_nothing_while_requests_are_outstanding()
         .into_iter()
         .enumerate()
         .map(|(ordinal, producer)| {
-            let wants = blocks[..push_heights]
+            let wants = blocks[..pulled_heights]
                 .iter()
                 .map(|block| (receipt_id(block, 0, 1), ordinals(&[ordinal as u64])))
                 .collect();
