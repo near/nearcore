@@ -10,17 +10,13 @@ const MAX_EXECUTION_LAG: BlockHeight = 3;
 /// Asserts that on every live node the execution head is within `MAX_EXECUTION_LAG` blocks of the
 /// head, and that what it applied was certified.
 pub(crate) fn assert_execution_kept_up(env: &TestLoopEnv) {
-    for (idx, node_data) in env.node_datas.iter().enumerate() {
-        if env.test_loop.is_denylisted(&node_data.identifier) {
-            continue;
-        }
-        let node = env.node(idx);
+    for node in env.live_nodes() {
         let head = node.head().height;
         let executed = node.last_executed().height;
         assert!(
             executed + MAX_EXECUTION_LAG >= head,
             "execution of {} fell behind the head: head {head}, executed {executed}",
-            node_data.account_id
+            node.node_data.account_id
         );
     }
     assert_execution_matches_certification(env);
@@ -35,11 +31,7 @@ pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
         return;
     }
     let mut num_checked = 0;
-    for (idx, node_data) in env.node_datas.iter().enumerate() {
-        if env.test_loop.is_denylisted(&node_data.identifier) {
-            continue;
-        }
-        let node = env.node(idx);
+    for node in env.live_nodes() {
         let client = node.client();
         let chain_store = client.chain.chain_store();
         let executed = node.last_executed();
@@ -81,7 +73,7 @@ pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
                 assert!(
                     chain_store.get_chunk_extra(&block_hash, &shard_uid).is_ok(),
                     "{} did not apply caught-up shard {} at height {height}",
-                    node_data.account_id,
+                    node.node_data.account_id,
                     shard_uid.shard_id()
                 );
             }
@@ -97,11 +89,7 @@ fn assert_execution_matches_certification(env: &TestLoopEnv) {
         return;
     }
     let mut num_checked = 0;
-    for (idx, node_data) in env.node_datas.iter().enumerate() {
-        if env.test_loop.is_denylisted(&node_data.identifier) {
-            continue;
-        }
-        let node = env.node(idx);
+    for node in env.live_nodes() {
         let client = node.client();
         let chain_store = client.chain.chain_store();
         for height in chain_store.tail() + 1..=node.last_certified_block_header().height() {
@@ -124,7 +112,7 @@ fn assert_execution_matches_certification(env: &TestLoopEnv) {
                     chunk_extra.as_ref(),
                     &result.chunk_extra,
                     "{} applied shard {} at height {height} differently than certified",
-                    node_data.account_id,
+                    node.node_data.account_id,
                     shard_uid.shard_id()
                 );
             }
