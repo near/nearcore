@@ -1047,12 +1047,15 @@ impl SpiceDataDistributorActor {
 
             // Sent before the witness for the same reason as in the initial distribution: the
             // recipient can check its compiled contract cache while the parts arrive.
-            let accesses = get_contract_accesses(
+            // Witness GC deletes the accesses together with the witness, possibly after we read it.
+            let Some(accesses) = get_contract_accesses(
                 self.chain_store.store_ref(),
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
-            )
-            .expect("contract accesses should have been written atomically with witness");
+            ) else {
+                tracing::debug!(target: "spice_data_distribution", ?data_id, "witness garbage collected - not pushing it");
+                continue;
+            };
             let accesses_msg = SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, &signer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceChunkContractAccesses(
@@ -1375,12 +1378,15 @@ impl SpiceDataDistributorActor {
             // first producer, which it asks when only the witness's own accesses are known.
             // TODO(spice-data-distribution): drop this (once a validator spreads code requests over
             // the producers or with striped pulls).
-            let accesses = get_contract_accesses(
+            // Witness GC deletes the accesses together with the witness, possibly after we read it.
+            let Some(accesses) = get_contract_accesses(
                 self.chain_store.store_ref(),
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
-            )
-            .expect("contract accesses should have been written atomically with witness");
+            ) else {
+                tracing::debug!(target: "spice_data_distribution", ?id, ?requester, "requested data was garbage collected");
+                return Ok(());
+            };
             let accesses_msg =
                 SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, signer.as_ref());
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -1539,7 +1545,7 @@ impl SpiceDataDistributorActor {
             &chunk_id.block_hash,
             chunk_id.shard_id,
         ) else {
-            tracing::warn!(
+            tracing::debug!(
                 target: "spice_data_distribution",
                 ?chunk_id,
                 ?requester,
