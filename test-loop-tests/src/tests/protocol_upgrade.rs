@@ -203,7 +203,9 @@ fn slow_test_protocol_upgrade_no_missing_chunks() {
 }
 
 #[test]
-// `ProtocolUpgradeChunkRange` drops the chunks' endorsements, which spice blocks don't need, so no chunk goes missing.
+// TODO(spice-test): `ProtocolUpgradeChunkRange` drops the chunks' endorsements, which spice blocks
+// don't need, so no chunk goes missing. Enable once a drop condition keeps chunks out of spice
+// blocks.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunk_one() {
     test_protocol_upgrade(
@@ -214,7 +216,9 @@ fn slow_test_protocol_upgrade_with_missing_chunk_one() {
 }
 
 #[test]
-// `ProtocolUpgradeChunkRange` drops the chunks' endorsements, which spice blocks don't need, so no chunk goes missing.
+// TODO(spice-test): `ProtocolUpgradeChunkRange` drops the chunks' endorsements, which spice blocks
+// don't need, so no chunk goes missing. Enable once a drop condition keeps chunks out of spice
+// blocks.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_protocol_upgrade_with_missing_chunks_two() {
     test_protocol_upgrade(
