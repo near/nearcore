@@ -44,7 +44,9 @@ A peer with no proved height reads as level with our head, so it stays a
 candidate to download from but never sets the target. Once the head has not
 advanced for about one epoch, the node falls back to the unvalidated claimed
 heights, because the validator sets it knows no longer cover the tip. The
-target is then the height of the peer that `PeerSelector` picks. During block
+target is then the lower median of those heights. Peers that failed recently do
+not count, and if some peers advertise above the height that starts sync, only
+those count. During block
 sync the node's own header head can also set the target, since header sync has
 already validated it.
 
@@ -54,10 +56,12 @@ sync proof can cause a data reset.
 ### Choosing a peer to ask
 
 Candidates are connected peers whose advertised head is above ours and is not a
-known invalid block. `PeerSelector` picks a random candidate within
-`PEER_HEIGHT_WINDOW` blocks of the best suitable candidate. It skips peers that
-failed in the last `PEER_FAILURE_COOLDOWN_SECONDS`, unless all candidates
-failed.
+known invalid block. `PeerSelector` picks a random suitable candidate that
+advertises at least the lower median of the suitable candidates' heights minus
+`PEER_HEIGHT_WINDOW`. The median moves only when more than half of the
+candidates advertise above it, so a few peers that claim a very high height
+cannot push the other peers out. It skips peers that failed in the last
+`PEER_FAILURE_COOLDOWN_SECONDS`, unless all candidates failed.
 
 A peer fails when:
 
@@ -246,9 +250,10 @@ State sync also downloads the sync hash block, its previous block, and extra
 blocks for incoming receipts. The node validates each block before it saves it.
 If the block hash or signature is invalid, the node bans the peer that sent it.
 
-State parts are limited in size and entry count. Receipt proofs in the state
-header must have a `from_shard_id` whose shard index matches their merkle path
-index.
+State parts are limited in size and entry count. The chunk headers in the state
+header must be at the requested shard's index in their block. Receipt proofs in
+the state header must have a `from_shard_id` whose shard index matches their
+merkle path index.
 
 If the network moves past the sync hash's epoch, peers no longer serve its state
 parts. When the verified highest height is above
