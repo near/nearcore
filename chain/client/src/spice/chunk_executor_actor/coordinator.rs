@@ -258,9 +258,8 @@ impl ChunkExecutorActor {
     /// applies them at no block from there on. A fork block can then never evict an executor the
     /// canonical chain needs. The apply-done handler's graceful-drop guard covers any in-flight
     /// apply that lands after eviction.
-    fn reconcile_tracked_shards(&mut self, block: &Block) -> Result<Vec<ShardUId>, Error> {
-        let tracked =
-            self.shard_tracker.tracked_shard_uids_this_or_next_epoch(block.header().prev_hash())?;
+    fn reconcile_tracked_shards(&mut self, prev_hash: &CryptoHash) -> Result<Vec<ShardUId>, Error> {
+        let tracked = self.shard_tracker.tracked_shard_uids_this_or_next_epoch(prev_hash)?;
         for shard_uid in &tracked {
             self.get_or_create_per_shard_executor(*shard_uid);
         }
@@ -309,7 +308,8 @@ impl ChunkExecutorActor {
             return Ok(());
         }
         let block = self.chain_store.get_block(block_hash)?;
-        let tracked = self.reconcile_tracked_shards(&block)?;
+        let prev_block_hash = *block.header().prev_hash();
+        let tracked = self.reconcile_tracked_shards(&prev_block_hash)?;
         for shard_uid in &tracked {
             if let Some(executor) = self.per_shard_executors.get_mut(shard_uid) {
                 executor.handle_processed_block(&block);
