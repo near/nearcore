@@ -4,7 +4,9 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
 
-neard="$BINARIES_DIR/current"
+# Run the link target, so the process is named neardN and `pgrep neard` finds
+# it (get-profile.sh).
+neard=$(readlink -f "$BINARIES_DIR/current")
 
 if [ "$IS_TRAFFIC" != 1 ]; then
     exec "$neard" --log-span-events --home "$NEAR_HOME" --unsafe-fast-startup run
