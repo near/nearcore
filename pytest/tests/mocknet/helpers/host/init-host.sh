@@ -15,6 +15,8 @@ if [ "$FORKNET_HOME" != "$HOME/.near/forknet" ]; then
 fi
 
 cp "$FORKNET_HOME"/systemd/neard.service "$FORKNET_HOME"/systemd/neard-logrotate.* "$UNIT_DIR/"
+# Remove the traffic drop-in in case this host was the traffic generator before.
+rm -rf "$UNIT_DIR/neard.service.d"
 if [ "$IS_TRAFFIC" = 1 ]; then
     mkdir -p "$UNIT_DIR/neard.service.d"
     cp "$FORKNET_HOME/systemd/neard-traffic.conf" "$UNIT_DIR/neard.service.d/"

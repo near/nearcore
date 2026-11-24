@@ -59,7 +59,6 @@ esac
 echo "systemctl $*" >>"$FAKE_LOG"
 case "$2" in
 is-active) [ -f "$FAKE_DIR/active" ] ;;
-is-failed) false ;;
 start | restart) touch "$FAKE_DIR/active" ;;
 stop) rm -f "$FAKE_DIR/active" ;;
 esac

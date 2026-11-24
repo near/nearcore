@@ -7,7 +7,7 @@ source "$(dirname "$(readlink -f "$0")")/common.sh"
 index=$1
 url=$2
 urls="$BINARIES_DIR/urls"
-if [ "$(wc -l <"$urls")" -le "$index" ]; then
+if [ "$index" -lt 0 ] || [ "$(wc -l <"$urls")" -le "$index" ]; then
     echo "no neard binary with index $index" >&2
     exit 1
 fi
