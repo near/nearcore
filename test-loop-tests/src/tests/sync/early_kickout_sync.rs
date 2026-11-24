@@ -276,6 +276,7 @@ fn slow_test_early_kickout_activation_edge_block_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();

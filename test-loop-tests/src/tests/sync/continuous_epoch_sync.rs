@@ -1,6 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::certification::assert_certification_kept_up;
 use crate::utils::execution::assert_execution_kept_up;
+use near_chain_configs::TrackedShardsConfig;
 use near_epoch_manager::epoch_sync::derive_epoch_sync_proof_from_last_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_sync::EpochSyncProof;
@@ -153,6 +154,7 @@ fn test_epoch_sync_bootstrap_fresh_node() {
         .node_state_builder()
         .account_id(&account_id)
         .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.block_header_fetch_horizon = 8;
         })
         .build();

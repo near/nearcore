@@ -77,6 +77,9 @@ fn bootstrap_node_via_epoch_sync(mut env: TestLoopEnv, source_node: usize) -> Te
         .node_state_builder()
         .account_id(&create_account_id(&identifier))
         .config_modifier(|config| {
+            // TODO(spice-test): track a shard, so the execution checks cover this node. The test
+            // network delivers spice data over direct links only, so with a single peer this node
+            // misses the other producers' receipt proofs and stops executing.
             // Enable epoch sync, and make the horizon small enough to trigger it.
             config.epoch_sync.epoch_sync_horizon_num_epochs = 3;
             // Make header sync horizon small enough to trigger it.

@@ -351,6 +351,9 @@ fn test_far_horizon_restart_during_header_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            // TODO(spice-test): track a shard, so the execution checks cover this node. The test
+            // network delivers spice data over direct links only, so with a single peer this node
+            // misses the other producers' receipt proofs and stops executing.
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -422,6 +425,9 @@ fn test_far_horizon_restart_during_state_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            // TODO(spice-test): track a shard, so the execution checks cover this node. The test
+            // network delivers spice data over direct links only, so with a single peer this node
+            // misses the other producers' receipt proofs and stops executing.
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -486,6 +492,9 @@ fn test_far_horizon_restart_during_block_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            // TODO(spice-test): track a shard, so the execution checks cover this node. The test
+            // network delivers spice data over direct links only, so with a single peer this node
+            // misses the other producers' receipt proofs and stops executing.
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -713,6 +722,9 @@ fn test_far_horizon_tx_during_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            // TODO(spice-test): track a shard, so the execution checks cover this node. The test
+            // network delivers spice data over direct links only, so with a single peer this node
+            // misses the other producers' receipt proofs and stops executing.
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();

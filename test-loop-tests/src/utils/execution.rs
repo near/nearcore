@@ -83,15 +83,15 @@ pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
 }
 
 /// Asserts that every chunk a live node applied, up to its last certified block, has the result
-/// certified for it. A node that endorses nothing, like an observer, is checked nowhere else.
+/// certified for it, and that every live node that tracks a shard and is done syncing applied one.
 fn assert_execution_matches_certification(env: &TestLoopEnv) {
     if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut num_checked = 0;
     for node in env.live_nodes() {
         let client = node.client();
         let chain_store = client.chain.chain_store();
+        let mut applied_certified_chunk = false;
         for height in chain_store.tail() + 1..=node.last_certified_block_header().height() {
             let Ok(block_hash) = chain_store.get_block_hash_by_height(height) else {
                 continue;
@@ -107,7 +107,7 @@ fn assert_execution_matches_certification(env: &TestLoopEnv) {
                 let Some(result) = certified.get(&shard_uid.shard_id()) else {
                     continue;
                 };
-                num_checked += 1;
+                applied_certified_chunk = true;
                 assert_eq!(
                     chunk_extra.as_ref(),
                     &result.chunk_extra,
@@ -117,6 +117,20 @@ fn assert_execution_matches_certification(env: &TestLoopEnv) {
                 );
             }
         }
+
+        let tracks_a_shard = !client
+            .shard_tracker
+            .tracked_shard_uids_this_or_next_epoch(&node.head().prev_block_hash)
+            .unwrap()
+            .is_empty();
+        let synced = !client.sync_handler.sync_status.is_syncing();
+
+        if tracks_a_shard && synced {
+            assert!(
+                applied_certified_chunk,
+                "{} tracks a shard but applied no certified chunk",
+                node.node_data.account_id
+            );
+        }
     }
-    assert!(num_checked > 0, "no node applied a certified chunk");
 }

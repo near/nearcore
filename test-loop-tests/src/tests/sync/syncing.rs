@@ -6,6 +6,7 @@ use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_n
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
@@ -47,7 +48,11 @@ fn slow_test_sync_from_genesis() {
     env.node_runner(0).run_until(|node| node.head().height > 10050, Duration::seconds(50));
 
     // Add new node
-    let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
+    let new_node_state = env
+        .node_state_builder()
+        .account_id(&accounts[NUM_CLIENTS])
+        .config_modifier(|config| config.tracked_shards_config = TrackedShardsConfig::AllShards)
+        .build();
     let new_node_idx = env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.

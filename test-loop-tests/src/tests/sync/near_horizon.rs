@@ -52,6 +52,7 @@ fn test_near_horizon_block_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -94,6 +95,7 @@ fn test_near_horizon_epoch_sync_boundary() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -130,7 +132,11 @@ fn test_near_horizon_restart_during_block_sync() {
     env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length - 1);
 
     let new_account = create_account_id("new_node");
-    let node_state = env.node_state_builder().account_id(&new_account).build();
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| config.tracked_shards_config = TrackedShardsConfig::AllShards)
+        .build();
     let new_node_idx = env.add_node("new_node", node_state);
 
     // Wait until new node is in the MIDDLE of BlockSync (current_height > start_height).
@@ -261,6 +267,7 @@ fn test_near_horizon_sync_beyond_gc_window() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(move |config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.gc.gc_num_epochs_to_keep = 3;
             config.epoch_sync.epoch_sync_horizon_num_epochs = custom_horizon;
         })
