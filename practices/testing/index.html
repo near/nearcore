@@ -270,13 +270,14 @@ whole cluster by using <code>init_cluster</code> instead of <code>start_cluster<
 launching nodes manually.</p>
 <h3 id="enabling-adversarial-behavior"><a class="header" href="#enabling-adversarial-behavior">Enabling adversarial behavior</a></h3>
 <p>To allow testing adversarial behavior, or generally, behaviors that a node should
-not normally exercise, we have certain features in the code decorated with
-<code>#[cfg(feature=&quot;adversarial&quot;)]</code>. The binary normally is compiled with the
-feature disabled, and when compiled with the feature enabled, it traces a
-warning on launch.</p>
+not normally exercise, the node has adversarial controls: the <code>adv_*</code> RPC
+methods. They work only when <code>adversarial_mode</code> in <code>config.json</code> is <code>Rpc</code>. The
+default is <code>None</code>, or <code>Rpc</code> in binaries built with <code>test_features</code>. A node with
+<code>adversarial_mode</code> other than <code>None</code> logs an error on launch, and it does not
+start unless <code>ADVERSARY_CONSENT=1</code> is set.</p>
 <p>The nightly runner runs all the python tests against the binary compiled with
-the feature enabled, and thus the python tests can make the binary perform
-actions that it normally would not perform.</p>
+<code>test_features</code>, and thus the python tests can make the binary perform actions
+that it normally would not perform.</p>
 <p>The actions can include lying about the known chain height, producing multiple
 blocks for the same height, or disabling doomslug.</p>
 <p>See all the tests under <code>pytest/tests/adversarial</code> for some examples.</p>
