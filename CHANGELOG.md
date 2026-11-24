@@ -7,6 +7,7 @@
 ### Non-protocol Changes
 
 * All state request server threads share one throttle window, which admits `state_requests_per_throttle_period` times `state_request_server_threads` requests (120 per 30 seconds by default).
+* A node reserves a quarter of its state request admissions for validators (30 of 120 per 30 seconds by default). `state_requests_reserved_for_validators` sets the number per state request server thread.
 * Raised the minimum supported Rust version to 1.100.0. Building `nearcore` from source now requires a Rust 1.100.0 toolchain.
 
 ## [2.15.0]

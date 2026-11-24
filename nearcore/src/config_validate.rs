@@ -84,6 +84,17 @@ impl<'a> ConfigValidator<'a> {
             );
             self.validation_errors.push_config_semantics_error(error_message);
         }
+
+        let limit = self.config.state_requests_per_throttle_period;
+        if let Some(reserved) = self.config.state_requests_reserved_for_validators {
+            if reserved > limit {
+                let error_message = format!(
+                    "state_requests_reserved_for_validators({reserved}) can be at most \
+                     state_requests_per_throttle_period({limit})"
+                );
+                self.validation_errors.push_config_semantics_error(error_message);
+            }
+        }
     }
 
     /// Gc reclaims at most `gc_blocks_limit` blocks per `gc_step_period` tick and never catches
@@ -508,6 +519,25 @@ mod tests {
                 )
             });
         }
+    }
+
+    #[test]
+    fn test_state_requests_reserved_for_validators_up_to_limit() {
+        let mut config = Config::default();
+        config.state_requests_reserved_for_validators =
+            Some(config.state_requests_per_throttle_period);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "state_requests_reserved_for_validators(31) can be at most state_requests_per_throttle_period(30)"
+    )]
+    fn test_state_requests_reserved_for_validators_above_limit() {
+        let mut config = Config::default();
+        config.state_requests_per_throttle_period = 30;
+        config.state_requests_reserved_for_validators = Some(31);
+        validate_config(&config).unwrap();
     }
 
     #[test]

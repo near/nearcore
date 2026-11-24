@@ -322,6 +322,8 @@ impl ClientConfig {
             chunk_validation_threads: 1,
             state_request_throttle_period: Duration::seconds(1),
             state_requests_per_throttle_period: 30,
+            // Nothing is reserved, so that every requester can take the whole limit.
+            state_requests_reserved_for_validators: Some(0),
             state_request_server_threads: 1,
             trie_viewer_state_size_limit: None,
             view_access_keys_limit: default_view_access_keys_limit(),

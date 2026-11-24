@@ -33,7 +33,7 @@ use near_async::messaging::Handler;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::TrackedShardsConfig;
-use near_network::client::{StateRequestHeader, StateRequestResponse};
+use near_network::client::{StateRequestHeader, StateRequestResponse, StateRequester};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -724,14 +724,26 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let state_request_handle = env.node_datas[0].state_request_sender.actor_handle();
     let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
-    for _ in 0..30 {
-        let res = state_request.handle(StateRequestHeader { shard_id: ShardId::new(0), sync_hash });
+    let shard_id = ShardId::new(0);
+    for _ in 0..20 {
+        let requester = StateRequester::Other;
+        let res = state_request.handle(StateRequestHeader { shard_id, sync_hash, requester });
         assert!(!matches!(res, StateRequestResponse::Busy));
     }
 
-    // Immediately query again, should be rejected due to rate limit.
-    let shard_id = ShardId::new(0);
-    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
+    // The remaining admissions are reserved for validators.
+    let requester = StateRequester::Other;
+    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash, requester });
+    assert!(matches!(res, StateRequestResponse::Busy));
+
+    for _ in 0..10 {
+        let requester = StateRequester::Validator;
+        let res = state_request.handle(StateRequestHeader { shard_id, sync_hash, requester });
+        assert!(!matches!(res, StateRequestResponse::Busy));
+    }
+
+    let requester = StateRequester::Validator;
+    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash, requester });
     assert!(matches!(res, StateRequestResponse::Busy));
 
     env.test_loop.run_for(Duration::seconds(40));
@@ -741,13 +753,16 @@ fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let state_request = env.test_loop.data.get_mut(&state_request_handle);
 
     // After the rate limit window resets, requests shouldn't be throttled anymore.
-    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash });
+    let requester = StateRequester::Other;
+    let res = state_request.handle(StateRequestHeader { shard_id, sync_hash, requester });
     assert!(!matches!(res, StateRequestResponse::Busy));
 }
 
-// Tests rate limiting of StateRequestHeader responses. Sends 30 requests (none should be
-// throttled), then one more (should be throttled), waits for the rate limit to reset, then
-// sends one more (shouldn't be throttled).
+// Tests rate limiting of StateRequestHeader responses, with 10 of the 30 admissions reserved for
+// validators. Sends 20 requests from other requesters (none should be throttled), then one more
+// (should be throttled). Then sends 10 requests from validators (none should be throttled), then
+// one more (should be throttled). Waits for the rate limit to reset, then sends one more request
+// from another requester (shouldn't be throttled).
 #[test]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
@@ -758,6 +773,7 @@ fn test_state_request() {
         .shard_layout(ShardLayout::multi_shard_custom(get_boundary_accounts(4), 1))
         .validators(4, 0)
         .shuffle_shard_assignment_for_chunk_producers(true)
+        .config_modifier(|config, _| config.state_requests_reserved_for_validators = Some(10))
         .build();
     spam_state_sync_header_reqs(&mut env);
 }

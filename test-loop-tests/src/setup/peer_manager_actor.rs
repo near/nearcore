@@ -14,7 +14,7 @@ use near_network::client::{
     BlockHeadersRequest, BlockHeadersResponse, BlockRequest, ChunkEndorsementMessage,
     EpochSyncRequestMessage, EpochSyncResponseMessage, OptimisticBlockMessage, ProcessTxRequest,
     ProcessTxResponse, SpiceChunkEndorsementMessage, StateRequestHeader, StateRequestPart,
-    StateRequestResponse, StateRequestUpdate, StateRequestUpdateMessage,
+    StateRequestResponse, StateRequestUpdate, StateRequestUpdateMessage, StateRequester,
 };
 use near_network::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use near_network::recv_permit::RecvMessagePermit;
@@ -977,10 +977,12 @@ fn network_message_to_state_sync_handler(
             let senders = shared_state.senders_for_peer_direct(&target_peer_id);
             let responder = shared_state.senders_for_peer_direct(&my_peer_id);
             let response_peer_id = target_peer_id.clone();
-            let request_future = senders
-                .state_request_sender
-                .state_request_header
-                .send_async(StateRequestHeader { shard_id, sync_hash });
+            let request_future =
+                senders.state_request_sender.state_request_header.send_async(StateRequestHeader {
+                    shard_id,
+                    sync_hash,
+                    requester: StateRequester::Other,
+                });
 
             future_spawner.spawn("handle StateRequestHeader", async move {
                 let Ok(response) = request_future.await else {
@@ -1006,10 +1008,13 @@ fn network_message_to_state_sync_handler(
             let senders = shared_state.senders_for_peer_direct(&target_peer_id);
             let responder = shared_state.senders_for_peer_direct(&my_peer_id);
             let response_peer_id = target_peer_id.clone();
-            let request_future = senders
-                .state_request_sender
-                .state_request_part
-                .send_async(StateRequestPart { shard_id, sync_hash, part_idx });
+            let request_future =
+                senders.state_request_sender.state_request_part.send_async(StateRequestPart {
+                    shard_id,
+                    sync_hash,
+                    part_idx,
+                    requester: StateRequester::Other,
+                });
 
             future_spawner.spawn("handle StateRequestPart", async move {
                 let Ok(response) = request_future.await else {
