@@ -44,11 +44,11 @@ A peer with no proved height reads as level with our head, so it stays a
 candidate to download from but never sets the target. Once the head has not
 advanced for about one epoch, the node falls back to the unvalidated claimed
 heights, because the validator sets it knows no longer cover the tip. The
-target is then the lower median of those heights. Peers that failed recently do
-not count, and if some peers advertise above the height that starts sync, only
-those count. During block
-sync the node's own header head can also set the target, since header sync has
-already validated it.
+target is then the lower median of those heights. If some peers advertise
+above the height that starts sync, only those count. Of the peers that count,
+those that failed recently are left out, unless all of them failed. During
+block sync the node's own header head can also set the target, since header
+sync has already validated it.
 
 The target height selects the sync phase and download targets. Only an epoch
 sync proof can cause a data reset.
