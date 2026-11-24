@@ -2,6 +2,7 @@ use crate::setup::env::TestLoopEnv;
 use near_chain::ChainStoreAccess as _;
 use near_chain::near_chain_primitives::ApplyChunksMode;
 use near_primitives::types::BlockHeight;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 /// How far a node's execution head may fall behind its head at the end of a test.
 const MAX_EXECUTION_LAG: BlockHeight = 3;
@@ -30,7 +31,7 @@ pub(crate) fn assert_execution_kept_up(env: &TestLoopEnv) {
 /// its execution has moved past and whose first block has not yet been garbage collected, and
 /// that there was at least one such shard to check.
 pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
-    if !cfg!(feature = "protocol_feature_spice") {
+    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         return;
     }
     let mut num_checked = 0;
@@ -92,7 +93,7 @@ pub(crate) fn assert_caught_up_shards_applied(env: &TestLoopEnv) {
 /// Asserts that every chunk a live node applied, up to its last certified block, has the result
 /// certified for it. A node that endorses nothing, like an observer, is checked nowhere else.
 fn assert_execution_matches_certification(env: &TestLoopEnv) {
-    if !cfg!(feature = "protocol_feature_spice") {
+    if !ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         return;
     }
     let mut num_checked = 0;
