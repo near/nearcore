@@ -163,6 +163,13 @@ enum ApplyOutcome {
     MissingReceiptProofs { sources: Vec<SpiceChunkId> },
 }
 
+/// The receipt proofs `to_shard`'s executor misses to apply its parked blocks.
+#[must_use]
+pub(crate) struct MissingReceiptProofs {
+    pub(crate) to_shard: ShardId,
+    pub(crate) sources: Vec<SpiceChunkId>,
+}
+
 /// What postprocessing an applied chunk produced.
 pub(crate) struct AppliedChunk {
     pub(crate) receipt_proofs: Vec<ReceiptProof>,
@@ -234,7 +241,7 @@ impl PerShardChunkExecutor {
     /// routing a processed block to this shard. It retries the whole queue, which picks up what no
     /// event about a parent does: a finished catchup, or a fork below the final execution head.
     /// Returns the sources of the receipt proofs the tried blocks miss.
-    pub(crate) fn handle_processed_block(&mut self, block: &Block) -> Vec<SpiceChunkId> {
+    pub(crate) fn handle_processed_block(&mut self, block: &Block) -> MissingReceiptProofs {
         self.park_block(block.header());
         // TODO(spice-state-sync): replace with a CatchupFinished message from the client when the
         // catchup finishes.
@@ -274,7 +281,7 @@ impl PerShardChunkExecutor {
         &mut self,
         source_block: CryptoHash,
         receipt_proof: ReceiptProof,
-    ) -> Result<Vec<SpiceChunkId>, Error> {
+    ) -> Result<MissingReceiptProofs, Error> {
         self.unverified_receipts.insert(source_block, receipt_proof);
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, &source_block)?;
         Ok(self.try_apply_children(&source_block))
@@ -286,7 +293,7 @@ impl PerShardChunkExecutor {
     pub(crate) fn handle_execution_result_endorsed(
         &mut self,
         source_block: &CryptoHash,
-    ) -> Result<Vec<SpiceChunkId>, Error> {
+    ) -> Result<MissingReceiptProofs, Error> {
         self.unverified_receipts.try_drain(&self.chain_store, &self.core_reader, source_block)?;
         Ok(self.try_apply_children(source_block))
     }
@@ -308,27 +315,27 @@ impl PerShardChunkExecutor {
     /// while a lower one waits, so we scan past `NotReady`. Cross-shard
     /// dependencies are re-driven by the next receipt / endorsement / sibling apply. Returns the
     /// sources of the receipt proofs the tried blocks miss.
-    pub(crate) fn try_apply_pending(&mut self) -> Vec<SpiceChunkId> {
+    pub(crate) fn try_apply_pending(&mut self) -> MissingReceiptProofs {
         let parked: Vec<(BlockHeight, CryptoHash)> =
             self.parked_blocks.parents.keys().copied().collect();
-        let mut missing = Vec::new();
+        let mut sources = Vec::new();
         for entry in parked {
-            missing.extend(self.try_apply_parked(entry));
+            sources.extend(self.try_apply_parked(entry));
         }
-        missing
+        MissingReceiptProofs { to_shard: self.shard_uid.shard_id(), sources }
     }
 
     /// Apply the parked children of `block_hash` that are ready: applying a block, landing its
     /// execution result or receiving receipts from it can make only its children ready. Returns
     /// the sources of the receipt proofs the tried blocks miss.
-    pub(crate) fn try_apply_children(&mut self, block_hash: &CryptoHash) -> Vec<SpiceChunkId> {
+    pub(crate) fn try_apply_children(&mut self, block_hash: &CryptoHash) -> MissingReceiptProofs {
         let children: Vec<(BlockHeight, CryptoHash)> =
             self.parked_blocks.children.get(block_hash).into_iter().flatten().copied().collect();
-        let mut missing = Vec::new();
+        let mut sources = Vec::new();
         for child in children {
-            missing.extend(self.try_apply_parked(child));
+            sources.extend(self.try_apply_parked(child));
         }
-        missing
+        MissingReceiptProofs { to_shard: self.shard_uid.shard_id(), sources }
     }
 
     /// Try to apply the parked block `entry`, and remove it once it is scheduled or dropped.
