@@ -193,6 +193,8 @@ impl ReceiptPreparationPipeline {
                 // here. But we use the same value as
                 // `max_cold_contract_bytes_per_chunk` here, aiming for a
                 // worst-case 1:2 ratio for used:unused pipeline work.
+                // TODO(async-compilation): measure lookahead and tune the
+                // number. especially since it includes hot contract code
                 submission_limit: config.max_cold_contract_bytes_per_chunk,
                 ..Default::default()
             },
