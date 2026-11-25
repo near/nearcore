@@ -21,13 +21,10 @@ STATE_FILE="$FORKNET_HOME/state"
 # The state of the test chain right after setup. `reset` restores it.
 START_BACKUP="$FORKNET_HOME/backups/start"
 
-# Holds a lock on the forknet home until the script exits. The scripts that
-# change the state, the config, the env file or the binaries take it, so two
-# commands on the same host do not overlap. The background setup and reset
-# units do not need it: the state is setting-up or resetting while they run,
-# and no script accepts it. The lock is re-entrant: a script that another
-# script runs inherits fd 9, and flock on the same open file returns at once.
-# Opening the file again would wait for the parent forever.
+# Holds a lock on the forknet home until the script exits, so two commands
+# that change the host do not overlap. The setup and reset units skip it: no
+# script accepts their states. A child script inherits fd 9 and flock returns
+# at once; opening the file again would wait for the parent forever.
 lock_host() {
     if [ ! -e /dev/fd/9 ]; then
         exec 9>"$FORKNET_HOME/lock"
@@ -45,16 +42,14 @@ require_state() {
     fi
 }
 
-# Properties that give a transient unit the same environment files as the
-# neard unit. systemd parses the files, so quoted values work the same way in
-# every unit.
+# EnvironmentFile= properties of the neard unit. Transient units get them
+# too, so systemd parses the files the same way everywhere.
 UNIT_ENV_FILES=(
     -p "EnvironmentFile=-$HOME/.secrets"
     -p "EnvironmentFile=-$FORKNET_HOME/neard.env"
 )
 
-# Runs neard0 with the arguments in a transient user unit and waits for it.
-# Passes stdin, stdout and stderr through and returns the exit code of neard.
+# Runs neard0 in a transient unit, so it gets the env files of the neard unit.
 run_neard0() {
     systemd-run --user --wait --pipe --quiet --collect --same-dir \
         "${UNIT_ENV_FILES[@]}" "$NEARD0" "$@"

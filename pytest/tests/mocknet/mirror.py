@@ -146,7 +146,7 @@ class CommandContext:
         traffic_generator can become None,
         nodes list can become empty
         """
-        # Only keep nodes that run neard, not the auxiliary nodes i.e. tracers.
+        # Skip auxiliary nodes such as tracers.
         self.nodes = [node for node in self.nodes if node.runs_neard]
 
         if self.args.host_filter is not None:

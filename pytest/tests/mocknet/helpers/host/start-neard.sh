@@ -106,10 +106,8 @@ if [ "$IS_TRAFFIC" = 1 ]; then
     fi
 fi
 
-# systemd counts manual starts and restarts against the unit's start limit,
-# which is meant only for crash restarts. Reset the count before each manual
-# start. reset-failed fails when the unit is not loaded, and then there is no
-# count to reset.
+# The start limit is for crash restarts, but systemd also counts manual
+# starts. reset-failed clears the count; it fails if the unit is not loaded.
 systemctl --user reset-failed neard 2>/dev/null || true
 if systemctl --user is-active --quiet neard; then
     if [ "$force_restart" = 1 ] || [ "$old_binary" != "$new_binary" ] ||
