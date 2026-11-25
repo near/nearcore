@@ -7,7 +7,9 @@ use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, ChainGenesis};
 use near_chain_configs::test_utils::TestClientConfigParams;
-use near_chain_configs::{ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{
+    AdversarialMode, ClientConfig, Genesis, MutableConfigValue, TrackedShardsConfig,
+};
 use near_client::adversarial::Controls;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::spice::chunk_executor_actor::ChunkExecutorActor;
@@ -157,14 +159,14 @@ pub fn create_test_setup_with_accounts_and_validity(
     let spice_core_writer_adapter = LateBoundSender::new();
     let spice_client_config = if ProtocolFeature::Spice.enabled(PROTOCOL_VERSION) {
         SpiceClientConfig {
-            chunk_executor_sender: chunk_executor_adapter.as_sender(),
+            chunk_executor_sender: chunk_executor_adapter.as_multi_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
             spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
         }
     } else {
         SpiceClientConfig {
-            chunk_executor_sender: noop().into_sender(),
+            chunk_executor_sender: noop().into_multi_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),
@@ -319,8 +321,8 @@ pub fn create_test_setup_with_accounts_and_validity(
         rpc_handler_actor.into_multi_sender(),
         noop().into_multi_sender(),
         block_notification_watch_receiver,
-        #[cfg(feature = "test_features")]
         noop().into_multi_sender(),
+        AdversarialMode::Rpc,
         Arc::new(DummyEntityDebugHandler {}),
         pool,
     );

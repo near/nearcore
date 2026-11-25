@@ -189,6 +189,14 @@ impl TestLoopEnv {
         TestLoopNode { data: &self.test_loop.data, node_data: &self.node_datas[idx] }
     }
 
+    /// The nodes the test loop has not denylisted.
+    pub fn live_nodes(&self) -> impl Iterator<Item = TestLoopNode<'_>> {
+        self.node_datas
+            .iter()
+            .filter(|node_data| !self.test_loop.is_denylisted(&node_data.identifier))
+            .map(|node_data| TestLoopNode { data: &self.test_loop.data, node_data })
+    }
+
     pub fn node_mut(&mut self, idx: usize) -> TestLoopNodeMut<'_> {
         TestLoopNodeMut { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
     }

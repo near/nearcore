@@ -1,42 +1,21 @@
 use super::*;
+use std::slice;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn last_pre_spice_block_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
-    let signer = Arc::new(create_test_signer("test0"));
-    let genesis = TestGenesisBuilder::new()
-        .genesis_time_from_clock(&Clock::real())
-        .epoch_length(5)
-        .protocol_version(pre_spice_protocol_version())
-        .shard_layout(ShardLayout::multi_shard(3, 0))
-        .validators_spec(ValidatorsSpec::desired_roles(&["test0"], &[]))
-        .add_user_account_simple(signer.validator_id().clone(), Balance::from_near(1))
-        .build();
-    let mut chain = get_chain_with_genesis(Clock::real(), genesis);
-    let last_pre_spice = build_to_last_pre_spice_block(&mut chain, &signer);
+fn the_needed_items_are_the_proofs_from_shards_not_applied_that_are_pushed_to_this_node() {
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 1);
+    let block = &blocks[0];
+    let shard_tracker = applying_shard_tracker(&chain, 2);
 
-    // Shard 0 in the boundary epoch, shard 1 only in the next one: a three-entry
-    // schedule keeps shard 1 out of the previous epoch too.
-    let epoch_height = chain
-        .epoch_manager
-        .get_epoch_info(last_pre_spice.header().epoch_id())
-        .unwrap()
-        .epoch_height();
-    let mut schedule = vec![vec![ShardId::new(0)]; 3];
-    schedule[((epoch_height + 1) % 3) as usize] = vec![ShardId::new(1)];
-    let shard_tracker = ShardTracker::new(
-        TrackedShardsConfig::Schedule(schedule),
-        chain.epoch_manager.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
-    );
-
-    let ids = |block: &Block, pairs: &[(u64, u64)]| -> HashSet<DataId> {
-        pairs.iter().map(|&(from, to)| receipt_id(block, from, to)).collect()
-    };
-    // Destinations are the shards applied in the next block: 0 and 1 in both cases.
     assert_eq!(
-        needed_receipt_ids(&chain, &shard_tracker, &last_pre_spice),
-        ids(&last_pre_spice, &[(1, 0), (1, 1), (2, 0), (2, 1)]),
+        needed_receipt_ids(&chain, &shard_tracker, &shard_producer(2, 0), block),
+        HashSet::from([receipt_id(block, 0, 2), receipt_id(block, 1, 2)]),
+    );
+    // A node applying the shard without producing its chunks is pushed nothing.
+    assert_eq!(
+        needed_receipt_ids(&chain, &shard_tracker, &account("observer.near"), block),
+        HashSet::new(),
     );
 }
 
@@ -56,9 +35,8 @@ fn track_block_tracks_exactly_the_needed_items_once() {
     assert!(!manager.is_tracking(&receipt_id(block, 1, 0)));
     assert!(!manager.is_tracking(&receipt_id(block, 1, 1)));
     assert!(!manager.is_tracking(&receipt_id(block, 0, 0)));
-    assert_eq!(manager.items.len(), 1);
     // The second call did not duplicate the height index entry.
-    assert_eq!(manager.items_by_height[&5].len(), 1);
+    assert_eq!(manager.items.ids_in(..).count(), 1);
 }
 
 #[test]
@@ -72,23 +50,37 @@ fn track_block_skips_items_already_on_disk() {
     manager.track_block(&block).unwrap();
 
     assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
-    assert!(manager.items_by_height.is_empty());
+    assert_eq!(manager.items.ids_in(..).next(), None);
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn blocks_at_or_below_the_final_execution_head_are_not_tracked() {
-    let (chain, blocks) = chain_with_blocks(2);
+fn blocks_below_the_final_execution_head_are_not_tracked() {
+    let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
 
-    // Height 1 is finally executed: neither the processed block nor a later track adds it.
+    // Height 1 is below the head: neither the processed block nor a later track adds it.
     let requests = manager.on_block_processed(&blocks[0]);
     manager.track_block(&blocks[0]);
-    manager.track_block(&blocks[1]);
+    manager.track_block(&blocks[2]);
 
     assert_eq!(requests, vec![]);
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
+}
+
+/// After state sync the final execution head is the sync block, and the block after it is not
+/// applied yet.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn the_items_of_the_final_execution_head_block_are_tracked() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_execution_head(&blocks[1]);
+
+    manager.on_block_processed(&blocks[1]);
+
     assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
 }
 
@@ -105,7 +97,7 @@ fn a_processed_block_tracks_its_items() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
+fn a_processed_block_expires_the_items_below_the_final_execution_head() {
     let (chain, all_blocks) = chain_with_blocks(4);
     // Heights 2, 3, 4.
     let blocks = &all_blocks[1..];
@@ -118,12 +110,15 @@ fn a_processed_block_expires_the_items_at_or_below_the_final_execution_head() {
     manager.on_block_processed(&blocks[2]);
 
     assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
-    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[2], 0, 1)));
-    assert_eq!(
-        manager.manager.items_by_height.keys().copied().collect_vec(),
-        vec![blocks[2].header().height()],
-    );
+
+    // The items at the previous head expire once the head passes them.
+    manager.set_final_execution_head(&blocks[2]);
+    manager.on_block_processed(&blocks[2]);
+
+    assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+    assert_eq!(manager.tracked_heights(), vec![blocks[2].header().height()]);
 }
 
 #[test]
@@ -133,9 +128,10 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     let fork_at_3 = process_block_at(&mut chain, &blocks[1], 3);
     let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
     let fork_at_4 = process_block_at(&mut chain, &blocks[1], 4);
-    assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_4.hash());
+    let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
+    assert_eq!(chain.chain_store.head().unwrap().last_block_hash, *canonical_at_5.hash());
     let mut manager = TestManager::new(&chain);
-    for block in blocks.iter().chain([&canonical_at_4, &fork_at_3, &fork_at_4]) {
+    for block in blocks.iter().chain([&canonical_at_4, &canonical_at_5, &fork_at_3, &fork_at_4]) {
         manager.track_block(block);
     }
     let fork_ids = [receipt_id(&fork_at_3, 0, 1), receipt_id(&fork_at_4, 0, 1)];
@@ -146,12 +142,12 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
         assert!(manager.is_tracking(id), "fork item expired early: {id:?}");
     }
 
-    manager.set_final_execution_head(&canonical_at_4);
-    manager.on_block_processed(&canonical_at_4);
+    manager.set_final_execution_head(&canonical_at_5);
+    manager.on_block_processed(&canonical_at_5);
     for id in &fork_ids {
         assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
     }
-    assert!(manager.manager.items_by_height.is_empty());
+    assert_eq!(manager.tracked_heights(), vec![canonical_at_5.header().height()]);
 }
 
 /// The fork at height 3 is certified by its own child, so it takes the only window slot
@@ -164,8 +160,10 @@ fn a_fork_item_at_or_below_the_final_head_is_dropped_and_frees_its_window_slot()
     let canonical_at_4 = process_block_at(&mut chain, &blocks[1], 4);
     let canonical_at_5 = process_block_at(&mut chain, &canonical_at_4, 5);
     let canonical_at_6 = process_block_at(&mut chain, &canonical_at_5, 6);
-    let pull_config =
-        PullConfig { pulled_heights: NonZeroUsize::new(1).unwrap(), ..PullConfig::default() };
+    let pull_config = PullConfig {
+        pulled_heights_of_pushed_items: NonZeroUsize::new(1).unwrap(),
+        ..PullConfig::default()
+    };
     let mut manager = TestManager::with_pull_config(&chain, 1, pull_config);
     manager.set_final_head(&blocks[1]);
     manager.track_block(&canonical_at_4);
@@ -206,6 +204,10 @@ fn a_fork_block_at_or_below_the_final_head_is_not_tracked() {
 
     assert!(!manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
     assert!(manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
+
+    let fork_chunk = manager.certified_chunk(&fork_at_3, 0);
+    manager.need(1, &[fork_chunk]);
+    assert!(!manager.is_tracking(&receipt_id(&fork_at_3, 0, 1)));
 }
 
 #[test]
@@ -263,17 +265,17 @@ fn a_certified_chunk_of_a_block_without_a_stored_header_is_skipped() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_certified_chunk_from_a_shard_this_node_applies_is_not_made_pullable() {
-    let (chain, blocks) = chain_with_blocks(1);
-    let manager = TestManager::new(&chain);
-    let chunk_ids: Vec<SpiceChunkId> = (0..2)
-        .map(|shard| SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(shard) })
-        .collect();
-    let certifier = certifying_block(&blocks[0], &chunk_ids);
+fn a_pushed_proof_tracked_before_this_nodes_account_changes_is_pulled_once_certified() {
+    let (mut chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+    manager.manager.validator_signer.update(Some(Arc::new(create_test_signer("observer.near"))));
+    let certified = SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: ShardId::new(0) };
+    let certifier = certifying_block(&blocks[0], &[certified]);
+    save_and_record_block(&mut chain, &certifier);
 
-    let made_pullable: HashSet<DataId> =
-        manager.manager.made_pullable_by(&certifier).unwrap().into_iter().collect();
-    assert_eq!(made_pullable, HashSet::from([receipt_id(&blocks[0], 0, 1)]));
+    let requests = wants_for(manager.on_block_processed(&certifier), &id);
+    assert_eq!(requests, own_ordinal_pulls());
 }
 
 #[test]
@@ -287,7 +289,7 @@ fn expiry_drops_the_expired_items_from_every_index() {
     manager.deliver(&producers()[0], &expired, &receipt_data(0, 1));
     manager.deliver(&producers()[0], &live, &receipt_data(0, 1));
 
-    manager.set_final_execution_head(&blocks[0]);
+    manager.set_final_execution_head(&blocks[1]);
     manager.on_block_processed(&blocks[2]);
 
     manager.assert_forgotten(&expired);
@@ -349,6 +351,31 @@ fn a_done_item_is_not_pulled() {
     assert_eq!(requests, vec![]);
 }
 
+/// One item is done before the final head reaches it, the other only after.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_done_item_is_dropped_once_the_final_head_reaches_it() {
+    let (chain, blocks) = chain_with_blocks(6);
+    let mut manager = TestManager::new(&chain);
+    let ids = pullable_items(&mut manager, &blocks[..2]);
+    manager.set_final_head(&blocks[0]);
+    manager.deliver(&producers()[0], &ids[1], &receipt_data(0, 1));
+    save_proof(&chain, &blocks[1], &receipt_data(0, 1));
+    manager.on_block_processed(&blocks[2]);
+
+    manager.set_final_head(&blocks[1]);
+    manager.on_block_processed(&blocks[3]);
+    manager.assert_forgotten(&ids[1]);
+    assert!(manager.is_tracking(&ids[0]));
+
+    manager.deliver(&producers()[0], &ids[0], &receipt_data(0, 1));
+    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+    manager.on_block_processed(&blocks[4]);
+    manager.set_final_head(&blocks[2]);
+    manager.on_block_processed(&blocks[5]);
+    manager.assert_forgotten(&ids[0]);
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_late_part_for_a_done_item_is_already_settled() {
@@ -371,13 +398,8 @@ fn a_late_part_for_a_done_item_is_already_settled() {
     let result = manager.manager.receive_from(&producers[3], &id, &other_commitment, other);
     assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
 
+    // Once its block is final, the done item is gone, whatever the head of the shard it goes to.
     manager.set_final_head(block);
-    manager.on_block_processed(block);
-    let result = manager.manager.receive_from(&producers[4], &id, &commitment, late.clone());
-    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
-
-    // Once its block is executed and final, the item is gone.
-    manager.set_final_execution_head(block);
     manager.on_block_processed(block);
     let result = manager.manager.receive_from(&producers[4], &id, &commitment, late);
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
@@ -529,65 +551,170 @@ fn an_unreadable_processed_block_still_pulls_the_pullable_items_and_stops_pullin
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn spice_catchup_fetches_proofs_of_a_shard_tracked_only_next_epoch() {
-    const SHARD_0: u64 = 0;
-    const SHARD_1: u64 = 1;
-    const SHARD_2: u64 = 2;
+fn a_release_never_removes_a_pushed_item() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
 
-    let (mut chain, _) = chain_with_shards_and_blocks(3, 0);
-    let mut blocks = vec![chain.genesis_block()];
-    for height in 1..=(3 * chain.epoch_length - 1) {
-        let block = build_block_at(&chain, blocks.last().unwrap(), height);
-        save_and_record_block(&mut chain, &block);
-        blocks.push(block);
-    }
+    manager.change_needs(1, NeedChange::NoLongerNeededBelow(blocks[2].header().height()));
+    manager.change_needs(1, NeedChange::NoLongerNeeded);
+    assert!(manager.is_tracking(&id));
 
-    let schedule = vec![
-        vec![ShardId::new(SHARD_0)],
-        vec![ShardId::new(SHARD_0)],
-        vec![ShardId::new(SHARD_0), ShardId::new(SHARD_1)],
-    ];
-    let shard_tracker = ShardTracker::new(
-        TrackedShardsConfig::Schedule(schedule),
-        chain.epoch_manager.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
-    );
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    manager.assert_forgotten(&id);
+}
 
-    // Shard 1 is tracked only in epoch height 2, so the epoch before it catches it up.
-    let epoch_height =
-        |epoch_id: &EpochId| chain.epoch_manager.get_epoch_info(epoch_id).unwrap().epoch_height();
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_needed_pull_only_item_is_pulled_at_once_and_lives_past_the_final_execution_head_until_released()
+ {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    manager.track_block(&blocks[0]);
+    let id = receipt_id(&blocks[0], 0, 1);
+    assert!(!manager.is_tracking(&id));
 
-    let catch_up_blocks: Vec<_> = blocks
-        .iter()
-        .filter(|block| epoch_height(block.header().next_epoch_id()) == 2)
-        .take(2)
-        .collect();
-    assert_eq!(catch_up_blocks.len(), 2);
-    for block in catch_up_blocks {
-        assert_eq!(
-            needed_receipt_ids(&chain, &shard_tracker, block),
-            HashSet::from_iter([
-                receipt_id(&block, SHARD_1, SHARD_0),
-                receipt_id(&block, SHARD_1, SHARD_1),
-                receipt_id(&block, SHARD_2, SHARD_0),
-                receipt_id(&block, SHARD_2, SHARD_1),
-            ])
-        );
-    }
+    let source = manager.certified_chunk(&blocks[0], 0);
+    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
 
-    let tracked_blocks: Vec<_> = blocks
-        .iter()
-        .filter(|block| epoch_height(block.header().epoch_id()) == 2)
-        .take(2)
-        .collect();
-    assert_eq!(tracked_blocks.len(), 2);
-    for block in tracked_blocks {
-        assert_eq!(
-            needed_receipt_ids(&chain, &shard_tracker, block),
-            HashSet::from_iter([
-                receipt_id(&block, SHARD_2, SHARD_0),
-                receipt_id(&block, SHARD_2, SHARD_1),
-            ])
-        );
-    }
+    manager.set_final_execution_head(&blocks[2]);
+    manager.on_block_processed(&blocks[2]);
+    assert!(manager.is_tracking(&id));
+
+    // A release at the item's height keeps it: only the proofs below are released.
+    manager.change_needs(1, NeedChange::NoLongerNeededBelow(blocks[0].header().height()));
+    assert!(manager.is_tracking(&id));
+    manager.change_needs(1, NeedChange::NoLongerNeededBelow(blocks[1].header().height()));
+    manager.assert_forgotten(&id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_release_removes_only_the_pull_only_items_into_its_shard() {
+    let (chain, blocks) = chain_with_shards_and_blocks(3, 2);
+    let mut manager = TestManager::pull_only(&chain, 2);
+    let sources = [manager.certified_chunk(&blocks[0], 2), manager.certified_chunk(&blocks[1], 2)];
+    manager.need(0, &sources);
+    manager.need(1, &sources);
+    assert!(manager.manager.items.is_pull_only(&receipt_id(&blocks[0], 2, 0)));
+
+    manager.change_needs(0, NeedChange::NoLongerNeededBelow(blocks[1].header().height()));
+    manager.assert_forgotten(&receipt_id(&blocks[0], 2, 0));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 2, 0)));
+    assert!(manager.is_tracking(&receipt_id(&blocks[0], 2, 1)));
+
+    manager.change_needs(1, NeedChange::NoLongerNeeded);
+    manager.assert_forgotten(&receipt_id(&blocks[0], 2, 1));
+    manager.assert_forgotten(&receipt_id(&blocks[1], 2, 1));
+    assert!(manager.is_tracking(&receipt_id(&blocks[1], 2, 0)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_pull_only_item_released_entirely_is_tracked_again_when_needed_again() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    let source = manager.certified_chunk(&blocks[0], 0);
+    let id = receipt_id(&blocks[0], 0, 1);
+    manager.need(1, slice::from_ref(&source));
+
+    manager.change_needs(1, NeedChange::NoLongerNeeded);
+    manager.assert_forgotten(&id);
+
+    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn an_undelivered_pull_only_item_stays_past_the_final_head_until_released() {
+    let (chain, blocks) = chain_with_blocks(4);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    let source = manager.certified_chunk(&blocks[0], 0);
+    let id = receipt_id(&blocks[0], 0, 1);
+    manager.need(1, &[source]);
+
+    manager.set_final_head(&blocks[2]);
+    manager.on_block_processed(&blocks[3]);
+    assert!(manager.is_tracking(&id));
+    assert!(manager.is_pullable(&id));
+
+    manager.change_needs(1, NeedChange::NoLongerNeededBelow(blocks[1].header().height()));
+    manager.assert_forgotten(&id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_need_for_a_tracked_item_leaves_it_to_the_block_that_certifies_its_chunk() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    let id = manager.track_needed_proof(&blocks[0]);
+
+    let source = manager.certified_chunk(&blocks[0], 0);
+    assert_eq!(manager.need(1, &[source]), vec![]);
+    assert!(!manager.is_pullable(&id));
+
+    manager.certify_up_to(1);
+    assert_eq!(wants_for(manager.on_block_processed(&blocks[1]), &id), own_ordinal_pulls());
+}
+
+/// After state sync the final execution head is the sync block, which the manager was never handed,
+/// and the chunk executor misses its proofs.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_needed_item_pushed_to_this_node_expires_at_the_final_execution_head_and_not_at_a_release() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_execution_head(&blocks[0]);
+    manager.on_block_processed(&blocks[1]);
+    let source = manager.certified_chunk(&blocks[0], 0);
+    let id = receipt_id(&blocks[0], 0, 1);
+    assert!(!manager.is_tracking(&id));
+
+    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
+    manager.change_needs(1, NeedChange::NoLongerNeeded);
+    assert!(manager.is_tracking(&id));
+
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    manager.assert_forgotten(&id);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_need_for_an_item_pushed_to_this_node_below_the_final_execution_head_is_ignored() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    let source = manager.certified_chunk(&blocks[0], 0);
+
+    assert_eq!(manager.need(1, &[source]), vec![]);
+    assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_need_for_a_pull_only_item_below_the_final_execution_head_is_tracked_and_pulled() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    let source = manager.certified_chunk(&blocks[0], 0);
+    let id = receipt_id(&blocks[0], 0, 1);
+
+    assert_eq!(wants_for(manager.need(1, &[source]), &id), own_ordinal_pulls());
+    assert!(manager.is_tracking(&id));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_need_for_a_stored_proof_is_ignored() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    save_proof(&chain, &blocks[0], &receipt_data(0, 1));
+    let source = manager.certified_chunk(&blocks[0], 0);
+
+    assert_eq!(manager.need(1, &[source]), vec![]);
+    assert!(!manager.is_tracking(&receipt_id(&blocks[0], 0, 1)));
 }

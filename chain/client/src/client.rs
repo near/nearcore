@@ -4,12 +4,12 @@
 
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-#[cfg(feature = "test_features")]
 use crate::chunk_producer::AdvProduceChunksMode;
 use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::chunk_executor_actor::CatchupFinished;
 use crate::spice::timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
@@ -95,7 +95,6 @@ pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
 /// Defines whether in case of adversarial block production invalid blocks can
 /// be produced.
-#[cfg(feature = "test_features")]
 #[derive(PartialEq, Eq)]
 pub enum AdvProduceBlocksMode {
     All,
@@ -116,7 +115,6 @@ pub struct CatchupState {
 pub struct Client {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
-    #[cfg(feature = "test_features")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
@@ -472,7 +470,6 @@ impl Client {
         }
 
         let client = Self {
-            #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
@@ -754,11 +751,8 @@ impl Client {
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv_produce_blocks == Some(AdvProduceBlocksMode::All) {
-                return Ok(true);
-            }
+        if self.adv_produce_blocks == Some(AdvProduceBlocksMode::All) {
+            return Ok(true);
         }
 
         // If we are not block proposer, skip block production.
@@ -767,11 +761,8 @@ impl Client {
             return Ok(false);
         }
 
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv_produce_blocks == Some(AdvProduceBlocksMode::OnlyValid) {
-                return Ok(true);
-            }
+        if self.adv_produce_blocks == Some(AdvProduceBlocksMode::OnlyValid) {
+            return Ok(true);
         }
 
         // If height is known already, don't produce new block for this height.
@@ -826,9 +817,6 @@ impl Client {
                 ?validator_pk,
                 "local validator key does not match expected validator key, skipping optimistic block production");
             let err = Error::BlockProducer("Local validator key mismatch".to_string());
-            #[cfg(not(feature = "test_features"))]
-            return Err(err);
-            #[cfg(feature = "test_features")]
             match self.adv_produce_blocks {
                 None | Some(AdvProduceBlocksMode::OnlyValid) => return Err(err),
                 Some(AdvProduceBlocksMode::All) => {}
@@ -2131,11 +2119,6 @@ impl Client {
                 let transaction_validity_check =
                     self.chain.transaction_validity_check(block.header().clone().into());
 
-                #[cfg(not(feature = "test_features"))]
-                let chain_validate: &dyn Fn(&SignedTransaction) -> bool =
-                    &transaction_validity_check;
-
-                #[cfg(feature = "test_features")]
                 let chain_validate: &dyn Fn(&SignedTransaction) -> bool = {
                     match self.chunk_producer.adversarial.produce_mode {
                         Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck)
@@ -2554,11 +2537,13 @@ impl Client {
         }
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
+    /// Walks through all the ongoing state syncs for future epochs and processes them. Sends
+    /// `CatchupFinished` for each catchup that finishes.
     #[instrument(level = "debug", target = "client", skip_all)]
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
+        catchup_finished_sender: &Sender<CatchupFinished>,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
@@ -2627,6 +2612,7 @@ impl Client {
                         self.process_block_processing_artifact(block_processing_artifacts);
 
                         self.catchup_state_syncs.remove(&sync_hash);
+                        catchup_finished_sender.send(CatchupFinished);
                     }
                 }
             }

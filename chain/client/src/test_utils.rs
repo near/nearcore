@@ -6,7 +6,7 @@ use crate::Client;
 use crate::chunk_producer::ProduceChunkResult;
 use crate::client::CatchupState;
 use itertools::Itertools;
-use near_async::messaging::Sender;
+use near_async::messaging::{IntoSender, Sender, noop};
 use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks_sequential};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{ChainStoreAccess, Provenance};
@@ -322,7 +322,7 @@ pub fn run_catchup(client: &mut Client) -> Result<(), Error> {
         block_inside_messages.lock().push(msg);
     });
     loop {
-        client.run_catchup(&block_catch_up)?;
+        client.run_catchup(&block_catch_up, &noop().into_sender())?;
         let mut catchup_done = true;
         for msg in block_messages.lock().drain(..) {
             let results = do_apply_chunks_sequential(

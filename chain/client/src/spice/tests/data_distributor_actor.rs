@@ -4,7 +4,8 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::chunk_validator_actor::SpiceChunkStateWitnessMessage;
 use crate::spice::data_distributor_actor::{
     Error, FALLBACK_WITNESS_PULL_GRACE, FALLBACK_WITNESS_PUSH_LOOKAHEAD, MalformedDataRequest,
-    SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness,
+    NeedChange, SpiceDataDistributorActor, SpiceDistributorOutgoingReceipts,
+    SpiceDistributorStateWitness, SpiceReceiptProofNeeds,
 };
 use crate::spice::data_manager::{
     AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, SenderFault,
@@ -83,6 +84,8 @@ use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ChunkExecutionResult};
 use near_primitives::types::{ShardId, SpiceChunkId};
+use near_primitives::utils::get_contract_accesses_key;
+use near_primitives::utils::get_execution_results_key;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
@@ -854,8 +857,7 @@ fn drain_outgoing_delivered_receipts(
     delivered
 }
 
-/// Flattens each request into its `(data_id, requester)` pairs, since requests the actor
-/// sends carry a single id.
+/// Flattens each request into its `(data_id, requester)` pairs.
 fn drain_outgoing_data_requests(
     outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>,
 ) -> Vec<(SpiceDataIdentifier, AccountId)> {
@@ -868,9 +870,9 @@ fn drain_outgoing_data_requests(
             continue;
         };
         let (wants, requester) = request.into_parts();
-        assert_eq!(wants.len(), 1);
-        let (data_id, _ordinals) = wants.into_iter().next().unwrap();
-        requests.push((data_id, requester));
+        for (data_id, _ordinals) in wants {
+            requests.push((data_id, requester.clone()));
+        }
     }
     requests
 }
@@ -1655,7 +1657,8 @@ fn test_a_receipt_proof_not_needed_for_a_block_walked_on_startup_is_irrelevant()
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_node_without_signer_parks_a_receipt_proof_for_a_block_not_yet_processed() {
+/// Nothing is pushed to a node without a signer, so parts it did not ask for are not parked.
+fn test_a_node_without_signer_does_not_park_a_receipt_proof_for_a_block_not_yet_processed() {
     let (_genesis, chain) = setup(2, 0);
     let block = latest_block(&chain);
     let (incoming_data, _) = receipt_proof_incoming_data(&chain, &block);
@@ -1671,12 +1674,9 @@ fn test_a_node_without_signer_parks_a_receipt_proof_for_a_block_not_yet_processe
 
     let result = actor.receive_data(incoming_data.data);
 
-    assert_matches!(result, Ok(()));
+    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
-    assert_matches!(
-        outgoing_rc.try_recv(),
-        Ok(OutgoingMessage::ExecutorIncomingUnverifiedReceipts(_))
-    );
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
@@ -2034,8 +2034,8 @@ fn test_waiting_on_receipts_from_forks_on_start() {
     for block_hash in [*next_block.hash(), *next_next_block.hash(), *fork_block.hash()] {
         assert!(actor.is_tracking(&id_at(block_hash)));
     }
-    // The walk starts after the final execution head, so the head block itself is not
-    // waited on.
+    // The head's own block is not handed over: the chunk executor declares its proofs if the block
+    // after it misses them.
     assert!(!actor.is_tracking(&id_at(*block.hash())));
     // No block certifies a proof's source chunk, so the processed head pulls none of them.
     actor.handle(ProcessedBlock { block_hash: *next_next_block.hash() });
@@ -2079,63 +2079,46 @@ fn test_a_proof_certified_before_a_restart_is_pulled_after_it() {
     }
 }
 
-/// A node catching up a shard it applies from next epoch tracks the proofs into that shard and
-/// pulls them only once their source chunk is certified.
+/// Stores an execution result for `chunk_id`, as the core writer does once it is certified.
+fn save_execution_result(chain: &Chain, chunk_id: &SpiceChunkId) {
+    let mut store_update = chain.chain_store.store().store_update();
+    store_update.insert_ser(
+        DBCol::execution_results(),
+        &get_execution_results_key(&chunk_id.block_hash, chunk_id.shard_id),
+        &test_execution_result(),
+    );
+    store_update.commit();
+}
+
+/// A node applying a shard whose chunks it does not produce is pushed nothing for it, so it tracks
+/// the proofs into the shard only once the chunk executor misses them, and pulls them at once.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
-    init_test_logger();
-    let genesis = TestGenesisBuilder::new()
-        .shard_layout(ShardLayout::multi_shard(2, 0))
-        .epoch_length(5)
-        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
-        // for.
-        .max_inflation_rate(Rational32::from_integer(0))
-        .validators_spec(ValidatorsSpec::desired_roles(
-            &["test-producer-0", "test-producer-1"],
-            &[],
-        ))
-        .build();
-    let mut chain = get_chain_with_genesis(Clock::real(), genesis.clone());
+fn test_a_receipt_proof_the_chunk_executor_misses_is_tracked_and_pulled_at_once() {
+    let (genesis, chain) = setup(2, 0);
     let (from_shard_id, to_shard_id) =
         genesis.config.shard_layout.shard_ids().collect_tuple().unwrap();
     let me = AccountId::from_str("not-validator").unwrap();
-    // Tracked one epoch in three, so some epoch tracks it next but neither now nor before.
-    let tracked_shards_config =
-        TrackedShardsConfig::Schedule(vec![vec![], vec![], vec![to_shard_id]]);
-    let shard_tracker = ShardTracker::new(
-        tracked_shards_config.clone(),
-        chain.epoch_manager.clone(),
-        MutableConfigValue::new(None, "validator_signer"),
-    );
-    let is_catching_up = |block: &Block| {
-        shard_tracker.should_apply_chunk(
-            ApplyChunksMode::OnlyCatchupShards,
-            block.hash(),
-            to_shard_id,
-        )
-    };
-    let genesis_block = chain.genesis_block();
-    let mut block = produce_spice_block_certifying_parent(&mut chain, &genesis_block);
-    while !is_catching_up(&block) {
-        assert!(block.header().height() < 4 * genesis.config.epoch_length, "never catching up");
-        block = produce_spice_block_certifying_parent(&mut chain, &block);
-    }
+    let block = latest_block(&chain);
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = ActorBuilder::new(Some(me))
-        .tracked_shards_config(tracked_shards_config)
+        .tracked_shards_config(TrackedShardsConfig::AllShards)
         .build(outgoing_sc, &chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
     fake_runner.run_queued_actions(&mut actor);
     let id = DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
+    assert!(!actor.is_tracking(&id));
+
+    let source = SpiceChunkId { block_hash: *block.hash(), shard_id: from_shard_id };
+    save_execution_result(&chain, &source);
+    actor.handle(SpiceReceiptProofNeeds {
+        to_shard: to_shard_id,
+        change: NeedChange::Needed(vec![source]),
+    });
+
     assert!(actor.is_tracking(&id));
-    assert_eq!(requested_receipt_proofs(&mut outgoing_rc), vec![]);
-
-    let certifying_block = produce_spice_block_certifying_parent(&mut chain, &block);
-    actor.handle(ProcessedBlock { block_hash: *certifying_block.hash() });
-
     let requested = requested_receipt_proofs(&mut outgoing_rc);
     let producers = chain
         .epoch_manager
@@ -2147,6 +2130,12 @@ fn test_a_catching_up_destination_shard_is_tracked_and_pulled() {
             "{producer} was not asked for the proof: {requested:?}"
         );
     }
+
+    actor.handle(SpiceReceiptProofNeeds {
+        to_shard: to_shard_id,
+        change: NeedChange::NoLongerNeeded,
+    });
+    assert!(!actor.is_tracking(&id));
 }
 
 #[test]
@@ -2938,6 +2927,15 @@ fn test_requesting_receipts_when_not_validator() {
         .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
         .build(outgoing_sc, &requester_chain);
     actor.handle(ProcessedBlock { block_hash: *block.hash() });
+    // The chunk executor misses the proof: nothing pushes it to a node producing no chunk.
+    let source =
+        SpiceChunkId { block_hash: *block.hash(), shard_id: receipt_proof.1.from_shard_id };
+    save_execution_result(&requester_chain, &source);
+    actor.handle(SpiceReceiptProofNeeds {
+        to_shard: to_shard_id,
+        change: NeedChange::Needed(vec![source]),
+    });
+    assert!(!drain_outgoing_data_requests(&mut outgoing_rc).is_empty());
     actor.handle(SpiceIncomingPartialData {
         data: partial_data,
         recv_permit: RecvMessagePermit::none(),
@@ -3017,6 +3015,43 @@ fn test_contract_accesses_served_from_store_on_catchup() {
         }
     }
     assert!(found_accesses, "expected contract accesses message to be sent from store fallback");
+}
+
+/// Witness GC can delete the contract accesses after the witness was read for a request. The
+/// request is then dropped instead of panicking.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_handling_data_request_with_contract_accesses_garbage_collected() {
+    let (_genesis, chain) = setup(2, 0);
+    let block = latest_block(&chain);
+
+    let state_witness = new_test_witness(&block);
+    let shard_id = state_witness.chunk_id().shard_id;
+    save_witness_and_contract_accesses(
+        &chain.chain_store,
+        block.hash(),
+        shard_id,
+        &state_witness,
+        &HashSet::new(),
+    );
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update
+        .delete(DBCol::contract_accesses(), &get_contract_accesses_key(block.hash(), shard_id));
+    store_update.commit();
+
+    let mut producers = witness_producer_accounts(&chain, &block, &state_witness);
+    let total_parts = producers.len();
+    let producer = producers.swap_remove(0);
+    let (_incoming_data, recipient) = witness_incoming_data(&chain, &block);
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+
+    let data_id = SpiceDataIdentifier::Witness { block_hash: *block.hash(), shard_id };
+    actor.handle(SpiceDataRequestMessage {
+        request: SpiceDataRequest::new(want_all_parts(data_id, total_parts), recipient),
+        recv_permit: RecvMessagePermit::none(),
+    });
+    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[test]
@@ -3519,8 +3554,14 @@ fn test_stops_waiting_on_data_of_a_fork_block_below_the_final_head() {
     assert!(witness_blocks.contains(next_block.hash()));
     assert!(!proof_blocks.contains(fork_block.hash()));
 
-    // The canonical block's proof expires once the final execution head passes its height.
-    save_final_execution_head(&chain, &next_block);
+    // The canonical block's proof is pushed to this node, so it expires once the final execution
+    // head passes its height, whatever the chunk executor releases.
+    actor.handle(SpiceReceiptProofNeeds {
+        to_shard: to_shard_id,
+        change: NeedChange::NoLongerNeededBelow(head.header().height()),
+    });
+    assert!(actor.is_tracking(&proof_id(&next_block)));
+    save_final_execution_head(&chain, &head);
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     fake_runner.run_queued_actions(&mut actor);
     assert!(!actor.is_tracking(&proof_id(&next_block)));
@@ -3682,6 +3723,36 @@ fn test_witness_is_pushed_only_once() {
 
     let next_block = produce_block(&mut chain, &head_block);
     actor.handle(ProcessedBlock { block_hash: *next_block.hash() });
+    assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
+}
+
+/// Witness GC can delete the contract accesses after the witness was read for the push. The chunk
+/// is then skipped instead of panicking.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_witness_is_not_pushed_with_contract_accesses_garbage_collected() {
+    // More validators than mandates per shard, so some are outside every chunk's designated set.
+    let (_genesis, mut chain) = setup(2, 100);
+    let shard_id = witness_shard_id(&latest_block(&chain));
+    let chunk_id = grow_chain_until_fallback_opens(&mut chain, shard_id);
+    save_test_witness_for_chunk(&chain, &chunk_id);
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update.delete(
+        DBCol::contract_accesses(),
+        &get_contract_accesses_key(&chunk_id.block_hash, shard_id),
+    );
+    store_update.commit();
+
+    let head_block = latest_block(&chain);
+    let producer = chain
+        .epoch_manager
+        .get_epoch_chunk_producers_for_shard(head_block.header().epoch_id(), shard_id)
+        .unwrap()
+        .swap_remove(0);
+
+    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
+    let mut actor = new_actor_for_account(outgoing_sc, &chain, &producer);
+    actor.handle(ProcessedBlock { block_hash: *head_block.hash() });
     assert!(drain_outgoing_partial_data(&mut outgoing_rc).is_empty());
 }
 

@@ -200,8 +200,8 @@ fn an_empty_message_is_a_sender_fault_whether_or_not_the_id_is_tracked() {
     let producer = producers()[0].clone();
     let mut manager = TestManager::new(&chain);
     let tracked = manager.track_needed_proof(&blocks[0]);
-    assert!(manager.manager.items.contains_key(&tracked));
-    assert!(!manager.manager.items.contains_key(&untracked));
+    assert!(manager.manager.items.contains(&tracked));
+    assert!(!manager.manager.items.contains(&untracked));
 
     for id in [&tracked, &untracked] {
         let result = manager.manager.receive_from(&producer, id, &commitment, vec![]);

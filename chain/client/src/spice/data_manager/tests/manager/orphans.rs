@@ -210,9 +210,10 @@ fn parts_parked_for_a_block_are_decoded_at_its_trigger_after_a_higher_block_was_
 fn parts_for_an_untracked_item_of_a_processed_block_are_not_wanted() {
     let (chain, blocks) = chain_with_blocks(2);
     let mut manager = TestManager::new(&chain);
-    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
-    let unneeded = receipt_id(&blocks[0], 1, 0);
-    let sender = &shard_producers(1)[0];
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(1, 1));
+    // Pushed to this node, which produces its source chunk itself.
+    let unneeded = receipt_id(&blocks[0], 1, 1);
+    let sender = &shard_producers(1)[1];
     let receive = |manager: &mut TestManager| {
         manager.manager.receive_from(sender, &unneeded, &commitment, parts.clone())
     };
@@ -242,7 +243,7 @@ fn parts_for_a_stored_block_not_processed_yet_are_parked_after_a_higher_block_is
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn parts_for_an_untracked_item_of_a_processed_block_at_or_below_the_final_execution_head_are_not_wanted()
+fn parts_for_an_untracked_item_of_a_processed_block_at_the_final_execution_head_are_refused_before_the_sender_is_checked()
  {
     let (chain, blocks) = chain_with_blocks(3);
     let mut manager = TestManager::new(&chain);
@@ -261,6 +262,43 @@ fn parts_for_an_untracked_item_of_a_processed_block_at_or_below_the_final_execut
     let result =
         manager.manager.receive_from(&shard_producers(0)[0], &unneeded, &commitment, parts);
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
+}
+
+/// No block below the final execution head is processed again, so parked parts would never be released.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_an_untracked_item_of_a_stored_block_below_the_final_execution_head_are_not_wanted() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    manager.set_final_execution_head(&blocks[1]);
+    manager.on_block_processed(&blocks[2]);
+    let id = receipt_id(&blocks[0], 0, 1);
+    let (commitment, parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+}
+
+/// Proofs only pulled are never pushed, so their parts answer a request for an item gone.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_an_untracked_item_only_pulled_are_not_wanted() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let mut manager = TestManager::pull_only(&chain, 1);
+    let id = receipt_id(&blocks[0], 0, 1);
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts.clone());
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+
+    // The same parts are parked on a node they are pushed to.
+    let mut manager = TestManager::new(&chain);
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+    let decoded = manager.manager.track_block(&blocks[0]).unwrap();
+    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
 }
 
 /// The final head can pass a block whose trigger is still queued.
