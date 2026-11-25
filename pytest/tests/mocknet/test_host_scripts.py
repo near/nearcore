@@ -26,6 +26,7 @@ FAKES = {
 echo "neard $*" >>"$FAKE_LOG"
 [ "$1" = --home ] && home=$2 && shift 2
 [ "$1" = --unsafe-fast-startup ] && shift
+[ -n "${SECRET+x}" ] && echo "$1 SECRET=$SECRET A=$A" >>"$FAKE_DIR/neard-env"
 case "$1 $2" in
 "init "* | "init --account-id")
     mkdir -p "$home"
@@ -296,6 +297,18 @@ class HostScriptsTest(unittest.TestCase):
         # --clear removes all variables.
         self.run_script('set-env.sh', '--clear')
         self.assertEqual((self.home / 'neard.env').read_text(), '')
+
+    def test_neard_gets_env_files(self):
+        # The neard unit loads ~/.secrets and neard.env. The one-off neard
+        # commands in new-test.sh get the same variables.
+        (self.dir / '.secrets').write_text('SECRET=s\nnot an assignment\n')
+        self.run_script('set-env.sh', 'A=$(touch pwned) two words')
+        self.new_test()
+        self.assertEqual((self.dir / 'neard-env').read_text().splitlines(), [
+            'init SECRET=s A=$(touch pwned) two words',
+        ])
+        # The value is not run as shell code.
+        self.assertFalse(any(self.dir.rglob('pwned')))
 
 
 if __name__ == '__main__':

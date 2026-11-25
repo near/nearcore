@@ -45,6 +45,24 @@ require_state() {
     fi
 }
 
+# Runs neard0 with ~/.secrets and neard.env exported, as the neard unit loads
+# them with EnvironmentFile=. Only the neard process gets the variables. The
+# files are read line by line and not sourced, so a value is never run as
+# shell code. Lines that are not NAME=VALUE are skipped.
+run_neard0() {
+    (
+        for env_file in "$HOME/.secrets" "$FORKNET_HOME/neard.env"; do
+            [ -f "$env_file" ] || continue
+            while IFS= read -r line || [ -n "$line" ]; do
+                if [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+                    export "$line"
+                fi
+            done <"$env_file"
+        done
+        exec "$NEARD0" "$@"
+    )
+}
+
 # Runs a script from this directory in the background as the transient user
 # unit $1, with the same environment files as the neard unit.
 run_in_unit() {

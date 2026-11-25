@@ -24,7 +24,7 @@ if [ "$IS_TRAFFIC" != 1 ]; then
     # Assumes the last part of the host name is unique.
     init_args+=(--account-id "node-$(hostname | awk -F- '{print $NF}' | cut -c1-6)")
 fi
-"$NEARD0" "${init_args[@]}" >&2
+run_neard0 "${init_args[@]}" >&2
 
 jq '.rpc.addr = "0.0.0.0:3030"
     | .network.addr = "0.0.0.0:24567"
@@ -45,8 +45,8 @@ find "$NEAR_HOME" -maxdepth 1 -type f -delete
 rm -rf "$NEAR_HOME/data"
 setup_dir="$NEAR_HOME/setup"
 if [ -d "$setup_dir" ]; then
-    "$NEARD0" --home "$setup_dir" database run-migrations >&2
-    "$NEARD0" --home "$setup_dir" database make-snapshot --destination "$NEAR_HOME" >&2
+    run_neard0 --home "$setup_dir" database run-migrations >&2
+    run_neard0 --home "$setup_dir" database make-snapshot --destination "$NEAR_HOME" >&2
     cp "$setup_dir/genesis.json" "$NEAR_HOME/genesis.json"
 else
     echo "no setup dir at $setup_dir, the database will be created from scratch" >&2
