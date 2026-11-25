@@ -129,7 +129,6 @@ impl CloudArchiveSource {
             epoch_manager,
             runtime,
             Some(Follow { shutdown, asked }),
-            true,
         );
         Ok(Self { chain_access, extender })
     }
@@ -178,6 +177,9 @@ impl SourceStore {
             return Ok(());
         };
         let end = cloud_head.min(start + SOURCE_READ_AHEAD);
+        // TODO(cloud_archival): switch to a proper extend once the bootstrap code has one. It
+        // would skip fetching the anchor batch and the epoch data again on every call, and stop
+        // at the shard heads, so it never asks for shard data that is not uploaded yet.
         bootstrap_range(
             &self.store,
             &self.cloud_storage,
@@ -227,11 +229,15 @@ impl SourceStore {
                 return Ok(());
             }
             match result {
-                Ok(()) => tracing::info!(
-                    target: "mirror",
-                    start_height = self.first_height,
-                    "the bucket's block head is below the height the source store opens at; waiting"
-                ),
+                Ok(()) => {
+                    // A successful read of the bucket's block head ends a run of failures.
+                    failures = 0;
+                    tracing::info!(
+                        target: "mirror",
+                        start_height = self.first_height,
+                        "the bucket's block head is below the height the source store opens at; waiting"
+                    );
+                }
                 Err(error) => {
                     failures += 1;
                     if failures >= OPEN_MAX_ATTEMPTS {

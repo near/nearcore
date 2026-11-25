@@ -118,12 +118,13 @@ bucket without state snapshots works:
   space, stop the mirror, remove the home's `data` directory and start it again:
   it fills at the height the mirror goes on from.
 - Without state the mirror cannot look up an account's full access keys. This
-  lookup is only used for the extra transactions the mirror adds when a receipt
-  creates an account or adds a key; regular mirrored transactions are not
-  affected. Those extra transactions are signed with the default extra key. The
-  forked state gives that key only to accounts that had no full access key at the
-  fork, so an extra transaction signed by an account that had one cannot be sent
-  and is skipped. This is rare.
+  lookup is only used for the transactions the mirror adds on its own: the extra
+  ones for a receipt that creates an account or adds a key, and the zero-stake
+  ones that undo a stake a mirrored function call made on the target chain.
+  Regular mirrored transactions are not affected. The added transactions are
+  signed with the default extra key. The forked state gives that key only to
+  accounts that had no full access key at the fork, so one signed by an account
+  that had one cannot be sent and is skipped. This is rare.
 - The mirror reads only blocks at least 100 heights below the reader head, so the
   outcomes of their receipts are in the store when the create account lookahead
   follows them. When it catches up to that point it waits for the next batch.

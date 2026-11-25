@@ -1361,9 +1361,11 @@ impl<T: ChainAccess> TxMirror<T> {
                 // The source store has no state by design (the `--source-cloud-archive`
                 // store, which is filled without state), so the account's full access keys
                 // cannot be looked up. Fall back to the default extra key, as we already
-                // do when the account has no full access keys. Any other error, a
-                // missing block or chunk extra included, aborts the run as it always has.
-                tracing::warn!(
+                // do when the account has no full access keys. Most of these transactions
+                // go through, so this is not a warning. Any other error is returned: the
+                // create-account and add-key callers log it and skip the transaction, and
+                // `unstake` stops the run.
+                tracing::debug!(
                     target: "mirror",
                     provenance = %provenance,
                     source_signer_id = %predecessor_id,

@@ -60,12 +60,9 @@ pub(crate) struct ChainAccess {
     runtime: Arc<NightshadeRuntime>,
     /// Set when another task keeps appending blocks to the store (the cloud archive
     /// source): reads past the head then wait for them until shutdown, instead of
-    /// ending the run.
+    /// ending the run. That store is built without state, so a state query that fails
+    /// in the trie then reports `ChainError::NoState`, which the mirror falls back from.
     follow: Option<Follow>,
-    /// Set when the store was built without state (the cloud archive source): a state
-    /// query that fails in the trie then reports `ChainError::NoState`, which the
-    /// mirror falls back from, instead of the error aborting the run.
-    skip_state: bool,
 }
 
 impl ChainAccess {
@@ -83,27 +80,26 @@ impl ChainAccess {
         let runtime =
             NightshadeRuntime::from_config(home, store.clone(), &config, epoch_manager.clone())
                 .context("could not create the transaction runtime")?;
-        Ok(Self::from_parts(store, &config, epoch_manager, runtime, None, false))
+        Ok(Self::from_parts(store, &config, epoch_manager, runtime, None))
     }
 
     /// Serves a store the caller opened and built the chain views for. With `follow`, the
     /// store is one another task appends to, and reads past its head wait for that task
-    /// until shutdown. With `skip_state`, the store is known to hold no
-    /// state, and a state query failing in the trie is reported as `ChainError::NoState`.
+    /// until shutdown. That store holds no state, so a state query failing in the trie is
+    /// reported as `ChainError::NoState`.
     pub(crate) fn from_parts(
         store: Store,
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime: Arc<NightshadeRuntime>,
         follow: Option<Follow>,
-        skip_state: bool,
     ) -> Self {
         let chain = ChainStore::new(
             store,
             config.client_config.save_trie_changes,
             config.genesis.config.transaction_validity_period,
         );
-        Self { chain, epoch_manager, runtime, follow, skip_state }
+        Self { chain, epoch_manager, runtime, follow }
     }
 
     /// The last height the store holds in full. With `follow`, that is the reader head:
@@ -380,9 +376,11 @@ impl crate::ChainAccess for ChainAccess {
                 // For `ViewAccessKeyList`, `InternalError` wraps a `StorageError` raised while
                 // reading the trie (e.g. `MissingTrieValue`). On a store built without state
                 // (the cloud archive source) that is expected at every block, and the caller
-                // falls back; on any other store it is corruption or state garbage-collected
-                // under the mirror, and it aborts the run like every other error.
-                Err(QueryError::InternalError { error_message, .. }) if self.skip_state => {
+                // falls back to the default extra key. On any other store it is corruption or
+                // state garbage-collected under the mirror, and it is returned like every other
+                // error: the create-account and add-key callers log it and skip the
+                // transaction, and `unstake` stops the run.
+                Err(QueryError::InternalError { error_message, .. }) if self.follow.is_some() => {
                     tracing::debug!(
                         target: "mirror",
                         %account_id,
