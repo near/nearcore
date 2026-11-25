@@ -212,7 +212,6 @@ impl TestEnv {
         let mut keep_going = true;
         while keep_going {
             keep_going = false;
-            // for network_adapter in network_adapters.iter() {
             for i in 0..network_adapters.len() {
                 let network_adapter = network_adapters.get(i).unwrap();
                 let _span =

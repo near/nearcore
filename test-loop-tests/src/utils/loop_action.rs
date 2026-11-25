@@ -29,7 +29,6 @@ impl LoopAction {
     }
 }
 
-/// Current status for a `LoopAction`.
 #[derive(Debug)]
 pub enum LoopActionStatus {
     /// The action has never been called.
@@ -57,7 +56,6 @@ impl LoopAction {
         (self.action_fn)(node_datas, test_loop_data, account_id)
     }
 
-    /// Return the current status of the loop action.
     pub fn get_status(&self) -> LoopActionStatus {
         if self.succeeded.get() {
             return LoopActionStatus::Succeeded;

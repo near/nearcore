@@ -621,7 +621,7 @@ impl PeerManagerActor {
     /// - `default_interval` - we will set `interval` to this value once, after first successful connection
     /// - `max_interval` - maximum value of interval
     /// NOTE: in the current implementation `interval` increases by 1% every time, and it will
-    ///       reach value of `max_internal` eventually.
+    ///       reach value of `max_interval` eventually.
     fn monitor_peers_trigger(
         &mut self,
         mut interval: time::Duration,

@@ -122,7 +122,7 @@ impl<'a> ViewClientTester<'a> {
         }
     }
 
-    /// Sends a message to the `[ViewClientActorInner]` for the client at position `idx`.
+    /// Sends a message to the [`ViewClientActor`] for the client at position `idx`.
     fn send<M, R>(&mut self, request: M, idx: usize) -> R
     where
         M: Send + 'static,
@@ -351,7 +351,7 @@ impl<'a> ViewClientTester<'a> {
         get_and_check_ordered_validators(ordered_validators_latest);
     }
 
-    /// Generates variations of the [`GetBlockStateChangesInBlock`] request and issues them to the view client of the archival node.
+    /// Generates variations of the [`GetStateChangesInBlock`] request and issues them to the view client of the archival node.
     fn check_get_state_changes_in_block(&mut self) {
         let block = self.get_block_at_height(6);
 

@@ -191,7 +191,7 @@ impl Indexer {
 }
 
 /// Function that initializes configs for the node which
-/// accepts `InitConfigWrapper` and calls original `init_configs` from `neard`
+/// accepts `InitConfigArgs` and calls original `init_configs` from `neard`
 pub fn indexer_init_configs(
     dir: &std::path::PathBuf,
     params: InitConfigArgs,

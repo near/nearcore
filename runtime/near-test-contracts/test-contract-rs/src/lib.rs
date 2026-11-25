@@ -1263,8 +1263,8 @@ unsafe fn check_promise_result_write_status() {
     );
 }
 
-/// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
-/// Given input is passed as the argument to the `check_promise_result` function call.
+/// Call promise_yield_create, specifying `check_promise_result_return_value` as the yield callback.
+/// Given input is passed as the argument to the `check_promise_result_return_value` function call.
 /// Sets the yield callback's output as the return value.
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_return_promise() {
@@ -1272,7 +1272,7 @@ pub unsafe fn call_yield_create_return_promise() {
     let mut payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_mut_ptr());
 
-    // Create a promise yield with callback `check_promise_result`,
+    // Create a promise yield with callback `check_promise_result_return_value`,
     // passing the expected payload as an argument to the function.
     let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
@@ -1303,8 +1303,8 @@ pub unsafe fn call_yield_create_return_promise() {
     promise_return(promise_index);
 }
 
-/// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
-/// Given input is passed as the argument to the `check_promise_result` function call.
+/// Call promise_yield_create, specifying `check_promise_result_write_status` as the yield callback.
+/// Given input is passed as the argument to the `check_promise_result_write_status` function call.
 /// Returns the data id produced by promise_yield_create.
 #[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_return_data_id() {
@@ -1312,7 +1312,7 @@ pub unsafe fn call_yield_create_return_data_id() {
     let mut payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_mut_ptr());
 
-    // Create a promise yield with callback `check_promise_result`,
+    // Create a promise yield with callback `check_promise_result_write_status`,
     // passing the expected payload as an argument to the function.
     let method_name = "check_promise_result_write_status";
     let gas_fixed = 0;
@@ -1390,7 +1390,7 @@ pub unsafe fn call_yield_create_and_resume() {
     let mut payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_mut_ptr());
 
-    // Create a promise yield with callback `check_promise_result`,
+    // Create a promise yield with callback `check_promise_result_return_value`,
     // passing the expected payload as an argument to the function.
     let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
@@ -1419,7 +1419,7 @@ pub unsafe fn call_yield_create_and_resume() {
     assert_eq!(success, 1u32);
 
     // This function's return value will resolve to the value returned by the
-    // `check_promise_result` callback
+    // `check_promise_result_return_value` callback
     promise_return(promise_index);
 }
 
@@ -2029,7 +2029,6 @@ pub unsafe fn max_receipt_size_promise_return_method2() {
     promise_return(promise_c);
 }
 
-/// Mark a test as completed
 #[no_mangle]
 pub unsafe fn mark_test_completed() {
     let key = b"test_completed";

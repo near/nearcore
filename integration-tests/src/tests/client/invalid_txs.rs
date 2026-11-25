@@ -138,8 +138,6 @@ fn test_invalid_transactions_no_panic() {
 
 /// Test that processing a chunk with invalid transactions within it does not invalidate the entire
 /// chunk and discards just the invalid transactions within.
-///
-/// Tests the `RelaxedChunkValidation` feature.
 #[test]
 #[cfg(feature = "nightly")]
 // TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.

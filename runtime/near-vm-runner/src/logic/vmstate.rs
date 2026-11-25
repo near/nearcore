@@ -236,7 +236,6 @@ mod tests {
         ctx.assert_used_gas(5394388050);
     }
 
-    /// Tests limit on number of registers.
     #[test]
     fn registers_max_number_limit() {
         let mut ctx = RegistersTestContext::new();

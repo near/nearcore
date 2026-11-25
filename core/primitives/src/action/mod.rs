@@ -469,8 +469,7 @@ impl Action {
     }
 
     /// Returns `true` if this action carries (anywhere in its structure) a
-    /// post-quantum public key or signature, meaning the
-    /// `PostQuantumSignatures` protocol feature must be enabled to admit it.
+    /// post-quantum public key or signature.
     ///
     /// Two layers of exhaustive matching by design: the outer match over
     /// `Action` variants forces a compile-time decision when a new variant

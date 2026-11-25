@@ -764,7 +764,7 @@ pub trait RuntimeAdapter: Send + Sync {
         part: &StatePart,
     ) -> StatePartValidationResult;
 
-    /// Should be executed after accepting all the parts to set up a new state.
+    /// Applies one state part to the new state. Called once for each part.
     fn apply_state_part(
         &self,
         shard_id: ShardId,
@@ -785,7 +785,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error>;
 
-    /// Validate StateRootNode of a state.
     fn validate_state_root_node(
         &self,
         state_root_node: &StateRootNode,

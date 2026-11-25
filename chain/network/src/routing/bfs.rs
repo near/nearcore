@@ -3,7 +3,7 @@ use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
+/// `Graph` is used to compute next hops, which contain information how to route messages to
 /// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
 /// to that are on the shortest path between us as destination `peer`.
 #[derive(Clone)]

@@ -1349,7 +1349,6 @@ impl Client {
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
         tracing::debug!(target: "client", ?block, ?peer_id, "received optimistic block");
 
-        // Pre-validate the optimistic block.
         if let Err(e) = self.chain.pre_check_optimistic_block(&block) {
             near_chain::metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
             tracing::debug!(target: "client", ?e, "optimistic block is invalid");
@@ -1878,8 +1877,7 @@ impl Client {
 
         let _ = self.check_and_update_doomslug_tip();
 
-        // If we produced the block, then it should have already been broadcasted.
-        // If received the block from another node then broadcast "header first" to minimize network traffic.
+        // If the block came from another node, collect the approvals that arrived before it.
         if provenance == Provenance::NONE {
             let endorsements = self
                 .pending_approvals

@@ -424,7 +424,6 @@ pub fn update_cold_head(
     return Ok(());
 }
 
-/// Reads the cold-head from the Cold DB.
 pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
     cold_db
         .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)

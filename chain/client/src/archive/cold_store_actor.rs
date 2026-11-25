@@ -292,7 +292,6 @@ impl ColdStoreActor {
 
 /// Creates the cold store actor and keep_going handle if cold store is configured.
 /// Returns None if cold store is not configured or trie changes are not saved.
-/// This replaces the original `spawn_cold_store_loop` function.
 pub fn create_cold_store_actor(
     save_trie_changes: Option<bool>,
     split_storage_config: &SplitStorageConfig,

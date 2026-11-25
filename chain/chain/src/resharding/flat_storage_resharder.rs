@@ -48,7 +48,7 @@ use std::sync::Arc;
 ///
 /// The resharder has also the following properties:
 /// - Background processing: the bulk of resharding is done in separate tasks, see
-///   [FlatStorageResharder::split_shard_task] and [FlatStorageResharder::shard_catchup_task].
+///   [FlatStorageResharder::split_shard_task_blocking] and [FlatStorageResharder::shard_catchup_task_interleaved].
 /// - Interruptible: a reshard operation can be cancelled through a
 ///   [ReshardingHandle].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
@@ -324,7 +324,7 @@ impl FlatStorageResharder {
         task_status
     }
 
-    /// Performs the bulk of [split_shard_task]. This method splits the flat storage of the parent shard.
+    /// Performs the bulk of [split_shard_task_blocking]. This method splits the flat storage of the parent shard.
     ///
     /// Returns `true` if the routine completed successfully.
     fn split_shard_task_blocking_impl(
@@ -788,7 +788,6 @@ impl FlatStorageResharder {
         store_update.commit();
         metrics.set_status(&flat_storage_status);
         tracing::info!(target: "resharding", ?shard_uid, %deltas_gc_count, "garbage collected flat storage deltas");
-        // Create the flat storage entry for this shard in the manager.
         self.runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
         tracing::info!(target: "resharding", ?shard_uid, ?flat_head, "flat storage creation done");
         Ok(())

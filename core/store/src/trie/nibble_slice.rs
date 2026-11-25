@@ -49,7 +49,6 @@ pub struct NibbleSlice<'a> {
     offset: usize,
 }
 
-/// Iterator type for a nibble slice.
 pub struct NibbleSliceIterator<'a> {
     p: &'a NibbleSlice<'a>,
     i: usize,

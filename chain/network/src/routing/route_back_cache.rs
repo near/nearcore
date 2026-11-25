@@ -38,7 +38,7 @@ const DEFAULT_REMOVE_BATCH_SIZE: usize = 100;
 /// 2. For every peer store how many message should be routed to it.
 ///
 /// First are removed messages that have been in the cache more time than
-/// `EVICTED_TIMEOUT`. If no message was removed, it is removed the oldest
+/// `DEFAULT_CACHE_EVICT_TIMEOUT`. If no message was removed, it is removed the oldest
 /// message from the peer with more messages in the cache.
 ///
 /// Rationale:
@@ -214,7 +214,7 @@ impl RouteBackCache {
             // Remove from `size_per_target` since value is going to be updated
             self.size_per_target.remove(&(self.capacity - size, target.clone()));
 
-            // Remove current hash from the list associated with `record_par_target`
+            // Remove current hash from the list associated with `record_per_target`
             if let Some(records) = self.record_per_target.get_mut(&target) {
                 records.remove(&(time, *hash));
             }

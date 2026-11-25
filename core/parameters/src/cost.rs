@@ -608,8 +608,7 @@ pub struct RuntimeFeesConfig {
     /// `action_receipt_creation`). ed25519/secp256k1 stay 0 for backwards
     /// compatibility; only ML-DSA-65 carries a charge. The signer pays it as
     /// burnt gas when buying the transaction; receipts created from within
-    /// contracts are unaffected (no signing there). All 0 before
-    /// `PostQuantumSignatures`.
+    /// contracts are unaffected (no signing there).
     pub signature_verification_costs: EnumMap<SignatureKind, ParameterCost>,
 }
 

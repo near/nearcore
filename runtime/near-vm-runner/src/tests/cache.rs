@@ -195,9 +195,9 @@ fn test_wasmtime_artifact_output_stability() {
     // the implications of the change.
     //
     // Changes to `prepared_hashes` need a protocol version change, and definitely wants a
-    // `wasmtime_vm_hash()` version update too. Maybe something else too.
+    // `vm_hash()` version update too. Maybe something else too.
     //
-    // If only `compiled_hashes` change you will only need to adjust the `wasmtime_vm_hash()`
+    // If only `compiled_hashes` change you will only need to adjust the `vm_hash()`
     // version so that the previously cached contracts are evicted from the contract cache.
     assert!(
         got_prepared_hashes == prepared_hashes && got_compiled_hashes == compiled_hashes,

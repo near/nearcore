@@ -37,7 +37,6 @@ use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
 };
 
-/// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE.checked_div(10).unwrap();
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.

@@ -598,6 +598,17 @@ def start_traffic_cmd(ctx: CommandContext):
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
     force_restart = getattr(ctx.args, 'force_restart', False)
+    source_cloud_archive = getattr(ctx.args, 'source_cloud_archive', False)
+    source_home = getattr(ctx.args, 'source_home', None)
+    source_rpc_backup = getattr(ctx.args, 'source_rpc_backup', False)
+    if source_cloud_archive and source_home is None:
+        sys.exit(
+            '--source-cloud-archive needs --source-home, a cloud archive reader home'
+        )
+    if source_rpc_backup and (source_cloud_archive or source_home is not None):
+        sys.exit(
+            '--source-rpc-backup cannot be combined with other --source-* flags'
+        )
 
     if traffic_generator is None:
         logger.warning('No traffic node selected. Change filters.')
@@ -621,7 +632,10 @@ def start_traffic_cmd(ctx: CommandContext):
     # TODO: maybe add 20 seconds delay to the schedule command to allow the other nodes to start
     traffic_generator.with_schedule_ctx(ctx.schedule_ctx).neard_runner_start(
         batch_interval_millis=ctx.args.batch_interval_millis,
-        force_restart=force_restart)
+        force_restart=force_restart,
+        source_cloud_archive=source_cloud_archive,
+        source_home=source_home,
+        source_rpc_backup=source_rpc_backup)
     if not ctx.is_scheduled():
         logger.info(
             f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
@@ -1072,6 +1086,28 @@ def register_subcommands(subparsers):
         action='store_true',
         help=
         'Force restart the nodes. Applies to both traffic generator and other nodes.'
+    )
+    start_traffic_parser.add_argument(
+        '--source-cloud-archive',
+        action='store_true',
+        help=
+        '''Stream the source chain out of a cloud archive bucket (neard mirror run --source-cloud-archive).
+        No state is copied, so a bucket without state snapshots works. Needs --source-home, a
+        cloud archive reader home on the traffic generator. The source settings are kept by the
+        neard-runner, so a later start-traffic without --source-* flags reuses them; one with any
+        --source-* flag replaces them all.
+        ''')
+    start_traffic_parser.add_argument(
+        '--source-home',
+        type=str,
+        help=
+        'Source near home on the traffic generator to read the source chain from. Defaults to the RPC backup home.'
+    )
+    start_traffic_parser.add_argument(
+        '--source-rpc-backup',
+        action='store_true',
+        help=
+        'Go back to reading the source chain from the RPC backup home, dropping the source settings an earlier start-traffic saved.'
     )
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 

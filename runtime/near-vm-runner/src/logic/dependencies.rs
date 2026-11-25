@@ -214,7 +214,6 @@ pub trait External {
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
 
-    /// Returns the chain ID of the current chain.
     fn chain_id(&self) -> String;
 
     /// Create an action receipt which will be executed after all the receipts identified by
@@ -266,7 +265,7 @@ pub trait External {
     /// This function shall return `Ok(true)` if the data dependency of the yield receipt has been
     /// successfully resolved.
     ///
-    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or the data
+    /// If given `data_id` was not produced by a call to `create_promise_yield_receipt`, or the data
     /// dependency could not be resolved for any other reason (e.g. because it timed out,)
     /// `Ok(false)` is returned.
     ///
@@ -443,8 +442,7 @@ pub trait External {
     /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
-    /// specified, the action should be allocated gas in
-    /// [`distribute_unused_gas`](Self::distribute_unused_gas).
+    /// specified, the action should be allocated gas when unused gas is distributed.
     ///
     /// For more information, see the `promise_batch_action_function_call_weight` host function.
     ///

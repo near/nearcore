@@ -1372,7 +1372,7 @@ impl Runtime {
                         | ReceiptEnum::PromiseYieldV3(_)
                 );
 
-                if new_receipt.is_instant_receipt() {
+                if new_receipt.is_instant_receipt(apply_state.current_protocol_version) {
                     // Instant receipts are not sent as outgoing receipts, they will be processed immediately.
                     instant_receipts.push_back(new_receipt);
                 } else {
@@ -2702,7 +2702,7 @@ impl Runtime {
                     }
                 }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
-                // the `verify_and_charge_transaction`.
+                // the `verify_and_charge_tx_ephemeral`.
                 self.process_receipt_and_instant_receipts(
                     &receipt,
                     &mut processing_state,
