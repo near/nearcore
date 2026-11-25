@@ -150,6 +150,7 @@ pub struct ProcessedExternalCall {
     pub run_error: Option<&'static str>,
 }
 
+#[allow(clippy::large_enum_variant, reason = "consumed one call at a time, no relevant overhead")]
 pub(crate) enum ExternalCallResult {
     Processed(ProcessedExternalCall),
     /// No outcome or gas charge, but the pre-run work still counts.
