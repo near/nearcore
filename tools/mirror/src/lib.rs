@@ -1996,6 +1996,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 _ = &mut send_time => {}
             }
 
+            // Reserve the slot in blocks_sent before taking the lock, so that
+            // handing the batch over never waits for queue_txs_loop while the
+            // lock is held. queue_txs_loop may itself be waiting for the lock.
+            let permit = blocks_sent.reserve().await.context("failed to send block")?;
             // Held while a batch is in flight: from taking a copy of the block
             // until that copy is handed to queue_txs_loop. See the comment on
             // send_lock in run().
@@ -2025,6 +2029,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 Some(b) => b,
                 None => {
                     drop(send_guard);
+                    drop(permit);
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
@@ -2043,7 +2048,7 @@ impl<T: ChainAccess> TxMirror<T> {
             set_last_source_height(&db, tx_batch.source_height)?;
             sent_source_height = Some(tx_batch.source_height);
 
-            blocks_sent.send(tx_batch).await.context("failed to send block")?;
+            permit.send(tx_batch);
             drop(send_guard);
 
             let send_delay = *send_delay.lock();
