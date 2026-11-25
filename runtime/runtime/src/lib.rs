@@ -3216,7 +3216,10 @@ impl ApplyState {
 /// Reads `key` before a write of it. A write records no trie nodes until the state update
 /// is finalized, after the storage proof limits are checked. The read records the nodes
 /// that the write needs now, so the limits count them.
-fn read_key_before_write(state_update: &TrieUpdate, key: &TrieKey) -> Result<(), StorageError> {
+pub(crate) fn read_key_before_write(
+    state_update: &TrieUpdate,
+    key: &TrieKey,
+) -> Result<(), StorageError> {
     state_update.contains_key(key, AccessOptions::DEFAULT)?;
     Ok(())
 }

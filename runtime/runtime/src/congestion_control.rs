@@ -1,5 +1,5 @@
-use crate::ApplyState;
 use crate::bandwidth_scheduler::BandwidthSchedulerOutput;
+use crate::{ApplyState, read_key_before_write};
 use bytesize::ByteSize;
 use itertools::Itertools;
 use near_primitives::bandwidth_scheduler::{
@@ -309,6 +309,13 @@ impl ReceiptSinkV2WithInfo {
         ) {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
+                if ProtocolFeature::ReadQueueKeysBeforePush
+                    .enabled(apply_state.current_protocol_version)
+                {
+                    let buffer = self.sink.outgoing_buffers.to_shard(shard);
+                    let key = buffer.trie_key(buffer.indices().next_available_index);
+                    read_key_before_write(state_update, &key)?;
+                }
                 self.sink.buffer_receipt(receipt, size, gas, state_update, shard)?;
             }
         }
