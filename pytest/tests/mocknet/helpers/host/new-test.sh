@@ -5,6 +5,7 @@
 # them to build the validator list and the boot nodes for setup-node.sh.
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+lock_host
 
 # The setup and reset units are transient and exist only while they run.
 for unit in neard-setup neard-reset; do

@@ -3,6 +3,7 @@
 # so that a poll right after this script does not see "ready".
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+lock_host
 
 require_state ready
 echo resetting >"$STATE_FILE"

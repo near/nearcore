@@ -21,6 +21,15 @@ STATE_FILE="$FORKNET_HOME/state"
 # The state of the test chain right after setup. `reset` restores it.
 START_BACKUP="$FORKNET_HOME/backups/start"
 
+# Holds a lock on the forknet home until the script exits. The scripts that
+# check or change the state take it, so a start and a reset on the same host
+# do not overlap. The background setup and reset units do not need it: the
+# state is setting-up or resetting while they run, and no script accepts it.
+lock_host() {
+    exec 9>"$FORKNET_HOME/lock"
+    flock 9
+}
+
 # Fails unless the state file holds $1.
 require_state() {
     local state

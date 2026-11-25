@@ -65,6 +65,8 @@ start | restart) touch "$FAKE_DIR/active" ;;
 stop) rm -f "$FAKE_DIR/active" ;;
 esac
 ''',
+    'flock':
+        '',
     'systemd-run':
         r'''
 while [ "$1" != /bin/bash ]; do shift; done

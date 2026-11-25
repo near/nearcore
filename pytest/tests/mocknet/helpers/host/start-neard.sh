@@ -9,6 +9,7 @@
 # SOURCE_HOME, the RPC backup home.
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+lock_host
 
 binary_idx=
 force_restart=0
