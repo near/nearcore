@@ -1,7 +1,6 @@
 use near_async::messaging;
 use near_network::types::{
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, StateSyncEvent,
-    Tier3Request,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo, Tier3Request,
 };
 
 pub struct PeerManagerMock {
@@ -34,10 +33,6 @@ impl messaging::Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> f
 
 impl messaging::Handler<SetChainInfo> for PeerManagerMock {
     fn handle(&mut self, _msg: SetChainInfo) {}
-}
-
-impl messaging::Handler<StateSyncEvent> for PeerManagerMock {
-    fn handle(&mut self, _msg: StateSyncEvent) {}
 }
 
 impl messaging::Handler<Tier3Request> for PeerManagerMock {

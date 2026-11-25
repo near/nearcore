@@ -2,7 +2,7 @@ use crate::PeerManagerActor;
 use crate::network_protocol::PeerInfo;
 use crate::types::{
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
-    StateSyncEvent, Tier3Request,
+    Tier3Request,
 };
 use futures::{Future, FutureExt};
 use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
@@ -168,10 +168,6 @@ impl CanSendAsync<PeerManagerMessageRequest, PeerManagerMessageResponse>
 
 impl CanSend<SetChainInfo> for MockPeerManagerAdapter {
     fn send(&self, _msg: SetChainInfo) {}
-}
-
-impl CanSend<StateSyncEvent> for MockPeerManagerAdapter {
-    fn send(&self, _msg: StateSyncEvent) {}
 }
 
 impl CanSend<Tier3Request> for MockPeerManagerAdapter {

@@ -386,7 +386,6 @@ fn setup_with_genesis(genesis: Genesis, signer: Arc<ValidatorSigner>) -> TestAct
     let network_adapter = PeerManagerAdapter {
         async_request_sender: noop().into_async_sender(),
         set_chain_info_sender: noop().into_sender(),
-        state_sync_event_sender: noop().into_sender(),
         request_sender: Sender::from_fn({
             let network_sc = network_sc.clone();
             move |event: PeerManagerMessageRequest| {

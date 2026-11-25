@@ -678,8 +678,6 @@ enum SelectPeerAction {
     CallSetEpoch(EpochHeight),
     /// InsertHosts(hosts, epoch_height, expected_insert_count) Inserts the given hosts into the cache for the given epoch height.
     InsertHosts(&'static [usize], EpochHeight, usize),
-    /// PartReceived Marks the part as received for the given shard and part id.
-    PartReceived,
     /// CheckNumberOfHosts(expected_number_of_hosts) Checks that the number of hosts in the cache is equal to the expected number of hosts.
     CheckNumberOfHosts(usize),
 }
@@ -732,28 +730,6 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
             SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(2)),
-        ],
-    },
-    SelectPeerTest {
-        name: "test_select_peer_2_part_received",
-        num_peers: 2,
-        part_selection_cache_batch_size: 1,
-        actions: &[
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, None),
-            SelectPeerAction::InsertHosts(&[0], FIRST_EPOCH_HEIGHT, 1),
-            SelectPeerAction::CallSetEpoch(FIRST_EPOCH_HEIGHT),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
-            SelectPeerAction::InsertHosts(&[1], FIRST_EPOCH_HEIGHT, 1),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
-            // calling part_received() should result in correct/acceptable subsequent values
-            // returned by select_host(), but where we forget everything about previous calls
-            SelectPeerAction::PartReceived,
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(0)),
-            SelectPeerAction::CallSelect(FIRST_EPOCH_HEIGHT, Some(1)),
         ],
     },
     SelectPeerTest {
@@ -891,12 +867,6 @@ async fn run_select_peer_test(
                     None => None,
                 };
                 assert!(peer == wanted, "{test_name} got: {:?} want: {:?}", peer, wanted);
-            }
-            SelectPeerAction::PartReceived => {
-                let shard_id = ShardId::new(0);
-                assert!(cache.has_selector(shard_id, part_idx));
-                cache.part_received(shard_id, part_idx);
-                assert!(!cache.has_selector(shard_id, part_idx));
             }
             SelectPeerAction::CheckNumberOfHosts(expected_number_of_hosts) => {
                 assert_eq!(cache.get_hosts().len(), *expected_number_of_hosts);
