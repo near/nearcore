@@ -29,8 +29,8 @@ use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, KnownProducer, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerManagerSenderForNetwork, PeerType, SetChainInfo, SnapshotHostEvent, SnapshotHostInfo,
-    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, StateSyncEvent,
-    Tier3Request, Tier3RequestBody,
+    StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
+    Tier3RequestBody,
 };
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
@@ -1584,19 +1584,6 @@ impl messaging::Handler<PeerManagerMessageRequest> for PeerManagerActor {
         messaging::Handler::<PeerManagerMessageRequest, PeerManagerMessageResponse>::handle(
             self, msg,
         );
-    }
-}
-
-impl messaging::Handler<StateSyncEvent> for PeerManagerActor {
-    fn handle(&mut self, msg: StateSyncEvent) {
-        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
-            .with_label_values::<&str>(&[(&msg).into()])
-            .start_timer();
-        match msg {
-            StateSyncEvent::StatePartReceived(shard_id, part_idx) => {
-                self.state.snapshot_hosts.part_received(shard_id, part_idx);
-            }
-        }
     }
 }
 

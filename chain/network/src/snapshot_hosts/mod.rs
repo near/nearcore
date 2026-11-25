@@ -553,18 +553,6 @@ impl SnapshotHostsCache {
         self.0.lock().select_host_for_part(sync_hash, shard_id, part_idx)
     }
 
-    /// Triggered by state sync actor after processing a state part.
-    pub fn part_received(&self, shard_id: ShardId, part_idx: StatePartIndex) {
-        let mut inner = self.0.lock();
-        inner.peer_selector.remove(&(shard_id, part_idx));
-    }
-
-    #[cfg(test)]
-    pub(crate) fn has_selector(&self, shard_id: ShardId, part_idx: StatePartIndex) -> bool {
-        let inner = self.0.lock();
-        inner.peer_selector.contains_key(&(shard_id, part_idx))
-    }
-
     #[cfg(test)]
     pub(crate) fn shard_host_peers(&self) -> HashSet<PeerId> {
         self.0.lock().hosts_for_shard.values().flatten().cloned().collect()

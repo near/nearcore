@@ -293,7 +293,6 @@ impl ActorBuilder {
         let network_adapter = PeerManagerAdapter {
             async_request_sender: noop().into_async_sender(),
             set_chain_info_sender: noop().into_sender(),
-            state_sync_event_sender: noop().into_sender(),
             request_sender: Sender::from_fn({
                 let outgoing_sc = outgoing_sc.clone();
                 move |message: PeerManagerMessageRequest| {
