@@ -3472,9 +3472,10 @@ A limit is reached when the total compute usage so far reaches the chunk gas lim
 Compute usage is usually equal to burnt gas. Some operations, such as storage reads and writes and contract deployment, have their own compute cost, which can differ from their gas cost.
 When a limit is reached, the processing stops.
 The remaining receipts are considered delayed and stored into the state.
-Instant receipts are the exception to the limit check. These are <code>PromiseYield</code> receipts, and action receipts that hold
-only a <code>DeleteAccount</code> action and no input data. The runtime processes an instant receipt right after the receipt that
-created it, without checking the limits.</p>
+Instant receipts are the exception to the limit check.
+These are <code>PromiseYield</code> receipts, and action receipts with only a <code>DeleteAccount</code> action, no input data, and the same receiver and predecessor.
+An action receipt that deletes another account is not instant: it is forwarded to the receiver's shard like any other receipt.
+The runtime processes an instant receipt right after the receipt that created it, without checking the limits.</p>
 <p>Then, while no limit is reached, the runtime handles yields that have timed out.
 For each timed-out yield that has not been resumed, it creates a promise resume receipt with no data for the same account.</p>
 <h3 id="delayed-receipts-1"><a class="header" href="#delayed-receipts-1">Delayed receipts</a></h3>
