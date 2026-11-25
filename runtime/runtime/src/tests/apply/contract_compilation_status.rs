@@ -8,6 +8,7 @@ use crate::contract_compilation_status::{
 use crate::pipelining::PreparationSubmission;
 use crate::{ApplyProcessingReceiptState, ApplyProcessingState, ProcessingResult};
 use near_primitives::receipt::VersionedReceiptEnum;
+use near_primitives::transaction::check_external_calls_in_chunk;
 use near_primitives::types::ContractCompilationStatus;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::{ContractCompilationAdmission, TrieUpdate, get};
@@ -31,7 +32,7 @@ fn setup() -> Fixture {
 
 fn setup_with_shard_layout(shard_layout: ShardLayout) -> Fixture {
     let shard_uid = shard_layout.account_id_to_shard_uid(&alice_account());
-    let accounts = [alice_account(), bob_account()]
+    let accounts = [alice_account(), bob_account(), carol_account()]
         .into_iter()
         .map(|account_id| {
             let signer = Arc::new(InMemorySigner::test_signer(&account_id));
@@ -57,8 +58,8 @@ fn setup_with_shard_layout(shard_layout: ShardLayout) -> Fixture {
 
 impl Fixture {
     fn receipt(&self, account: usize, actions: Vec<Action>) -> Receipt {
-        let receiver = if account == 0 { alice_account() } else { bob_account() };
-        create_receipt_with_actions(receiver, self.signers[account].clone(), actions)
+        let signer = &self.signers[account];
+        create_receipt_with_actions(signer.get_account_id(), signer.clone(), actions)
     }
 
     fn apply(&mut self, receipts: &[Receipt]) -> ApplyResult {
@@ -66,10 +67,9 @@ impl Fixture {
     }
 
     fn apply_with_eccs(&mut self, receipts: &[Receipt], eccs: Vec<EccTransaction>) -> ApplyResult {
-        self.apply_with_transactions(
-            receipts,
-            eccs.into_iter().map(TransactionEnvelope::from).collect(),
-        )
+        let transactions: Vec<_> = eccs.into_iter().map(TransactionEnvelope::from).collect();
+        check_external_calls_in_chunk(&self.state.config, &transactions).unwrap();
+        self.apply_with_transactions(receipts, transactions)
     }
 
     fn apply_with_transactions(
@@ -342,12 +342,17 @@ fn ecc_compilation_budget_skips_cold_code_and_deduplicates() {
     let mut f = setup();
     let first = ecc_contract("nop");
     let second = ecc_contract("nop nop");
-    f.install_cold(&[f.receipt(0, vec![deploy(&first)]), f.receipt(1, vec![deploy(&second)])]);
+    // Alice and Carol share code, so Carol's call needs no additional compilation budget.
+    f.install_cold(&[
+        f.receipt(0, vec![deploy(&first)]),
+        f.receipt(1, vec![deploy(&second)]),
+        f.receipt(2, vec![deploy(&first)]),
+    ]);
     Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = second.len() as u64;
     let eccs = vec![
         EccTransaction::new(alice_account(), vec![0]),
         EccTransaction::new(bob_account(), vec![1]),
-        EccTransaction::new(alice_account(), vec![2]),
+        EccTransaction::new(carol_account(), vec![2]),
     ];
     let pre_root = f.root;
     let pre_congestion = f.state.congestion_info.clone();
