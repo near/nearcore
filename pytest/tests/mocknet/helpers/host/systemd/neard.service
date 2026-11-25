@@ -8,6 +8,9 @@ StartLimitBurst=5
 [Service]
 EnvironmentFile=-%h/.secrets
 EnvironmentFile=-%h/.near/forknet/neard.env
+# Start each neard run in a new log file. "-" ignores a failure, for example
+# when the timer runs logrotate at the same time.
+ExecStartPre=-/usr/sbin/logrotate -f -s %h/neard-logs/.logrotate_status %h/.near/forknet/systemd/logrotate.conf
 ExecStart=/bin/bash %h/.near/forknet/run-neard.sh
 StandardOutput=append:%h/neard-logs/logs.txt
 StandardError=inherit
