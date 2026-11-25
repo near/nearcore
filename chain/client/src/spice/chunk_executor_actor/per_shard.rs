@@ -47,7 +47,7 @@ use near_store::DBCol;
 use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -93,7 +93,8 @@ pub(crate) struct PerShardChunkExecutor {
     apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     apply_done_sender: Sender<ExecutorApplyChunksDone>,
     blocks_in_execution: HashSet<CryptoHash>,
-    pub(super) parked_blocks: ParkedBlocks,
+    /// The blocks waiting to be applied, lowest height first.
+    pub(super) parked_blocks: BTreeSet<(BlockHeight, CryptoHash)>,
     /// Network-path receipt proofs buffered until they can be verified.
     /// Local-path proofs never go here — they are already on disk.
     unverified_receipts: UnverifiedReceiptTracker,
@@ -103,47 +104,9 @@ pub(crate) struct PerShardChunkExecutor {
     /// For a shard the node catches up for the next epoch, the sync block after which the canonical
     /// blocks were last parked again, see `ChunkExecutorActor::replay_caught_up_shards`.
     pub(super) replayed_after_sync_block: Option<CryptoHash>,
-}
-
-/// The blocks waiting to be applied, by height and by parent, so that an event about a block
-/// retries only its children.
-#[derive(Default)]
-pub(super) struct ParkedBlocks {
-    /// Each parked block's parent, lowest height first.
-    parents: BTreeMap<(BlockHeight, CryptoHash), (BlockHeight, CryptoHash)>,
-    /// The parked blocks by their parent's hash.
-    children: HashMap<CryptoHash, BTreeSet<(BlockHeight, CryptoHash)>>,
-}
-
-impl ParkedBlocks {
-    fn insert(&mut self, block: (BlockHeight, CryptoHash), parent: (BlockHeight, CryptoHash)) {
-        self.parents.insert(block, parent);
-        self.children.entry(parent.1).or_default().insert(block);
-    }
-
-    fn remove(&mut self, block: &(BlockHeight, CryptoHash)) {
-        let Some((_, parent_hash)) = self.parents.remove(block) else {
-            return;
-        };
-        if let Some(siblings) = self.children.get_mut(&parent_hash) {
-            siblings.remove(block);
-            if siblings.is_empty() {
-                self.children.remove(&parent_hash);
-            }
-        }
-    }
-
-    pub(super) fn drop_up_to_height(&mut self, height: BlockHeight) {
-        let dropped: Vec<(BlockHeight, CryptoHash)> = self
-            .parents
-            .keys()
-            .take_while(|(block_height, _)| *block_height <= height)
-            .copied()
-            .collect();
-        for block in dropped {
-            self.remove(&block);
-        }
-    }
+    /// The height up to which the parked blocks off the canonical chain were dropped: at or below
+    /// the final execution head, such a block is never applied.
+    forks_dropped_up_to: BlockHeight,
 }
 
 /// Outcome of a per-shard `try_apply` attempt for a single parked block.
@@ -223,8 +186,9 @@ impl PerShardChunkExecutor {
             apply_chunks_spawner,
             apply_done_sender,
             blocks_in_execution: HashSet::new(),
-            parked_blocks: ParkedBlocks::default(),
+            parked_blocks: BTreeSet::new(),
             replayed_after_sync_block: None,
+            forks_dropped_up_to: 0,
             final_execution_head: None,
             unverified_receipts: UnverifiedReceiptTracker::default(),
         }
@@ -237,15 +201,13 @@ impl PerShardChunkExecutor {
         self.shard_uid
     }
 
-    /// Park `block` and try to drain — the per-shard half of the coordinator
-    /// routing a processed block to this shard. It retries the whole queue, which picks up what no
-    /// event about a parent does: a finished catchup, or a fork below the final execution head.
-    /// Returns the sources of the receipt proofs the tried blocks miss.
+    /// Park `block` and try to apply it — the per-shard half of the coordinator routing a processed
+    /// block to this shard. Returns the sources of the receipt proofs it misses.
     pub(crate) fn handle_processed_block(&mut self, block: &Block) -> MissingReceiptProofs {
-        self.park_block(block.header());
-        // TODO(spice-state-sync): replace with a CatchupFinished message from the client when the
-        // catchup finishes.
-        self.try_apply_pending()
+        let header = block.header();
+        self.park_block(header);
+        let sources = self.try_apply_parked((header.height(), *header.hash()));
+        MissingReceiptProofs { to_shard: self.shard_uid.shard_id(), sources }
     }
 
     /// Park the block of `header` without draining, so that a run of blocks can be parked before
@@ -262,16 +224,7 @@ impl PerShardChunkExecutor {
         ) {
             tracing::error!(target: "chunk_executor", ?err, %prev_block_hash, "failed to drain unverified receipts on processed block");
         }
-        let Some(prev_height) = header.prev_height() else {
-            tracing::error!(
-                target: "chunk_executor",
-                block_hash=%header.hash(),
-                "cannot park a block whose header does not have its parent's height",
-            );
-            return;
-        };
-        self.parked_blocks
-            .insert((header.height(), *header.hash()), (prev_height, prev_block_hash));
+        self.parked_blocks.insert((header.height(), *header.hash()));
     }
 
     /// Network receipt arrival for this shard: buffer it, verify-drain if ready,
@@ -301,7 +254,7 @@ impl PerShardChunkExecutor {
     /// Hashes of the parked blocks (test accessor).
     #[cfg(test)]
     pub(crate) fn parked_block_hashes(&self) -> Vec<CryptoHash> {
-        self.parked_blocks.parents.keys().map(|(_, block_hash)| *block_hash).collect()
+        self.parked_blocks.iter().map(|(_, block_hash)| *block_hash).collect()
     }
 
     /// Number of source blocks with buffered receipts (test accessor).
@@ -310,14 +263,14 @@ impl PerShardChunkExecutor {
         self.unverified_receipts.len()
     }
 
-    /// Apply every parked block that is ready, lowest height first. Applying a
-    /// block can make the next height ready, and a higher fork block can be ready
-    /// while a lower one waits, so we scan past `NotReady`. Cross-shard
-    /// dependencies are re-driven by the next receipt / endorsement / sibling apply. Returns the
-    /// sources of the receipt proofs the tried blocks miss.
-    pub(crate) fn try_apply_pending(&mut self) -> MissingReceiptProofs {
-        let parked: Vec<(BlockHeight, CryptoHash)> =
-            self.parked_blocks.parents.keys().copied().collect();
+    /// Apply every parked block that is ready, lowest height first, which a finished catchup and
+    /// blocks parked again need: no event about a parent retries them. Applying a block can make
+    /// the next height ready, and a higher fork block can be ready while a lower one waits, so we
+    /// scan past `NotReady`. Cross-shard dependencies are re-driven by the next receipt /
+    /// endorsement / sibling apply. Returns the sources of the receipt proofs the tried
+    /// blocks miss.
+    pub(crate) fn try_apply_all_parked(&mut self) -> MissingReceiptProofs {
+        let parked: Vec<(BlockHeight, CryptoHash)> = self.parked_blocks.iter().copied().collect();
         let mut sources = Vec::new();
         for entry in parked {
             sources.extend(self.try_apply_parked(entry));
@@ -325,13 +278,41 @@ impl PerShardChunkExecutor {
         MissingReceiptProofs { to_shard: self.shard_uid.shard_id(), sources }
     }
 
+    /// Drops the parked blocks off the canonical chain at or below `final_execution_head_height`,
+    /// which are never applied. Each height is checked once, when the final execution head first passes it.
+    pub(crate) fn drop_forks_up_to(&mut self, final_execution_head_height: BlockHeight) {
+        if final_execution_head_height <= self.forks_dropped_up_to {
+            return;
+        }
+
+        let forks: Vec<(BlockHeight, CryptoHash)> = self
+            .parked_blocks
+            .range((self.forks_dropped_up_to + 1, CryptoHash::default())..)
+            .copied()
+            .take_while(|(height, _)| *height <= final_execution_head_height)
+            .filter(|(height, hash)| !is_canonical(&self.chain_store, *height, hash))
+            .collect();
+        for fork in forks {
+            self.parked_blocks.remove(&fork);
+        }
+
+        self.forks_dropped_up_to = final_execution_head_height;
+    }
+
     /// Apply the parked children of `block_hash` that are ready: applying a block, landing its
     /// execution result or receiving receipts from it can make only its children ready. Returns
     /// the sources of the receipt proofs the tried blocks miss.
     pub(crate) fn try_apply_children(&mut self, block_hash: &CryptoHash) -> MissingReceiptProofs {
-        let children: Vec<(BlockHeight, CryptoHash)> =
-            self.parked_blocks.children.get(block_hash).into_iter().flatten().copied().collect();
+        let mut children = Vec::new();
         let mut sources = Vec::new();
+        for child_hash in self.chain_store.get_all_next_block_hashes(block_hash) {
+            match self.chain_store.get_block_header(&child_hash) {
+                Ok(child) => children.push((child.height(), child_hash)),
+                Err(err) => {
+                    tracing::error!(target: "chunk_executor", ?err, %child_hash, "failed to read the header of a child block");
+                }
+            }
+        }
         for child in children {
             sources.extend(self.try_apply_parked(child));
         }
@@ -341,27 +322,21 @@ impl PerShardChunkExecutor {
     /// Try to apply the parked block `entry`, and remove it once it is scheduled or dropped.
     /// Returns the sources of the receipt proofs it misses.
     fn try_apply_parked(&mut self, entry: (BlockHeight, CryptoHash)) -> Vec<SpiceChunkId> {
-        let Some(&parent) = self.parked_blocks.parents.get(&entry) else {
-            return Vec::new();
-        };
-        // A block needs its parent applied first.
-        if self.parked_blocks.parents.contains_key(&parent)
-            || self.blocks_in_execution.contains(&parent.1)
-        {
+        if !self.parked_blocks.contains(&entry) {
             return Vec::new();
         }
-
         match self.try_apply(&entry.1) {
             Ok(ApplyOutcome::NotReady) => {}
             // TODO(spice-data-distribution): consider declaring the proofs the next parked blocks
             // need too.
             Ok(ApplyOutcome::MissingReceiptProofs { sources }) => return sources,
             Ok(ApplyOutcome::Scheduled | ApplyOutcome::Dropped) => {
-                self.parked_blocks.remove(&entry)
+                self.parked_blocks.remove(&entry);
             }
             Err(err) => {
-                // Leave this block parked (a transient error may clear) but keep
-                // draining the rest of the queue.
+                // Leave the block parked and keep draining the queue. Its parent's next apply,
+                // execution result or receipts try it again, and so do a restart and a finished
+                // catchup.
                 tracing::error!(
                     target: "chunk_executor",
                     ?err,
@@ -1003,9 +978,13 @@ fn new_execution_result(
     ChunkExecutionResult { chunk_extra, outgoing_receipts_root }
 }
 
-/// Whether `header` is on the canonical chain.
-pub(super) fn is_canonical(chain_store: &ChainStoreAdapter, header: &BlockHeader) -> bool {
-    chain_store.get_block_hash_by_height(header.height()).is_ok_and(|hash| &hash == header.hash())
+/// Whether the block `hash` at `height` is on the canonical chain.
+pub(super) fn is_canonical(
+    chain_store: &ChainStoreAdapter,
+    height: BlockHeight,
+    hash: &CryptoHash,
+) -> bool {
+    chain_store.get_block_hash_by_height(height).is_ok_and(|canonical| &canonical == hash)
 }
 
 /// Whether `header` is the final execution head, a block before it on the canonical chain, or a
@@ -1018,7 +997,7 @@ fn is_canonical_or_descends_from_final_execution_head(
         .spice_final_execution_head()
         .expect("spice final execution head is seeded at genesis or at spice activation");
     if header.height() <= final_execution_head.height {
-        return is_canonical(chain_store, header);
+        return is_canonical(chain_store, header.height(), header.hash());
     }
     is_descendant_of_final_execution_head(chain_store, header)
 }
@@ -1061,78 +1040,4 @@ pub(crate) fn is_catching_up(
     let state_sync_info: Option<StateSyncInfo> =
         chain_store.store().get_ser(DBCol::StateDlInfos, epoch_first_block.as_ref());
     Ok(state_sync_info.is_some_and(|info| info.shards().contains(&shard_id)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ParkedBlocks;
-    use near_primitives::hash::CryptoHash;
-    use std::collections::{BTreeMap, BTreeSet, HashMap};
-
-    #[test]
-    fn test_parked_blocks_insert() {
-        let parent = (1, CryptoHash::hash_bytes(b"parent"));
-        let other_parent = (0, CryptoHash::hash_bytes(b"other parent"));
-        let child = (2, CryptoHash::hash_bytes(b"child"));
-        let sibling = (3, CryptoHash::hash_bytes(b"sibling"));
-        let other_child = (1, CryptoHash::hash_bytes(b"other child"));
-        let mut parked_blocks = ParkedBlocks::default();
-
-        parked_blocks.insert(child, parent);
-        parked_blocks.insert(sibling, parent);
-        parked_blocks.insert(other_child, other_parent);
-
-        assert_eq!(
-            parked_blocks.parents,
-            BTreeMap::from([(child, parent), (sibling, parent), (other_child, other_parent)])
-        );
-        assert_eq!(
-            parked_blocks.children,
-            HashMap::from([
-                (parent.1, BTreeSet::from([child, sibling])),
-                (other_parent.1, BTreeSet::from([other_child])),
-            ])
-        );
-    }
-
-    #[test]
-    fn test_parked_blocks_remove() {
-        let parent = (1, CryptoHash::hash_bytes(b"parent"));
-        let child = (2, CryptoHash::hash_bytes(b"child"));
-        let sibling = (3, CryptoHash::hash_bytes(b"sibling"));
-        let mut parked_blocks = ParkedBlocks::default();
-        parked_blocks.insert(child, parent);
-        parked_blocks.insert(sibling, parent);
-
-        parked_blocks.remove(&child);
-        assert_eq!(parked_blocks.parents, BTreeMap::from([(sibling, parent)]));
-        assert_eq!(parked_blocks.children, HashMap::from([(parent.1, BTreeSet::from([sibling]))]));
-
-        // Removing a parent's last child removes the parent too.
-        parked_blocks.remove(&sibling);
-        assert!(parked_blocks.parents.is_empty());
-        assert!(parked_blocks.children.is_empty());
-
-        // Removing a block that is not parked changes nothing.
-        parked_blocks.remove(&child);
-        assert!(parked_blocks.parents.is_empty());
-    }
-
-    #[test]
-    fn test_parked_blocks_drop_up_to_height() {
-        let parent = (1, CryptoHash::hash_bytes(b"parent"));
-        let child = (2, CryptoHash::hash_bytes(b"child"));
-        let grandchild = (3, CryptoHash::hash_bytes(b"grandchild"));
-        let mut parked_blocks = ParkedBlocks::default();
-        parked_blocks.insert(child, parent);
-        parked_blocks.insert(grandchild, child);
-
-        parked_blocks.drop_up_to_height(child.0);
-
-        assert_eq!(parked_blocks.parents, BTreeMap::from([(grandchild, child)]));
-        assert_eq!(
-            parked_blocks.children,
-            HashMap::from([(child.1, BTreeSet::from([grandchild]))])
-        );
-    }
 }

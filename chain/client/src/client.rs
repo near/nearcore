@@ -9,6 +9,7 @@ use crate::chunk_producer::ChunkProducer;
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::chunk_executor_actor::CatchupFinished;
 use crate::spice::timer::SpiceTimer;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::ChunkValidationSender;
@@ -2536,11 +2537,13 @@ impl Client {
         }
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
+    /// Walks through all the ongoing state syncs for future epochs and processes them. Sends
+    /// `CatchupFinished` for each catchup that finishes.
     #[instrument(level = "debug", target = "client", skip_all)]
     pub fn run_catchup(
         &mut self,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
+        catchup_finished_sender: &Sender<CatchupFinished>,
     ) -> Result<(), Error> {
         for (epoch_first_block, mut state_sync_info) in
             self.chain.chain_store().iterate_state_sync_infos()?
@@ -2609,6 +2612,7 @@ impl Client {
                         self.process_block_processing_artifact(block_processing_artifacts);
 
                         self.catchup_state_syncs.remove(&sync_hash);
+                        catchup_finished_sender.send(CatchupFinished);
                     }
                 }
             }
