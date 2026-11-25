@@ -331,8 +331,8 @@ returns an <code>ApplyResult</code>, which includes state changes, execution out
 boundary: the <code>VMContext</code> and <code>External</code> interfaces described below, gas
 counting, registers, the promise DAG and the <code>ExecutionResultState</code> that is
 turned into a <code>VMOutcome</code> when a function call finishes. The host functions
-themselves live in <code>runtime/near-vm-runner/src/wasmtime_runner/logic.rs</code>
-and operate directly on the wasmtime <code>Ctx</code> and guest memory. Interaction
+themselves live in <code>runtime/near-vm-runner/src/logic/host.rs</code> and take guest
+memory as a byte slice instead of the wasmtime <code>Ctx</code>. Interaction
 with the NEAR blockchain happens in the following two ways:</p>
 <ul>
 <li><code>VMContext</code>, which contains lightweight information such as current block
@@ -344,14 +344,14 @@ blockchain.</li>
 <h3 id="runtimenear-vm-runner"><a class="header" href="#runtimenear-vm-runner"><code>runtime/near-vm-runner</code></a></h3>
 <p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function essentially spins
 up the vm and executes some function in a contract. Contracts are compiled and run with wasmtime.
-The <code>imports</code> module exposes the host functions defined in <code>wasmtime_runner/logic.rs</code> to WASM code. In other
+The <code>imports</code> module exposes the host functions defined in <code>logic/host.rs</code> to WASM code. In other
 words, it defines the ABI of the contracts on NEAR.</p>
 <h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
 <p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
 All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
 <code>NightshadeRuntime</code> is the struct that implements <code>RuntimeAdapter</code>.</p>
 <!-- TODO: Maybe add RuntimeAdapter mention or explanation in runtime/runtime chapter? -->
-<h3 id="corestoresrcdbrs"><a class="header" href="#corestoresrcdbrs"><code>core/store/src/db.rs</code></a></h3>
+<h3 id="corestoresrccolumnsrs"><a class="header" href="#corestoresrccolumnsrs"><code>core/store/src/columns.rs</code></a></h3>
 <p>This file contains the schema (DBCol) of our internal RocksDB storage - a good
 starting point when reading the code base.</p>
 <h2 id="cross-cutting-concerns"><a class="header" href="#cross-cutting-concerns">Cross Cutting Concerns</a></h2>

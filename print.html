@@ -7434,8 +7434,8 @@ returns an <code>ApplyResult</code>, which includes state changes, execution out
 boundary: the <code>VMContext</code> and <code>External</code> interfaces described below, gas
 counting, registers, the promise DAG and the <code>ExecutionResultState</code> that is
 turned into a <code>VMOutcome</code> when a function call finishes. The host functions
-themselves live in <code>runtime/near-vm-runner/src/wasmtime_runner/logic.rs</code>
-and operate directly on the wasmtime <code>Ctx</code> and guest memory. Interaction
+themselves live in <code>runtime/near-vm-runner/src/logic/host.rs</code> and take guest
+memory as a byte slice instead of the wasmtime <code>Ctx</code>. Interaction
 with the NEAR blockchain happens in the following two ways:</p>
 <ul>
 <li><code>VMContext</code>, which contains lightweight information such as current block
@@ -7447,14 +7447,14 @@ blockchain.</li>
 <h3 id="runtimenear-vm-runner"><a class="header" href="#runtimenear-vm-runner"><code>runtime/near-vm-runner</code></a></h3>
 <p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function essentially spins
 up the vm and executes some function in a contract. Contracts are compiled and run with wasmtime.
-The <code>imports</code> module exposes the host functions defined in <code>wasmtime_runner/logic.rs</code> to WASM code. In other
+The <code>imports</code> module exposes the host functions defined in <code>logic/host.rs</code> to WASM code. In other
 words, it defines the ABI of the contracts on NEAR.</p>
 <h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
 <p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
 All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
 <code>NightshadeRuntime</code> is the struct that implements <code>RuntimeAdapter</code>.</p>
 <!-- TODO: Maybe add RuntimeAdapter mention or explanation in runtime/runtime chapter? -->
-<h3 id="corestoresrcdbrs"><a class="header" href="#corestoresrcdbrs"><code>core/store/src/db.rs</code></a></h3>
+<h3 id="corestoresrccolumnsrs"><a class="header" href="#corestoresrccolumnsrs"><code>core/store/src/columns.rs</code></a></h3>
 <p>This file contains the schema (DBCol) of our internal RocksDB storage - a good
 starting point when reading the code base.</p>
 <h2 id="cross-cutting-concerns"><a class="header" href="#cross-cutting-concerns">Cross Cutting Concerns</a></h2>
@@ -11194,18 +11194,19 @@ charge gas, please also consider that when defining a new parameter.</p>
 <h3 id="necessary-code-changes"><a class="header" href="#necessary-code-changes">Necessary Code Changes</a></h3>
 <p>Adding the parameter in code involves several steps.</p>
 <ol>
-<li>Define the parameter by adding it to the list in <code>core/primitives/res/runtime_configs/parameters.yaml.</code></li>
+<li>Define the parameter by adding it to the list in <code>core/parameters/res/runtime_configs/parameters.yaml</code>.</li>
 <li>Update the Rust view of parameters by adding a variant to <code>enum Parameter</code>
-in <code>core/primitives-core/src/parameter.rs</code>. In the same file, update
+in <code>core/parameters/src/parameter.rs</code>. In the same file, update
 <code>enum FeeParameter</code> if you add an action cost or update <code>ext_costs()</code>
 if you add a cost inside function calls.</li>
 <li>Update <code>RuntimeConfig</code>, the configuration used to reference parameters in
 code. Depending on the type of parameter, you will need to update
 <code>RuntimeFeesConfig</code> (for action costs) or <code>ExtCostsConfig</code> (for gas costs).</li>
-<li>Update the list used for gas profiles. This is defined by <code>enum Cost</code> in
-<code>core/primitives-core/src/profile.rs</code>. You need to add a variant to either
-<code>enum ActionCosts</code> or <code>enum ExtCost</code>. Please also update <code>fn index()</code> that
-maps each profile entry to a unique position in serialized gas profiles.</li>
+<li>Update the list used for gas profiles by adding a variant to either
+<code>enum ActionCosts</code> or <code>enum ExtCosts</code> in <code>core/parameters/src/cost.rs</code>.
+Gas profiles (<code>ProfileDataV3</code> in <code>core/primitives/src/profile_data_v3.rs</code>)
+are keyed by these enums. The old <code>enum Cost</code> and its <code>fn index()</code> mapping
+belong to the deprecated <code>ProfileDataV2</code>, kept only to read old profiles.</li>
 <li>The parameter should be available to use in the code section you need it in.
 Now is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass.
 Most likely you have to update some testing code, such as

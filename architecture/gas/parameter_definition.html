@@ -193,18 +193,19 @@ charge gas, please also consider that when defining a new parameter.</p>
 <h3 id="necessary-code-changes"><a class="header" href="#necessary-code-changes">Necessary Code Changes</a></h3>
 <p>Adding the parameter in code involves several steps.</p>
 <ol>
-<li>Define the parameter by adding it to the list in <code>core/primitives/res/runtime_configs/parameters.yaml.</code></li>
+<li>Define the parameter by adding it to the list in <code>core/parameters/res/runtime_configs/parameters.yaml</code>.</li>
 <li>Update the Rust view of parameters by adding a variant to <code>enum Parameter</code>
-in <code>core/primitives-core/src/parameter.rs</code>. In the same file, update
+in <code>core/parameters/src/parameter.rs</code>. In the same file, update
 <code>enum FeeParameter</code> if you add an action cost or update <code>ext_costs()</code>
 if you add a cost inside function calls.</li>
 <li>Update <code>RuntimeConfig</code>, the configuration used to reference parameters in
 code. Depending on the type of parameter, you will need to update
 <code>RuntimeFeesConfig</code> (for action costs) or <code>ExtCostsConfig</code> (for gas costs).</li>
-<li>Update the list used for gas profiles. This is defined by <code>enum Cost</code> in
-<code>core/primitives-core/src/profile.rs</code>. You need to add a variant to either
-<code>enum ActionCosts</code> or <code>enum ExtCost</code>. Please also update <code>fn index()</code> that
-maps each profile entry to a unique position in serialized gas profiles.</li>
+<li>Update the list used for gas profiles by adding a variant to either
+<code>enum ActionCosts</code> or <code>enum ExtCosts</code> in <code>core/parameters/src/cost.rs</code>.
+Gas profiles (<code>ProfileDataV3</code> in <code>core/primitives/src/profile_data_v3.rs</code>)
+are keyed by these enums. The old <code>enum Cost</code> and its <code>fn index()</code> mapping
+belong to the deprecated <code>ProfileDataV2</code>, kept only to read old profiles.</li>
 <li>The parameter should be available to use in the code section you need it in.
 Now is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass.
 Most likely you have to update some testing code, such as
