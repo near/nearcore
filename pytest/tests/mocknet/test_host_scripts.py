@@ -26,7 +26,6 @@ FAKES = {
 echo "neard $*" >>"$FAKE_LOG"
 [ "$1" = --home ] && home=$2 && shift 2
 [ "$1" = --unsafe-fast-startup ] && shift
-[ -n "${SECRET+x}" ] && echo "$1 SECRET=$SECRET A=$A" >>"$FAKE_DIR/neard-env"
 case "$1 $2" in
 "init "* | "init --account-id")
     mkdir -p "$home"
@@ -72,9 +71,20 @@ esac
         r'''
 exec python3 -c 'import fcntl, sys; fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)' "$1"
 ''',
+    # Runs the command in the foreground and appends the -p properties and the
+    # command to $FAKE_DIR/systemd-run.
     'systemd-run':
         r'''
-while [ "$1" != /bin/bash ]; do shift; done
+props=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -p) props+=("$2") && shift 2 ;;
+    --unit) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+    esac
+done
+echo "${props[*]} $*" >>"$FAKE_DIR/systemd-run"
 exec "$@"
 ''',
 }
@@ -300,15 +310,19 @@ class HostScriptsTest(unittest.TestCase):
 
     def test_neard_gets_env_files(self):
         # The neard unit loads ~/.secrets and neard.env. The one-off neard
-        # commands in new-test.sh get the same variables.
-        (self.dir / '.secrets').write_text('SECRET=s\nnot an assignment\n')
-        self.run_script('set-env.sh', 'A=$(touch pwned) two words')
+        # commands in new-test.sh run in transient units with the same files.
         self.new_test()
-        self.assertEqual((self.dir / 'neard-env').read_text().splitlines(), [
-            'init SECRET=s A=$(touch pwned) two words',
-        ])
-        # The value is not run as shell code.
-        self.assertFalse(any(self.dir.rglob('pwned')))
+        env_files = (f'EnvironmentFile=-{self.dir}/.secrets '
+                     f'EnvironmentFile=-{self.home}/neard.env')
+        init = [
+            l for l in (self.dir / 'systemd-run').read_text().splitlines()
+            if ' init' in l
+        ]
+        self.assertEqual(len(init), 1)
+        self.assertTrue(
+            init[0].startswith(f'{env_files} {self.home}/binaries/neard0 '
+                               f'--home {self.home}/tmp-near-home init'),
+            init[0])
 
 
 if __name__ == '__main__':

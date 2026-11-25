@@ -45,29 +45,24 @@ require_state() {
     fi
 }
 
-# Runs neard0 with ~/.secrets and neard.env exported, as the neard unit loads
-# them with EnvironmentFile=. Only the neard process gets the variables. The
-# files are read line by line and not sourced, so a value is never run as
-# shell code. Lines that are not NAME=VALUE are skipped.
+# Properties that give a transient unit the same environment files as the
+# neard unit. systemd parses the files, so quoted values work the same way in
+# every unit.
+UNIT_ENV_FILES=(
+    -p "EnvironmentFile=-$HOME/.secrets"
+    -p "EnvironmentFile=-$FORKNET_HOME/neard.env"
+)
+
+# Runs neard0 with the arguments in a transient user unit and waits for it.
+# Passes stdin, stdout and stderr through and returns the exit code of neard.
 run_neard0() {
-    (
-        for env_file in "$HOME/.secrets" "$FORKNET_HOME/neard.env"; do
-            [ -f "$env_file" ] || continue
-            while IFS= read -r line || [ -n "$line" ]; do
-                if [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-                    export "$line"
-                fi
-            done <"$env_file"
-        done
-        exec "$NEARD0" "$@"
-    )
+    systemd-run --user --wait --pipe --quiet --collect --same-dir \
+        "${UNIT_ENV_FILES[@]}" "$NEARD0" "$@"
 }
 
 # Runs a script from this directory in the background as the transient user
-# unit $1, with the same environment files as the neard unit.
+# unit $1.
 run_in_unit() {
-    systemd-run --user --collect --unit "$1" \
-        -p "EnvironmentFile=-$HOME/.secrets" \
-        -p "EnvironmentFile=-$FORKNET_HOME/neard.env" \
+    systemd-run --user --collect --unit "$1" "${UNIT_ENV_FILES[@]}" \
         /bin/bash "$FORKNET_HOME/$2"
 }
