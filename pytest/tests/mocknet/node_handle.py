@@ -38,11 +38,14 @@ def write_file_cmd(path: str, content: str) -> str:
 
 
 def check_env_key_values(key_values: list[str]):
-    """Exits unless each item is NAME=value with a valid variable name."""
+    """
+    Exits unless each item is NAME=value with a valid variable name and no
+    newline. A newline would add another variable to neard.env.
+    """
     for key_value in key_values:
         key = key_value.split('=', 1)[0]
-        if '=' not in key_value or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',
-                                                    key):
+        if '=' not in key_value or '\n' in key_value or not re.fullmatch(
+                r'[A-Za-z_][A-Za-z0-9_]*', key):
             sys.exit(f'invalid environment variable assignment: {key_value}')
 
 

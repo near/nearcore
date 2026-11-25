@@ -269,11 +269,31 @@ class HostScriptsTest(unittest.TestCase):
                          f'{neard}\n{self.dir}/new\n')
         self.assertIn('no neard binary with index 2', r.stderr)
 
+        # A non-numeric index fails before bash arithmetic, which would run
+        # the command in it.
+        r = self.run_script('amend-binary.sh',
+                            f'a[$(touch {self.dir}/injected)]',
+                            neard,
+                            check=False)
+        self.assertIn('no neard binary with index a[', r.stderr)
+        self.assertFalse((self.dir / 'injected').exists())
+
     def test_set_env(self):
+        # A later assignment replaces the earlier value of the same name.
         self.run_script('set-env.sh', 'A=1', 'B=two words')
         self.run_script('set-env.sh', 'A=3')
         self.assertEqual((self.home / 'neard.env').read_text(),
                          'B=two words\nA=3\n')
+        # neard.env can hold secrets, so only the owner can read it.
+        self.assertEqual(
+            os.stat(self.home / 'neard.env').st_mode & 0o777, 0o600)
+
+        # A newline in a value would add another variable, such as BASH_ENV,
+        # which bash runs at startup.
+        r = self.run_script('set-env.sh', 'A=1\nBASH_ENV=x', check=False)
+        self.assertIn('invalid environment variable assignment', r.stderr)
+
+        # --clear removes all variables.
         self.run_script('set-env.sh', '--clear')
         self.assertEqual((self.home / 'neard.env').read_text(), '')
 

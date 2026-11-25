@@ -8,7 +8,7 @@ lock_host
 index=$1
 url=$2
 urls="$BINARIES_DIR/urls"
-if [ "$index" -lt 0 ] || [ "$(wc -l <"$urls")" -le "$index" ]; then
+if [[ ! $index =~ ^[0-9]+$ ]] || [ "$(wc -l <"$urls")" -le "$index" ]; then
     echo "no neard binary with index $index" >&2
     exit 1
 fi

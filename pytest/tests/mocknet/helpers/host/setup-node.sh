@@ -23,7 +23,9 @@ exec >>"$FORKNET_HOME/setup.log" 2>&1
 echo setting-up >"$STATE_FILE"
 echo "$(date -u) setup started"
 
-if ! bash "$FORKNET_HOME/setup-near-cli.sh" "$CLI_CHAIN_ID" "$RPC_ADDR"; then
+# The script runs installers from the internet. Do not give them the secrets
+# that the unit loads.
+if ! env -i HOME="$HOME" PATH="$PATH" bash "$FORKNET_HOME/setup-near-cli.sh" "$CLI_CHAIN_ID" "$RPC_ADDR"; then
     echo "near-cli setup failed"
 fi
 

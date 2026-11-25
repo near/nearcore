@@ -17,7 +17,7 @@ while read -r url; do
     else
         # Download to a temporary file so that a failed download does not
         # replace a good binary.
-        curl -fsSL --retry 3 -o "$dst.tmp" "$url"
+        curl -fsSL --retry 3 --proto '=https,http' -o "$dst.tmp" -- "$url"
         chmod 755 "$dst.tmp"
         mv "$dst.tmp" "$dst"
     fi

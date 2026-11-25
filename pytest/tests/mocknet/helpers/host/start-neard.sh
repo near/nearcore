@@ -69,7 +69,7 @@ require_state ready
 
 old_binary=$(readlink "$BINARIES_DIR/current")
 if [ -n "$binary_idx" ]; then
-    if [ ! -e "$BINARIES_DIR/neard$binary_idx" ]; then
+    if [[ ! $binary_idx =~ ^[0-9]+$ ]] || [ ! -e "$BINARIES_DIR/neard$binary_idx" ]; then
         echo "no neard binary with index $binary_idx" >&2
         exit 1
     fi
