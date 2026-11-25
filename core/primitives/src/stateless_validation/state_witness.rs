@@ -17,8 +17,7 @@ use std::fmt::Debug;
 
 /// Represents max allowed size of the raw (not compressed) state witness,
 /// corresponds to the size of borsh-serialized ChunkStateWitness.
-pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: u64 =
-    ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 64 }).0;
+pub const MAX_UNCOMPRESSED_STATE_WITNESS_SIZE: u64 = ByteSize::mib(64).0;
 pub const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 1;
 pub const STATE_WITNESS_COMPRESSION_NUM_WORKERS: u32 = 4;
 
