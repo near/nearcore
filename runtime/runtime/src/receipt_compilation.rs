@@ -7,6 +7,7 @@
 //! Specifically, we check that all WASM code that could _potentially_ run in a receipt needs to be either:
 //!  - already compiled according to the consensus compilation status cache
 //!  - or the WASM code bytes fit in the cold cache compilation budget of the chunk
+//!  - or this is the one over-budget contract allowed for the delayed queue head
 //!
 //! Note that this does not simulate action execution, we just assume all
 //! actions in the receipt succeed. If an action fails during execution,

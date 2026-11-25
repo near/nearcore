@@ -2869,6 +2869,7 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
+        had_backlog: bool,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let delayed_processing_start = std::time::Instant::now();
@@ -2886,9 +2887,11 @@ impl Runtime {
         };
 
         loop {
+            let is_backlog_head = had_backlog && delayed_receipt_count == 0;
             if processing_state.total.compute >= compute_limit
                 || processing_state.state_update.trie.check_proof_size_limit_exceed()
-                || processing_state.state_update.contract_compilation_limit_reached()
+                || (!is_backlog_head
+                    && processing_state.state_update.contract_compilation_limit_reached())
             {
                 break;
             }
@@ -2936,15 +2939,18 @@ impl Runtime {
                 ))
             })?;
 
-            if matches!(
-                self.process_receipt_and_instant_receipts(
-                    &receipt,
-                    &mut processing_state,
-                    receipt_sink,
-                    validator_proposals,
-                )?,
-                ProcessingResult::Deferred
-            ) {
+            // Earlier ECCs and local receipts can starve the delayed receipt queue.
+            // Reserve one over-budget hash for the head to guarantee progress
+            // as long as compute limits allow it.
+            processing_state.state_update.set_contract_compilation_overrun_allowed(is_backlog_head);
+            let result = self.process_receipt_and_instant_receipts(
+                &receipt,
+                &mut processing_state,
+                receipt_sink,
+                validator_proposals,
+            )?;
+            processing_state.state_update.set_contract_compilation_overrun_allowed(false);
+            if matches!(result, ProcessingResult::Deferred) {
                 processing_state
                     .delayed_receipts
                     .restore_front(&mut processing_state.state_update, &stored_receipt)?;
@@ -3123,6 +3129,7 @@ impl Runtime {
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.map(|g| g.as_gas()).unwrap_or(u64::MAX);
 
+        let had_backlog = processing_state.delayed_receipts.upper_bound_len() != 0;
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
             processing_state,
@@ -3136,6 +3143,7 @@ impl Runtime {
             processing_state,
             receipt_sink,
             compute_limit,
+            had_backlog,
             &mut validator_proposals,
         )?;
 

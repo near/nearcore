@@ -50,6 +50,7 @@ struct ContractCompilationTracker {
     compilations: BTreeSet<CryptoHash>,
     total_bytes: u64,
     limit_reached: bool,
+    allow_one_overrun: bool,
 }
 
 #[must_use]
@@ -194,6 +195,11 @@ impl TrieUpdate {
 
     pub fn is_contract_compilation_admitted(&self, code_hash: &CryptoHash) -> bool {
         self.contract_compilation_tracker.compilations.contains(code_hash)
+    }
+
+    /// Only the first delayed receipt may admit one cold hash beyond the chunk budget.
+    pub fn set_contract_compilation_overrun_allowed(&mut self, allowed: bool) {
+        self.contract_compilation_tracker.allow_one_overrun = allowed;
     }
 
     pub fn contract_compilation_limit_reached(&self) -> bool {
@@ -415,7 +421,9 @@ impl ContractCompilationTracker {
         }
         if code_len > limit.saturating_sub(self.total_bytes) {
             self.limit_reached = true;
-            return ContractCompilationAdmission::Deferred;
+            if !std::mem::take(&mut self.allow_one_overrun) {
+                return ContractCompilationAdmission::Deferred;
+            }
         }
         self.total_bytes = self.total_bytes.saturating_add(code_len);
         self.compilations.insert(code_hash);

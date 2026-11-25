@@ -44,7 +44,8 @@ pub struct RuntimeConfig {
     /// account creation.
     pub account_creation_charge: Balance,
 
-    /// Maximum total size of cold contract code admitted for compilation in a chunk.
+    /// Cold contract bytes admitted per chunk. The delayed queue head may exceed
+    /// this budget by one contract to make progress across chunks.
     pub max_cold_contract_bytes_per_chunk: u64,
 }
 
