@@ -142,13 +142,13 @@ impl CloudArchivalRecentReader {
         Ok(())
     }
 
-    /// Follows the bucket, copying what it holds into the local store, until interrupted.
-    pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
-        let mut reader_head = self.ensure_reader_head()?;
+    /// Returns the head the reader follows the bucket from, once the store is checked to serve
+    /// from it.
+    fn init(&self) -> Result<CloudReaderHead, CloudArchivalReaderError> {
+        let reader_head = self.ensure_reader_head()?;
         self.check_state_anchors(&reader_head)?;
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
-        // The pull below logs a gap only where it begins, so a gap that starts at the head is
-        // logged here.
+        // Without a row at the head, the pulls write no rows until the next epoch start.
         if !self
             .store
             .exists(DBCol::AggregatedEpochStats, reader_head.last_present_block_hash.as_ref())
@@ -159,7 +159,12 @@ impl CloudArchivalRecentReader {
                 "validators endpoint data not available until the next epoch start"
             );
         }
+        Ok(reader_head)
+    }
 
+    /// Follows the bucket, copying what it holds into the local store, until interrupted.
+    pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
+        let mut reader_head = self.init()?;
         while !self.interrupt.is_cancelled() {
             let sleep_duration = match self.try_pull_next_batch(&reader_head).await {
                 Ok(outcome) => {

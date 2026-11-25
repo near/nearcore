@@ -7,8 +7,7 @@ use std::path::Path;
 
 #[derive(clap::Parser)]
 pub(crate) struct BootstrapCmd {
-    /// First block height to download (inclusive). To serve the current-epoch `validators`
-    /// endpoint, start at or below the first block of the epoch the range ends in.
+    /// First block height to download (inclusive).
     #[clap(long)]
     start_height: BlockHeight,
     /// Last block height to download. The walk runs to the end of the batch this height
