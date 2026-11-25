@@ -391,7 +391,7 @@ impl Receipt {
     /// The expectation is that applying an instant receipt is a quick operation (e.g. setting a few values in the state).
     /// Instant receipts generally shouldn't emit new instant receipts, as it could lead to
     /// infinitely many receipts being executed in a single chunk.
-    pub fn is_instant_receipt(&self) -> bool {
+    pub fn is_instant_receipt(&self, protocol_version: ProtocolVersion) -> bool {
         match self.versioned_receipt() {
             VersionedReceiptEnum::PromiseYield(_) => {
                 // PromiseYield receipts are instant receipts.
@@ -400,10 +400,15 @@ impl Receipt {
             }
             VersionedReceiptEnum::Action(action_receipt) => {
                 // Action receipts containing a single DeleteAccount action and no input
-                // promises are instant receipts.
+                // promises are instant receipts when the receiver is the predecessor.
                 // Deleting an account is a quick trie operation, it's okay to make it instant.
+                // A delete of another account must run on the receiver's shard, where that
+                // account lives, so it is forwarded like any other receipt.
+                let instant_only_for_self =
+                    ProtocolFeature::InstantDeleteAccountOnlyForSelf.enabled(protocol_version);
                 matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
                     && action_receipt.input_data_ids().is_empty()
+                    && (!instant_only_for_self || self.predecessor_id() == self.receiver_id())
             }
             VersionedReceiptEnum::Data(_)
             | VersionedReceiptEnum::PromiseResume(_)

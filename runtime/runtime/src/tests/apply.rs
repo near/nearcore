@@ -53,7 +53,7 @@ use near_primitives::num_rational::Rational32;
 use near_primitives::receipt::{
     ActionReceipt, ActionReceiptV3, AuthorizationContext, CreationProtocolVersion, DataReceipt,
     GlobalContractDistributionReceipt, PromiseYieldIndices, Receipt, ReceiptEnum, ReceiptOrigin,
-    ReceiptOriginTransaction, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0,
+    ReceiptOriginTransaction, ReceiptToTxInfo, ReceiptToTxInfoV1, ReceiptV0, VersionedReceiptEnum,
 };
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
@@ -12536,4 +12536,167 @@ fn test_promise_yield_receipts_within_storage_proof_soft_limit() {
     // Check: the chunk stops at the soft limit and delays the rest.
     assert!(apply_result.delayed_receipts_count > 0);
     assert!(proof_size(&apply_result) <= max_proof);
+}
+
+/// A receipt from alice to alice with a delegate action whose only inner action is a
+/// `DeleteAccount` of `delete_receiver_id`. Applying it creates a lone `DeleteAccount` receipt
+/// with predecessor alice and receiver `delete_receiver_id`.
+fn delegate_delete_account_receipt(delete_receiver_id: AccountId) -> Receipt {
+    let sender_id = alice_account();
+    let signer = Arc::new(InMemorySigner::test_signer(&sender_id));
+    let delegate_action = DelegateAction {
+        sender_id: sender_id.clone(),
+        receiver_id: delete_receiver_id,
+        actions: vec![
+            NonDelegateAction::try_from(Action::DeleteAccount(DeleteAccountAction {
+                beneficiary_id: carol_account(),
+            }))
+            .unwrap(),
+        ],
+        nonce: 2,
+        max_block_height: 10000,
+        public_key: signer.public_key(),
+    };
+    let signed_delegate_action = Action::Delegate(Box::new(SignedDelegateAction {
+        signature: signer.sign(delegate_action.get_nep461_hash().as_bytes()),
+        delegate_action,
+    }));
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: sender_id.clone(),
+        receiver_id: sender_id.clone(),
+        receipt_id: hash(b"delegate_delete_account"),
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: sender_id,
+            signer_public_key: PublicKey::empty(KeyType::ED25519),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: vec![signed_delegate_action],
+        }),
+    })
+}
+
+fn apply_delegate_delete_account(
+    delete_receiver_id: AccountId,
+    protocol_version: ProtocolVersion,
+) -> (ApplyResult, TrieUpdate) {
+    let (runtime, tries, root, mut apply_state, _, epoch_info_provider) = setup_runtime(
+        vec![alice_account(), bob_account()],
+        Balance::from_near(1_000_000),
+        Balance::ZERO,
+        Gas::from_teragas(1000),
+    );
+    apply_state.current_protocol_version = protocol_version;
+    let apply_result = runtime
+        .apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[delegate_delete_account_receipt(delete_receiver_id)],
+            SignedValidPeriodTransactions::empty(),
+            &epoch_info_provider,
+            Default::default(),
+        )
+        .unwrap();
+    let shard_uid = ShardUId::single_shard();
+    let root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+    (apply_result, tries.new_trie_update(shard_uid, root))
+}
+
+fn is_lone_delete_account(receipt: &Receipt) -> bool {
+    let VersionedReceiptEnum::Action(action_receipt) = receipt.versioned_receipt() else {
+        return false;
+    };
+    matches!(action_receipt.actions(), [Action::DeleteAccount(_)])
+}
+
+#[test]
+fn test_lone_delete_account_of_other_account_is_forwarded() {
+    // Apply: alice's delegate action creates a lone DeleteAccount receipt for bob.
+    let (apply_result, _) = apply_delegate_delete_account(
+        bob_account(),
+        ProtocolFeature::InstantDeleteAccountOnlyForSelf.protocol_version(),
+    );
+
+    // Check: the receipt is an outgoing receipt and does not run in this apply.
+    let deletes = apply_result
+        .outgoing_receipts
+        .iter()
+        .filter(|r| is_lone_delete_account(r))
+        .collect::<Vec<_>>();
+    assert_eq!(deletes.len(), 1, "outgoing receipts: {:?}", apply_result.outgoing_receipts);
+    assert_eq!(deletes[0].predecessor_id(), &alice_account());
+    assert_eq!(deletes[0].receiver_id(), &bob_account());
+    assert!(apply_result.outcomes.iter().all(|o| o.id != *deletes[0].receipt_id()));
+}
+
+#[test]
+fn test_lone_delete_account_of_other_account_is_instant_before_the_feature() {
+    // Apply: the same delegate action at the protocol version before the feature.
+    let (apply_result, _) = apply_delegate_delete_account(
+        bob_account(),
+        ProtocolFeature::InstantDeleteAccountOnlyForSelf.protocol_version() - 1,
+    );
+
+    // Check: the receipt runs in this apply on the sender's shard and fails the permission
+    // check. It is not an outgoing receipt.
+    assert!(!apply_result.outgoing_receipts.iter().any(is_lone_delete_account));
+    let delete_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.outcome.executor_id == bob_account())
+        .expect("the delete receipt runs in this apply");
+    assert_matches!(
+        &delete_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::ActorNoPermission { account_id, actor_id },
+            ..
+        })) if account_id == &bob_account() && actor_id == &alice_account()
+    );
+}
+
+#[test]
+fn test_lone_delete_account_of_other_shard_account_fails_with_account_does_not_exist_before_feature()
+ {
+    // Apply: at the protocol version before the feature, alice's delegate action deletes an
+    // account that is not in this shard's state, as an account on another shard would be.
+    let other_shard_account: AccountId = "dave.near".parse().unwrap();
+    let (apply_result, _) = apply_delegate_delete_account(
+        other_shard_account.clone(),
+        ProtocolFeature::InstantDeleteAccountOnlyForSelf.protocol_version() - 1,
+    );
+
+    // Check: the receipt runs in this apply, on the sender's shard, where the account is
+    // missing, so it fails with `AccountDoesNotExist` instead of `ActorNoPermission`.
+    assert!(!apply_result.outgoing_receipts.iter().any(is_lone_delete_account));
+    let delete_outcome = apply_result
+        .outcomes
+        .iter()
+        .find(|o| o.outcome.executor_id == other_shard_account)
+        .expect("the delete receipt runs in this apply");
+    assert_matches!(
+        &delete_outcome.outcome.status,
+        ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            kind: ActionErrorKind::AccountDoesNotExist { account_id },
+            ..
+        })) if account_id == &other_shard_account
+    );
+}
+
+#[test]
+fn test_lone_delete_account_of_own_account_is_instant() {
+    // Apply: alice's delegate action creates a lone DeleteAccount receipt for alice herself.
+    let (apply_result, state) = apply_delegate_delete_account(
+        alice_account(),
+        ProtocolFeature::InstantDeleteAccountOnlyForSelf.protocol_version(),
+    );
+
+    // Check: the receipt runs in this apply and deletes alice. It is not an outgoing receipt.
+    assert!(!apply_result.outgoing_receipts.iter().any(is_lone_delete_account));
+    let outcomes = apply_result.outcomes.iter().map(|o| &o.outcome).collect::<Vec<_>>();
+    assert_eq!(outcomes.len(), 2, "outcomes: {outcomes:?}");
+    assert_matches!(outcomes[0].status, ExecutionStatus::SuccessValue(_));
+    assert_eq!(outcomes[1].executor_id, alice_account());
+    assert_matches!(outcomes[1].status, ExecutionStatus::SuccessValue(_));
+    assert!(get_account(&state, &alice_account()).unwrap().is_none());
 }
