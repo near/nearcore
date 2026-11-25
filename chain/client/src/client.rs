@@ -1876,8 +1876,7 @@ impl Client {
 
         let _ = self.check_and_update_doomslug_tip();
 
-        // If we produced the block, then it should have already been broadcasted.
-        // If received the block from another node then broadcast "header first" to minimize network traffic.
+        // If the block came from another node, collect the approvals that arrived before it.
         if provenance == Provenance::NONE {
             let endorsements = self
                 .pending_approvals

@@ -200,7 +200,7 @@ impl<'a> ChainUpdate<'a> {
     ) {
         self.chain_store_update.save_incoming_receipt(hash, shard_id, receipt_proof);
     }
-    /// This is the last step of process_block_single, where we take the preprocess block info
+    /// This is the last step of block processing, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
     #[tracing::instrument(
         level = "debug",

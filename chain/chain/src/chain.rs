@@ -1635,7 +1635,7 @@ impl Chain {
         }
     }
 
-    /// Set the new head after state sync was completed if it is indeed newer.
+    /// Set the new head after state sync was completed.
     /// Check for potentially unlocked orphans after this update.
     #[instrument(
         level = "debug",

@@ -34,8 +34,8 @@ async fn slow_test_block_unknown_block_error() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = view_client.clone();
                 async move {
-                    // We are sending this tx unstop, just to get over the warm up period.
-                    // Probably make sense to stop after 1 time though.
+                    // Retry the request until the node is past the warm up period.
+                    // Stop after the first expected error.
                     if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -90,8 +90,8 @@ async fn slow_test_chunk_unknown_chunk_error() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = view_client.clone();
                 async move {
-                    // We are sending this tx unstop, just to get over the warm up period.
-                    // Probably make sense to stop after 1 time though.
+                    // Retry the request until the node is past the warm up period.
+                    // Stop after the first expected error.
                     if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -156,8 +156,8 @@ async fn slow_test_protocol_config_unknown_block_error() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = view_client.clone();
                 async move {
-                    // We are sending this tx unstop, just to get over the warm up period.
-                    // Probably make sense to stop after 1 time though.
+                    // Retry the request until the node is past the warm up period.
+                    // Stop after the first expected error.
                     if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -216,8 +216,8 @@ async fn slow_test_gas_price_unknown_block_error() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = view_client.clone();
                 async move {
-                    // We are sending this tx unstop, just to get over the warm up period.
-                    // Probably make sense to stop after 1 time though.
+                    // Retry the request until the node is past the warm up period.
+                    // Stop after the first expected error.
                     if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -272,8 +272,8 @@ async fn slow_test_receipt_id_unknown_receipt_error() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = view_client.clone();
                 async move {
-                    // We are sending this tx unstop, just to get over the warm up period.
-                    // Probably make sense to stop after 1 time though.
+                    // Retry the request until the node is past the warm up period.
+                    // Stop after the first expected error.
                     if let Ok(Ok(block)) = view_client.send_async(GetBlock::latest()).await {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));

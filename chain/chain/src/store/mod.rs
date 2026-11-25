@@ -1218,7 +1218,7 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         self.get_block_header(header.prev_hash())
     }
 
-    /// Get state root hash after applying header with given hash.
+    /// Get chunk extra info for given block hash + shard uid.
     fn get_chunk_extra(
         &self,
         block_hash: &CryptoHash,
