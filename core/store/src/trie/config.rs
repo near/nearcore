@@ -21,7 +21,6 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 pub struct TrieConfig {
     pub shard_cache_config: TrieCacheConfig,
     pub view_shard_cache_config: TrieCacheConfig,
-    pub enable_receipt_prefetching: bool,
 
     /// List of shards we will load into memory.
     pub load_memtries_for_shards: Vec<ShardUId>,
@@ -37,7 +36,6 @@ impl TrieConfig {
         this.shard_cache_config = config.trie_cache.clone();
         this.view_shard_cache_config = config.view_trie_cache.clone();
 
-        this.enable_receipt_prefetching = config.enable_receipt_prefetching;
         this.load_memtries_for_shards.clone_from(&config.load_memtries_for_shards);
         this.load_memtries_for_tracked_shards = config.load_memtries_for_tracked_shards;
 
@@ -58,10 +56,5 @@ impl TrieConfig {
     /// delays the actual eviction.
     pub fn deletions_queue_capacity(&self) -> usize {
         self.shard_cache_config.shard_cache_deletions_queue_capacity
-    }
-
-    /// Checks if any of prefetching related configs was enabled.
-    pub fn prefetch_enabled(&self) -> bool {
-        self.enable_receipt_prefetching
     }
 }

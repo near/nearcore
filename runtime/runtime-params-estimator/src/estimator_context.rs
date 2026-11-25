@@ -105,7 +105,6 @@ impl<'c> EstimatorContext<'c> {
 
         // Create ShardTries with relevant settings adjusted for estimator.
         let mut trie_config = near_store::TrieConfig::default();
-        trie_config.enable_receipt_prefetching = true;
         if self.config.memtrie {
             trie_config.load_memtries_for_shards = vec![shard_uid];
         }
@@ -369,13 +368,11 @@ impl Testbed<'_> {
     pub(crate) fn trie_caching_storage(&self) -> TrieCachingStorage {
         let store = self.tries.store();
         let is_view = false;
-        let prefetcher = None;
         let caching_storage = TrieCachingStorage::new(
             store,
             TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
             ShardUId::single_shard(),
             is_view,
-            prefetcher,
         );
         caching_storage
     }

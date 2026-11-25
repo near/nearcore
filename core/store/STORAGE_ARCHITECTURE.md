@@ -10,7 +10,7 @@ The storage layer manages all persistent state for a nearcore node. At its core 
 - **Trie** — A Merkle-Patricia trie storing contract state, with refcounted nodes in `DBCol::State`.
 - **MemTries** — An in-memory copy of the trie for fast updates, used by validators.
 - **Flat Storage** — A flat key→value map that bypasses trie traversal for reads.
-- **Caching** — An LRU trie cache with optional async prefetching for receipts.
+- **Caching** — An LRU trie cache for recently accessed trie nodes and values.
 
 State modifications flow top-down: the runtime writes through `TrieUpdate`, which produces `TrieChanges` (refcount deltas), which are applied to `DBCol::State` via `StoreUpdate`, which becomes an atomic `WriteBatch` in RocksDB.
 
@@ -196,9 +196,8 @@ Each shard has an LRU cache (`TrieCache`) for trie nodes. It's thread-safe and b
 When `TrieCachingStorage` needs a trie node:
 
 1. Check the per-shard LRU cache
-2. Check the async prefetch queue (if receipt prefetching is enabled)
-3. Fall back to flat storage (for value lookups)
-4. Fall back to a direct RocksDB read
+2. Fall back to flat storage (for value lookups)
+3. Fall back to a direct RocksDB read
 
 After chunk processing, `update_cache()` batch-updates the cache with newly accessed and evicted entries.
 
@@ -211,7 +210,6 @@ Key `StoreConfig` settings:
 | Setting | Default | Description |
 |---|---|---|
 | `trie_cache.default_max_bytes` | 50MB (validators) | Per-shard trie node cache size |
-| `enable_receipt_prefetching` | true | Async prefetch receipts during apply |
 | `max_open_files` | 10000 | RocksDB file descriptor limit |
 | `col_state_cache_size` | 25MB | LRU size for deserialized State column objects |
 
@@ -228,7 +226,7 @@ Key `StoreConfig` settings:
 | `core/store/src/trie/mod.rs` | `TrieChanges`, `TrieRefcountDeltaMap`: structures representing refcount deltas |
 | `core/store/src/trie/shard_tries.rs` | `apply_insertions`, `apply_deletions`, `revert_insertions` |
 | `core/store/src/trie/update.rs` | `TrieUpdate`: the runtime-facing API for state modifications |
-| `core/store/src/trie/trie_storage.rs` | `TrieCache` and `TrieCachingStorage`: LRU cache with async prefetch |
+| `core/store/src/trie/trie_storage.rs` | `TrieCache` and `TrieCachingStorage`: LRU trie cache |
 | `core/store/src/trie/mem/mod.rs` | `MemTries`: in-memory trie used for fast updates on validators |
 | `core/store/src/flat/storage.rs` | `FlatStorage`: flat key→value state with a delta chain |
 | `core/store/src/adapter/trie_store.rs` | `TrieStoreAdapter`: shard UID prefix mapping used during resharding |
