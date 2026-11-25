@@ -479,6 +479,11 @@ fn process_admitted_external_call<'a>(
         // Roll back the state init install too. The compilation admissions made so far survive.
         ProcessingResult::Deferred => {
             state_update.rollback();
+            // TODO(cold-compilation): count the fee compute (`cost.compute_burnt`) of a deferred
+            // call toward the chunk's compute and the ECC shares, as for a call refused before
+            // its run. No VM ran and nobody pays, but the validators still did that work. This
+            // needs the compute to reach the caller, which `ProcessingResult::Deferred` can't
+            // carry today. Must be resolved before `ContractCompilationStatus` stabilizes.
             return Ok(ProcessingResult::Deferred);
         }
     };
