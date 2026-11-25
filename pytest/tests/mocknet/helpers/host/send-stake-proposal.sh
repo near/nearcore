@@ -5,7 +5,7 @@
 # Read validator data from validators.json
 # TODO: consider querying near-cli to get validator balance, it should be
 # simpler.
-validators_file="$HOME/.near/neard-runner/validators.json"
+validators_file="$(dirname "$(readlink -f "$0")")/validators.json"
 
 if [ ! -f "$validators_file" ]; then
     echo "Error: validators.json not found at $validators_file"

@@ -1,7 +1,0 @@
-json-rpc
-psutil
-requests
-python-dotenv
-pydantic
-base58
-pynacl

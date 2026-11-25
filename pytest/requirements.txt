@@ -4,14 +4,12 @@ cachetools
 cryptography>=48
 cython
 deepdiff
-json-rpc
 locust>=2.28
 geventhttpclient>=2.3.1
 google-cloud-compute>=1.0.0
 nearup
 numpy
 prometheus-client
-psutil
 pydantic
 pynacl
 # SshSharingMachine in pytest/lib/mocknet_ssh.py depends on python-rc internals.

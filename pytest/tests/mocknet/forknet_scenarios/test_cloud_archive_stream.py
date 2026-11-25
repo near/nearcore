@@ -35,7 +35,7 @@ class TestCloudArchiveStream(TestSetup):
         # home must already exist on the traffic host (config.json,
         # genesis.json and node_key.json; its store is bootstrapped from the
         # bucket on the first start, without state). A later improvement is for
-        # the runner to create it from the source genesis before the source disk
+        # the host scripts to create it from the source genesis before the source disk
         # goes away.
         self.source_cloud_archive = True
         self.source_home = '/home/ubuntu/reader2'

@@ -3,3 +3,6 @@
 
 # SshSharingMachine against the python-rc it depends on (no ssh connections).
 pytest --skip-build mocknet/test_mocknet_ssh.py
+
+# Forknet host scripts with fake neard, gsutil and systemctl (runs local bash and jq).
+pytest --skip-build mocknet/test_host_scripts.py

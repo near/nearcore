@@ -145,8 +145,8 @@ class TestSetup:
 
     def _materialize_local_binary(self, url, slot):
         """If `url` points to a local file on this runner, scp it to every
-        targeted node under a per-slot subdir and return the remote path the
-        neard-runner should symlink. Otherwise return `url` unchanged."""
+        targeted node under a per-slot subdir and return the remote path that
+        download-binaries.sh should link. Otherwise return `url` unchanged."""
         if not url or not os.path.isfile(url):
             return url
         remote_dir = f'{self._LOCAL_BINARY_REMOTE_ROOT}/{slot}'
@@ -165,8 +165,8 @@ class TestSetup:
             f"Initializing environment for test case {self.args.test_case}")
         # When the workflow ships a freshly-built binary as a GHA artifact, the
         # URL is actually a path on the runner. Push it to the nodes first so
-        # the neard-runner's local-path branch (os.path.isfile → symlink) picks
-        # it up at hard_reset time.
+        # download-binaries.sh links a local path instead of downloading it at
+        # hard_reset time.
         self.neard_binary_url = self._materialize_local_binary(
             self.neard_binary_url, 'start')
         self.neard_upgrade_binary_url = self._materialize_local_binary(
@@ -175,8 +175,6 @@ class TestSetup:
         init_args = copy.deepcopy(self.args)
         init_args.neard_binary_url = self.neard_binary_url
         init_args.neard_upgrade_binary_url = self.neard_upgrade_binary_url
-        # We are using schedule to start the nodes, so we don't need to upgrade by epoch.
-        init_args.upgrade_by_epoch = False
         init_args.yes = True
         init_args.gcs_state_sync = self.has_state_dumper
         hard_reset_cmd(CommandContext(init_args))
@@ -211,7 +209,7 @@ class TestSetup:
 
         run_args = copy.deepcopy(self.args)
         run_args.host_filter = '.*archival.*'
-        run_args.cmd = "rm -rf /home/ubuntu/.near/cold /home/ubuntu/.near/validator_key.json && /home/ubuntu/.near/neard-runner/binaries/neard0 database change-db-kind --new-kind Hot change-hot"
+        run_args.cmd = "rm -rf /home/ubuntu/.near/cold /home/ubuntu/.near/validator_key.json && /home/ubuntu/.near/forknet/binaries/neard0 database change-db-kind --new-kind Hot change-hot"
         run_remote_cmd(CommandContext(run_args))
 
     def set_genesis_min_gas_price(self):
@@ -404,7 +402,7 @@ class TestSetup:
         run_cmd_args = copy.deepcopy(self.args)
         run_cmd_args.host_type = 'nodes'
         run_cmd_args.select_partition = partition
-        run_cmd_args.cmd = f"sh .near/neard-runner/send-stake-proposal.sh"
+        run_cmd_args.cmd = f"sh .near/forknet/send-stake-proposal.sh"
         if action == self.StakeAction.UNSTAKE:
             run_cmd_args.cmd += " 0"
 
