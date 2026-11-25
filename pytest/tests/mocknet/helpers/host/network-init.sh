@@ -12,6 +12,8 @@ require_state awaiting-network-init
 mv "$FORKNET_HOME/validators.json.new" "$FORKNET_HOME/validators.json"
 mv "$FORKNET_HOME/setup.env.new" "$FORKNET_HOME/setup.env"
 bash "$FORKNET_HOME/patch-config.sh" "$1"
+# Write the state before the unit starts, so that a second network-init fails.
+echo setting-up >"$STATE_FILE"
 if ! run_in_unit neard-setup setup-node.sh; then
     echo "error: failed to start neard-setup" >"$STATE_FILE"
     exit 1

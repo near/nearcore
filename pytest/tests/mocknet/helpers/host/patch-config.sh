@@ -7,6 +7,7 @@
 # cspell:words setpath
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+lock_host
 
 config="$NEAR_HOME/config.json"
 jq --argjson changes "$1" 'reduce $changes[] as [$path, $value] (.; setpath($path; $value))' \

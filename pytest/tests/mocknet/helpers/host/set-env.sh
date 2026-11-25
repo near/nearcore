@@ -5,6 +5,7 @@
 #        set-env.sh --clear
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
+lock_host
 
 env_file="$FORKNET_HOME/neard.env"
 if [ "$1" = --clear ]; then

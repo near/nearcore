@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Runs the forknet host scripts in helpers/host/ with the local bash and jq, in
-a temporary forknet home. Fake neard, gsutil, systemctl and systemd-run come
-first on PATH; the fake systemd-run runs the script in the foreground.
+a temporary forknet home. Fake neard, gsutil, systemctl, systemd-run and flock
+come first on PATH; the fake systemd-run runs the script in the foreground.
 NayDuck runs this in the merge queue and nightly (nightly/pytest-mocknet.txt).
 
     python3 pytest/tests/mocknet/test_host_scripts.py
@@ -65,8 +65,12 @@ start | restart) touch "$FAKE_DIR/active" ;;
 stop) rm -f "$FAKE_DIR/active" ;;
 esac
 ''',
+    # A real lock on the inherited fd, like util-linux flock. macOS has no
+    # flock command.
     'flock':
-        '',
+        r'''
+exec python3 -c 'import fcntl, sys; fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)' "$1"
+''',
     'systemd-run':
         r'''
 while [ "$1" != /bin/bash ]; do shift; done
@@ -115,7 +119,8 @@ class HostScriptsTest(unittest.TestCase):
         r = subprocess.run(['bash', self.home / script, *map(str, args)],
                            env=self.env,
                            capture_output=True,
-                           text=True)
+                           text=True,
+                           timeout=60)
         if check:
             self.assertEqual(r.returncode, 0, r.stderr)
         return r

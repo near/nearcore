@@ -4,9 +4,10 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/common.sh"
 
-# Run the link target, so the process is named neardN and `pgrep neard` finds
-# it (get-profile.sh).
-neard=$(readlink -f "$BINARIES_DIR/current")
+# Run binaries/neardN, not the link `current`, so the process is named neardN
+# and `pgrep neard` finds it (get-profile.sh). Do not resolve neardN: it can
+# link to a local binary with any name.
+neard="$BINARIES_DIR/$(readlink "$BINARIES_DIR/current")"
 
 if [ "$IS_TRAFFIC" != 1 ]; then
     exec "$neard" --log-span-events --home "$NEAR_HOME" --unsafe-fast-startup run

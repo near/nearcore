@@ -22,11 +22,16 @@ STATE_FILE="$FORKNET_HOME/state"
 START_BACKUP="$FORKNET_HOME/backups/start"
 
 # Holds a lock on the forknet home until the script exits. The scripts that
-# check or change the state take it, so a start and a reset on the same host
-# do not overlap. The background setup and reset units do not need it: the
-# state is setting-up or resetting while they run, and no script accepts it.
+# change the state, the config, the env file or the binaries take it, so two
+# commands on the same host do not overlap. The background setup and reset
+# units do not need it: the state is setting-up or resetting while they run,
+# and no script accepts it. The lock is re-entrant: a script that another
+# script runs inherits fd 9, and flock on the same open file returns at once.
+# Opening the file again would wait for the parent forever.
 lock_host() {
-    exec 9>"$FORKNET_HOME/lock"
+    if [ ! -e /dev/fd/9 ]; then
+        exec 9>"$FORKNET_HOME/lock"
+    fi
     flock 9
 }
 
