@@ -41,6 +41,9 @@ impl<Block: BlockLike> PendingBlocksPool<Block> {
 
     pub fn take_block(&mut self, height: &BlockHeight) -> Option<Block> {
         let block = self.blocks.remove(height);
+        if let Some(block) = &block {
+            self.block_hashes.remove(&block.hash());
+        }
         metrics::NUM_PENDING_BLOCKS.set(self.len() as i64);
         block
     }
@@ -132,16 +135,37 @@ mod tests {
     fn test_take_block() {
         let mut pool = PendingBlocksPool::<MockBlock>::new();
         let block = MockBlock::new(1);
+        let block_hash = block.hash();
         pool.add_block(block);
+        assert!(pool.contains_block_hash(&block_hash));
 
         // Take an existing block
         let taken = pool.take_block(&1);
         assert!(taken.is_some());
         assert_eq!(pool.len(), 0);
+        assert!(!pool.contains_block_hash(&block_hash));
 
         // Take a non-existing block
         let not_taken = pool.take_block(&2);
         assert!(not_taken.is_none());
+    }
+
+    #[test]
+    fn test_take_block_then_prune_leaves_no_hashes() {
+        let mut pool = PendingBlocksPool::<MockBlock>::new();
+        let blocks: Vec<_> = (1..=3).map(MockBlock::new).collect();
+        let block_hashes: Vec<_> = blocks.iter().map(|block| block.hash()).collect();
+
+        for block in blocks {
+            pool.add_block(block);
+        }
+
+        pool.take_block(&2);
+        pool.prune_blocks_below_height(4);
+
+        for hash in &block_hashes {
+            assert!(!pool.contains_block_hash(hash));
+        }
     }
 
     #[test]
