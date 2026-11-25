@@ -268,19 +268,12 @@ impl PerShardChunkExecutor {
     /// Apply every parked block that is ready, lowest height first, which a finished catchup and
     /// blocks parked again need: no event about a parent retries them. Applying a block can make
     /// the next height ready, and a higher fork block can be ready while a lower one waits, so we
-<<<<<<< HEAD
     /// scan past `NotReady`.  Cross-shard
     /// dependencies are re-driven by the next receipt / endorsement / sibling apply. Returns the
     /// sources of the receipt proofs the tried blocks miss.
     pub(crate) fn try_apply_all_parked(&mut self) -> MissingReceiptProofs {
-        let parked: Vec<(BlockHeight, CryptoHash)> =
-            self.parked_blocks.parents.keys().copied().collect();
-        let mut sources = Vec::new();
-=======
-    /// scan past `NotReady`.
-    pub(crate) fn try_apply_all_parked(&mut self) {
         let parked: Vec<(BlockHeight, CryptoHash)> = self.parked_blocks.iter().copied().collect();
->>>>>>> 758e0e5cc (Darioush: simplify)
+        let mut sources = Vec::new();
         for entry in parked {
             sources.extend(self.try_apply_parked(entry));
         }
@@ -309,17 +302,11 @@ impl PerShardChunkExecutor {
     }
 
     /// Apply the parked children of `block_hash` that are ready: applying a block, landing its
-<<<<<<< HEAD
     /// execution result or receiving receipts from it can make only its children ready. Returns
     /// the sources of the receipt proofs the tried blocks miss.
     pub(crate) fn try_apply_children(&mut self, block_hash: &CryptoHash) -> MissingReceiptProofs {
-        let children: Vec<(BlockHeight, CryptoHash)> =
-            self.parked_blocks.children.get(block_hash).into_iter().flatten().copied().collect();
-        let mut sources = Vec::new();
-=======
-    /// execution result or receiving receipts from it can make only its children ready.
-    pub(crate) fn try_apply_children(&mut self, block_hash: &CryptoHash) {
         let mut children = Vec::new();
+        let mut sources = Vec::new();
         for child_hash in self.chain_store.get_all_next_block_hashes(block_hash) {
             match self.chain_store.get_block_header(&child_hash) {
                 Ok(child) => children.push((child.height(), child_hash)),
@@ -328,7 +315,6 @@ impl PerShardChunkExecutor {
                 }
             }
         }
->>>>>>> 758e0e5cc (Darioush: simplify)
         for child in children {
             sources.extend(self.try_apply_parked(child));
         }
@@ -336,7 +322,7 @@ impl PerShardChunkExecutor {
     }
 
     /// Try to apply the parked block `entry`, and remove it once it is scheduled or dropped.
-    fn try_apply_parked(&mut self, entry: (BlockHeight, CryptoHash)) {
+    fn try_apply_parked(&mut self, entry: (BlockHeight, CryptoHash)) -> Vec<SpiceChunkId> {
         if !self.parked_blocks.contains(&entry) {
             return Vec::new();
         }
