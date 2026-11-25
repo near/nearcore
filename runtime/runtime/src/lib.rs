@@ -1658,15 +1658,12 @@ impl Runtime {
     ) -> Result<ProcessingResult<Option<ExecutionOutcomeWithId>>, RuntimeError> {
         // Preserve queue changes and earlier receipts if this receipt is deferred.
         // Changes made while processing this receipt remain prospective until
-        // compilation admission is complete.
+        // compilation admission is complete. Pending changes at this point are
+        // delayed queue bookkeeping (pops and pushes of deferred receipts).
         if ProtocolFeature::ContractCompilationStatus
             .enabled(processing_state.apply_state.current_protocol_version)
         {
-            processing_state.state_update.commit(
-                StateChangeCause::ActionReceiptProcessingStarted {
-                    receipt_hash: receipt.get_hash(),
-                },
-            );
+            processing_state.state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         }
 
         let ApplyProcessingReceiptState {
