@@ -140,6 +140,11 @@ pub enum ProtocolFeature {
     /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
     /// shares its id with the outcome of the same transaction in its own shard.
     SkipForeignShardTransactions,
+    /// Read the key of each push to an outgoing receipt buffer and to the `PromiseYield`
+    /// timeout queue before writing it. A push writes a new key without reading it, so its
+    /// trie nodes are recorded only when the state update is finalized, after the storage
+    /// proof limits are checked. The read records the same nodes now, so the limits count them.
+    ReadQueueKeysBeforePush,
 }
 
 impl ProtocolFeature {
@@ -174,6 +179,7 @@ impl ProtocolFeature {
             ProtocolFeature::SkipForeignShardTransactions => 89,
             ProtocolFeature::RejectBlockChallenges => 89,
             ProtocolFeature::ChargeAllTrieNodesAsTouched => 89,
+            ProtocolFeature::ReadQueueKeysBeforePush => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
