@@ -18,9 +18,6 @@
 //! - `refund_to_account_id`
 //! - `promise_result_length`
 //! - `current_contract_code`
-//! - `storage_amount_per_byte`
-//! - `num_bytes_account`
-//! - `num_extra_bytes_record`
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::env::TestLoopEnv;
