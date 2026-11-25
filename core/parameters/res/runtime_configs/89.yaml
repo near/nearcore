@@ -38,3 +38,7 @@ external_calls_chunk_transactions_size_share:
   }
 # At most 100 external calls in a chunk, however small they are.
 max_external_calls_per_chunk: { old: 0, new: 100 }
+
+# Each receipt counts at least 1_000 bytes for bandwidth and congestion. This bounds the receipts a
+# shard receives per height, and so the receipts it pushes to its delayed queue after its limits.
+min_receipt_congestion_size: { old: 0, new: 1_000 }

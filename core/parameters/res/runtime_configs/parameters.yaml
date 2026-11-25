@@ -394,6 +394,7 @@ reject_tx_congestion_threshold: {
   numerator: 80,
   denominator: 100,
 }
+min_receipt_congestion_size: 0
 
 # Bandwidth scheduler
 
