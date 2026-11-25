@@ -142,6 +142,18 @@ mirror start-traffic
 mirror start-nodes
 ```
 
+By default the traffic generator reads the source chain from the RPC backup home.
+To stream it from a cloud archive bucket instead, give a cloud archive reader home
+on the traffic host (a `config.json` with `cloud_archival.location` and
+`cloud_archival.reader`). The traffic host keeps the source for later starts,
+until a start gives other `--source-*` flags or `--source-rpc-backup`:
+
+```none
+mirror start-traffic --source-cloud-archive --source-home /home/ubuntu/reader
+# Back to the RPC backup home
+mirror start-traffic --source-rpc-backup
+```
+
 ### Stop the network
 
 ```none

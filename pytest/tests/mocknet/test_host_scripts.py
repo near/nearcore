@@ -224,6 +224,88 @@ class HostScriptsTest(unittest.TestCase):
                          f'{neard}\n{self.dir}/new\n')
         self.assertIn('no neard binary with index 2', r.stderr)
 
+    def make_traffic_generator(self):
+        host_env = (self.home / 'host.env').read_text()
+        (self.home / 'host.env').write_text(
+            host_env.replace('IS_TRAFFIC=0', 'IS_TRAFFIC=1'))
+        self.run_script('download-binaries.sh')
+
+    def mirror_cmd(self):
+        """The `neard mirror run` command that run-neard.sh runs."""
+        self.run_script('run-neard.sh')
+        return [l for l in self.read_log() if l.startswith('neard mirror')]
+
+    def test_traffic_source(self):
+        self.make_traffic_generator()
+        source_file = self.home / 'traffic-source.env'
+        reader = self.dir / 'reader home'
+
+        # A start the state refuses saves no source.
+        r = self.run_script('start-neard.sh',
+                            '--source-cloud-archive',
+                            '--source-home',
+                            reader,
+                            check=False)
+        self.assertIn('state is no test, expected ready', r.stderr)
+        self.assertFalse(source_file.exists())
+
+        (self.home / 'state').write_text('ready\n')
+        # Without a saved source, the mirror reads the RPC backup home.
+        self.assertEqual(self.mirror_cmd(), [
+            f'neard mirror run --source-home {self.dir}/source '
+            f'--target-home {self.near} --no-secret'
+        ])
+
+        # The source flags are saved and turned into mirror flags.
+        self.run_script('start-neard.sh', '--source-cloud-archive',
+                        '--source-home', reader)
+        expected = [
+            f'neard mirror run --source-home {reader} '
+            f'--target-home {self.near} --source-cloud-archive --no-secret'
+        ]
+        self.assertEqual(self.mirror_cmd(), expected)
+
+        # A start without source flags, or with the same ones, keeps the saved
+        # source and does not restart the running unit.
+        self.run_script('start-neard.sh')
+        self.run_script('start-neard.sh', '--source-cloud-archive',
+                        '--source-home', reader)
+        self.assertFalse(any('restart neard' in l for l in self.read_log()))
+        self.assertEqual(self.mirror_cmd(), expected)
+
+        # --source-rpc-backup drops the saved source and restarts.
+        self.run_script('start-neard.sh', '--source-rpc-backup')
+        self.assertIn('systemctl --user restart neard', self.read_log())
+        self.assertFalse(source_file.exists())
+        self.assertEqual(self.mirror_cmd(), [
+            f'neard mirror run --source-home {self.dir}/source '
+            f'--target-home {self.near} --no-secret'
+        ])
+
+    def test_traffic_source_refused_flags(self):
+        (self.home / 'state').write_text('ready\n')
+        self.run_script('download-binaries.sh')
+        # Not on a validator.
+        r = self.run_script('start-neard.sh',
+                            '--source-home',
+                            self.dir,
+                            check=False)
+        self.assertIn('traffic generator only', r.stderr)
+
+        self.make_traffic_generator()
+        r = self.run_script('start-neard.sh',
+                            '--source-cloud-archive',
+                            check=False)
+        self.assertIn('needs --source-home', r.stderr)
+        r = self.run_script('start-neard.sh',
+                            '--source-rpc-backup',
+                            '--source-home',
+                            self.dir,
+                            check=False)
+        self.assertIn('cannot be combined', r.stderr)
+        self.assertFalse((self.home / 'traffic-source.env').exists())
+        self.assertFalse((self.dir / 'active').exists())
+
     def test_set_env(self):
         self.run_script('set-env.sh', 'A=1', 'B=two words')
         self.run_script('set-env.sh', 'A=3')

@@ -12,7 +12,15 @@ if [ "$IS_TRAFFIC" != 1 ]; then
     exec "$neard" --log-span-events --home "$NEAR_HOME" --unsafe-fast-startup run
 fi
 
-args=(mirror run --source-home "$SOURCE_HOME" --target-home "$NEAR_HOME")
+TRAFFIC_SOURCE_CLOUD_ARCHIVE=0
+TRAFFIC_SOURCE_HOME=
+if [ -f "$TRAFFIC_SOURCE_FILE" ]; then
+    source "$TRAFFIC_SOURCE_FILE"
+fi
+args=(mirror run --source-home "${TRAFFIC_SOURCE_HOME:-$SOURCE_HOME}" --target-home "$NEAR_HOME")
+if [ "$TRAFFIC_SOURCE_CLOUD_ARCHIVE" = 1 ]; then
+    args+=(--source-cloud-archive)
+fi
 secret_file="$NEAR_HOME/setup/mirror-secret.json"
 if [ -f "$secret_file" ]; then
     args+=(--secret-file "$secret_file")

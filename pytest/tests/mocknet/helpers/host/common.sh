@@ -20,6 +20,12 @@ NEARD0="$BINARIES_DIR/neard0"
 STATE_FILE="$FORKNET_HOME/state"
 # The state of the test chain right after setup. `reset` restores it.
 START_BACKUP="$FORKNET_HOME/backups/start"
+# The traffic generator's source chain, saved by start-neard.sh from its
+# --source-* flags and read by run-neard.sh. Without it, `neard mirror run`
+# reads SOURCE_HOME. Sets:
+#   TRAFFIC_SOURCE_CLOUD_ARCHIVE  1 to stream the source from a cloud archive
+#   TRAFFIC_SOURCE_HOME           source home, a cloud archive reader home then
+TRAFFIC_SOURCE_FILE="$FORKNET_HOME/traffic-source.env"
 
 # Fails unless the state file holds $1.
 require_state() {
