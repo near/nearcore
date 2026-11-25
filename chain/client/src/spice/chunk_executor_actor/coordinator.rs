@@ -329,12 +329,6 @@ impl ChunkExecutorActor {
                 send_missing_receipt_proofs(&self.data_distributor_adapter, missing);
             }
         }
-        // TODO(spice): replay once when `run_catchup` finishes a catchup, and once at startup,
-        // instead of on every processed block: only a shard that lost its parked blocks, to a
-        // restart or an executor eviction, needs it.
-        if let Err(err) = self.replay_caught_up_shards(block_hash) {
-            tracing::error!(target: "chunk_executor", ?err, %block_hash, "failed to park again the blocks of caught-up shards");
-        }
         // A node tracking zero shards schedules no applies, so the apply-done
         // postprocess trigger never fires; postprocess the block here instead.
         if self.all_tracked_shards_applied(block_hash)? {
@@ -383,8 +377,8 @@ impl ChunkExecutorActor {
         let chunk_store = self.chain_store.chunk_store();
         for (shard_uid, executor) in &mut self.per_shard_executors {
             // Skip a shard already replayed for this sync block, one tracked in the sync block's
-            // epoch, which is applied block by block, and one that has applied the final
-            // execution head already.
+            // epoch or applied at its parent, which is applied block by block, and one that has
+            // applied the final execution head already.
             if executor.replayed_after_sync_block == Some(sync_hash)
                 || self
                     .shard_tracker

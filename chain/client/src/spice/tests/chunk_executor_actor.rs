@@ -2645,8 +2645,7 @@ fn test_parking_again_the_blocks_of_a_caught_up_shard_on_startup() {
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_declaring_the_receipts_from_the_sync_block_a_caught_up_shard_misses() {
-    // The shard's catchup finished, and the restarted node processes the next epoch's first block,
-    // which parks again the blocks up to the final execution head.
+    // The shard's catchup finished, and the node restarted in the next epoch.
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
 

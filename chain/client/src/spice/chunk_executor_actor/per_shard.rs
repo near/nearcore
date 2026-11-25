@@ -201,10 +201,8 @@ impl PerShardChunkExecutor {
         self.shard_uid
     }
 
-    /// Park `block` and try to drain — the per-shard half of the coordinator
-    /// routing a processed block to this shard. It retries the whole queue, which picks up what no
-    /// event about a parent does: a finished catchup, or a fork below the final execution head.
-    /// Returns the sources of the receipt proofs the tried blocks miss.
+    /// Park `block` and try to apply it — the per-shard half of the coordinator routing a processed
+    /// block to this shard. Returns the sources of the receipt proofs it misses.
     pub(crate) fn handle_processed_block(&mut self, block: &Block) -> MissingReceiptProofs {
         let header = block.header();
         self.park_block(header);
@@ -268,9 +266,9 @@ impl PerShardChunkExecutor {
     /// Apply every parked block that is ready, lowest height first, which a finished catchup and
     /// blocks parked again need: no event about a parent retries them. Applying a block can make
     /// the next height ready, and a higher fork block can be ready while a lower one waits, so we
-    /// scan past `NotReady`.  Cross-shard
-    /// dependencies are re-driven by the next receipt / endorsement / sibling apply. Returns the
-    /// sources of the receipt proofs the tried blocks miss.
+    /// scan past `NotReady`. Cross-shard dependencies are re-driven by the next receipt /
+    /// endorsement / sibling apply. Returns the sources of the receipt proofs the tried
+    /// blocks miss.
     pub(crate) fn try_apply_all_parked(&mut self) -> MissingReceiptProofs {
         let parked: Vec<(BlockHeight, CryptoHash)> = self.parked_blocks.iter().copied().collect();
         let mut sources = Vec::new();
@@ -322,6 +320,7 @@ impl PerShardChunkExecutor {
     }
 
     /// Try to apply the parked block `entry`, and remove it once it is scheduled or dropped.
+    /// Returns the sources of the receipt proofs it misses.
     fn try_apply_parked(&mut self, entry: (BlockHeight, CryptoHash)) -> Vec<SpiceChunkId> {
         if !self.parked_blocks.contains(&entry) {
             return Vec::new();
