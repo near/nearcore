@@ -93,7 +93,9 @@ class RemoteNode:
             raise ValueError(f'Invalid snapshot id: {snapshot_id}')
         # check if snapshot exists
         check_snapshot_cmd = f"""sudo btrfs subvolume show /mnt/btrfs-root/{snapshot_id} > /dev/null"""
-        stop_neard_cmd = """systemctl --user stop neard"""
+        # Also stop the setup and reset units, which use the disk too. They
+        # exist only while they run.
+        stop_neard_cmd = """systemctl --user stop neard-setup 2>/dev/null ; systemctl --user stop neard-reset 2>/dev/null ; systemctl --user stop neard"""
         # get current default subvolume
         get_default_cmd = """OLD=$(sudo btrfs subvolume get-default /mnt/btrfs-root | awk '{print $NF}')"""
         # umount old snapshot
