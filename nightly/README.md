@@ -168,7 +168,7 @@ Unless tests are included (potentially transitively) in `nightly.txt`
 file, NayDuck won’t run them.  As part of pull request checks,
 verification is performed to make sure that no test is forgotten and
 all new tests are included in the nightly list.  That’s done by
-`scripts/check_nightly.txt` and `scripts/check_pytest.txt` scripts.
+`scripts/check_nightly.py` and `scripts/check_pytests.py` scripts.
 They list all the expensive and pytest tests defined in the repository
 and then check whether they are all mentioned in the nightly list.
 
