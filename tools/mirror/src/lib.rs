@@ -37,6 +37,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
@@ -1937,9 +1938,10 @@ impl<T: ChainAccess> TxMirror<T> {
         target_view_client: &MultithreadRuntimeHandle<ViewClientActor>,
         stakes: HashMap<(AccountId, PublicKey), AccountId>,
         source_hash: &CryptoHash,
-        target_hash: &CryptoHash,
+        target_head: &RwLock<CryptoHash>,
         target_height: BlockHeight,
     ) -> anyhow::Result<()> {
+        let target_hash = *target_head.read();
         let mut txs = Vec::new();
         for ((receiver_id, public_key), predecessor_id) in stakes {
             self.push_extra_tx(
@@ -1951,13 +1953,16 @@ impl<T: ChainAccess> TxMirror<T> {
                 predecessor_id,
                 receiver_id.clone(),
                 &[Action::Stake(Box::new(StakeAction { public_key, stake: Balance::ZERO }))],
-                MappedTxProvenance::Unstake(*target_hash),
+                MappedTxProvenance::Unstake(target_hash),
                 None,
             )
             .await?;
         }
         if !txs.is_empty() {
-            Self::send_transactions(target_client, txs.iter_mut(), *target_hash).await?;
+            // Preparing the txs above can take a while, so read the head again
+            // to sign them with a fresh block hash.
+            let ref_hash = *target_head.read();
+            Self::send_transactions(target_client, txs.iter_mut(), ref_hash).await?;
             let mut tracker = tracker.lock();
             tracker.on_txs_sent(
                 tx_block_queue,
@@ -1977,6 +1982,7 @@ impl<T: ChainAccess> TxMirror<T> {
         send_delay: Arc<Mutex<Duration>>,
         target_client: MultithreadRuntimeHandle<RpcHandlerActor>,
         target_head: Arc<RwLock<CryptoHash>>,
+        send_lock: Arc<AsyncMutex<()>>,
         shutdown: CancellationToken,
     ) -> anyhow::Result<()> {
         let mut sent_source_height = None;
@@ -1990,6 +1996,14 @@ impl<T: ChainAccess> TxMirror<T> {
                 _ = &mut send_time => {}
             }
 
+            // Reserve the slot in blocks_sent before taking the lock, so that
+            // handing the batch over never waits for queue_txs_loop while the
+            // lock is held. queue_txs_loop may itself be waiting for the lock.
+            let permit = blocks_sent.reserve().await.context("failed to send block")?;
+            // Held while a batch is in flight: from taking a copy of the block
+            // until that copy is handed to queue_txs_loop. See the comment on
+            // send_lock in run().
+            let send_guard = send_lock.lock().await;
             let tx_batch = {
                 let tx_block_queue = tx_block_queue.lock();
                 let b = match sent_source_height {
@@ -2014,6 +2028,8 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut tx_batch = match tx_batch {
                 Some(b) => b,
                 None => {
+                    drop(send_guard);
+                    drop(permit);
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
@@ -2032,7 +2048,8 @@ impl<T: ChainAccess> TxMirror<T> {
             set_last_source_height(&db, tx_batch.source_height)?;
             sent_source_height = Some(tx_batch.source_height);
 
-            blocks_sent.send(tx_batch).await.context("failed to send block")?;
+            permit.send(tx_batch);
+            drop(send_guard);
 
             let send_delay = *send_delay.lock();
             tracing::trace!(target: "mirror", ?send_delay, "sleep before sending more txs");
@@ -2152,6 +2169,7 @@ impl<T: ChainAccess> TxMirror<T> {
         send_delay: Arc<Mutex<Duration>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
+        send_lock: Arc<AsyncMutex<()>>,
         mut source_hash: CryptoHash,
         have_stop_height: bool,
         shutdown: CancellationToken,
@@ -2187,12 +2205,19 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 msg = accounts_to_unstake.recv() => {
                     let staked_accounts = msg.unwrap();
-                    let target_head = *target_head.read();
+                    // Stop the send loop from starting a new batch, and record
+                    // the batches it has already sent, so that no block in the
+                    // queue is in flight while unstake() assigns nonces.
+                    let _send_guard = send_lock.lock().await;
+                    while let Ok(tx_batch) = blocks_sent.try_recv() {
+                        source_hash = tx_batch.source_hash;
+                        self.record_sent_batch(tx_batch, &tracker, &tx_block_queue, &target_height, &send_delay)?;
+                    }
                     let target_height = *target_height.read();
                     self.unstake(
                         &tracker, &tx_block_queue, &target_client,
                         &target_view_client, staked_accounts, &source_hash,
-                        &target_head, target_height
+                        target_head.as_ref(), target_height
                     ).await?;
                 }
             };
@@ -2451,6 +2476,14 @@ impl<T: ChainAccess> TxMirror<T> {
         let tx_block_queue2 = tx_block_queue.clone();
         let rpc_handler2 = rpc_handler.clone();
         let send_target_head = target_head.clone();
+        // A block stays in tx_block_queue while the send loop is sending a
+        // copy of it. unstake() sends its txs right away and takes the nonce
+        // of the first queued tx with the same key, so if that tx is in a
+        // block in flight, both txs would go out with the same nonce. The send
+        // loop holds this lock while a block is in flight and the unstake path
+        // takes it before assigning nonces.
+        let send_lock = Arc::new(AsyncMutex::new(()));
+        let send_lock2 = send_lock.clone();
         let db = self.db.clone();
         let send_txs_task = tokio::task::spawn({
             let shutdown = shutdown.clone();
@@ -2463,6 +2496,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     send_delay2,
                     rpc_handler2,
                     send_target_head,
+                    send_lock2,
                     shutdown,
                 )
                 .await
@@ -2472,7 +2506,7 @@ impl<T: ChainAccess> TxMirror<T> {
             res = self.queue_txs_loop(
                 tracker, tx_block_queue, rpc_handler, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
-                source_hash, stop_height.is_some(), shutdown,
+                send_lock, source_hash, stop_height.is_some(), shutdown,
             ) => {
                 res
             }
