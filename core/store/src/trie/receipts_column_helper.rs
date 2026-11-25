@@ -399,7 +399,7 @@ mod tests {
     }
 
     /// Add given receipts to the delayed receipts queue, then use
-    /// `ReceiptIterator` to read them back and assert it has the same receipts
+    /// `TrieQueueIterator` to read them back and assert it has the same receipts
     /// in the same order. Then pop from the queue and check they are the same
     /// receipts.
     #[track_caller]
@@ -490,7 +490,7 @@ mod tests {
         }
     }
 
-    /// Add given receipts to the  receipts queue, then use `ReceiptIterator` to
+    /// Add given receipts to the  receipts queue, then use `TrieQueueIterator` to
     /// read them back and assert it has the same receipts in the same order.
     #[track_caller]
     fn check_push_to_receipt_queue(

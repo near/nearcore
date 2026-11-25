@@ -9,7 +9,7 @@ use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 
-/// A helper to create transaction for processing by a `TestBed`.
+/// A helper to create transaction for processing by a `Testbed`.
 #[derive(Clone)]
 pub(crate) struct TransactionBuilder {
     accounts: Vec<AccountId>,
@@ -26,9 +26,9 @@ pub(crate) enum AccountRequirement {
     RandomUnused,
     /// Use the same account as the signer. Must not be used for signer id.
     SameAsSigner,
-    /// Use sub account of the signer. Useful for `CreateAction` estimations.
+    /// Use sub account of the signer. Useful for `CreateAccount` estimations.
     SubOfSigner,
-    /// Account must be `generated_account_id(seed = 0)`.
+    /// Account must be a specific constant account (seed 0).
     ///
     /// Usage: Delegate actions are signed by the sender, so it can't be
     /// replaced with a random account.

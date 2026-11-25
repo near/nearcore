@@ -34,7 +34,6 @@ fn env_at(version: ProtocolVersion, signer: &AccountId) -> TestLoopEnv {
         .build()
 }
 
-/// A transfer to a universal account is rejected while transfers to them are banned.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
 fn test_transfer_to_universal_account_rejected_while_banned() {
@@ -63,7 +62,6 @@ fn test_transfer_to_universal_account_rejected_while_banned() {
     );
 }
 
-/// Once universal accounts are enabled, the same transfer creates the account.
 #[cfg_attr(feature = "protocol_feature_spice", ignore)]
 #[test]
 fn test_transfer_to_universal_account_creates_it_once_enabled() {

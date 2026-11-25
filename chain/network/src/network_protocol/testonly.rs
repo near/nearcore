@@ -119,7 +119,7 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
     )
 }
 
-// Based on ShardsManager::prepare_partial_encoded_chunk_response_from_chunk.
+// Based on how ShardsManager prepares partial encoded chunk responses.
 // I give no guarantee that it will produce correct data, I'm just approximating
 // the real thing, since this functionality is not encapsulated in
 // the production code well enough to reuse it in tests.

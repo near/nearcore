@@ -70,7 +70,6 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 10;
 
 /// Mainnet and testnet validators are configured with a different value due to
@@ -153,7 +152,7 @@ pub struct Consensus {
     #[serde(default = "default_header_sync_stall_ban_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_stall_ban_timeout: Duration,
-    /// How much to wait for a state sync response before re-requesting
+    /// How much to wait for a state sync block response before re-requesting
     #[serde(default = "default_block_request_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     #[serde(alias = "state_sync_external_timeout")]

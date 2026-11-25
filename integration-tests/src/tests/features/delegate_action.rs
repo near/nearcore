@@ -777,7 +777,6 @@ fn ft_transfer_event(sender: &str, receiver: &str, amount: u128) -> String {
     format!("EVENT_JSON:{json}")
 }
 
-/// Asserts an FT balance for an account.
 fn assert_ft_balance(
     node: &RuntimeNode,
     ft_contract: &AccountId,
@@ -863,7 +862,7 @@ fn meta_tx_create_named_account() {
     node.view_account(&new_account).expect("failed looking up account");
 }
 
-/// Try creating an implicit account with `CreateAction` which is not allowed in
+/// Try creating an implicit account with `CreateAccountAction` which is not allowed in
 /// or outside meta transactions and must fail with `OnlyImplicitAccountCreationAllowed`.
 fn meta_tx_create_implicit_account_fails(new_account: AccountId) {
     let relayer = bob_account();

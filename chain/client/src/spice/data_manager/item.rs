@@ -24,7 +24,6 @@ impl ReedSolomonEncoderSerialize for SpiceData {}
 
 impl ReedSolomonEncoderDeserialize for SpiceData {}
 
-/// A producer of an item.
 #[derive(Debug)]
 pub(super) struct ItemProducer {
     pub(super) account_id: AccountId,

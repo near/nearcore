@@ -1,5 +1,5 @@
 //! Runs standard test cases against testnet with several nodes running in separate threads.
-//! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
+//! The communication is performed through `RpcUser` that uses the standard RPC API to communicate.
 
 use crate::node::{Node, NodeConfig, ThreadNode, create_nodes_from_seeds};
 use crate::tests::standard_cases::*;
@@ -41,7 +41,7 @@ fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
     nodes
 }
 
-/// Macro for running testnet tests using ThreadNode and RPCUser.
+/// Macro for running testnet tests using ThreadNode and RpcUser.
 macro_rules! run_testnet_test {
     ($f:expr) => {
         let rt = tokio::runtime::Builder::new_multi_thread()

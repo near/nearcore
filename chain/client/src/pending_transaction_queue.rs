@@ -565,7 +565,6 @@ mod tests {
         matches!(session.check_pending(tx), PendingTxCheckResult::Admit(_))
     }
 
-    /// Wrap a sharded pending transaction queue in Arc<Mutex<...>>.
     fn make_sharded_ptq() -> Arc<Mutex<ShardedPendingTransactionQueue>> {
         Arc::new(Mutex::new(ShardedPendingTransactionQueue::new()))
     }

@@ -114,7 +114,6 @@ pub struct StateStoredReceiptV1<'a> {
     pub metadata: StateStoredReceiptMetadata,
 }
 
-/// The metadata associated with the receipt stored in state.
 #[derive(BorshDeserialize, BorshSerialize, PartialEq, Eq, Debug, ProtocolSchema)]
 pub struct StateStoredReceiptMetadata {
     /// The congestion gas of the receipt when it was stored in the state.

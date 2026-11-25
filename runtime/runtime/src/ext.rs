@@ -705,7 +705,7 @@ impl Contract for RuntimeContractExt {
 /// of operation it was.
 ///
 /// The latter is easy as the only way a contract storage operation can happen is through the
-/// implementation of `Externals`.
+/// implementation of `External`.
 ///
 /// Note that we don't have a size limit for values in the accounting cache.
 /// There are two reasons:

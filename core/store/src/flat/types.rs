@@ -132,7 +132,7 @@ pub struct FlatStorageReadyStatus {
 #[borsh(use_discriminant = true)]
 #[repr(u8)]
 pub enum FlatStorageCreationStatus {
-    /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
+    /// Flat storage state does not exist. We are saving `FlatStateDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
     /// final chain head moves after saved chain head.
     SavingDeltas = 0,

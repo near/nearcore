@@ -1,6 +1,6 @@
 //! This file implements two data structure `ShardLayout` and `ShardUId`
 //!
-//! ## `get_parent_shard_id` and `get_split_shard_ids`
+//! ## `get_parent_shard_id` and `get_children_shards_ids`
 //!
 //! `ShardLayout` also includes information needed for resharding. In particular, it encodes
 //! which shards from the previous shard layout split to which shards in the following shard layout.
@@ -8,7 +8,7 @@
 //! we call shard A the parent shard of shard B and C.
 //! Note that a shard can only have one parent shard. For example, the following case will be prohibited,
 //! a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
-//! Parent/split shard information can be accessed through these two functions.
+//! Parent/children shard information can be accessed through these two functions.
 
 #[cfg(test)]
 mod tests;
@@ -525,7 +525,6 @@ impl ShardUId {
         Self::new(shard_layout.version(), shard_id)
     }
 
-    /// Returns shard id
     pub fn shard_id(&self) -> ShardId {
         self.shard_id.into()
     }

@@ -399,7 +399,6 @@ async fn test_query_call_function() {
     assert_eq!(call_result.logs.len(), 0);
 }
 
-/// query contract code
 #[tokio::test]
 async fn test_query_contract_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -910,7 +909,6 @@ fn assert_unknown_block_error<T: std::fmt::Debug>(result: Result<T, RpcError>, m
     );
 }
 
-/// Test EXPERIMENTAL_view_account method
 #[tokio::test]
 async fn test_experimental_view_account() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -934,7 +932,6 @@ async fn test_experimental_view_account() {
     assert_eq!(response.account.storage_paid_at, 0);
 }
 
-/// Test EXPERIMENTAL_view_account with different block references
 #[tokio::test]
 async fn test_experimental_view_account_block_references() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -976,7 +973,6 @@ async fn test_experimental_view_account_block_references() {
     }
 }
 
-/// Test EXPERIMENTAL_view_account error on missing account
 #[tokio::test]
 async fn test_experimental_view_account_missing_account() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -993,7 +989,6 @@ async fn test_experimental_view_account_missing_account() {
     assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_account");
 }
 
-/// Test EXPERIMENTAL_view_code method
 #[tokio::test]
 async fn test_experimental_view_code() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);
@@ -1017,7 +1012,6 @@ async fn test_experimental_view_code() {
     assert_eq!(response.code.hash, CryptoHash::hash_bytes(&code));
 }
 
-/// Test EXPERIMENTAL_view_code error when code is missing
 #[tokio::test]
 async fn test_experimental_view_code_missing_code_error() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1039,7 +1033,6 @@ async fn test_experimental_view_code_missing_code_error() {
     assert_eq!(contract_account, account.as_str());
 }
 
-/// Test EXPERIMENTAL_view_state method
 #[tokio::test]
 async fn test_experimental_view_state() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1062,7 +1055,6 @@ async fn test_experimental_view_state() {
     assert_eq!(response.state.values.len(), 0);
 }
 
-/// Test EXPERIMENTAL_view_state with include_proof
 #[tokio::test]
 async fn test_experimental_view_state_with_proof() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1084,7 +1076,6 @@ async fn test_experimental_view_state_with_proof() {
     assert_ne!(response.block_hash, CryptoHash::default());
 }
 
-/// Test EXPERIMENTAL_view_state with pagination
 #[tokio::test]
 async fn test_experimental_view_state_paginated() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1169,7 +1160,6 @@ async fn test_experimental_view_state_after_key_outside_prefix_rejected() {
     result.expect_err("after_key outside prefix range must be rejected");
 }
 
-/// Test EXPERIMENTAL_view_access_key method
 #[tokio::test]
 async fn test_experimental_view_access_key() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1193,7 +1183,6 @@ async fn test_experimental_view_access_key() {
     assert_eq!(response.access_key.permission, AccessKeyPermission::FullAccess.into());
 }
 
-/// Test EXPERIMENTAL_view_access_key error on unknown key
 #[tokio::test]
 async fn test_experimental_view_access_key_unknown_key() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1348,7 +1337,6 @@ async fn test_experimental_view_access_key_list_missing_account() {
     assert_missing_account_error(result, &missing_account, "EXPERIMENTAL_view_access_key_list");
 }
 
-/// Test EXPERIMENTAL_view_access_key_list method
 #[tokio::test]
 async fn test_experimental_view_access_key_list() {
     let setup = create_test_setup_with_node_type(NodeType::NonValidator);
@@ -1444,7 +1432,6 @@ async fn test_experimental_view_access_key_list_too_many_access_keys() {
     assert_eq!(info["limit"].as_u64(), Some(u64::from(access_keys_limit)));
 }
 
-/// Test EXPERIMENTAL_call_function method
 #[tokio::test]
 async fn test_experimental_call_function() {
     let setup = create_test_setup_with_node_type(NodeType::Validator);

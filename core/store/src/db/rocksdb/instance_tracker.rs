@@ -165,7 +165,7 @@ impl Drop for InstanceTracker {
 /// correctly.
 ///
 /// To avoid such failures, this method ensures that NOFILE limit is large
-/// enough to accommodate `max_open_file` plus another 1000 file descriptors.
+/// enough to accommodate `max_open_files` plus another 1000 file descriptors.
 /// If current limit is too low, it will attempt to set it to a higher value.
 ///
 /// Returns error if NOFILE limit could not be read or set.  In practice the

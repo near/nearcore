@@ -629,7 +629,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// garbage collected.  Roughly speaking this represents start of the 'hot'
     /// data that we want to keep.
     ///
-    /// `gt_height_limit` indicates limit of how many non-empty heights to
+    /// `gc_height_limit` indicates limit of how many non-empty heights to
     /// process.  This limit means that the method may stop garbage collection
     /// before reaching `gc_stop_height`.
     fn clear_redundant_chunk_data(

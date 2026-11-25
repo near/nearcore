@@ -41,9 +41,9 @@ pub struct EncodedChunksCacheEntry {
     pub ready_for_inclusion: bool,
     /// Whether the header has been **fully** validated.
     /// Every entry added to the cache already has their header "partially" validated
-    /// by validate_chunk_header. When the previous block is accepted, they must be
+    /// by validate_chunk_header_preliminary. When the previous block is accepted, they must be
     /// validated again to make sure they are fully validated.
-    /// See comments in `validate_chunk_header` for more context on partial vs full validation
+    /// See comments in `validate_chunk_header_full` for more context on partial vs full validation
     pub header_fully_validated: bool,
 
     /// Timestamp of when this entry was created used for metrics below
@@ -318,7 +318,6 @@ impl EncodedChunksCache {
         entry.merge_in_partial_encoded_chunk(parts, receipts)
     }
 
-    /// Remove a chunk from the cache if it is outside of horizon
     pub fn remove_from_cache_if_outside_horizon(&mut self, chunk_hash: &ChunkHash) {
         if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
             let height = entry.header.height_created();

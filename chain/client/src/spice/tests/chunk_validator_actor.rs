@@ -820,7 +820,6 @@ fn test_witness_without_accesses_message_requests_its_missing_contracts() {
     assert_no_contract_requests(&mut actor.network_rc);
 }
 
-/// Contract accesses with missing contracts sends a request.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_contract_accesses_sends_request_for_missing() {

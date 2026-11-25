@@ -23,7 +23,7 @@
 //! requesting it.
 //!
 //! ** Requesting for chunks
-//! `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
+//! `ShardsManagerActor` keeps a request pool that stores all requests for chunks that are not completed
 //! yet. The requests are managed at the chunk level, instead of individual parts and receipts.
 //! A new request can be added by sending it a message RequestChunks or RequestChunksForOrphan
 //! (depending on whether the parent block is known). If it is not in the pool yet,
@@ -75,7 +75,7 @@
 //!    (see validate_chunk_proofs)
 //!
 //! We also guarantee that all entries stored inside ShardsManager::encoded_chunks have the chunk header
-//! at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
+//! at least "partially" validated by `validate_chunk_header_preliminary` (see the comments there for what "partial"
 //! validation means).
 
 use crate::adapter::ShardsManagerRequestFromClient;

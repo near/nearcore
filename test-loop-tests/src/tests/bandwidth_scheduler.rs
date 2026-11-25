@@ -57,7 +57,6 @@ use testlib::bandwidth_scheduler::{
     TestScenario, TestScenarioBuilder, TestSummary,
 };
 
-/// 3 shards, random receipt sizes
 #[test]
 fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
     let scenario = TestScenarioBuilder::new()

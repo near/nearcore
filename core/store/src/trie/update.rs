@@ -17,7 +17,6 @@ use std::ops::{Deref, DerefMut};
 
 mod iterator;
 
-/// Key-value update. Contains a TrieKey and a value.
 #[derive(Clone)]
 pub struct TrieKeyValueUpdate {
     pub trie_key: TrieKey,
@@ -361,7 +360,6 @@ impl TrieUpdate {
         self.contract_storage.record_deploy(code);
     }
 
-    /// Records deployment of a global contract
     pub fn record_global_contract_deploy(&self, code: ContractCode) {
         self.contract_storage.record_global_contract_deploy(code);
     }

@@ -358,7 +358,7 @@ impl ForkNetworkCommand {
         }
     }
 
-    // Snapshots the DB.
+    // Snapshots the DB, unless `no_snapshot` is set.
     // Determines parameters that will be used to initialize the new chain.
     // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
     fn write_fork_info(

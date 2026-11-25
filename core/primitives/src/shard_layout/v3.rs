@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 /// A mapping from the parent shard to child shards. It maps shards from the
 /// previous shard layout to shards that they split to in this shard layout.
-/// Unlike previous versions of `ShardsSplitMap`, this one:
+/// Unlike previous versions of `ShardsSplitMapV1`, this one:
 ///   * Only includes shards that are actually split.
 ///   * Includes the full history of shard splits, i.e. split map of the current
 ///     layout is a superset of the split map of its parent layout.

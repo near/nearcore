@@ -630,7 +630,7 @@ impl BlockHeaderV1 {
     }
 }
 
-/// V1 -> V2: Remove `chunks_included` from `inner_reset`
+/// V1 -> V2: Remove `chunks_included` from `inner_rest`
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, ProtocolSchema,
 )]
@@ -1216,7 +1216,7 @@ impl BlockHeader {
         }
     }
 
-    /// Helper function for `new_impl` and `old_impl` to compute the hash and signature of the hash from the block header parts.
+    /// Helper function for `new_impl` to compute the hash and signature of the hash from the block header parts.
     /// Exactly one of the `signer` and `signature` must be provided.
     /// If `signer` is given signs the header with given `prev_hash`, `inner_lite`, and `inner_rest` and returns the hash and signature of the header.
     /// If `signature` is given, uses the signature as is and only computes the hash.

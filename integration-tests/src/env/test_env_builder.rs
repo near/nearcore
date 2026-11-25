@@ -35,7 +35,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
     genesis_config: GenesisConfig,
@@ -468,7 +467,7 @@ impl TestEnvBuilder {
     /// client is created.  Similarly, if no validator seats were configured,
     /// one seat is configured.
     ///
-    /// Panics if `runtime_adapters` or `network_adapters` methods were used and
+    /// Panics if `runtimes` or `network_adapters` methods were used and
     /// the length of the vectors passed to them did not equal number of
     /// configured clients.
     pub fn build(self) -> TestEnv {

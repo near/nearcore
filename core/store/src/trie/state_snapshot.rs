@@ -130,7 +130,6 @@ impl StateSnapshot {
         Self { snapshot_hash, store, flat_storage_manager, included_shard_uids }
     }
 
-    /// Returns the UIds for the shards included in the snapshot.
     pub fn get_included_shard_uids(&self) -> Vec<ShardUId> {
         self.included_shard_uids.clone()
     }
