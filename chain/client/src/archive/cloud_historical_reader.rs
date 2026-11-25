@@ -68,30 +68,8 @@ pub async fn bootstrap_range(
     // Fetch one batch per iteration and consume all its heights, so each
     // batch blob is downloaded and decompressed once rather than per height.
     let mut height = start_height;
-    // A range that extends an earlier one finds the row of the block below it.
-    let mut aggregator_rows_started =
-        store.exists(DBCol::AggregatedEpochStats, prev_block_hash.as_ref());
     while height <= end_height {
         let batch_pull = pull_block_batch(store, cloud_storage, epoch_manager, height).await?;
-        // The cloud data carries no epoch info aggregator, so write each block's row from its
-        // parent's, as `record_block_info` does. Each row is committed before the next block
-        // reads it. Rows start at the first block whose parent has a row, or else at the
-        // first epoch start in the range. Unlike the recent reader, a missing row after that
-        // fails the bootstrap: it runs once, so it should not leave the operator a store with
-        // a silent gap.
-        for block_hash in &batch_pull.block_hashes {
-            aggregator_rows_started = aggregator_rows_started
-                || epoch_manager.get_block_info(block_hash)?.epoch_first_block() == block_hash;
-            if !aggregator_rows_started {
-                continue;
-            }
-            let mut update = store.store_update();
-            epoch_manager.set_aggregated_epoch_stats_for_stored_block(
-                &mut update.epoch_store_update(),
-                block_hash,
-            )?;
-            update.commit();
-        }
         let shard_uids = shards_tracked_in_batch(
             epoch_manager,
             shard_tracker,
@@ -138,7 +116,7 @@ pub async fn bootstrap_range(
     );
     // No epoch start in the range, and no earlier range to extend, so the range's epoch has
     // no rows.
-    if !aggregator_rows_started {
+    if !store.exists(DBCol::AggregatedEpochStats, prev_block_hash.as_ref()) {
         tracing::warn!(
             target: "cloud_archival",
             start_height,

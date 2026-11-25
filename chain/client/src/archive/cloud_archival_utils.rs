@@ -127,7 +127,8 @@ struct EpochEnd {
 
 /// Downloads the batch containing `start_height` and writes its block rows from there
 /// to the batch's end in one commit. When an epoch ends inside the batch, the epoch
-/// starting after it is pulled too.
+/// starting after it is pulled too. Then writes the blocks' epoch info aggregator rows in
+/// a second commit.
 pub(crate) async fn pull_block_batch(
     store: &Store,
     cloud_storage: &CloudStorage,
@@ -157,9 +158,41 @@ pub(crate) async fn pull_block_batch(
     if let Some(epoch_end) = &epoch_end {
         pull_epoch_data(store, cloud_storage, &epoch_end.next_epoch_id).await?;
     }
+    // The rows are computed from the `BlockInfo` and `EpochInfo` committed above.
+    // TODO(cloud_archival): the recent reader has no gc, so it keeps the row of every block,
+    // but the `validators` endpoint reads only the head's row. A reader gc can delete the
+    // older rows.
+    let mut update = store.store_update();
+    epoch_manager.set_aggregated_epoch_stats_for_stored_blocks(
+        &mut update.epoch_store_update(),
+        blocks_with_aggregator_rows(store, epoch_manager, &block_hashes)?,
+    )?;
+    update.commit();
     let opening_epoch_id =
         epoch_end.filter(|end| end.height < block_batch.end_height()).map(|end| end.next_epoch_id);
     Ok(BlockBatchPull { end_height: block_batch.end_height(), opening_epoch_id, block_hashes })
+}
+
+/// Tail of `block_hashes` that gets epoch info aggregator rows. All of it when the first
+/// block's parent has a row, otherwise from the first epoch start on (empty without one).
+fn blocks_with_aggregator_rows<'a>(
+    store: &Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+    block_hashes: &'a [CryptoHash],
+) -> Result<&'a [CryptoHash], EpochError> {
+    let Some(first_block_hash) = block_hashes.first() else {
+        return Ok(&[]);
+    };
+    let first_parent_hash = *epoch_manager.get_block_info(first_block_hash)?.prev_hash();
+    if store.exists(DBCol::AggregatedEpochStats, first_parent_hash.as_ref()) {
+        return Ok(block_hashes);
+    }
+    for (index, block_hash) in block_hashes.iter().enumerate() {
+        if epoch_manager.get_block_info(block_hash)?.epoch_first_block() == block_hash {
+            return Ok(&block_hashes[index..]);
+        }
+    }
+    Ok(&[])
 }
 
 /// Downloads `shard_uid`'s batch for the window `from_height` falls in and writes the

@@ -250,41 +250,6 @@ impl CloudArchivalRecentReader {
             reader_head.height + 1,
         )
         .await?;
-        // The cloud data carries no epoch info aggregator, so write each block's row from its
-        // parent's, committing it before the next block reads it. Rows start at the reader
-        // head's row, or else at the next epoch start. A head without a row is reported at
-        // startup.
-        // TODO(cloud_archival): the reader has no gc, so it keeps the row of every block, but
-        // the `validators` endpoint reads only the head's row. A reader gc can delete the
-        // older rows.
-        let mut aggregator_rows_started = self
-            .store
-            .exists(DBCol::AggregatedEpochStats, reader_head.last_present_block_hash.as_ref());
-        for block_hash in &batch_pull.block_hashes {
-            aggregator_rows_started = aggregator_rows_started
-                || self.epoch_manager.get_block_info(block_hash)?.epoch_first_block() == block_hash;
-            if !aggregator_rows_started {
-                continue;
-            }
-            let mut update = self.store.store_update();
-            if let Err(error) = self.epoch_manager.set_aggregated_epoch_stats_for_stored_block(
-                &mut update.epoch_store_update(),
-                block_hash,
-            ) {
-                // A row the reader cannot write fails only the `validators` endpoint, so the
-                // reader, which keeps following the chain, logs it and keeps pulling. Rows start
-                // again at the next epoch start.
-                tracing::error!(
-                    target: "cloud_archival",
-                    %block_hash,
-                    ?error,
-                    "writing the epoch info aggregator row failed"
-                );
-                aggregator_rows_started = false;
-                continue;
-            }
-            update.commit();
-        }
         let window_tracked_shards = shards_tracked_in_batch(
             self.epoch_manager.as_ref(),
             &self.shard_tracker,

@@ -2061,12 +2061,25 @@ impl EpochManager {
     }
 
     /// The epoch statistics up to and including `block_info`: the parent's stored statistics
-    /// plus this block, or this block alone when it starts an epoch. Shared by block recording,
-    /// the database migration and the cloud archival readers.
+    /// plus this block, or this block alone when it starts an epoch. Shared by block recording
+    /// and the database migration.
     pub fn compute_aggregated_epoch_stats(
         &self,
         block_info: &BlockInfo,
         prev_block_info: &BlockInfo,
+    ) -> Result<AggregatedEpochStats, EpochError> {
+        self.compute_aggregated_epoch_stats_with_parent(block_info, prev_block_info, None)
+    }
+
+    /// As `compute_aggregated_epoch_stats`, but can take the parent's statistics from memory.
+    /// A caller that writes the rows of a chain of blocks into one store update passes the row
+    /// it computed last, which the store does not hold yet. That row is used when it ends at
+    /// the parent; otherwise the parent's row is read from the store.
+    fn compute_aggregated_epoch_stats_with_parent(
+        &self,
+        block_info: &BlockInfo,
+        prev_block_info: &BlockInfo,
+        last_computed_stats: Option<AggregatedEpochStats>,
     ) -> Result<AggregatedEpochStats, EpochError> {
         let epoch_id = *block_info.epoch_id();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
@@ -2075,7 +2088,12 @@ impl EpochManager {
             if prev_block_info.is_genesis() || *prev_block_info.epoch_id() != epoch_id {
                 AggregatedEpochStats::new(epoch_id, *prev_block_info.hash())
             } else {
-                self.get_aggregated_epoch_stats(prev_block_info.hash())?
+                match last_computed_stats
+                    .filter(|stats| stats.last_block_hash() == prev_block_info.hash())
+                {
+                    Some(stats) => stats,
+                    None => self.get_aggregated_epoch_stats(prev_block_info.hash())?,
+                }
             };
         self.append_block_to_aggregator(
             &mut aggregator,
