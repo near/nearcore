@@ -41,31 +41,6 @@ fn test_drop_messages_from_node() {
     assert!(*passed.lock() > 0, "node 0 sent no approval once the drop was lifted");
 }
 
-/// Node 0 sends every approval twice: the rule after it sees both copies.
-#[test]
-fn test_replace_messages_from_node() {
-    init_test_logger();
-    let mut env = TestLoopBuilder::new().validators(4, 0).build();
-
-    let duplicated = env.network_rule(
-        0,
-        is_approval,
-        Action::Replace(Box::new(|request| {
-            let NetworkRequests::Approval { approval_message } = &request else {
-                unreachable!("the rule matches approvals only");
-            };
-            let copy = NetworkRequests::Approval { approval_message: approval_message.clone() };
-            vec![request, copy]
-        })),
-    );
-    let passed = Arc::new(Mutex::new(0));
-    env.network_rule(0, is_approval, count_approvals(&passed));
-
-    env.node_runner(1).run_for_number_of_blocks(5);
-    assert!(duplicated.matched() > 0, "node 0 sent no approval to duplicate");
-    assert_eq!(*passed.lock(), 2 * duplicated.matched(), "the copies did not go on in pairs");
-}
-
 /// Node 0 sends its approvals a second late. A request that goes out later skips the rules on
 /// its way, so the rule after the delay never sees one, and the chain goes on regardless.
 #[test]

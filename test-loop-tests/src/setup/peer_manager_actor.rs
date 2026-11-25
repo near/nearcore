@@ -737,13 +737,12 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
         for request in released_held {
             self.dispatch(request);
         }
-        // A request the rules dropped or held answers like one the handlers took in silence.
-        let mut response =
-            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse);
-        for request in outgoing {
-            response = self.dispatch(request);
+        // A request the rules dropped, delayed or held answers like one the handlers took in
+        // silence.
+        match outgoing {
+            Some(request) => self.dispatch(request),
+            None => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
         }
-        response
     }
 }
 

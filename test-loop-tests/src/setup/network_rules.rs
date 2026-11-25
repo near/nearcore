@@ -1,6 +1,6 @@
 //! Rules on what leaves a node over the network: from the moment a rule is added until it is
-//! lifted, the node drops, delays, holds back, rewrites or reports every outgoing
-//! request the rule matches. Rules are keyed by account, so a node that is killed and
+//! lifted, the node drops, delays, holds back or reports every outgoing request the rule
+//! matches. Rules are keyed by account, so a node that is killed and
 //! restarted keeps its rules, and a node added later is covered by the rules added for its
 //! account before.
 
@@ -32,9 +32,6 @@ pub enum Action {
     /// The request is held until its release rule says so. The rule is asked again each time
     /// the node sends anything, with the latest block height the node has shown it knows.
     Hold(Release),
-    /// The request is replaced by what the function returns, sent in order. The sender gets
-    /// the answer to the last of them, or `NoResponse` if there are none.
-    Replace(Box<dyn Fn(NetworkRequests) -> Vec<NetworkRequests> + Send + Sync>),
     /// The request is reported to the function and goes out unchanged.
     Observe(Box<dyn Fn(&NetworkRequests) + Send + Sync>),
 }
@@ -104,9 +101,9 @@ struct Inner {
 pub(crate) struct Applied {
     /// Requests held by earlier sends that this send lets go.
     pub released_held: Vec<NetworkRequests>,
-    /// What the rules left of the request being sent. The sender gets the answer
-    /// to the last one.
-    pub outgoing: Vec<NetworkRequests>,
+    /// The request being sent, unless a rule dropped, delayed or held it. The sender gets
+    /// its answer.
+    pub outgoing: Option<NetworkRequests>,
 }
 
 impl NetworkRules {
@@ -232,40 +229,34 @@ impl NetworkRules {
                 .cloned()
                 .collect()
         };
-        let mut requests = vec![request];
         for rule in rules {
-            let mut passed = Vec::new();
-            for request in requests {
-                if rule.lifted() || !(rule.matches)(&request) {
-                    passed.push(request);
+            if rule.lifted() || !(rule.matches)(&request) {
+                continue;
+            }
+            rule.state.matched.fetch_add(1, Ordering::Relaxed);
+            match &rule.action {
+                Action::Drop => {}
+                Action::Delay(delay) => self.defer(account_id, request, *delay),
+                Action::DelayBy(delay) => {
+                    let delay = delay(&request);
+                    self.defer(account_id, request, delay);
+                }
+                Action::Hold(_) => {
+                    self.0
+                        .lock()
+                        .held
+                        .entry(account_id.clone())
+                        .or_default()
+                        .push((rule.clone(), request));
+                }
+                Action::Observe(observe) => {
+                    observe(&request);
                     continue;
                 }
-                rule.state.matched.fetch_add(1, Ordering::Relaxed);
-                match &rule.action {
-                    Action::Drop => {}
-                    Action::Delay(delay) => self.defer(account_id, request, *delay),
-                    Action::DelayBy(delay) => {
-                        let delay = delay(&request);
-                        self.defer(account_id, request, delay);
-                    }
-                    Action::Hold(_) => {
-                        self.0
-                            .lock()
-                            .held
-                            .entry(account_id.clone())
-                            .or_default()
-                            .push((rule.clone(), request));
-                    }
-                    Action::Replace(replace) => passed.extend(replace(request)),
-                    Action::Observe(observe) => {
-                        observe(&request);
-                        passed.push(request);
-                    }
-                }
             }
-            requests = passed;
+            return Applied { released_held, outgoing: None };
         }
-        Applied { released_held, outgoing: requests }
+        Applied { released_held, outgoing: Some(request) }
     }
 
     /// Runs `request`, which a rule let `account_id` send late, past the rules after the one
@@ -276,7 +267,7 @@ impl NetworkRules {
         request: NetworkRequests,
     ) -> Applied {
         let released_held = self.note_sent(account_id, &request);
-        Applied { released_held, outgoing: vec![request] }
+        Applied { released_held, outgoing: Some(request) }
     }
 
     /// Raises the height `account_id` has shown it knows to what `request` shows, and returns

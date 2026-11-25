@@ -147,7 +147,7 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 | `archival.rs` | Archival node with cold storage |
 | `gas_limit.rs` | Gas limit behavior verification |
 | `delayed_receipts.rs` | Creating and observing delayed receipts |
-| `network_rules.rs` | Dropping, duplicating and delaying the requests a node sends |
+| `network_rules.rs` | Dropping, delaying and observing the requests a node sends |
 | `missing_chunk.rs` | Triggering missing chunks using adversarial messages |
 | `validator_rotation.rs` | Validator rotation across epochs |
 | `resharding.rs` | Dynamic resharding (manual genesis setup) |
@@ -171,8 +171,8 @@ env.add_node(identifier, new_node_state);
 
 ### Network rules
 
-A rule applies an `Action` (`Drop`, `Delay`, `DelayBy`, `Hold`, `Replace`, `Observe`)
-to the requests a node sends that match a predicate, until its `RuleHandle` is lifted. Rules
+A rule applies an `Action` (`Drop`, `Delay`, `DelayBy`, `Hold`, `Observe`) to the
+requests a node sends that match a predicate, until its `RuleHandle` is lifted. Rules
 are keyed by account, so they survive a node restart. See `src/setup/network_rules.rs`.
 
 ```rust
