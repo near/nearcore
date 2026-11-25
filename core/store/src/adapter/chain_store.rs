@@ -170,12 +170,10 @@ impl ChainStoreAdapter {
         self.store.caching_get_ser(DBCol::BlockHeader, h.as_ref())
     }
 
-    /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         option_to_not_found(self.get_block_header_if_exists(h), format_args!("BLOCK HEADER: {}", h))
     }
 
-    /// Get block height.
     pub fn get_block_height(&self, hash: &CryptoHash) -> Result<BlockHeight, Error> {
         if hash == &CryptoHash::default() {
             Ok(self.get_or_init_genesis_height())
@@ -184,7 +182,6 @@ impl ChainStoreAdapter {
         }
     }
 
-    /// Get previous header.
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.get_block_header(header.prev_hash())
     }
@@ -206,7 +203,6 @@ impl ChainStoreAdapter {
         self.store.get_ser(DBCol::BlockPerHeight, &index_to_bytes(height)).unwrap_or_default()
     }
 
-    /// Returns a HashSet of Header Hashes for current Height
     pub fn get_all_header_hashes_by_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
         self.store.get_ser(DBCol::HeaderHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }
@@ -504,7 +500,6 @@ impl ChainStoreAdapter {
         self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())
     }
 
-    /// Get height of genesis
     pub fn get_genesis_height(&self) -> BlockHeight {
         self.get_or_init_genesis_height()
     }

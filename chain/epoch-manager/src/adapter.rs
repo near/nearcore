@@ -731,7 +731,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_epoch_info(epoch_id).map(|info| info.protocol_version())
     }
 
-    /// Get protocol version of next epoch.
     fn get_next_epoch_protocol_version(
         &self,
         block_hash: &CryptoHash,

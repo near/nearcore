@@ -561,7 +561,6 @@ mod tests {
         assert_eq!(pool.transaction_size(), 0);
     }
 
-    /// Test pool iterator remembers the last key.
     #[test]
     fn test_pool_iterator_remembers_the_last_key() {
         let transactions = (1..=10)
@@ -912,7 +911,6 @@ mod tests {
         assert_eq!(drain_hashes(&mut pool), [&txs[0], &txs[1]].map(|tx| tx.get_hash()));
     }
 
-    /// A group is gone from the pool once all of its transactions were removed.
     #[test]
     fn test_group_is_gone_after_all_its_transactions_were_removed() {
         let mut pool = TransactionPool::new(TEST_SEED, None, "");
@@ -1047,7 +1045,6 @@ mod tests {
         assert_ne!(group_order([3; 32]), group_order([4; 32]));
     }
 
-    /// The order of the groups depends on the seed of the pool.
     #[test]
     fn test_group_order_depends_on_the_seed() {
         let group_order = |seed: RngSeed| {
@@ -1134,7 +1131,6 @@ mod tests {
         });
     }
 
-    /// Groups of signed transactions all come before the groups of ECCs.
     #[test]
     fn test_signed_groups_come_before_ecc_groups() {
         let mut pool = TransactionPool::new(TEST_SEED, None, "");

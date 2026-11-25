@@ -9,7 +9,6 @@ use std::collections::HashMap;
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
 
-/// Contains online thresholds for validators.
 #[derive(Clone, Debug)]
 pub struct ValidatorOnlineThresholds {
     /// Online minimum threshold below which validator doesn't receive reward.

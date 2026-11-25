@@ -97,7 +97,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Process results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
         block: &Block,

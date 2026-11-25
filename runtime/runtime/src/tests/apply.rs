@@ -6353,7 +6353,6 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
     );
 }
 
-// Tests that an existing contract is deployed and called from a different account.
 #[test]
 fn test_deploy_existing_contract_to_different_account() {
     let (runtime, tries, root, mut apply_state, signers, epoch_info_provider) = setup_runtime(

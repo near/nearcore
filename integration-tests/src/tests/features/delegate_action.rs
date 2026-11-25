@@ -777,7 +777,6 @@ fn ft_transfer_event(sender: &str, receiver: &str, amount: u128) -> String {
     format!("EVENT_JSON:{json}")
 }
 
-/// Asserts an FT balance for an account.
 fn assert_ft_balance(
     node: &RuntimeNode,
     ft_contract: &AccountId,

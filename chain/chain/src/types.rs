@@ -785,7 +785,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error>;
 
-    /// Validate StateRootNode of a state.
     fn validate_state_root_node(
         &self,
         state_root_node: &StateRootNode,

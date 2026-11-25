@@ -525,7 +525,6 @@ impl ShardUId {
         Self::new(shard_layout.version(), shard_id)
     }
 
-    /// Returns shard id
     pub fn shard_id(&self) -> ShardId {
         self.shard_id.into()
     }

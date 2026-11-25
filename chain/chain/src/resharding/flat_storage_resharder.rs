@@ -788,7 +788,6 @@ impl FlatStorageResharder {
         store_update.commit();
         metrics.set_status(&flat_storage_status);
         tracing::info!(target: "resharding", ?shard_uid, %deltas_gc_count, "garbage collected flat storage deltas");
-        // Create the flat storage entry for this shard in the manager.
         self.runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
         tracing::info!(target: "resharding", ?shard_uid, ?flat_head, "flat storage creation done");
         Ok(())

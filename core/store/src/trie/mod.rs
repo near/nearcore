@@ -512,7 +512,6 @@ impl TrieChanges {
     }
 }
 
-/// Result of applying state part to Trie.
 pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,

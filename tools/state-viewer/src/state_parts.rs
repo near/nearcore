@@ -477,7 +477,6 @@ async fn dump_state_parts(
 
     let timer = Instant::now();
 
-    // dump header
     if dump_header {
         let mut state_sync_header_buf: Vec<u8> = Vec::new();
         state_header.serialize(&mut state_sync_header_buf).unwrap();

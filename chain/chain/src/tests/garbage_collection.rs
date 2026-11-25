@@ -408,7 +408,6 @@ fn test_gc_not_remove_longer_fork() {
     }
 }
 
-// This test creates forks from genesis
 #[test]
 fn slow_test_gc_forks_from_genesis() {
     for fork_length in 1..=10 {

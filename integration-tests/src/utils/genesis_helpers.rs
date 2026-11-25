@@ -13,7 +13,6 @@ use nearcore::NightshadeRuntime;
 use std::sync::Arc;
 use tempfile::tempdir;
 
-/// Compute genesis hash from genesis.
 pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
     *genesis_header(genesis).hash()
 }

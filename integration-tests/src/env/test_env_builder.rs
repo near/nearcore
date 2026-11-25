@@ -35,7 +35,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
     genesis_config: GenesisConfig,

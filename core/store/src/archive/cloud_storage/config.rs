@@ -52,7 +52,6 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
     CloudArchivalConfig { location, credentials_file: None, writer: None, reader: None }
 }
 
-/// Creates a test cloud storage context.
 pub fn test_cloud_storage_context(
     root_dir: impl Into<PathBuf>,
     chain_id: String,

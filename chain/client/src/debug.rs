@@ -107,7 +107,6 @@ impl BlockProductionTracker {
         }
     }
 
-    /// Record block production info
     pub(crate) fn record_block_production(
         &mut self,
         height: BlockHeight,

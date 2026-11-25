@@ -11,7 +11,6 @@ use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
 use std::io::{Error, ErrorKind, Read};
 
-/// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
 pub struct BlockDoubleSign {
     pub left_block_header: Vec<u8>,

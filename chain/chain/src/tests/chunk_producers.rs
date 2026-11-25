@@ -41,7 +41,6 @@ mod tests {
         }
     }
 
-    /// Verify that the ChunkProducers column is populated after processing a block.
     #[test]
     fn test_chunk_producers_populated_after_block_processing() {
         init_test_logger();

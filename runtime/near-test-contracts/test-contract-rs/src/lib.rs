@@ -2029,7 +2029,6 @@ pub unsafe fn max_receipt_size_promise_return_method2() {
     promise_return(promise_c);
 }
 
-/// Mark a test as completed
 #[no_mangle]
 pub unsafe fn mark_test_completed() {
     let key = b"test_completed";

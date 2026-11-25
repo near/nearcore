@@ -280,7 +280,6 @@ impl RotatingValidatorsRunner {
         )
     }
 
-    /// Returns accounts of all validators.
     pub fn all_validators_accounts(&self) -> Vec<AccountId> {
         self.validators.iter().flatten().map(|v| v.account.clone()).collect()
     }

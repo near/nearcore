@@ -1312,7 +1312,6 @@ impl Chain {
         res
     }
 
-    /// Preprocess an optimistic block.
     pub fn preprocess_optimistic_block(
         &mut self,
         block: OptimisticBlock,
@@ -1543,7 +1542,6 @@ impl Chain {
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, mut headers: Vec<Arc<BlockHeader>>) -> Result<(), Error> {
-        // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
         if let (Some(first_header), Some(last_header)) = (headers.first(), headers.last()) {
@@ -4071,13 +4069,11 @@ impl Chain {
         self.chain_store.final_head()
     }
 
-    /// Gets a block by hash.
     #[inline]
     pub fn get_block(&self, hash: &CryptoHash) -> Result<Arc<Block>, Error> {
         self.chain_store.get_block(hash)
     }
 
-    /// Gets the block at chain head
     pub fn get_head_block(&self) -> Result<Arc<Block>, Error> {
         let tip = self.head()?;
         self.chain_store.get_block(&tip.last_block_hash)
@@ -4100,7 +4096,6 @@ impl Chain {
         self.chain_store.get_block_hash_by_height(height)
     }
 
-    /// Gets a block header by hash.
     #[inline]
     pub fn get_block_header(&self, hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_block_header(hash)
@@ -4115,7 +4110,6 @@ impl Chain {
         self.chain_store.get_block_header_by_height(height)
     }
 
-    /// Get previous block header.
     #[inline]
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_previous_header(header).map_err(|e: Error| match e {
@@ -4209,7 +4203,6 @@ impl Chain {
         &mut self.chain_store
     }
 
-    /// Returns genesis block.
     #[inline]
     pub fn genesis_block(&self) -> Arc<Block> {
         Arc::clone(&self.genesis)

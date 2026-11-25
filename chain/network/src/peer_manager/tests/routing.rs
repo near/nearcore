@@ -537,7 +537,6 @@ async fn test_drop_after_ttl() {
     wait_for_message_dropped(&mut pm1_ev).await;
 }
 
-// test dropping behavior for duplicate messages
 #[tokio::test]
 async fn test_dropping_duplicate_messages() {
     abort_on_panic();

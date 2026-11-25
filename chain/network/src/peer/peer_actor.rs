@@ -940,9 +940,7 @@ impl PeerActor {
                                         }
                                     });
                                 }
-                                // Sync the RoutingTable.
                                 act.sync_routing_table();
-                                // Sync snapshot hosts
                                 act.sync_snapshot_hosts();
                             }
 

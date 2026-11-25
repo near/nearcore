@@ -62,13 +62,11 @@ where
     .await
 }
 
-// Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
     PeerId::new(sk.public_key())
 }
 
-// Gets random EpochId
 pub fn random_epoch_id() -> EpochId {
     EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
 }
