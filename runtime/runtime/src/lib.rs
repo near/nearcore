@@ -11,11 +11,11 @@ use crate::config::{
 };
 use crate::congestion_control::{DelayedReceiptQueueWrapper, IteratedReceipt};
 use crate::contract_compilation_status::contract_compilation_is_admitted;
-use crate::external_call::process_external_call;
 pub use crate::external_call::{
     EccDryRun, EccDryRunContext, EccDryRunOutput, ExternalCallsInChunk, ProcessedExternalCall,
     dry_run_external_call, dry_run_external_call_with_output,
 };
+use crate::external_call::{ExternalCallResult, process_external_call};
 use crate::function_call::action_function_call;
 use crate::prefetch::TriePrefetcher;
 use crate::receipt_compilation::preflight_receipt_contracts;
@@ -2439,10 +2439,11 @@ impl Runtime {
                         maybe_validation_error,
                     )?;
                     match processed {
-                        ProcessingResult::Processed(processed) => {
+                        ExternalCallResult::Processed(processed) => {
                             record_external_call(processing_state, receipt_sink, ecc, processed)?;
                         }
-                        ProcessingResult::Deferred => {
+                        ExternalCallResult::Deferred { compute } => {
+                            processing_state.total.add(0, compute)?;
                             num_skipped_txs += 1;
                         }
                     }

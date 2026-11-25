@@ -150,6 +150,14 @@ pub struct ProcessedExternalCall {
     pub run_error: Option<&'static str>,
 }
 
+pub(crate) enum ExternalCallResult {
+    Processed(ProcessedExternalCall),
+    /// No outcome or gas charge, but the pre-run work still counts.
+    Deferred {
+        compute: Compute,
+    },
+}
+
 /// Processes an external contract call of a chunk: checks the chunk's shares for ECCs, reads
 /// the contract account, runs the call, and counts what it used toward the shares. Apply calls
 /// it for each call in the chunk, in order, and so is to the chunk producer, so that both make
@@ -174,7 +182,8 @@ pub struct ProcessedExternalCall {
 /// Returns `Deferred`, with nothing written, when the call's cold code does not fit the chunk's
 /// compilation budget. Unlike receipts, external calls are skipped rather than queued for retry,
 /// like calls beyond the chunk's ECC count limit, and get no outcome. What was recorded for them
-/// still counts toward the share of the chunk's storage proof, but no compute does.
+/// still counts toward the storage proof share, and their fee compute counts toward both the
+/// chunk's compute and its ECC compute share.
 ///
 /// A `RuntimeError`, such as a storage error, stops applying the chunk.
 pub(crate) fn process_external_call<'a>(
@@ -185,7 +194,7 @@ pub(crate) fn process_external_call<'a>(
     accounts: &DashMap<&'a AccountId, Result<Option<Account>, StorageError>, AHashRandomState>,
     ecc: &'a EccTransaction,
     validation_error: Option<InvalidTxError>,
-) -> Result<ProcessingResult<ProcessedExternalCall>, RuntimeError> {
+) -> Result<ExternalCallResult, RuntimeError> {
     let outcome_id = create_ecc_outcome_id(ecc.hash_without_state_init(), apply_state.block_height);
     let refuse = |error: TxExecutionError, compute: Compute| ProcessedExternalCall {
         outcome: ExecutionOutcomeWithId::refused_ecc(outcome_id, ecc, error, compute),
@@ -199,14 +208,14 @@ pub(crate) fn process_external_call<'a>(
         // Without fees there is nothing to count toward the chunk's limits.
         Err(err) => {
             let err = validation_error.unwrap_or_else(|| err.into());
-            return Ok(ProcessingResult::Processed(refuse(err.into(), 0)));
+            return Ok(ExternalCallResult::Processed(refuse(err.into(), 0)));
         }
     };
     // A call refused for its validity counts its fees toward the shares too. The share does not
     // refuse it; `max_external_calls_per_chunk` bounds such calls.
     if let Some(err) = validation_error {
         external_calls.add(cost.compute_burnt, 0);
-        return Ok(ProcessingResult::Processed(refuse(err.into(), cost.compute_burnt)));
+        return Ok(ExternalCallResult::Processed(refuse(err.into(), cost.compute_burnt)));
     }
     // The check comes before anything is read for the call, so that a call past a share adds
     // nothing to the storage proof.
@@ -217,7 +226,7 @@ pub(crate) fn process_external_call<'a>(
     // are past the shares, so that the chunk processes no receipts, at no cost to anyone and
     // with the chunk still produced. `max_external_calls_per_chunk` bounds the work they take.
     if let Err(err) = external_calls.fits() {
-        return Ok(ProcessingResult::Processed(refuse(err.into(), 0)));
+        return Ok(ExternalCallResult::Processed(refuse(err.into(), 0)));
     }
     // Everything recorded from here on, the read of the contract account included, counts toward
     // the share of the chunk's storage proof.
@@ -234,17 +243,14 @@ pub(crate) fn process_external_call<'a>(
     let recorded_after = state_update.trie.recorded_storage_size_upper_bound();
     let recorded =
         u64::try_from(recorded_after.saturating_sub(recorded_before)).unwrap_or(u64::MAX);
-    let processed = match processed {
-        ProcessingResult::Processed(processed) => processed,
-        ProcessingResult::Deferred => {
-            external_calls.add(0, recorded);
-            return Ok(ProcessingResult::Deferred);
+    let compute = match &processed {
+        ExternalCallResult::Processed(call) => {
+            call.outcome.outcome.compute_usage.expect("an ECC outcome reports its compute")
         }
+        ExternalCallResult::Deferred { compute } => *compute,
     };
-    let compute =
-        processed.outcome.outcome.compute_usage.expect("an ECC outcome reports its compute");
     external_calls.add(compute, recorded);
-    Ok(ProcessingResult::Processed(processed))
+    Ok(processed)
 }
 
 /// What the chunk producer knows when it runs an ECC before packing it.
@@ -369,8 +375,8 @@ pub fn dry_run_external_call_with_output(
         installed_state_init,
         run_error: _,
     } = match processed {
-        ProcessingResult::Processed(processed) => processed,
-        ProcessingResult::Deferred => {
+        ExternalCallResult::Processed(processed) => processed,
+        ExternalCallResult::Deferred { .. } => {
             let dry_run = EccDryRun::Deferred;
             return Ok(EccDryRunOutput { dry_run, return_value: vec![], logs: vec![] });
         }
@@ -408,7 +414,7 @@ fn process_admitted_external_call<'a>(
     ecc: &'a EccTransaction,
     outcome_id: CryptoHash,
     cost: &EccCost,
-) -> Result<ProcessingResult<ProcessedExternalCall>, RuntimeError> {
+) -> Result<ExternalCallResult, RuntimeError> {
     // Read and update the contract's account through the chunk's working copy, which signed
     // transactions later in the chunk start from. Otherwise a later transaction from the
     // contract would overwrite the charge and the storage usage of an accepted call. A signed
@@ -434,18 +440,20 @@ fn process_admitted_external_call<'a>(
         Ok(cost) => cost,
         Err(err) => {
             let error = InvalidTxError::from(err).into();
-            return Ok(ProcessingResult::Processed(refuse(error, call_compute)));
+            return Ok(ExternalCallResult::Processed(refuse(error, call_compute)));
         }
     };
     // The fees come out of the call's gas budget, so a call whose fees use it all can never run.
     // Its refusal counts the compute of the call without the install, as other refusals do.
     if cost.gas_burnt >= config.wasm_config.limit_config.max_gas_burnt_external {
-        return Ok(ProcessingResult::Processed(refuse(gas_exceeded(), call_compute)));
+        return Ok(ExternalCallResult::Processed(refuse(gas_exceeded(), call_compute)));
     }
     let state_init = contract.as_ref().and_then(|account| state_init_to_install(account, ecc));
     let account = match verify_ecc_ephemeral(contract.as_mut(), ecc, &cost) {
         Ok(account) => account,
-        Err(err) => return Ok(ProcessingResult::Processed(refuse(err.into(), cost.compute_burnt))),
+        Err(err) => {
+            return Ok(ExternalCallResult::Processed(refuse(err.into(), cost.compute_burnt)));
+        }
     };
 
     // The state update may hold changes staged before the call, such as the outgoing buffer pops
@@ -461,7 +469,7 @@ fn process_admitted_external_call<'a>(
             Ok(read_budget) => read_budget,
             Err(error) => {
                 state_update.rollback();
-                return Ok(ProcessingResult::Processed(refuse(error, cost.compute_burnt)));
+                return Ok(ExternalCallResult::Processed(refuse(error, cost.compute_burnt)));
             }
         };
     let run = run_external_call(
@@ -479,12 +487,7 @@ fn process_admitted_external_call<'a>(
         // Roll back the state init install too. The compilation admissions made so far survive.
         ProcessingResult::Deferred => {
             state_update.rollback();
-            // TODO(cold-compilation): count the fee compute (`cost.compute_burnt`) of a deferred
-            // call toward the chunk's compute and the ECC shares, as for a call refused before
-            // its run. No VM ran and nobody pays, but the validators still did that work. This
-            // needs the compute to reach the caller, which `ProcessingResult::Deferred` can't
-            // carry today. Must be resolved before `ContractCompilationStatus` stabilizes.
-            return Ok(ProcessingResult::Deferred);
+            return Ok(ExternalCallResult::Deferred { compute: cost.compute_burnt });
         }
     };
     let accepted = run.verdict.is_ok();
@@ -500,7 +503,7 @@ fn process_admitted_external_call<'a>(
     let run_error = run.outcome.aborted.as_ref().map(vm_error_name);
     let outcome = run.into_outcome(outcome_id, apply_state.block_height, ecc, account, receipt_ids);
     let installed_state_init = accepted && state_init.is_some();
-    Ok(ProcessingResult::Processed(ProcessedExternalCall {
+    Ok(ExternalCallResult::Processed(ProcessedExternalCall {
         outcome,
         accepted,
         receipts,
