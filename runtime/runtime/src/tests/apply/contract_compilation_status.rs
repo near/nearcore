@@ -575,15 +575,20 @@ fn multi_contract_receipt_compiles_across_chunks_and_preserves_fifo() {
         let pre_root = f.root;
         let pre_congestion = f.state.congestion_info.clone();
         let result = f.apply(&incoming);
-        assert_eq!(result.cold_contract_bytes, codes[chunk].len() as u64);
+        let expected_bytes = match chunk {
+            0 => codes[0].len(),
+            1 => codes[1].len() + codes[2].len(), // One regular admission and one head overrun.
+            _ => 0,
+        };
+        assert_eq!(result.cold_contract_bytes, expected_bytes as u64);
         for (index, code) in codes.iter().enumerate() {
-            if index <= chunk {
+            if index == 0 || chunk > 0 {
                 f.assert_cached(code);
             } else {
                 assert_eq!(f.compilation_status(code), None);
             }
         }
-        if chunk < 2 {
+        if chunk == 0 {
             assert!(result.outcomes.is_empty());
             assert!(result.outgoing_receipts.is_empty());
             assert_eq!(result.delayed_receipts_count, 2);
@@ -594,10 +599,10 @@ fn multi_contract_receipt_compiles_across_chunks_and_preserves_fifo() {
                 "actions must not execute while compilation progress persists"
             );
         } else {
-            assert_eq!(result.delayed_receipts_count, 0);
-            assert_eq!(result.outcomes.len(), 2);
-            assert_eq!(result.outcomes[0].id, *receipt.receipt_id());
-            assert_eq!(result.outcomes[1].id, *tail.receipt_id());
+            let (expected, remaining) = if chunk == 1 { (&receipt, 1) } else { (&tail, 0) };
+            assert_eq!(result.delayed_receipts_count, remaining);
+            assert_eq!(result.outcomes.len(), 1);
+            assert_eq!(result.outcomes[0].id, *expected.receipt_id());
             assert!(
                 result.outcomes.iter().all(|outcome| matches!(
                     outcome.outcome.status,
@@ -627,6 +632,58 @@ fn multi_contract_receipt_compiles_across_chunks_and_preserves_fifo() {
         f.state.apply_reason = ApplyChunkReason::UpdateTrackedShard;
         f.state.congestion_info = next_congestion;
     }
+}
+
+#[test]
+fn delayed_head_makes_progress_when_an_earlier_ecc_uses_its_budget() {
+    let mut f = setup();
+    let ecc_code = ecc_contract("nop");
+    f.install_cold(&[f.receipt(1, vec![deploy(&ecc_code)])]);
+    let [code, tail_code, _] = budget_contracts();
+    let head = f.receipt(0, vec![deploy(&code)]);
+    let tail = f.receipt(0, vec![deploy(&tail_code)]);
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = 0;
+    assert_eq!(f.apply(&[head.clone(), tail.clone()]).delayed_receipts_count, 2);
+
+    // Both contracts fit individually. The ECC fits without tripping the limit,
+    // but leaves too little for the delayed head.
+    let limit = code.len().max(ecc_code.len()) as u64;
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = limit;
+    let result = f.apply_with_eccs(&[], vec![EccTransaction::new(bob_account(), vec![0])]);
+    assert_eq!(result.cold_contract_bytes, (ecc_code.len() + code.len()) as u64);
+    assert_eq!(result.delayed_receipts_count, 1);
+    assert_eq!(result.outcomes.len(), 2);
+    assert_eq!(result.outcomes[1].id, *head.receipt_id());
+    assert_eq!(f.compilation_status(&tail_code), None);
+    assert_eq!(f.apply(&[]).outcomes[0].id, *tail.receipt_id());
+}
+
+#[test]
+fn delayed_head_can_overrun_once_even_after_ecc_hits_the_limit() {
+    let mut f = setup();
+    let ecc_code = ecc_contract("nop");
+    f.install_cold(&[f.receipt(1, vec![deploy(&ecc_code)])]);
+    let [first, second, _] = budget_contracts();
+    let head = f.receipt(0, vec![deploy(&first), deploy(&second)]);
+    let tail = f.receipt(0, vec![call("main")]);
+    Arc::make_mut(&mut f.state.config).max_cold_contract_bytes_per_chunk = 0;
+    assert_eq!(f.apply(&[head.clone(), tail.clone()]).delayed_receipts_count, 2);
+
+    let ecc = EccTransaction::new(bob_account(), vec![0]);
+    let fee = ecc_cost(&f.state.config, &ecc, f.state.gas_price).unwrap();
+    let partial = f.apply_with_eccs(&[], vec![ecc.clone()]);
+    assert_eq!(partial.metrics.unwrap().tx_gas_and_compute(), (0, fee.compute_burnt));
+    assert_eq!(partial.cold_contract_bytes, first.len() as u64);
+    assert_eq!(partial.delayed_receipts_count, 2);
+    assert!(partial.outcomes.is_empty());
+    f.assert_cached(&first);
+    assert_eq!(f.compilation_status(&second), None);
+
+    let done = f.apply_with_eccs(&[], vec![ecc]);
+    assert_eq!(done.cold_contract_bytes, second.len() as u64);
+    assert_eq!(done.delayed_receipts_count, 1);
+    assert_eq!(done.outcomes[0].id, *head.receipt_id());
+    assert_eq!(f.apply(&[]).outcomes[0].id, *tail.receipt_id());
 }
 
 #[test]
