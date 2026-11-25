@@ -119,8 +119,9 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
                 else:
                     assert "error" in result, result
             except useragent.BadStatusCode as e:
-                assert "code=422" in str(
-                    e), f"Expected status code 422 in exception, got: {e}"
+                # Check the status code itself: the exception message format
+                # differs between geventhttpclient versions.
+                assert e.code == 422, f"Expected status code 422 in exception, got: {e}"
             except Exception as e:
                 assert (
                     False

@@ -71,14 +71,14 @@ impl SyncHandler {
     ///
     ///   EpochSync → HeaderSync → StateSync → BlockSync → NoSync
     ///
-    /// Near horizon (within `epoch_sync_horizon`): enters at BlockSync.
+    /// Near horizon (within `epoch_sync_horizon_num_epochs`): enters at BlockSync.
     ///   Both header sync and block sync are called each tick. Header sync
     ///   fetches batches of headers, populating the `NextBlockHashes` chain.
     ///   Block sync walks that chain via `get_next_block_hash()` — when no
     ///   headers exist ahead it gets `DBNotFoundErr` and waits until the
     ///   next 2s timeout retry, so it naturally self-paces behind header sync.
     ///
-    /// Far horizon (beyond `epoch_sync_horizon`): enters at EpochSync.
+    /// Far horizon (beyond `epoch_sync_horizon_num_epochs`): enters at EpochSync.
     ///   After epoch sync completes, headers advance past the epoch boundary,
     ///   state sync downloads state at the sync hash, and finally block sync
     ///   catches up.

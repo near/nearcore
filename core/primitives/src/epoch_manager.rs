@@ -262,7 +262,6 @@ pub struct AllEpochConfigTestOverrides {
 #[derive(Debug, Clone)]
 pub struct AllEpochConfig {
     /// Store for EpochConfigs, provides configs per protocol version.
-    /// Initialized only for production, ie. when `use_protocol_version` is true.
     config_store: EpochConfigStore,
     /// Chain Id. Some parameters are specific to certain chains.
     chain_id: String,

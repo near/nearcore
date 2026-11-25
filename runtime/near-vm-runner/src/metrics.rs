@@ -115,7 +115,6 @@ pub(crate) fn record_execution_duration(duration: Duration) {
     METRICS.with_borrow_mut(|m| m.execution_time += duration);
 }
 
-/// Records the result of a compiled-contract cache lookup.
 #[cfg(feature = "wasmtime_vm")]
 pub(crate) fn record_compiled_contract_cache_lookup(is_hit: bool, is_memory_hit: bool) {
     METRICS.with_borrow_mut(|m| {

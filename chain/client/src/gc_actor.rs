@@ -1,7 +1,6 @@
 use crate::metrics;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
-#[cfg(feature = "test_features")]
 use near_async::messaging::Handler;
 use near_chain::ChainGenesis;
 use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
@@ -111,14 +110,12 @@ impl Actor for GCActor {
     }
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     StopGC,
     ResumeGC,
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for GCActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         match msg {

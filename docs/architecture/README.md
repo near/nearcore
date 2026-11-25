@@ -220,8 +220,8 @@ This module holds the VM-independent half of the host side of the contract
 boundary: the `VMContext` and `External` interfaces described below, gas
 counting, registers, the promise DAG and the `ExecutionResultState` that is
 turned into a `VMOutcome` when a function call finishes. The host functions
-themselves live in `runtime/near-vm-runner/src/wasmtime_runner/logic.rs`
-and operate directly on the wasmtime `Ctx` and guest memory. Interaction
+themselves live in `runtime/near-vm-runner/src/logic/host.rs` and take guest
+memory as a byte slice instead of the wasmtime `Ctx`. Interaction
 with the NEAR blockchain happens in the following two ways:
 
 * `VMContext`, which contains lightweight information such as current block
@@ -234,7 +234,7 @@ with the NEAR blockchain happens in the following two ways:
 
 `run` function in `runner.rs` is the entry point to the vm runner. This function essentially spins
 up the vm and executes some function in a contract. Contracts are compiled and run with wasmtime.
-The `imports` module exposes the host functions defined in `wasmtime_runner/logic.rs` to WASM code. In other
+The `imports` module exposes the host functions defined in `logic/host.rs` to WASM code. In other
 words, it defines the ABI of the contracts on NEAR.
 
 ### `neard`
@@ -244,7 +244,7 @@ All the actors are spawned in `start_with_config`. It is also worth noting that
 `NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
 <!-- TODO: Maybe add RuntimeAdapter mention or explanation in runtime/runtime chapter? -->
 
-### `core/store/src/db.rs`
+### `core/store/src/columns.rs`
 
 This file contains the schema (DBCol) of our internal RocksDB storage - a good
 starting point when reading the code base.

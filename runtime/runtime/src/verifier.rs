@@ -991,7 +991,7 @@ pub(crate) fn validate_receipt(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidateReceiptMode {
     /// Used for validating new receipts that were just created.
-    /// More strict than `OldReceipt` mode, which has to handle older receipts.
+    /// More strict than `ExistingReceipt` mode, which has to handle older receipts.
     NewReceipt,
     /// Used for validating older receipts that were saved in the state/received. Less strict than
     /// NewReceipt validation. Tolerates some receipts that wouldn't pass new validation. It has to
@@ -2186,9 +2186,8 @@ mod tests {
             vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
             CryptoHash::default(),
         );
-        // The size gate uses the full wire size (signature included) once
-        // `PostQuantumSignatures` is enabled, and the body-only size before
-        // that. Mirror that here so the test holds on both stable and nightly.
+        // The size gate uses the full wire size (signature included).
+        // Mirror that here.
         let transaction_size = signed_tx.size_for_limits();
 
         let mut config = RuntimeConfig::test();

@@ -47,7 +47,7 @@ impl ChunkEndorsementsBitmap {
     }
 
     /// Returns the endorsements bits as a vector of bytes.
-    /// The struct can be reconstructed by providing the output of this function to `new_from_bits`.
+    /// The struct can be reconstructed by providing the output of this function to `from_bytes`.
     pub fn bytes(&self) -> Vec<Vec<u8>> {
         self.inner.clone()
     }

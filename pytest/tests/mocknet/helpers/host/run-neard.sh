@@ -12,14 +12,24 @@ if [ "$IS_TRAFFIC" != 1 ]; then
     exec "$neard" --log-span-events --home "$NEAR_HOME" --unsafe-fast-startup run
 fi
 
-args=(mirror run --source-home "$SOURCE_HOME" --target-home "$NEAR_HOME")
+# start-neard.sh writes this file when `start-traffic` gets --source-* flags.
+TRAFFIC_SOURCE_HOME=
+TRAFFIC_SOURCE_CLOUD_ARCHIVE=0
+traffic_source="$FORKNET_HOME/traffic-source.env"
+if [ -f "$traffic_source" ]; then
+    source "$traffic_source"
+fi
+args=(mirror run --source-home "${TRAFFIC_SOURCE_HOME:-$SOURCE_HOME}" --target-home "$NEAR_HOME")
+if [ "$TRAFFIC_SOURCE_CLOUD_ARCHIVE" = 1 ]; then
+    args+=(--source-cloud-archive)
+fi
 secret_file="$NEAR_HOME/setup/mirror-secret.json"
 if [ -f "$secret_file" ]; then
     args+=(--secret-file "$secret_file")
 else
     args+=(--no-secret)
 fi
-# mirror.py writes this file when `start-traffic` gets --batch-interval-millis.
+# start-neard.sh writes this file when `start-traffic` gets --batch-interval-millis.
 mirror_config="$FORKNET_HOME/mirror-config.json"
 if [ -f "$mirror_config" ]; then
     args+=(--config-path "$mirror_config")

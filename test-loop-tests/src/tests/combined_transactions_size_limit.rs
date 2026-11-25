@@ -1,8 +1,8 @@
 //! The per-chunk `combined_transactions_size_limit` bounds how many bytes of
-//! transactions a chunk carries into the `ChunkStateWitness`. From
-//! `PostQuantumSignatures` onward that budget counts the full wire size of each
-//! transaction - signature included - so an ML-DSA-65 transaction, whose
-//! ~3.3 KiB signature is invisible to the legacy body-only `get_size`, consumes
+//! transactions a chunk carries into the `ChunkStateWitness`. That budget
+//! counts the full wire size of each transaction - signature included - so an
+//! ML-DSA-65 transaction, whose ~3.3 KiB signature is invisible to the legacy
+//! body-only `get_size`, consumes
 //! its true share of the budget.
 //!
 //! This checks that chunk packing actually stops at that limit: with the budget

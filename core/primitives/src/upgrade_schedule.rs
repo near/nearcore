@@ -287,7 +287,7 @@ mod tests {
         schedule
     }
 
-    // The tests call `get_protocol_version()` with the following parameters:
+    // The tests call `protocol_version_to_vote_for()` with the following parameters:
     // No schedule:                  (X-2,X), (X,X), (X+2,X)
     // Before the scheduled upgrade: (X-2,X), (X,X), (X+2,X)
     // After the scheduled upgrade:  (X-2,X), (X,X), (X+2,X)

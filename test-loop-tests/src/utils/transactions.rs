@@ -37,7 +37,6 @@ pub(crate) struct BalanceMismatchError {
     pub actual: Balance,
 }
 
-// Returns the head with the smallest height
 pub(crate) fn get_smallest_height_head(clients: &[&Client]) -> Arc<Tip> {
     clients
         .iter()

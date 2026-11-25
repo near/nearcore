@@ -52,7 +52,7 @@ pub fn get_block_header_on_chain_by_height(
     chain_store.get_block_header(&hash)
 }
 
-/// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
+/// For a given transaction, it expires if the block that the chunk points to is more than `transaction_validity_period`
 /// ahead of the block that has `base_block_hash`. A transaction without a `base_block_hash` (an
 /// ECC) never expires.
 pub fn check_transaction_validity_period(

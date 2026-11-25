@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_chain_primitives::Error as ChainStoreError;
 use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError};
 use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -17,10 +18,33 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
+use near_store::Store;
+use near_store::adapter::StoreAdapter;
 use near_store::genesis::initialize_genesis_state;
-use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
+
+/// Pause between two looks at the head of a store another task appends to.
+const WAIT_FOR_BLOCKS_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How many heights a block must be below the reader head before the mirror reads it from
+/// a store another task appends to. The create account lookahead follows a block's receipts
+/// to their outcomes, which land in later blocks. Above the reader head those outcomes are
+/// not in the store yet, and the extra transactions would be lost.
+const OUTCOME_MARGIN: BlockHeight = 100;
+
+/// A source store another task keeps extending (the cloud archive source).
+pub(crate) struct Follow {
+    /// Cancelled on shutdown. A read that waits for blocks stops then.
+    pub(crate) shutdown: CancellationToken,
+    /// The highest height the mirror has asked about, raised as it asks. The extending
+    /// task keeps the store a bounded distance above it.
+    pub(crate) asked: Arc<AtomicU64>,
+}
 
 fn is_on_current_chain(
     chain: &ChainStore,
@@ -34,31 +58,108 @@ pub(crate) struct ChainAccess {
     chain: ChainStore,
     epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
+    /// Set when another task keeps appending blocks to the store (the cloud archive
+    /// source): reads past the head then wait for them until shutdown, instead of
+    /// ending the run. That store is built without state, so a state query that fails
+    /// in the trie then reports `ChainError::NoState`, which the mirror falls back from.
+    follow: Option<Follow>,
 }
 
 impl ChainAccess {
+    /// Opens the store under `home` and serves it as it is.
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
-        let config =
-            nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
-                .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
+        let home = home.as_ref();
+        let config = nearcore::config::load_config(home, GenesisValidationMode::UnsafeFast)
+            .with_context(|| format!("Error loading config from {:?}", home))?;
         let node_storage =
-            nearcore::open_storage(home.as_ref(), &config).context("failed opening storage")?;
+            nearcore::open_storage(home, &config).context("failed opening storage")?;
         let store = node_storage.get_hot_store();
-        initialize_genesis_state(store.clone(), &config.genesis, Some(home.as_ref()));
+        initialize_genesis_state(store.clone(), &config.genesis, Some(home));
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home));
+        let runtime =
+            NightshadeRuntime::from_config(home, store.clone(), &config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
+        Ok(Self::from_parts(store, &config, epoch_manager, runtime, None))
+    }
+
+    /// Serves a store the caller opened and built the chain views for. With `follow`, the
+    /// store is one another task appends to, and reads past its head wait for that task
+    /// until shutdown. That store holds no state, so a state query failing in the trie is
+    /// reported as `ChainError::NoState`.
+    pub(crate) fn from_parts(
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        runtime: Arc<NightshadeRuntime>,
+        follow: Option<Follow>,
+    ) -> Self {
         let chain = ChainStore::new(
-            store.clone(),
+            store,
             config.client_config.save_trie_changes,
             config.genesis.config.transaction_validity_period,
         );
-        let epoch_manager = EpochManager::new_arc_handle(
-            store.clone(),
-            &config.genesis.config,
-            Some(home.as_ref()),
-        );
-        let runtime =
-            NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
-        Ok(Self { chain, epoch_manager, runtime })
+        Self { chain, epoch_manager, runtime, follow }
+    }
+
+    /// The last height the store holds in full. With `follow`, that is the reader head:
+    /// the extending task writes a batch's block rows and height index before its chunks,
+    /// and moves the reader head (and the chain heads with it) once the whole batch is in.
+    /// The height index above the reader head can name blocks whose chunks are not in
+    /// yet. Without `follow`, the chain head.
+    fn complete_head(&self) -> Result<BlockHeight, ChainError> {
+        if self.follow.is_none() {
+            return Ok(self.chain.head()?.height);
+        }
+        let reader_head = self
+            .chain
+            .store()
+            .cloud_archival_store()
+            .reader_head()
+            .context("the followed source store has no reader head")?;
+        Ok(reader_head.height)
+    }
+
+    /// Waits for the appending task to land more blocks. `Ok(false)` on a static store,
+    /// where the caller reports the end of the chain instead.
+    async fn wait_for_blocks(&self) -> anyhow::Result<bool> {
+        let Some(follow) = &self.follow else {
+            return Ok(false);
+        };
+        tokio::select! {
+            _ = follow.shutdown.cancelled() => {
+                anyhow::bail!("shutdown requested while waiting for source blocks")
+            }
+            _ = tokio::time::sleep(WAIT_FOR_BLOCKS_INTERVAL) => Ok(true),
+        }
+    }
+
+    /// Whether the mirror can send the block at `block_hash` from this store. With
+    /// `follow`, that needs the block's new chunks, which the block the bootstrap anchored
+    /// on does not have: the bootstrap only copies what lies above it.
+    fn holds_block_data(&self, block_hash: &CryptoHash) -> Result<bool, ChainError> {
+        if self.follow.is_none() {
+            return Ok(true);
+        }
+        let block = match self.chain.get_block(block_hash) {
+            Ok(block) => block,
+            Err(ChainStoreError::DBNotFoundErr(_)) => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        let height = block.header().height();
+        Ok(block
+            .chunks()
+            .iter()
+            .filter(|chunk| chunk.height_included() == height)
+            .all(|chunk| self.chain.get_chunk(&chunk.chunk_hash()).is_ok()))
+    }
+
+    /// Records `height` as asked about, so the extending task copies up to a bounded
+    /// distance above it.
+    fn raise_asked_height(&self, height: BlockHeight) {
+        if let Some(follow) = &self.follow {
+            follow.asked.fetch_max(height, Ordering::Relaxed);
+        }
     }
 }
 
@@ -70,24 +171,43 @@ impl crate::ChainAccess for ChainAccess {
         num_initial_blocks: usize,
     ) -> anyhow::Result<Vec<BlockHeight>> {
         let mut block_heights = Vec::with_capacity(num_initial_blocks);
-        let head = self.head_height().await?;
+        // On a restart the reader head can be at `last_height`, and the wait below
+        // needs the store extended past it.
+        self.raise_asked_height(last_height);
 
         let mut height = last_height + 1;
+        let mut logged_wait = false;
         loop {
+            let head = self.head_height().await?;
             if height > head {
-                return Ok(block_heights);
+                if !self.wait_for_blocks().await? {
+                    return Ok(block_heights);
+                }
+                if !logged_wait {
+                    tracing::info!(
+                        target: "mirror",
+                        height,
+                        head,
+                        "waiting for the source store to reach the next height to send"
+                    );
+                    logged_wait = true;
+                }
+                continue;
             }
             match self.chain.get_block_hash_by_height(height) {
-                Ok(hash) => {
-                    block_heights.push(
-                        self.chain
-                            .get_block_header(&hash)
-                            .with_context(|| format!("failed fetching block header for {}", hash))?
-                            .height(),
-                    );
+                Ok(block_hash) if self.holds_block_data(&block_hash)? => {
+                    block_heights.push(height);
                     break;
                 }
-                Err(near_chain_primitives::Error::DBNotFoundErr(_)) => {
+                Ok(_) => {
+                    tracing::info!(
+                        target: "mirror",
+                        height,
+                        "the source store holds no chunks for this block; starting above it"
+                    );
+                    height += 1;
+                }
+                Err(ChainStoreError::DBNotFoundErr(_)) => {
                     height += 1;
                 }
                 Err(e) => {
@@ -100,9 +220,13 @@ impl crate::ChainAccess for ChainAccess {
             let last_height = *block_heights.iter().next_back().unwrap();
             match self.get_next_block_height(last_height).await {
                 Ok(h) => block_heights.push(h),
-                Err(ChainError::Unknown) => break,
-                Err(ChainError::Other(e)) => {
-                    return Err(e).with_context(|| {
+                Err(ChainError::Unknown) => {
+                    if !self.wait_for_blocks().await? {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow::Error::from(e)).with_context(|| {
                         format!("failed getting next block height after {}", last_height)
                     });
                 }
@@ -116,7 +240,11 @@ impl crate::ChainAccess for ChainAccess {
     }
 
     async fn head_height(&self) -> Result<BlockHeight, ChainError> {
-        Ok(self.chain.head()?.height)
+        self.complete_head()
+    }
+
+    fn source_grows(&self) -> bool {
+        self.follow.is_some()
     }
 
     async fn get_txs(&self, height: BlockHeight) -> Result<SourceBlock, ChainError> {
@@ -157,9 +285,16 @@ impl crate::ChainAccess for ChainAccess {
     }
 
     async fn get_next_block_height(&self, height: BlockHeight) -> Result<BlockHeight, ChainError> {
+        self.raise_asked_height(height);
         let hash = self.chain.get_block_hash_by_height(height)?;
         let hash = self.chain.get_next_block_hash(&hash)?;
-        Ok(self.chain.get_block_header(&hash)?.height())
+        let next_height = self.chain.get_block_header(&hash)?.height();
+        // Not there yet, as far as the caller is concerned, when its chunks or the outcomes
+        // of its receipts may not be.
+        if self.follow.is_some() && next_height + OUTCOME_MARGIN > self.complete_head()? {
+            return Err(ChainError::Unknown);
+        }
+        Ok(next_height)
     }
 
     async fn get_outcome(
@@ -214,6 +349,7 @@ impl crate::ChainAccess for ChainAccess {
                 .into_chain_error()?;
         let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
             .into_chain_error()?;
+        // A missing chunk extra is a `DBNotFoundErr`, which already maps to `ChainError::Unknown`.
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         let mut after_key = None;
         loop {
@@ -236,6 +372,23 @@ impl crate::ChainAccess for ChainAccess {
                     QueryError::UnknownAccount { .. } | QueryError::UninitializedAccount { .. },
                 ) => {
                     return Ok(ret);
+                }
+                // For `ViewAccessKeyList`, `InternalError` wraps a `StorageError` raised while
+                // reading the trie (e.g. `MissingTrieValue`). On a store built without state
+                // (the cloud archive source) that is expected at every block, and the caller
+                // falls back to the default extra key. On any other store it is corruption or
+                // state garbage-collected under the mirror, and it is returned like every other
+                // error: the create-account and add-key callers log it and skip the
+                // transaction, and `unstake` stops the run.
+                Err(QueryError::InternalError { error_message, .. }) if self.follow.is_some() => {
+                    tracing::debug!(
+                        target: "mirror",
+                        %account_id,
+                        %block_hash,
+                        %error_message,
+                        "source store has no state for the access key query",
+                    );
+                    return Err(ChainError::NoState);
                 }
                 Err(e) => return Err(e.into()),
             };

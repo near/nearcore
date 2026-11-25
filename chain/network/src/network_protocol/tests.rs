@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::DecodeMemoryLimits;
 use crate::network_protocol::PeersResponse;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
@@ -754,4 +755,13 @@ fn snapshot_host_info_too_many_shards() {
         }
         other => panic!("expected TooManyShards, got: {other:?}"),
     }
+}
+
+#[test]
+fn default_decode_memory_limits() {
+    let limits = DecodeMemoryLimits::default();
+    assert_eq!(limits.low_bytes, 8 * MAX_SMALL_MESSAGE_SIZE);
+    assert_eq!(limits.medium_bytes, 8 * MAX_MEDIUM_MESSAGE_SIZE);
+    assert_eq!(limits.high_bytes, 8 * MAX_LARGE_MESSAGE_SIZE);
+    assert!(limits.high_bytes >= MAX_HUGE_MESSAGE_SIZE);
 }

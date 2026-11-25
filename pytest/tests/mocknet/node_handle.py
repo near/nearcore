@@ -206,7 +206,10 @@ class NodeHandle:
     def start_neard(self,
                     binary_idx=None,
                     force_restart=False,
-                    batch_interval_millis=None):
+                    batch_interval_millis=None,
+                    source_cloud_archive=False,
+                    source_home=None,
+                    source_rpc_backup=False):
         args = []
         if binary_idx is not None:
             args += ['--binary-idx', int(binary_idx)]
@@ -214,6 +217,12 @@ class NodeHandle:
             args += ['--force-restart']
         if batch_interval_millis is not None:
             args += ['--batch-interval-millis', int(batch_interval_millis)]
+        if source_cloud_archive:
+            args += ['--source-cloud-archive']
+        if source_home is not None:
+            args += ['--source-home', source_home]
+        if source_rpc_backup:
+            args += ['--source-rpc-backup']
         return self.run_cmd(self.script_cmd('start-neard.sh', *args))
 
     def stop_neard(self):

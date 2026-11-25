@@ -602,7 +602,8 @@ pub fn ecc_cost(
 }
 
 /// Returns `cost`, the fees of an external call, plus those of a self-addressed
-/// `UniversalStateInit` action carrying the `state_init` it installs, all burnt at once.
+/// `UniversalStateInit` action carrying the `state_init` it installs, all burnt at once, less the
+/// account creation fee: the transfer that created the uninitialized account paid it.
 pub fn ecc_cost_with_state_init(
     config: &RuntimeConfig,
     cost: &EccCost,
@@ -612,6 +613,16 @@ pub fn ecc_cost_with_state_init(
     let fees = &config.fees;
     let fee = universal_state_init_fee(fees, state_init, |fee| fee.send_fee(true))?
         .checked_add_result(universal_state_init_fee(fees, state_init, Fee::exec_fee)?)?;
+    let create_account = fees.fee(ActionCosts::create_account);
+    let creation = create_account.send_fee(true).checked_add_result(create_account.exec_fee())?;
+    let base_fee = fees.fee(ActionCosts::universal_state_init_base);
+    let base = base_fee.send_fee(true).checked_add_result(base_fee.exec_fee())?;
+    // Only the base fee prices account creation, so the per-entry and per-byte fees stay.
+    let creation = ParameterCost {
+        gas: creation.gas.min(base.gas),
+        compute: creation.compute.min(base.compute),
+    };
+    let fee = fee.checked_sub(creation).ok_or(IntegerOverflowError)?;
     Ok(EccCost {
         gas_burnt: cost.gas_burnt.checked_add_result(fee.gas)?,
         compute_burnt: safe_add_compute(cost.compute_burnt, fee.compute)?,
@@ -750,7 +761,7 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
 /// usage. What is not burnt may be forwarded to outgoing receipts or it may
 /// also be converted back to NEAR for a refund.
 ///
-/// Don't confuse this with `prepaid_exec_fees`, those are static fees that are
+/// Don't confuse this with `total_prepaid_exec_fees`, those are static fees that are
 /// burnt before execution happens.
 ///
 /// Naming isn't great but it is consistent with the user-visible error
@@ -1029,7 +1040,7 @@ mod tests {
         assert_eq!(pq.total_cost, pq_with_eq_compute.total_cost);
     }
 
-    /// With the base value (0, before `PostQuantumSignatures`) the charge is
+    /// With the base value (0) the charge is
     /// inert: an ML-DSA-65 signer costs exactly the same as ed25519.
     #[test]
     fn ml_dsa_65_verify_gas_zero_by_default() {
@@ -1214,5 +1225,37 @@ mod tests {
             cost.gas_burnt,
             limit_config.max_gas_burnt_external,
         );
+    }
+
+    /// An external call's install fees are those of a state init action less the account
+    /// creation fee, in gas and compute.
+    #[test]
+    fn ecc_cost_with_state_init_leaves_out_account_creation() {
+        let config_store = RuntimeConfigStore::new();
+        let protocol_version = ProtocolFeature::ExternalContractCalls.protocol_version();
+        let config = config_store.get_config(protocol_version);
+        let state_init = UniversalStateInit::V1(UniversalStateInitV1 {
+            code: None,
+            data: BTreeMap::from([(b"a".to_vec(), b"1".to_vec())]),
+            access_keys: BTreeSet::new(),
+        })
+        .to_raw();
+        let ecc = EccTransaction::new("contract.near".parse().unwrap(), vec![]);
+        let gas_price = Balance::from_yoctonear(1);
+        let cost = ecc_cost(config, &ecc, gas_price).unwrap();
+
+        let with_init = ecc_cost_with_state_init(config, &cost, &state_init, gas_price).unwrap();
+
+        let fees = &config.fees;
+        let action = universal_state_init_fee(fees, &state_init, |fee| fee.send_fee(true))
+            .unwrap()
+            .checked_add_result(universal_state_init_fee(fees, &state_init, Fee::exec_fee).unwrap())
+            .unwrap();
+        let create_account = fees.fee(ActionCosts::create_account);
+        let creation =
+            create_account.send_fee(true).checked_add_result(create_account.exec_fee()).unwrap();
+        let install = action.checked_sub(creation).unwrap();
+        assert_eq!(with_init.gas_burnt, cost.gas_burnt.checked_add(install.gas).unwrap());
+        assert_eq!(with_init.compute_burnt, cost.compute_burnt + install.compute);
     }
 }

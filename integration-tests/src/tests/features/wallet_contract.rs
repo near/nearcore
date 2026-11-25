@@ -124,7 +124,6 @@ fn test_eth_implicit_account_creation() {
     }
 }
 
-/// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
 fn test_transaction_from_eth_implicit_account_fail() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

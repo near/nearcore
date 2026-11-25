@@ -5,15 +5,14 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-#[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
-#[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::chunk_executor_actor::ChunkExecutorSenderForClient;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -37,7 +36,6 @@ use near_async::time::{Clock, Utc};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
-#[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
@@ -81,7 +79,6 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
-#[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_telemetry::TelemetryEvent;
@@ -111,9 +108,9 @@ impl fmt::Display for ShutdownReason {
     }
 }
 
-/// Multiplier on `max_block_time` to wait until deciding that chain stalled.
+/// Multiplier on `max_block_production_delay` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
-/// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
+/// `max_block_production_delay` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
@@ -153,7 +150,7 @@ pub struct StartClientResult {
 }
 
 pub struct SpiceClientConfig {
-    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub chunk_executor_sender: ChunkExecutorSenderForClient,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
     pub spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -342,7 +339,7 @@ pub struct ClientActor {
 
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
-    chunk_executor_sender: Sender<ProcessedBlock>,
+    chunk_executor_sender: ChunkExecutorSenderForClient,
 
     /// With spice spice chunk validator validates witnesses for which it
     /// needs to be aware of new blocks.
@@ -432,7 +429,7 @@ impl ClientActor {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
-        chunk_executor_sender: Sender<ProcessedBlock>,
+        chunk_executor_sender: ChunkExecutorSenderForClient,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
         spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -487,7 +484,6 @@ impl ClientActor {
     }
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceBlockHeightSelection {
     /// Place the new block on top of the latest known block. Block's height will be the next
@@ -510,7 +506,6 @@ pub enum AdvProduceBlockHeightSelection {
     },
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
@@ -524,14 +519,12 @@ pub enum NetworkAdversarialMessage {
     AdvCheckStorageConsistency,
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         match msg {
@@ -1860,7 +1853,10 @@ impl ClientActor {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
-            if let Err(err) = self.client.run_catchup(&self.sync_jobs_sender.block_catch_up) {
+            if let Err(err) = self.client.run_catchup(
+                &self.sync_jobs_sender.block_catch_up,
+                &self.chunk_executor_sender.catchup_finished,
+            ) {
                 tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
             }
         }
@@ -2159,7 +2155,6 @@ impl ClientActor {
     ///
     /// The parameter `height_selection` governs the produced blocks' heights and what base block
     /// height they are placed.
-    #[cfg(feature = "test_features")]
     pub fn adv_produce_blocks_on(
         &mut self,
         num_blocks: BlockHeight,

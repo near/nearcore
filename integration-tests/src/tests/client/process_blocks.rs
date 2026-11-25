@@ -238,7 +238,7 @@ async fn produce_block_with_approvals() {
     }
 }
 
-/// Sends one invalid block followed by one valid block, and checks that client announces only valid block.
+/// Sends several invalid blocks followed by one valid block, and checks that client announces only valid block.
 /// and that the node bans the peer for invalid block header.
 async fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();

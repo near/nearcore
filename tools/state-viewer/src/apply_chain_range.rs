@@ -346,7 +346,6 @@ fn apply_block_from_range(
     only_contracts: bool,
     storage: StorageSource,
 ) {
-    // Gather inputs for chunk application
     let input_or_skip: ApplicationInputOrSkip = get_chunk_application_input(
         height,
         shard_id,

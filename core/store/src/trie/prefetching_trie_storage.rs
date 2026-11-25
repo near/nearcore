@@ -250,7 +250,7 @@ impl TrieStorage for TriePrefetchingStorage {
             }
             PrefetcherResult::Prefetched(value) => Ok(value),
             PrefetcherResult::Pending => {
-                // yield once before calling `block_get` that will check for data to be present again.
+                // yield once before calling `blocking_get` that will check for data to be present again.
                 thread::yield_now();
                 self.prefetching
                     .blocking_get(*hash)

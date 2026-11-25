@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 from mirror import (CommandContext, amend_binaries_cmd, clear_scheduled_cmds,
                     get_nodes_pending_new_test, hard_reset_cmd, new_test_cmd,
@@ -92,6 +93,11 @@ class TestSetup:
                                                 None)
         self.has_archival = False
         self.has_state_dumper = False
+        # Where the traffic generator reads the source chain from: the RPC
+        # backup home by default, or a cloud archive reader home on the traffic
+        # host (`mirror.py start-traffic --source-cloud-archive`).
+        self.source_cloud_archive: bool = False
+        self.source_home: Optional[str] = None
         self.tracing_server = False
         # The GCP regions to be used for the nodes.
         self.regions = None
@@ -104,6 +110,14 @@ class TestSetup:
         self.neard_upgrade_binary_url = getattr(args,
                                                 'neard_upgrade_binary_url',
                                                 None)
+        # The forked genesis's min_gas_price, in yoctoNEAR per gas. fork-network
+        # copies it from the mainnet genesis (1e9), but mainnet runs at 1e8:
+        # nearcore uses MIN_GAS_PRICE_NEP_92_FIX in place of the genesis value
+        # only for genesis protocol version 29, and the forked genesis has a
+        # later one. At 1e9 busy mainnet signers run out of NEAR on the forknet
+        # and their mirrored transactions fail with NotEnoughBalance or
+        # LackBalanceForState. None keeps the value fork-network copies.
+        self.genesis_min_gas_price: Optional[int] = 100_000_000
 
     def fail_if_args_not_set(self):
         """
@@ -198,10 +212,33 @@ class TestSetup:
         run_args.cmd = "rm -rf /home/ubuntu/.near/cold /home/ubuntu/.near/validator_key.json && /home/ubuntu/.near/forknet/binaries/neard0 database change-db-kind --new-kind Hot change-hot"
         run_remote_cmd(CommandContext(run_args))
 
+    def set_genesis_min_gas_price(self):
+        """
+        Write genesis_min_gas_price into the setup genesis on every host.
+        new-test copies that file into the node's home, and fork-network
+        set-validators takes min_gas_price from it for the forked genesis.
+        Hosts without a setup genesis (chunk validators without state) get the
+        forked genesis from the first validator later, so they are skipped.
+        """
+        if self.genesis_min_gas_price is None:
+            return
+        logger.info(
+            f"Setting the genesis min_gas_price to {self.genesis_min_gas_price}"
+        )
+        jq_cmd = f"""[ ! -f "$G" ] || {{ jq '.min_gas_price = "{self.genesis_min_gas_price}"' "$G" > "$G.tmp" && mv "$G.tmp" "$G"; }}"""
+        run_cmd_args = copy.deepcopy(self.args)
+        run_cmd_args.host_type = 'nodes'
+        run_cmd_args.cmd = f'G="$HOME/.near/setup/genesis.json"; {jq_cmd}'
+        run_remote_cmd(CommandContext(run_cmd_args))
+        run_cmd_args.host_type = 'traffic'
+        run_cmd_args.cmd = f'G="$HOME/.near/target/setup/genesis.json"; {jq_cmd}'
+        run_remote_cmd(CommandContext(run_cmd_args))
+
     def new_test(self):
         """
         Create a new test case.
         """
+        self.set_genesis_min_gas_price()
 
         new_test_args = copy.deepcopy(self.args)
         new_test_args.epoch_length = self.epoch_len
@@ -310,6 +347,8 @@ class TestSetup:
         """
         start_nodes_args = copy.deepcopy(self.args)
         start_nodes_args.batch_interval_millis = None
+        start_nodes_args.source_cloud_archive = self.source_cloud_archive
+        start_nodes_args.source_home = self.source_home
         start_traffic_cmd(CommandContext(start_nodes_args))
 
     def _schedule_upgrade_nodes_every_n_minutes(self, minutes):

@@ -82,7 +82,6 @@ pub(crate) fn get_yield_data_ids_in_latest_state(env: &TestLoopEnv) -> Vec<Crypt
     get_yield_data_ids_in_state(client, latest_state_root, shard_uid)
 }
 
-/// Get the latest available state root.
 fn get_latest_state_state_root(
     client: &Client,
     latest_block_hash: CryptoHash,

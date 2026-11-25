@@ -68,9 +68,9 @@ pub struct ReceiptManager {
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct FunctionCallActionIndex {
-    /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
+    /// Index of [`ActionReceiptMetadata`] in the action receipts of [`ReceiptManager`].
     pub(super) receipt_index: usize,
-    /// Index of the [`Action`] within the [`ReceiptMetadata`].
+    /// Index of the [`Action`] within the [`ActionReceiptMetadata`].
     pub(super) action_index: usize,
 }
 
@@ -166,7 +166,7 @@ impl ReceiptManager {
 
     /// Creates a PromiseResume receipt.
     ///
-    /// Should only be used to resolve dependencies created by `create_yielded_action_receipt`.
+    /// Should only be used to resolve dependencies created by `create_promise_yield_receipt`.
     ///
     /// # Arguments
     ///
@@ -374,7 +374,7 @@ impl ReceiptManager {
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
     /// specified, the action should be allocated gas in
-    /// [`distribute_unused_gas`](Self::distribute_unused_gas).
+    /// [`distribute_gas`](Self::distribute_gas).
     ///
     /// For more information, see the `promise_batch_action_function_call_weight` host function
     /// in `near-vm-runner`.

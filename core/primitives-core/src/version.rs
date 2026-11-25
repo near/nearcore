@@ -130,10 +130,25 @@ pub enum ProtocolFeature {
     /// Read each gas key nonce before `DeleteKey` removes it, so the storage
     /// proof limits count the trie nodes that the removal records.
     ReadGasKeyNoncesBeforeRemoval,
+    /// Read each key that links an action receipt to its input data before writing it:
+    /// `PostponedReceiptId`, `PendingDataCount` and `PostponedReceipt` when an action
+    /// receipt is postponed, `PromiseYieldReceipt` when a yielded receipt is stored, and
+    /// `ReceivedData` when data arrives. The storage proof limits then count the trie nodes
+    /// that the insert records.
+    ReadDataDependencyKeysBeforeWrite,
     /// Apply skips, with no outcome, a chunk's transaction whose routing account (the signer, or
     /// the contract of an ECC) belongs to another shard. Before, it failed with an outcome that
     /// shares its id with the outcome of the same transaction in its own shard.
     SkipForeignShardTransactions,
+    /// An action receipt with a single `DeleteAccount` action is instant only when its receiver is
+    /// its predecessor. Before, every such receipt was instant, so a delete of another account ran
+    /// on the sender's shard instead of being forwarded to the receiver's shard.
+    InstantDeleteAccountOnlyForSelf,
+    /// Read the key of each push to an outgoing receipt buffer and to the `PromiseYield`
+    /// timeout queue before writing it. A push writes a new key without reading it, so its
+    /// trie nodes are recorded only when the state update is finalized, after the storage
+    /// proof limits are checked. The read records the same nodes now, so the limits count them.
+    ReadQueueKeysBeforePush,
 }
 
 impl ProtocolFeature {
@@ -163,9 +178,13 @@ impl ProtocolFeature {
             ProtocolFeature::FixRegisterInputCharging => 89,
             ProtocolFeature::PinReceiptFees => 89,
             ProtocolFeature::ReadGasKeyNoncesBeforeRemoval => 89,
+            ProtocolFeature::ReadDataDependencyKeysBeforeWrite => 89,
             ProtocolFeature::ExternalContractCalls => 89,
             ProtocolFeature::SkipForeignShardTransactions => 89,
             ProtocolFeature::RejectBlockChallenges => 89,
+            ProtocolFeature::ChargeAllTrieNodesAsTouched => 89,
+            ProtocolFeature::InstantDeleteAccountOnlyForSelf => 89,
+            ProtocolFeature::ReadQueueKeysBeforePush => 89,
 
             // Nightly features:
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -174,7 +193,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixMlDsaCostCharging => 157,
             ProtocolFeature::ReceiptPromiseInputSizeLimit => 157,
             ProtocolFeature::ContractCompilationStatus => 158,
-            ProtocolFeature::ChargeAllTrieNodesAsTouched => 159,
             // Spice is setup to include nightly, but not be part of it for now so that features
             // that are released before spice can be tested properly.
             ProtocolFeature::Spice => 180,

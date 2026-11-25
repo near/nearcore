@@ -31,7 +31,9 @@ case "$1 $2" in
     mkdir -p "$home"
     echo '{"network": {"addr": "0.0.0.0:24567"}}' >"$home/config.json"
     echo '{"public_key": "node"}' >"$home/node_key.json"
-    [ -n "$3" ] && echo "{\"account_id\": \"$3\"}" >"$home/validator_key.json"
+    if [ -n "$3" ]; then
+        echo "{\"account_id\": \"$3\"}" >"$home/validator_key.json"
+    fi
     ;;
 "database make-snapshot") mkdir -p "$4/data" && cp -r "$home/data/." "$4/data/" ;;
 "fork-network set-validators")
@@ -207,6 +209,42 @@ class HostScriptsTest(unittest.TestCase):
         r = self.run_script('network-init.sh', '[]', check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual((self.home / 'setup.env').read_text(), setup_env)
+
+    def test_traffic_source(self):
+        # Setup: this host is the traffic generator, and neard runs.
+        host_env = self.home / 'host.env'
+        host_env.write_text(host_env.read_text().replace(
+            'IS_TRAFFIC=0', 'IS_TRAFFIC=1'))
+        self.new_test()
+        self.run_script('start-neard.sh')
+        self.read_log()
+
+        # A cloud archive source restarts neard; the same source again does
+        # not, and a plain start keeps it.
+        r = self.run_script('start-neard.sh',
+                            '--source-cloud-archive',
+                            check=False)
+        self.assertIn('needs --source-home', r.stderr)
+        self.run_script('start-neard.sh', '--source-cloud-archive',
+                        '--source-home', '/reader')
+        self.run_script('start-neard.sh', '--source-cloud-archive',
+                        '--source-home', '/reader')
+        self.run_script('start-neard.sh')
+        log = [l for l in self.read_log() if 'start ' in l]
+        self.assertEqual(log, ['systemctl --user restart neard'])
+        self.run_script('run-neard.sh')
+        self.assertEqual(self.read_log(), [
+            f'neard mirror run --source-home /reader --target-home {self.near} '
+            '--source-cloud-archive --no-secret'
+        ])
+
+        # --source-rpc-backup goes back to SOURCE_HOME.
+        self.run_script('start-neard.sh', '--source-rpc-backup')
+        self.run_script('run-neard.sh')
+        self.assertEqual(
+            self.read_log()[-1],
+            f'neard mirror run --source-home {self.dir}/source '
+            f'--target-home {self.near} --no-secret')
 
     def test_binaries(self):
         # A local binary is linked and made executable.

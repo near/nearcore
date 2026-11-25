@@ -9,7 +9,6 @@ use std::sync::{Arc, OnceLock};
 pub struct ProcessingDoneTracker(Arc<OnceLock<()>>);
 
 impl ProcessingDoneTracker {
-    /// Create a new `ProcessingDoneTracker`
     pub fn new() -> ProcessingDoneTracker {
         ProcessingDoneTracker(Arc::new(OnceLock::new()))
     }

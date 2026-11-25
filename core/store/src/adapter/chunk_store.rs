@@ -54,7 +54,6 @@ impl ChunkStoreAdapter {
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }
 
-    /// Does this partial chunk exist?
     pub fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
         self.store.exists(DBCol::PartialChunks, h.as_ref())
     }
@@ -64,7 +63,6 @@ impl ChunkStoreAdapter {
         self.store.exists(DBCol::Chunks, h.as_ref())
     }
 
-    /// Returns a HashSet of Chunk Hashes for current Height
     pub fn get_all_chunk_hashes_by_height(&self, height: BlockHeight) -> HashSet<ChunkHash> {
         self.store.get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }

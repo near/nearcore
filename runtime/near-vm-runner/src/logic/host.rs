@@ -542,7 +542,7 @@ fn sandbox_get_utf8_string(memory: &[u8], len: u64, ptr: u64) -> Result<String> 
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-16 returns `BadUtf16`.
+/// * If string is not UTF-16 returns `BadUTF16`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 ///
@@ -4953,7 +4953,7 @@ pub fn log_utf8(ctx: &mut HostCtx, memory: &mut [u8], len: u64, ptr: u64) -> Res
 /// # Errors
 ///
 /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-/// * If string is not UTF-16 returns `BadUtf16`.
+/// * If string is not UTF-16 returns `BadUTF16`.
 /// * If number of bytes read + `total_log_length` exceeds the `max_total_log_length` returns
 ///   `TotalLogLengthExceeded`.
 /// * If the total number of logs will exceed the `max_number_logs` returns

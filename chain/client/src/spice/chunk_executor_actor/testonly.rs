@@ -12,6 +12,7 @@ use near_chain::ChainGenesis;
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
 use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -61,6 +62,7 @@ impl TestonlySyncChunkExecutorActor {
         network_adapter: PeerManagerAdapter,
         validator_signer: MutableValidatorSigner,
         chunk_persistence_config: ChunkPersistenceConfig,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Self {
         let (actor_sc, actor_rc) = unbounded();
         let myself_sender = Sender::from_fn(move |event: ExecutorApplyChunksDone| {
@@ -94,6 +96,7 @@ impl TestonlySyncChunkExecutorActor {
                 move |message| produced_receipt_proofs.write().push_back(message)
             }),
             witness: noop().into_sender(),
+            receipt_proof_needs: noop().into_sender(),
         };
         Self {
             actor: ChunkExecutorActor::new(
@@ -109,7 +112,7 @@ impl TestonlySyncChunkExecutorActor {
                 core_writer_sender,
                 data_distributor_adapter,
                 chunk_persistence_config,
-                None,
+                snapshot_callbacks,
             ),
             actor_rc,
             tasks_rc,

@@ -133,9 +133,7 @@ struct DoomslugApprovalsTrackersAtHeight {
     last_approval_per_account: HashMap<AccountId, ApprovalInner>,
 }
 
-/// Contains all the logic for Doomslug, but no integration with chain or storage. The integration
-/// happens via `PersistentDoomslug` struct. The split is to simplify testing of the logic separate
-/// from the chain.
+/// Contains all the logic for Doomslug, but no integration with chain or storage.
 pub struct Doomslug {
     clock: Clock,
     /// How many approvals to have before producing a block. In production should be always
@@ -422,7 +420,6 @@ impl Doomslug {
         }
     }
 
-    #[cfg(feature = "test_features")]
     pub fn adv_disable(&mut self) {
         self.threshold_mode = DoomslugThresholdMode::NoApprovals
     }
@@ -678,7 +675,7 @@ impl Doomslug {
     }
 
     /// Records an approval message, and return whether the block has passed the threshold / ready
-    /// to be produced without waiting any further. See the comment for `DoomslugApprovalTracker::process_approval`
+    /// to be produced without waiting any further. See the comment for `DoomslugApprovalsTracker::process_approval`
     /// for details
     #[must_use]
     fn on_approval_message_internal(
@@ -862,7 +859,7 @@ mod tests {
         // Same tip => no approval
         assert_eq!(ds.process_timer(&signer), vec![]);
 
-        // The block was `ds_final` and therefore started the timer. Try checking before one second expires
+        // The block was doomslug-final and therefore started the timer. Try checking before one second expires
         clock.advance(Duration::milliseconds(599));
         assert_eq!(ds.process_timer(&signer), vec![]);
 

@@ -41,7 +41,6 @@ impl TrieSplit {
         self.mem_diff() == u64::MAX
     }
 
-    /// Get the split path as bytes
     pub fn split_path_bytes(&self) -> &[u8] {
         self.boundary_account.as_bytes()
     }

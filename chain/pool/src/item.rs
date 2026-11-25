@@ -58,7 +58,6 @@ pub trait PoolItem: Sized {
 
     fn group_id(&self) -> GroupId<'_>;
 
-    /// Adds a new item to its group.
     fn add_to_group(group: &mut VecDeque<Self>, item: Self);
 
     /// Sorts the items of a group, so that the one to take next is at the front. The pool

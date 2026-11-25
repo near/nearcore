@@ -1,0 +1,43 @@
+name: Debug UI
+
+# Checks that the production bundle of tools/debug-ui builds.
+#
+# The bundle is published to http://debug.nearone.org/ by a workflow in a
+# separate deploy-only repository, which checks out nearcore and builds
+# tools/debug-ui itself.
+
+on:
+  push:
+    branches:
+    - master
+    paths:
+    - 'tools/debug-ui/**'
+    - '.github/workflows/debug_ui.yml'
+  pull_request:
+    paths:
+    - 'tools/debug-ui/**'
+    - '.github/workflows/debug_ui.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/debug-ui
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: tools/debug-ui/package-lock.json
+    - name: Install dependencies
+      run: npm ci
+    - name: Build
+      run: npm run build

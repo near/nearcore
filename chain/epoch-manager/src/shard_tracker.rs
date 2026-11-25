@@ -390,9 +390,7 @@ impl ShardTracker {
 
     /// We want to guarantee that transactions are only applied once for each shard,
     /// even though apply_chunks may be called twice, once with
-    /// ApplyChunksMode::ExcludeCatchupShards once with ApplyChunksMode::OnlyCatchupShards. Note
-    /// that it does not guard whether the children shards are ready or not, see the
-    /// comments before `need_to_reshard`
+    /// ApplyChunksMode::ExcludeCatchupShards once with ApplyChunksMode::OnlyCatchupShards.
     pub fn should_apply_chunk(
         &self,
         mode: ApplyChunksMode,
@@ -443,7 +441,7 @@ impl ShardTracker {
     }
 
     /// Returns whether we need to initiate state sync for the given `shard_id` for the epoch
-    /// beginning after the block `epoch_last_block`. If that epoch is epoch T, the logic is:
+    /// beginning after the block `prev_hash`. If that epoch is epoch T, the logic is:
     /// - will track the shard in epoch T+1
     /// - AND not tracking it in T
     /// - AND didn't track it in T-1

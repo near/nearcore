@@ -3,7 +3,7 @@ pub use crate::config::{NearConfig, init_configs, load_config, load_test_config}
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-use crate::state_sync::StateSyncDumper;
+use crate::state_sync_dumper::StateSyncDumper;
 use anyhow::Context;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::thread_pool::{
@@ -21,7 +21,7 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ApplyChunksSpawner, Chain, ChainGenesis};
-use near_chain_configs::{MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{AdversarialMode, MutableValidatorSigner, ReshardingHandle};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::archive::cloud_archival_writer::{
@@ -56,6 +56,7 @@ use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 #[cfg(feature = "json_rpc")]
 use parking_lot::RwLock;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -73,7 +74,7 @@ pub mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
-pub mod state_sync;
+pub mod state_sync_dumper;
 use near_async::ActorSystem;
 use near_async::futures::FutureSpawner;
 use near_async::multithread::MultithreadRuntimeHandle;
@@ -241,14 +242,14 @@ fn new_spice_client_config(
 ) -> SpiceClientConfig {
     let spice_client_config = if cfg!(feature = "protocol_feature_spice") {
         SpiceClientConfig {
-            chunk_executor_sender: chunk_executor_adapter.as_sender(),
+            chunk_executor_sender: chunk_executor_adapter.as_multi_sender(),
             spice_chunk_validator_sender: spice_chunk_validator_adapter.as_sender(),
             spice_data_distributor_sender: spice_data_distributor_adapter.as_sender(),
             spice_core_writer_sender: spice_core_writer_adapter.as_sender(),
         }
     } else {
         SpiceClientConfig {
-            chunk_executor_sender: noop().into_sender(),
+            chunk_executor_sender: noop().into_multi_sender(),
             spice_chunk_validator_sender: noop().into_sender(),
             spice_data_distributor_sender: noop().into_sender(),
             spice_core_writer_sender: noop().into_sender(),
@@ -356,7 +357,7 @@ pub struct NearNode {
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
-    /// The `cloud_archival_handle` will only be set if the cloud archival writer is configured. It's a handle
+    /// The `cloud_archival_writer_handle` will only be set if the cloud archival writer is configured. It's a handle
     /// to control the cloud archival actor that archives data from the hot store to the cloud archival.
     pub cloud_archival_writer_handle: Option<CloudArchivalWriterHandle>,
     // A handle that allows the main process to interrupt resharding if needed.
@@ -393,6 +394,27 @@ pub fn start_with_config_and_synchronization(
     ))
 }
 
+/// Returned when a node with adversarial behavior starts without `ADVERSARY_CONSENT=1`.
+#[derive(thiserror::Error, Debug)]
+#[error("adversarial_mode is {0:?}, set ADVERSARY_CONSENT=1 to start the node")]
+pub struct MissingAdversaryConsentError(pub AdversarialMode);
+
+/// Refuses to start a node with adversarial behavior unless `ADVERSARY_CONSENT=1` is set.
+fn check_adversary_consent(adversarial_mode: AdversarialMode) -> anyhow::Result<()> {
+    if adversarial_mode == AdversarialMode::None {
+        return Ok(());
+    }
+    tracing::error!(
+        target: "neard",
+        ?adversarial_mode,
+        "this node has adversarial behavior enabled, do not use in production"
+    );
+    if env::var("ADVERSARY_CONSENT").unwrap_or_default() != "1" {
+        return Err(MissingAdversaryConsentError(adversarial_mode).into());
+    }
+    Ok(())
+}
+
 // Without `json_rpc` there is no RPC server to await or to hand the clones to.
 #[cfg_attr(not(feature = "json_rpc"), allow(clippy::unused_async, clippy::redundant_clone))]
 pub async fn start_with_config_and_synchronization_impl(
@@ -402,6 +424,7 @@ pub async fn start_with_config_and_synchronization_impl(
     shutdown_signal: Option<broadcast::Sender<ShutdownReason>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    check_adversary_consent(config.config.adversarial_mode)?;
     if config.config.enable_compiler_daemon {
         // Keep using the running executable's inode after a rename-over binary
         // upgrade. Resolving this symlink up front would leave a stale deleted
@@ -451,7 +474,7 @@ pub async fn start_with_config_and_synchronization_impl(
     let genesis_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
-    // This sets up genesis_state_roots and genesis_hash in store.
+    // This sets up the genesis state roots and genesis height in store.
     initialize_sharded_genesis_state(
         storage.get_hot_store(),
         &config.genesis,
@@ -840,8 +863,8 @@ pub async fn start_with_config_and_synchronization_impl(
             rpc_handler.clone().into_multi_sender(),
             network_actor.into_multi_sender(),
             block_notification_watch_receiver,
-            #[cfg(feature = "test_features")]
             _gc_actor.into_multi_sender(),
+            config.config.adversarial_mode,
             Arc::new(entity_debug_handler),
             sharded_rpc_pool,
             actor_system.new_future_spawner("jsonrpc").as_ref(),
@@ -897,4 +920,24 @@ pub async fn start_with_config_and_synchronization_impl(
         resharding_handle,
         shard_tracker,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MissingAdversaryConsentError, check_adversary_consent};
+    use near_chain_configs::AdversarialMode;
+    use std::env;
+
+    #[test]
+    fn test_check_adversary_consent() {
+        assert!(check_adversary_consent(AdversarialMode::None).is_ok());
+        let has_consent = env::var("ADVERSARY_CONSENT").as_deref() == Ok("1");
+        match check_adversary_consent(AdversarialMode::Rpc) {
+            Ok(()) => assert!(has_consent),
+            Err(err) => {
+                assert!(!has_consent);
+                assert!(err.is::<MissingAdversaryConsentError>());
+            }
+        }
+    }
 }

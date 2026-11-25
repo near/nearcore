@@ -1,5 +1,5 @@
 use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
-use crate::env::test_env::TestEnv;
+use crate::env::test_env::{TestEnv, state_root_at};
 use assert_matches::assert_matches;
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::time::{Clock, Duration};
@@ -21,14 +21,12 @@ use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorS
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use nearcore::state_sync::StateSyncDumper;
+use nearcore::state_sync_dumper::StateSyncDumper;
 use std::sync::Arc;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_dump() {
     init_test_logger();
 
@@ -226,7 +224,7 @@ fn run_state_sync_with_dumped_parts(
         .runtime_adapter
         .query(
             shard_uid,
-            &head_block.chunks()[0].prev_state_root(),
+            &state_root_at(&env.clients[0], &head_block, shard_uid),
             head.height,
             0,
             &head.prev_block_hash,
@@ -338,7 +336,7 @@ fn run_state_sync_with_dumped_parts(
     let synced_block_tip = Tip::from_header(&synced_block_header);
     let response = env.clients[1].runtime_adapter.query(
         ShardUId::single_shard(),
-        &synced_block.chunks()[0].prev_state_root(),
+        &state_root_at(&env.clients[1], &synced_block, ShardUId::single_shard()),
         synced_block_tip.height,
         0,
         &synced_block_tip.prev_block_hash,
@@ -392,48 +390,36 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 8);

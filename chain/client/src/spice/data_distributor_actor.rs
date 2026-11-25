@@ -11,7 +11,7 @@ use crate::spice::data_manager::{
     SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData, SpiceDataManager,
     SpiceDataServer, VerifiedCodedPart, encode,
 };
-pub use crate::spice::data_manager::{DataId, MalformedDataRequest};
+pub use crate::spice::data_manager::{DataId, MalformedDataRequest, NeedChange};
 use itertools::Itertools as _;
 use lru::LruCache;
 use near_async::MultiSend;
@@ -225,6 +225,7 @@ impl near_async::messaging::Actor for SpiceDataDistributorActor {
 pub struct SpiceDataDistributorAdapter {
     pub receipts: Sender<SpiceDistributorOutgoingReceipts>,
     pub witness: Sender<SpiceDistributorStateWitness>,
+    pub receipt_proof_needs: Sender<SpiceReceiptProofNeeds>,
 }
 
 struct DataPartsEntry {
@@ -259,6 +260,13 @@ pub struct SpiceDistributorOutgoingReceipts {
 pub struct SpiceDistributorStateWitness {
     pub state_witness: SpiceChunkStateWitness,
     pub contract_accesses: HashSet<CodeHash>,
+}
+
+/// A change in which receipt proofs into `to_shard` the chunk executor needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpiceReceiptProofNeeds {
+    pub to_shard: ShardId,
+    pub change: NeedChange,
 }
 
 impl Handler<SpiceDistributorOutgoingReceipts> for SpiceDataDistributorActor {
@@ -396,6 +404,14 @@ impl Handler<SpiceContractCodeResponseMessage> for SpiceDataDistributorActor {
     }
 }
 
+impl Handler<SpiceReceiptProofNeeds> for SpiceDataDistributorActor {
+    fn handle(&mut self, needs: SpiceReceiptProofNeeds) {
+        let SpiceReceiptProofNeeds { to_shard, change } = needs;
+        let requests = self.data_manager.on_receipt_proof_needs(to_shard, change, self.clock.now());
+        self.send_pull_requests(requests);
+    }
+}
+
 impl Handler<ProcessedBlock> for SpiceDataDistributorActor {
     fn handle(&mut self, ProcessedBlock { block_hash }: ProcessedBlock) {
         match is_spice_or_last_pre_spice_block(
@@ -448,6 +464,7 @@ impl SpiceDataDistributorActor {
             chain_store.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
+            validator_signer.clone(),
         );
         let data_server = SpiceDataServer::new(
             chain_store.clone(),
@@ -514,7 +531,14 @@ impl SpiceDataDistributorActor {
         }
     }
 
-    fn send_pull_requests(&self, requester: &AccountId, requests: Vec<PullRequest>) {
+    /// Sends the pull requests the data manager issued.
+    fn send_pull_requests(&self, requests: Vec<PullRequest>) {
+        // TODO(spice): Allow requesting data without signer using route back. Until then the
+        // manager records the requests below as outstanding on a node that cannot send them.
+        let Some(signer) = self.validator_signer.get() else {
+            return;
+        };
+        let requester = signer.validator_id();
         for PullRequest { producer, wants } in requests {
             let wants =
                 wants.into_iter().map(|(id, ordinals)| (SpiceDataIdentifier::from(&id), ordinals));
@@ -1047,12 +1071,15 @@ impl SpiceDataDistributorActor {
 
             // Sent before the witness for the same reason as in the initial distribution: the
             // recipient can check its compiled contract cache while the parts arrive.
-            let accesses = get_contract_accesses(
+            // Witness GC deletes the accesses together with the witness, possibly after we read it.
+            let Some(accesses) = get_contract_accesses(
                 self.chain_store.store_ref(),
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
-            )
-            .expect("contract accesses should have been written atomically with witness");
+            ) else {
+                tracing::debug!(target: "spice_data_distribution", ?data_id, "witness garbage collected - not pushing it");
+                continue;
+            };
             let accesses_msg = SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, &signer);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::SpiceChunkContractAccesses(
@@ -1375,12 +1402,15 @@ impl SpiceDataDistributorActor {
             // first producer, which it asks when only the witness's own accesses are known.
             // TODO(spice-data-distribution): drop this (once a validator spreads code requests over
             // the producers or with striped pulls).
-            let accesses = get_contract_accesses(
+            // Witness GC deletes the accesses together with the witness, possibly after we read it.
+            let Some(accesses) = get_contract_accesses(
                 self.chain_store.store_ref(),
                 &chunk_id.block_hash,
                 chunk_id.shard_id,
-            )
-            .expect("contract accesses should have been written atomically with witness");
+            ) else {
+                tracing::debug!(target: "spice_data_distribution", ?id, ?requester, "requested data was garbage collected");
+                return Ok(());
+            };
             let accesses_msg =
                 SpiceChunkContractAccesses::new(chunk_id.clone(), accesses, signer.as_ref());
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -1539,7 +1569,7 @@ impl SpiceDataDistributorActor {
             &chunk_id.block_hash,
             chunk_id.shard_id,
         ) else {
-            tracing::warn!(
+            tracing::debug!(
                 target: "spice_data_distribution",
                 ?chunk_id,
                 ?requester,
@@ -1667,15 +1697,14 @@ impl SpiceDataDistributorActor {
     /// Hands a processed block to the data manager, sends the pulls it asks for and delivers the
     /// data it decoded.
     fn process_block_in_data_manager(&mut self, block_hash: &CryptoHash) {
-        // TODO(spice): Allow requesting data without signer using route back. Until then the
-        // manager records the requests below as outstanding on a node that cannot send them.
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
-        let ProcessedBlockOutput { pull_requests, decoded } =
-            self.data_manager.on_block_processed(block_hash, self.clock.now());
-        if let Some(requester) = me {
-            self.send_pull_requests(requester, pull_requests);
-        }
+        let output = self.data_manager.on_block_processed(block_hash, self.clock.now());
+        self.handle_data_manager_output(output);
+    }
+
+    /// Sends the pull requests the data manager issued and delivers the data it decoded.
+    fn handle_data_manager_output(&self, output: ProcessedBlockOutput) {
+        let ProcessedBlockOutput { pull_requests, decoded } = output;
+        self.send_pull_requests(pull_requests);
         for (data_id, data) in decoded {
             self.deliver_decoded(data_id, data);
         }

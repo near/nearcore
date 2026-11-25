@@ -69,6 +69,8 @@ mirror init --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url ""
 ### \[Optional\] genesis configs
 
 Reduce the min gas price to reduce the chance of running out of NEAR.
+`forknet_scenario.py start` does this on its own, setting mainnet's 1e8
+(`TestSetup.genesis_min_gas_price`).
 
 ```javascript
 mirror --host-type traffic run-cmd --cmd 'cp ~/.near/target/setup/genesis.json g.json ; jq ".min_gas_price = \"10000000\"" g.json > ~/.near/target/setup/genesis.json'

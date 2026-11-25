@@ -23,7 +23,7 @@
 //! requesting it.
 //!
 //! ** Requesting for chunks
-//! `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
+//! `ShardsManagerActor` keeps a request pool that stores all requests for chunks that are not completed
 //! yet. The requests are managed at the chunk level, instead of individual parts and receipts.
 //! A new request can be added by sending it a message RequestChunks or RequestChunksForOrphan
 //! (depending on whether the parent block is known). If it is not in the pool yet,
@@ -75,7 +75,7 @@
 //!    (see validate_chunk_proofs)
 //!
 //! We also guarantee that all entries stored inside ShardsManager::encoded_chunks have the chunk header
-//! at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
+//! at least "partially" validated by `validate_chunk_header_preliminary` (see the comments there for what "partial"
 //! validation means).
 
 use crate::adapter::ShardsManagerRequestFromClient;
@@ -276,7 +276,6 @@ impl RequestPool {
     }
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum AdvDistributeChunksMode {
     /// Only send chunk parts to the block producer for the chunk's height,
@@ -320,7 +319,6 @@ pub struct ShardsManagerActor {
     chain_header_head: Tip,
     chunk_request_retry_period: Duration,
 
-    #[cfg(feature = "test_features")]
     pub adv_distribute_chunks_mode: Option<AdvDistributeChunksMode>,
 }
 
@@ -358,7 +356,6 @@ impl HandlerWithContext<ShardsManagerRequestFromNetwork> for ShardsManagerActor 
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<AdvDistributeChunksMode> for ShardsManagerActor {
     fn handle(&mut self, msg: AdvDistributeChunksMode) {
         tracing::info!(target: "adversary", mode = ?msg, "setting adversary distribute chunks mode");
@@ -445,7 +442,6 @@ impl ShardsManagerActor {
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
             chunk_request_retry_period,
-            #[cfg(feature = "test_features")]
             adv_distribute_chunks_mode: None,
         }
     }
@@ -952,7 +948,6 @@ impl ShardsManagerActor {
         route_back: CryptoHash,
         me: Option<&AccountId>,
     ) {
-        #[cfg(feature = "test_features")]
         if matches!(
             self.adv_distribute_chunks_mode,
             Some(AdvDistributeChunksMode::WithholdFromNonBlockProducer)
@@ -2351,7 +2346,6 @@ impl ShardsManagerActor {
                 );
 
             if Some(&to_whom) != me {
-                #[cfg(feature = "test_features")]
                 if matches!(
                     self.adv_distribute_chunks_mode,
                     Some(AdvDistributeChunksMode::WithholdFromNonBlockProducer)

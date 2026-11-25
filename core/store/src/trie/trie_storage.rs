@@ -53,7 +53,7 @@ impl<T> BoundedQueue<T> {
 /// In-memory cache for trie items - nodes and values. All nodes are stored in the LRU cache with three modifications.
 /// 1) Size of each value must not exceed `TRIE_LIMIT_CACHED_VALUE_SIZE`.
 /// Needed to avoid caching large values like contract codes.
-/// 2) If we put new value to LRU cache and total size of existing values exceeds `total_sizes_capacity`, we evict
+/// 2) If we put new value to LRU cache and total size of existing values exceeds `total_size_limit`, we evict
 /// values from it until that is no longer the case. So the actual total size should never exceed
 /// `total_size_limit` + `TRIE_LIMIT_CACHED_VALUE_SIZE`.
 /// Needed because value sizes generally vary from 1 B to 500 B and we want to count cache size precisely.
