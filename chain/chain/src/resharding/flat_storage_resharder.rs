@@ -48,7 +48,7 @@ use std::sync::Arc;
 ///
 /// The resharder has also the following properties:
 /// - Background processing: the bulk of resharding is done in separate tasks, see
-///   [FlatStorageResharder::split_shard_task] and [FlatStorageResharder::shard_catchup_task].
+///   [FlatStorageResharder::split_shard_task_blocking] and [FlatStorageResharder::shard_catchup_task_interleaved].
 /// - Interruptible: a reshard operation can be cancelled through a
 ///   [ReshardingHandle].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
@@ -324,7 +324,7 @@ impl FlatStorageResharder {
         task_status
     }
 
-    /// Performs the bulk of [split_shard_task]. This method splits the flat storage of the parent shard.
+    /// Performs the bulk of [split_shard_task_blocking]. This method splits the flat storage of the parent shard.
     ///
     /// Returns `true` if the routine completed successfully.
     fn split_shard_task_blocking_impl(

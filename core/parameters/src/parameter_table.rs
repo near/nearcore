@@ -740,9 +740,7 @@ mod tests {
     static DIFF_0: &str = include_str!("fixture_diff_0.yml");
     static DIFF_1: &str = include_str!("fixture_diff_1.yml");
 
-    // Tests synthetic small example configurations. For tests with "real"
-    // input data, we already have
-    // `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
+    // Tests synthetic small example configurations.
 
     /// Check empty input
     #[test]

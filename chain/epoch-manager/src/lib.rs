@@ -474,9 +474,9 @@ pub struct EpochManager {
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
 
-    /// Epoch validators ordered by `block_producer_settlement`.
+    /// Epoch validators in block producer order.
     epoch_validators_ordered: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
-    /// Unique validators ordered by `block_producer_settlement`.
+    /// Unique validators in block producer order.
     epoch_validators_ordered_unique: SyncLruCache<EpochId, Arc<[ValidatorStake]>>,
 
     /// Unique chunk producers.

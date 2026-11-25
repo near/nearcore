@@ -1057,8 +1057,7 @@ pub(crate) fn print_epoch_analysis(
             );
             // Start from empty assignment for correct number of shards.
             *next_epoch_info.chunk_producers_settlement_mut() = vec![vec![]; num_shards];
-            // This in fact sets maximal number of all validators to 100 for
-            // `StatelessValidationV0`.
+            // This in fact sets maximal number of all validators to 100.
             // Needed because otherwise generation fails at epoch 1327 with
             // assertion `stake < threshold` in
             // chain/epoch-manager/src/validator_selection.rs:227:13.

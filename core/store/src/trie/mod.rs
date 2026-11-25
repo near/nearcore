@@ -1239,10 +1239,6 @@ impl Trie {
     /// if recording is enabled. In other words, if an inlined value is returned the
     /// behavior is equivalent to if the trie were used to access the value reference
     /// and then the reference were used to look up the full value.
-    ///
-    /// If `ref_only` is true, even if the flat storage gives us the inlined value, we
-    /// would still convert it to a reference. This is useful if making an access for
-    /// the value (thereby charging gas for it) is not desired.
     fn lookup_from_flat_storage(
         &self,
         key: &[u8],
@@ -1335,7 +1331,7 @@ impl Trie {
     /// Refer to `get_optimized_ref` for the semantics of using the returned type.
     ///
     /// `use_trie_accounting_cache` is used to control whether Trie node
-    /// accesses accumulate TTN counters and potentially store data into the `TrieAccountingCache`
+    /// accesses accumulate TTN counters and potentially store data into the accounting cache
     /// so that future accesses count towards TTN counters.
     ///
     /// The storage of memtries and the data therein are behind a lock, as thus unlike many other

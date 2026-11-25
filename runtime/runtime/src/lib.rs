@@ -2702,7 +2702,7 @@ impl Runtime {
                     }
                 }
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
-                // the `verify_and_charge_transaction`.
+                // the `verify_and_charge_tx_ephemeral`.
                 self.process_receipt_and_instant_receipts(
                     &receipt,
                     &mut processing_state,

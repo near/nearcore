@@ -183,7 +183,7 @@ pub fn validate_spice_chunk_endorsements_in_header(header: &BlockHeader) -> Resu
     Ok(())
 }
 
-/// Validates the [`ChunkEndorsementBitmap`] in the [`BlockHeader`] if it is present, otherwise returns an error.
+/// Validates the [`ChunkEndorsementsBitmap`] in the [`BlockHeader`] if it is present, otherwise returns an error.
 pub fn validate_chunk_endorsements_in_header(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,

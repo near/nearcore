@@ -746,7 +746,7 @@ pub mod validator_stake {
             }
         }
 
-        /// Returns the validator's number of mandates (rounded down) at `stake_per_seat`.
+        /// Returns the validator's number of mandates (rounded down) at `stake_per_mandate`.
         ///
         /// It returns `u16` since it allows infallible conversion to `usize` and with [`u16::MAX`]
         /// equalling 65_535 it should be sufficient to hold the number of mandates per validator.

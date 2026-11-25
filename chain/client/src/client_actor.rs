@@ -107,9 +107,9 @@ impl fmt::Display for ShutdownReason {
     }
 }
 
-/// Multiplier on `max_block_time` to wait until deciding that chain stalled.
+/// Multiplier on `max_block_production_delay` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
-/// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
+/// `max_block_production_delay` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 

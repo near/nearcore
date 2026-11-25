@@ -147,10 +147,10 @@ fn producers_of_both_shards(
     (first_shard_producers.clone(), second_shard_producers.clone())
 }
 
-/// The receipt-proof twin of `one_answering_producer`: silence most of one shard's
+/// The receipt-proof twin of `test_spice_partial_data_faults_with_one_answering_producer`: silence most of one shard's
 /// producers for receipt proofs, pushes and answers alike, leaving too few pushed parts to
-/// decode, so the other shard's producers can only keep applying — and certification
-/// advancing — by requesting the rest from the producer still answering. Contrast `starve_receipt_proofs`, where the
+/// decode, so the other shard's producers can only keep applying, and certification
+/// advancing, by requesting the rest from the producer still answering. Contrast `test_spice_partial_data_faults_starve_receipt_proofs`, where the
 /// whole shard goes silent and certification stops for good.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]

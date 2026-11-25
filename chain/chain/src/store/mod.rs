@@ -372,7 +372,7 @@ impl ChainStore {
     /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
     /// is `prev_block_hash`
     /// Note that the meaning of outgoing receipts here are slightly different from
-    /// `save_outgoing_receipts` or `get_outgoing_receipts`.
+    /// `get_outgoing_receipts`.
     /// There, outgoing receipts for a shard refers to receipts that are generated
     /// from the shard from block `prev_block_hash`.
     /// Here, outgoing receipts for a shard refers to receipts that will be sent from this shard
@@ -475,7 +475,7 @@ impl ChainStore {
         }
     }
 
-    /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
+    /// For a given transaction, it expires if the block that the chunk points to is more than `transaction_validity_period`
     /// ahead of the block that has `base_block_hash`.
     pub fn check_transaction_validity_period(
         &self,

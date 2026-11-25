@@ -357,7 +357,7 @@ pub struct NearNode {
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to control the cold store actor that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<Arc<AtomicBool>>,
-    /// The `cloud_archival_handle` will only be set if the cloud archival writer is configured. It's a handle
+    /// The `cloud_archival_writer_handle` will only be set if the cloud archival writer is configured. It's a handle
     /// to control the cloud archival actor that archives data from the hot store to the cloud archival.
     pub cloud_archival_writer_handle: Option<CloudArchivalWriterHandle>,
     // A handle that allows the main process to interrupt resharding if needed.

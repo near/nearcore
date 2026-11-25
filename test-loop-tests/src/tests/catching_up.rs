@@ -37,7 +37,7 @@ fn ultra_slow_test_catchup_random_single_part_sync() {
     })
 }
 
-// Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 23 and 24
+// Same test as `ultra_slow_test_catchup_random_single_part_sync`, but skips the chunks on height 23 and 24
 // It causes all the receipts to be applied only on height 25, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]

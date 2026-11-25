@@ -1,5 +1,4 @@
-//! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
-//! components of the mock network.
+//! Implements `MockPeer`, which is the main component of the mock network.
 
 use anyhow::{Context as AnyhowContext, anyhow};
 use near_chain::{Block, Error, retrieve_headers};

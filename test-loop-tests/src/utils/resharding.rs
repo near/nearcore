@@ -283,7 +283,7 @@ fn check_txs_with_retry(
 /// Returns a loop action that invokes a costly method from a contract
 /// `CALLS_PER_BLOCK_HEIGHT` times per block height.
 ///
-/// The account invoking the contract is taken in sequential order from `signed_ids`.
+/// The account invoking the contract is taken in sequential order from `signer_ids`.
 ///
 /// The account receiving the contract call is taken in sequential order from `receiver_ids`.
 pub(crate) fn call_burn_gas_contract(

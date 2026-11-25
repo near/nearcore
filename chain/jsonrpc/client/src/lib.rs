@@ -165,7 +165,7 @@ impl RpcTransport for ReqwestTransport {
     }
 }
 
-/// Prepare a `RPCRequest` with a given transport, method and parameters.
+/// Prepare a `RpcRequest` with a given transport, method and parameters.
 fn call_method<P, R>(transport: &Arc<dyn RpcTransport>, method: &str, params: P) -> RpcRequest<R>
 where
     P: serde::Serialize,

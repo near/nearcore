@@ -6,7 +6,7 @@
 //!
 //! - `Histogram`: used with `start_timer()` and `observe_duration()` or
 //!     `observe()` method to record durations (e.g., block processing time).
-//! - `IncCounter`: used to represent an ideally ever-growing, never-shrinking
+//! - `IntCounter`: used to represent an ideally ever-growing, never-shrinking
 //!     integer (e.g., number of block processing requests).
 //! - `IntGauge`: used to represent a varying integer (e.g., number of
 //!     attestations per block).
@@ -26,7 +26,7 @@
 //!
 //! use near_o11y::metrics::*;
 //!
-//! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
+//! // These metrics are "magically" linked to the global prometheus registry.
 //! pub static RUN_COUNT: LazyLock<IntCounter> = LazyLock::new(|| {
 //!     try_create_int_counter(
 //!         "near_runs_total",
@@ -188,7 +188,7 @@ pub fn try_create_histogram_with_buckets(
     Ok(histogram)
 }
 
-/// Attempts to create a `HistogramVector`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `HistogramVec`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram_vec(
     name: &str,

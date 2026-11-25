@@ -322,7 +322,7 @@ impl<'a> ChainUpdate<'a> {
             // On the epoch switch record the epoch light client block
             // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
             // This is necessary because the computation of the light client block relies on
-            // `ColNextBlockHash`-es populated, and they are only populated for the canonical
+            // `NextBlockHashes` populated, and they are only populated for the canonical
             // chain. We need to be careful to avoid a situation when the first block of the epoch
             // never becomes a tip of the canonical chain.
             // Presently the epoch boundary is defined by the height, and the fork choice rule

@@ -761,7 +761,7 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
 /// usage. What is not burnt may be forwarded to outgoing receipts or it may
 /// also be converted back to NEAR for a refund.
 ///
-/// Don't confuse this with `prepaid_exec_fees`, those are static fees that are
+/// Don't confuse this with `total_prepaid_exec_fees`, those are static fees that are
 /// burnt before execution happens.
 ///
 /// Naming isn't great but it is consistent with the user-visible error
@@ -1040,7 +1040,7 @@ mod tests {
         assert_eq!(pq.total_cost, pq_with_eq_compute.total_cost);
     }
 
-    /// With the base value (0, before `PostQuantumSignatures`) the charge is
+    /// With the base value (0) the charge is
     /// inert: an ML-DSA-65 signer costs exactly the same as ed25519.
     #[test]
     fn ml_dsa_65_verify_gas_zero_by_default() {

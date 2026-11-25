@@ -23,7 +23,7 @@ pub fn peer_id_from_seed(seed: &str) -> PeerId {
     PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key())
 }
 
-// `convert_boot_nodes` generate list of `PeerInfos` for unit tests
+// `convert_boot_nodes` generate list of `PeerInfo` for unit tests
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, addr) in boot_nodes {

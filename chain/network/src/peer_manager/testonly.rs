@@ -70,7 +70,7 @@ type StateTransportFn =
 /// Test-only message: run a closure with access to both NetworkState
 /// and the real `Arc<dyn NetworkTransport>` held by PMA. Needed because
 /// methods like `tier1_advertise_proxies` call `transport.connect_to_peer`
-/// which requires the real TcpTransport (not a `new_wrapping` stub).
+/// which requires the real TcpTransport.
 struct WithStateAndTransport(StateTransportFn);
 
 impl Debug for WithStateAndTransport {

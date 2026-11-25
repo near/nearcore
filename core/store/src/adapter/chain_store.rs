@@ -648,9 +648,8 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         }
     }
 
-    /// Unlike `ChainStoreUpdate::save_outcomes_with_proofs`, this method does not
-    /// consult the `save_tx_outcomes` config gate — the caller decides whether to
-    /// invoke it.
+    /// This method does not consult the `save_tx_outcomes` config gate; the caller
+    /// decides whether to invoke it.
     pub fn set_outcomes_with_proofs(
         &mut self,
         block_hash: &CryptoHash,
@@ -742,7 +741,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     /// than the current head (or none is set). The execution-head scan only moves
     /// forward by construction; this is belt-and-suspenders against an
     /// out-of-order / fork re-run. Differs from
-    /// `ChainStoreUpdate::save_spice_execution_head`, which is unconditional.
+    /// `Self::set_spice_execution_head`, which is unconditional.
     ///
     /// Same intra-update caveat as `update_spice_final_execution_head`: the check
     /// reads the committed `Store`, not pending writes in this `StoreUpdate`. Safe

@@ -67,7 +67,7 @@ pub enum DBCol {
     /// List of recent outbound TIER2 connections. We'll attempt to re-establish
     /// these connections after node restart or upon disconnection.
     /// - *Rows*: single row (empty row name)
-    /// - *Content type*: Vec of [network_primitives::types::ConnectionInfo]
+    /// - *Content type*: Vec of [near_network::types::ConnectionInfo]
     RecentOutboundConnections,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)

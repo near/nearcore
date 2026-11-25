@@ -327,7 +327,7 @@ pub struct Chain {
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
-    /// Used to receive `PostStateReady` messages from the runtime.
+    /// Used to receive `PostStateReadyMessage` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
     #[cfg(feature = "test_features")]
     pub test_paused_blocks: crate::block_processing_utils::TestPausedBlocks,
@@ -3122,8 +3122,8 @@ impl Chain {
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> ApplyChunkBlockContext {
-        // Before `FixApplyChunks` feature, gas price was taken from current
-        // block by mistake. Preserve it for backwards compatibility.
+        // For old chunks, gas price is taken from the current block by mistake.
+        // Preserved for backwards compatibility.
         let gas_price = if is_new_chunk {
             prev_block_header.next_gas_price()
         } else {
