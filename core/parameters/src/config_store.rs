@@ -475,4 +475,20 @@ mod tests {
             MIN_SUPPORTED_PROTOCOL_VERSION
         );
     }
+
+    #[test]
+    fn test_largest_contract_fits_compilation_budget() {
+        let store = RuntimeConfigStore::new();
+        for version in MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION {
+            let config = store.get_config(version);
+            assert!(
+                config.max_cold_contract_bytes_per_chunk
+                    >= config.wasm_config.limit_config.max_contract_size,
+                "{} >= {} failed for version {}",
+                config.max_cold_contract_bytes_per_chunk,
+                config.wasm_config.limit_config.max_contract_size,
+                version
+            );
+        }
+    }
 }

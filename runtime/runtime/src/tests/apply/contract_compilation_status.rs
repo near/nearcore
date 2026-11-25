@@ -10,7 +10,7 @@ use crate::{ApplyProcessingReceiptState, ApplyProcessingState, ProcessingResult}
 use near_primitives::receipt::VersionedReceiptEnum;
 use near_primitives::types::ContractCompilationStatus;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
-use near_store::{TrieUpdate, get};
+use near_store::{ContractCompilationAdmission, TrieUpdate, get};
 use near_test_contracts::wat_contract;
 use near_vm_runner::{ContractPrecompilatonResult, precompile_contract};
 use std::mem::replace;
@@ -219,12 +219,17 @@ fn status_proof_is_recorded_before_finalization_and_survives_rollback() {
             .recording_reads_new_recorder();
         let mut update = TrieUpdate::new(trie);
         let before = update.trie.recorded_storage_size_upper_bound();
-        try_admit_contract_compilation(&mut update, &f.state, code_hash, 9).unwrap();
+        let processing_result =
+            try_admit_contract_compilation(&mut update, &f.state, code_hash, 9).unwrap();
+        assert!(matches!(processing_result, ContractCompilationAdmission::Admitted));
+
         let after = update.trie.recorded_storage_size_upper_bound();
         assert!(after > before, "status proof must be recorded during execution");
 
         // Repeated reads do not grow the proof or double-count cold bytes.
-        try_admit_contract_compilation(&mut update, &f.state, code_hash, 9).unwrap();
+        let processing_result =
+            try_admit_contract_compilation(&mut update, &f.state, code_hash, 9).unwrap();
+        assert!(matches!(processing_result, ContractCompilationAdmission::Admitted));
         assert_eq!(update.trie.recorded_storage_size_upper_bound(), after);
         update.rollback();
         assert_eq!(

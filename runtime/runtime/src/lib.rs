@@ -669,6 +669,7 @@ pub struct GasRefundResult {
     create_account_charge: Balance,
 }
 
+#[must_use]
 #[derive(Debug)]
 pub(crate) enum ProcessingResult<T> {
     Processed(T),
@@ -3082,12 +3083,16 @@ impl Runtime {
         // Instant receipts only store yields or delete accounts.
         // They cannot require compilation and therefore cannot be deferred.
         while let Some(instant_receipt) = processing_state.instant_receipts.pop_front() {
-            self.process_receipt_with_metrics(
+            let processing_result = self.process_receipt_with_metrics(
                 &instant_receipt,
                 processing_state,
                 receipt_sink,
                 validator_proposals,
             )?;
+            assert!(
+                matches!(processing_result, ProcessingResult::Processed(_)),
+                "instant receipts must not require compilation and thus should never be deferred"
+            );
             processing_state.processed_receipts.push(ProcessedReceipt {
                 receipt: instant_receipt,
                 source: ReceiptSource::Instant,

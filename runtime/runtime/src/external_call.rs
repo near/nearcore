@@ -9,6 +9,10 @@
 //! shares for ECCs to counting what it used toward them. It doesn't depend on the chunk's
 //! processing state, so the chunk producer can call it to run a call before packing it, and
 //! make the same decision as apply.
+//!
+//! However, a successful standalone run does not guarantee admission: earlier
+//! calls in the chunk may have used the cold compilation budget or already
+//! admitted the same code hash.
 
 use crate::config::{
     EccCost, ecc_cost, receipt_gas_price, safe_add_balance, safe_add_compute, safe_gas_to_balance,
@@ -751,6 +755,10 @@ pub(crate) fn run_external_call(
                     &epoch_info_provider.chain_id(),
                     apply_state.current_protocol_version,
                 )? {
+                    // TODO(ecc): This contract compilation admission is
+                    // completely free if the ecc is refused. But it can still
+                    // block a shard from executing. Solve this before
+                    // increasing `max_eccs`.
                     if try_admit_contract_compilation(
                         runtime_ext.trie_update,
                         apply_state,

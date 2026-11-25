@@ -52,6 +52,7 @@ struct ContractCompilationTracker {
     limit_reached: bool,
 }
 
+#[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub enum ContractCompilationAdmission {
     Admitted,
