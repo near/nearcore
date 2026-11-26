@@ -1274,7 +1274,7 @@ fn test_ecc_on_both_branches_of_a_reorg_does_not_land_again() {
     assert_eq!(chunks_with_ecc(&node, call.get_hash(), height).len(), 1);
     assert_eq!(chunks_with_ecc(&node, stripped.get_hash(), height), HashSet::new());
     let unique_id = create_ecc_outcome_id(stripped.hash(), height + 1);
-    let outcome = node.client().chain.get_execution_outcome(&unique_id).unwrap();
+    let outcome = node.get_execution_outcome(&unique_id).unwrap();
     assert_eq!(outcome.block_hash, *fork_block.hash());
 }
 

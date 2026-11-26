@@ -107,8 +107,6 @@ fn prepare_env() -> TestLoopEnv {
     env.validator_runner().run_until_executed_height(setup_height);
     assert!(matches!(
         env.validator()
-            .client()
-            .chain
             .get_final_transaction_result(&deploy_contract_tx.get_hash())
             .unwrap()
             .status,
@@ -150,12 +148,7 @@ fn test_yield_then_resume_one_block_apart() {
         next_block_height += 1;
     }
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started
     );
     // The PromiseYield receipt is applied instantly, it's not an outgoing receipt.
@@ -186,12 +179,7 @@ fn test_yield_then_resume_one_block_apart() {
     // In the next block the callback is executed and the promise resolves to its final result.
     env.validator_runner().run_until_executed_height(next_block_height);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
@@ -250,15 +238,14 @@ fn test_yield_then_resume_same_block() {
 
     {
         let node = env.validator();
-        let client = node.client();
         // Resumed callback executed, transaction finished successfully
         assert_eq!(
-            client.chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
+            node.get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::SuccessValue(vec![16u8]),
         );
         // promise_yield_resume returned 1 (resumption succeeded)
         assert_eq!(
-            client.chain.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
+            node.get_partial_transaction_result(&resume_tx_hash).unwrap().status,
             FinalExecutionStatus::SuccessValue(vec![1u8]),
         );
     }
@@ -298,14 +285,9 @@ fn test_yield_then_resume_two_actions() {
 
     {
         let node = env.validator();
-        let client = node.client();
         // promise_yield_resume returned 1 (resumption succeeded)
         assert_eq!(
-            client
-                .chain
-                .get_final_transaction_result(&yield_resume_transaction.get_hash())
-                .unwrap()
-                .status,
+            node.get_final_transaction_result(&yield_resume_transaction.get_hash()).unwrap().status,
             FinalExecutionStatus::SuccessValue(vec![1u8]),
         );
     }

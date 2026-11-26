@@ -439,7 +439,7 @@ fn test_light_client_execution_outcome_proof_across_resharding() {
     let chain = &rpc.client().chain;
     let mut covered_layout_change = false;
     for (tx_hash, response) in tx_hashes.iter().zip(responses) {
-        let execution_outcome = chain.get_execution_outcome(tx_hash).unwrap();
+        let execution_outcome = rpc.get_execution_outcome(tx_hash).unwrap();
         let execution_header = chain.get_block_header(&execution_outcome.block_hash).unwrap();
         let execution_epoch_id = *execution_header.epoch_id();
 

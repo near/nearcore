@@ -141,7 +141,7 @@ impl FeeChange {
             let header = client.chain.get_block_header(&block_hash).unwrap();
             client.epoch_manager.get_epoch_protocol_version(header.epoch_id()).unwrap()
         };
-        let outcome = client.chain.get_final_transaction_result(&tx_hash).unwrap();
+        let outcome = env.rpc_node().get_final_transaction_result(&tx_hash).unwrap();
         assert_eq!(version_of(outcome.transaction_outcome.block_hash), self.old_version);
         assert_eq!(version_of(outcome.receipts_outcome[0].block_hash), self.new_version);
 

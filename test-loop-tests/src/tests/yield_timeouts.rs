@@ -210,8 +210,6 @@ fn prepare_env_with_yield(
     env.validator_runner().run_until_executed_height(3);
     assert!(matches!(
         env.validator()
-            .client()
-            .chain
             .get_final_transaction_result(&deploy_contract_tx.get_hash())
             .unwrap()
             .status,
@@ -231,12 +229,7 @@ fn prepare_env_with_yield(
     let yield_tx_hash = env.validator().submit_tx(yield_transaction);
     env.validator_runner().run_until_executed_height(yield_create_height());
     assert!(matches!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started,
     ));
 
@@ -303,12 +296,7 @@ fn test_simple_yield_timeout() {
 
         // The transaction will not have a result until the timeout is reached
         assert_eq!(
-            env.validator()
-                .client()
-                .chain
-                .get_partial_transaction_result(&yield_tx_hash)
-                .unwrap()
-                .status,
+            env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::Started
         );
     }
@@ -318,24 +306,14 @@ fn test_simple_yield_timeout() {
     // Checks that the anticipated YieldResume receipt was produced.
     assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started
     );
 
     // When this block executes, the resume receipt is applied and the callback will execute.
     env.validator_runner().run_until_executed_height(yield_timeout_height() + 1);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 
@@ -361,12 +339,7 @@ fn test_yield_timeout_under_congestion() {
 
         // The transaction will not have a result until the timeout is reached
         assert_eq!(
-            env.validator()
-                .client()
-                .chain
-                .get_partial_transaction_result(&yield_tx_hash)
-                .unwrap()
-                .status,
+            env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::Started
         );
     }
@@ -374,8 +347,7 @@ fn test_yield_timeout_under_congestion() {
     // Advance until the congestion clears and the yield callback is executed.
     env.validator_runner().run_until(
         |node| {
-            let tx_status =
-                node.client().chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status;
+            let tx_status = node.get_partial_transaction_result(&yield_tx_hash).unwrap().status;
 
             if tx_status == FinalExecutionStatus::Started {
                 return false;
@@ -407,12 +379,7 @@ fn test_yield_resume_just_before_timeout() {
 
         // The transaction will not have a result until the yield execution is resumed
         assert_eq!(
-            env.validator()
-                .client()
-                .chain
-                .get_partial_transaction_result(&yield_tx_hash)
-                .unwrap()
-                .status,
+            env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::Started
         );
     }
@@ -420,12 +387,7 @@ fn test_yield_resume_just_before_timeout() {
     // When this block executes `yield_resume` host function is invoked, producing a YieldResume receipt.
     env.validator_runner().run_until_executed_height(yield_timeout_height());
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started
     );
     // Here we expect two receipts to be produced; one from yield_resume and one from timeout.
@@ -434,12 +396,7 @@ fn test_yield_resume_just_before_timeout() {
     // When this block executes, the resume receipt is applied and the callback is executed with the resume payload.
     env.validator_runner().run_until_executed_height(yield_timeout_height() + 1);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![16u8]),
     );
 
@@ -466,12 +423,7 @@ fn test_yield_resume_after_timeout_height() {
 
         // The transaction will not have a result until the timeout is reached
         assert_eq!(
-            env.validator()
-                .client()
-                .chain
-                .get_partial_transaction_result(&yield_tx_hash)
-                .unwrap()
-                .status,
+            env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::Started
         );
     }
@@ -481,8 +433,7 @@ fn test_yield_resume_after_timeout_height() {
     // Advance until the congestion clears and the yield callback is executed.
     env.validator_runner().run_until(
         |node| {
-            let tx_status =
-                node.client().chain.get_partial_transaction_result(&yield_tx_hash).unwrap().status;
+            let tx_status = node.get_partial_transaction_result(&yield_tx_hash).unwrap().status;
 
             if tx_status == FinalExecutionStatus::Started {
                 return false;
@@ -513,12 +464,7 @@ fn test_skip_timeout_height() {
 
         // The transaction will not have a result until the timeout is reached
         assert_eq!(
-            env.validator()
-                .client()
-                .chain
-                .get_partial_transaction_result(&yield_tx_hash)
-                .unwrap()
-                .status,
+            env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
             FinalExecutionStatus::Started
         );
     }
@@ -548,24 +494,14 @@ fn test_skip_timeout_height() {
     // Checks that the anticipated YieldResume receipt was produced.
     assert_eq!(find_yield_data_ids_from_latest_block(&env), vec![data_id]);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::Started
     );
 
     // When this block executes, the resume receipt is applied and the callback will execute.
     env.validator_runner().run_until_executed_height(yield_timeout_height() + 2);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 
@@ -617,12 +553,7 @@ fn test_yield_timeout_resume_receipt_has_receipt_to_tx() {
     // When this block executes, the resume receipt is applied and the callback executes.
     env.validator_runner().run_until_executed_height(yield_timeout_height() + 1);
     assert_eq!(
-        env.validator()
-            .client()
-            .chain
-            .get_partial_transaction_result(&yield_tx_hash)
-            .unwrap()
-            .status,
+        env.validator().get_partial_transaction_result(&yield_tx_hash).unwrap().status,
         FinalExecutionStatus::SuccessValue(vec![0u8]),
     );
 

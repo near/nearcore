@@ -701,12 +701,14 @@ impl ViewClientActor {
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.shard_tracker.cares_about_shard(&head.prev_block_hash, target_shard_id) {
-            match self.chain.get_partial_transaction_result_option(&tx_hash) {
+            match self.chain.chain_store().get_partial_transaction_result_option(&tx_hash) {
                 Ok(Some(tx_result)) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
-                        let final_result =
-                            self.chain.get_transaction_result_with_receipt(tx_result)?;
+                        let final_result = self
+                            .chain
+                            .chain_store()
+                            .get_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )
@@ -1165,7 +1167,7 @@ impl Handler<GetExecutionOutcome, Result<GetExecutionOutcomeResponse, GetExecuti
                 (receipt_id, receiver_id)
             }
         };
-        match self.chain.get_execution_outcome(&id) {
+        match self.chain.chain_store().get_execution_outcome(&id) {
             Ok(outcome) => {
                 let mut outcome_proof = outcome;
                 let epoch_id =
@@ -1785,7 +1787,7 @@ impl
                 (receipt_id, receiver_id)
             }
         };
-        let outcome = match self.chain.get_execution_outcome(&id) {
+        let outcome = match self.chain.chain_store().get_execution_outcome(&id) {
             Ok(outcome) => outcome,
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let (shard_id, tracked) =

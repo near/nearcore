@@ -186,7 +186,7 @@ pub fn check_txs(
     let rpc = rpc_client(test_loop_data, node_datas, rpc_id);
 
     for &tx in txs {
-        let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
+        let tx_outcome = rpc.chain.chain_store().get_partial_transaction_result(&tx);
         let status = tx_outcome.as_ref().map(|o| o.status.clone());
         let status = status.unwrap();
         tracing::info!(target: "test", ?tx, ?status, "transaction status");
@@ -308,7 +308,7 @@ impl TransactionRunner {
         }
 
         if let Ok(final_res) =
-            client.chain.get_final_transaction_result(&self.transaction.get_hash())
+            client.chain.chain_store().get_final_transaction_result(&self.transaction.get_hash())
         {
             // Transaction execution is finished, save and return the final result.
             self.final_result = Some(Ok(final_res.clone()));

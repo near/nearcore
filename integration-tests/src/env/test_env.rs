@@ -12,7 +12,7 @@ use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use near_chain::types::Tip;
-use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
+use near_chain::{ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
@@ -41,7 +41,7 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::transaction::{Action, ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, Gas, NumSeats, ShardId, StateRoot,
 };
@@ -552,6 +552,20 @@ impl TestEnv {
         self.clients[0].epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap()
     }
 
+    pub fn get_final_transaction_result(
+        &self,
+        tx_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        self.clients[0].chain.chain_store().get_final_transaction_result(tx_hash)
+    }
+
+    pub fn get_execution_outcome(
+        &self,
+        id: &CryptoHash,
+    ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
+        self.clients[0].chain.chain_store().get_execution_outcome(id)
+    }
+
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
         let client = &self.clients[0];
         let head = client.chain.head().unwrap();
@@ -815,7 +829,7 @@ impl TestEnv {
         let tip = self.clients[0].chain.head().unwrap();
         for i in 0..max_iters {
             self.produce_block_simple(tip.height + i + 1);
-            if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
+            if let Ok(outcome) = self.get_final_transaction_result(&tx_hash) {
                 return Ok(outcome);
             }
         }

@@ -110,7 +110,7 @@ fn slow_test_spice_congestion_and_bandwidth_with_execution_lag() {
             // Stop once all txs are final.
             tx_hashes.iter().all(|tx| {
                 matches!(
-                    node.client().chain.get_partial_transaction_result(tx).map(|o| o.status),
+                    node.get_partial_transaction_result(tx).map(|o| o.status),
                     Ok(FinalExecutionStatus::SuccessValue(_))
                 )
             })

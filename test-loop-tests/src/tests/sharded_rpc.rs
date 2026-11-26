@@ -1602,8 +1602,6 @@ fn test_rpc_light_client_proof_forwarding() {
     let receipt_id = h
         .env
         .node_for_account(&validator)
-        .client()
-        .chain
         .get_execution_outcome(&tx_hash)
         .unwrap()
         .outcome_with_id
@@ -1806,20 +1804,10 @@ fn test_rpc_changes_scatter_gather() {
     let target_height = h.env.node_for_account(&validator).head().height + 10;
     h.env.runner_for_account(&validator).run_until_executed_height(target_height);
 
-    let alice_outcome = h
-        .env
-        .node_for_account(&validator)
-        .client()
-        .chain
-        .get_execution_outcome(&tx_alice_hash)
-        .unwrap();
-    let zoe_outcome = h
-        .env
-        .node_for_account(&validator)
-        .client()
-        .chain
-        .get_execution_outcome(&tx_zoe_hash)
-        .unwrap();
+    let alice_outcome =
+        h.env.node_for_account(&validator).get_execution_outcome(&tx_alice_hash).unwrap();
+    let zoe_outcome =
+        h.env.node_for_account(&validator).get_execution_outcome(&tx_zoe_hash).unwrap();
 
     // Both TXs are on different shards, so they execute in chunks of the same block.
     let block_hash = alice_outcome.block_hash;

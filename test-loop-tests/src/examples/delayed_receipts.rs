@@ -58,11 +58,11 @@ fn delayed_receipt_example_test() {
 
     env.rpc_runner().run_until_block_executed(block_with_txs.header(), Duration::seconds(2));
     let rpc_node = env.rpc_node();
-    let chain = &rpc_node.client().chain;
     let tx_receipt_ids = txs
         .iter()
         .map(|tx| {
-            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status {
+            match rpc_node.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status
+            {
                 ExecutionStatus::SuccessReceiptId(receipt_id) => receipt_id,
                 status => panic!("unexpected tx {tx:?} outcome status {status:?}"),
             }
@@ -70,7 +70,7 @@ fn delayed_receipt_example_test() {
         .collect_vec();
     let receipt_outcomes = tx_receipt_ids
         .iter()
-        .map(|receipt_id| chain.get_execution_outcome(receipt_id))
+        .map(|receipt_id| rpc_node.get_execution_outcome(receipt_id))
         .collect_vec();
     // All transactions result in local receipts, so those are executed in the same chunk,
     // except for the last one which is delayed.

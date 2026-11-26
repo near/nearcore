@@ -292,7 +292,7 @@ fn test_receipt_to_tx_gc_with_outcomes_disabled() {
 
     // Verify: outcome is NOT saved (save_tx_outcomes=false).
     assert!(
-        env.validator().client().chain.get_execution_outcome(&tx_hash).is_err(),
+        env.validator().get_execution_outcome(&tx_hash).is_err(),
         "outcomes should not be saved when save_tx_outcomes is false"
     );
 
@@ -652,11 +652,7 @@ fn test_cross_shard_receipt_to_tx_gc_on_source_only_node() {
         "cross-shard receipt should NOT appear in OutcomeIds on the source-only observer"
     );
     assert!(
-        env.node_for_account(&observer_id)
-            .client()
-            .chain
-            .get_execution_outcome(&receipt_id)
-            .is_err(),
+        env.node_for_account(&observer_id).get_execution_outcome(&receipt_id).is_err(),
         "observer should not have execution outcome for cross-shard receipt"
     );
 

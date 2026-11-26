@@ -101,13 +101,12 @@ fn compare_node_counts() {
             let num_blocks = if i < 1 { num_blocks } else { 2 * epoch_length };
             let tx_hash = process_transaction(&mut env, &signer, num_blocks, PROTOCOL_VERSION);
 
-            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+            let final_result = env.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
-            let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+            let transaction_outcome = env.get_execution_outcome(&tx_hash).unwrap();
             let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
             assert_eq!(receipt_ids.len(), 1);
-            let receipt_execution_outcome =
-                env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+            let receipt_execution_outcome = env.get_execution_outcome(&receipt_ids[0]).unwrap();
             let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
             let profile_data = match metadata {
                 ExecutionMetadata::V1 => panic!("ExecutionMetadata cannot be empty"),

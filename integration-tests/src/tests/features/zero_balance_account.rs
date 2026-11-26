@@ -104,7 +104,7 @@ fn test_zero_balance_account_creation() {
     for i in 5..10 {
         env.produce_block(0, i);
     }
-    let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    let outcome = env.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(
         outcome.status,
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {

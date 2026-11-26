@@ -51,8 +51,6 @@ fn add_full_access_key(env: &mut TestLoopEnv, account: &AccountId, public_key: P
 /// conversion cost - what the signer pays).
 fn tx_gas_burnt(env: &TestLoopEnv, tx_hash: &CryptoHash) -> u64 {
     env.rpc_node()
-        .client()
-        .chain
         .get_execution_outcome(tx_hash)
         .unwrap()
         .outcome_with_id
