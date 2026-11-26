@@ -366,7 +366,8 @@ impl FilesystemContractRuntimeCache {
                 message = "the legacy compiled contract cache path still exists after migration; consider removing it"
             );
         }
-        let files = LruFileCache::open(&path, max_disk_cache_bytes, bg_spawner)?;
+        let files =
+            LruFileCache::open("compiled_contracts", &path, max_disk_cache_bytes, bg_spawner)?;
         tracing::debug!(
             target: "vm",
             path = %path.display(),

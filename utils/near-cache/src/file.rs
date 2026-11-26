@@ -35,9 +35,8 @@ use std::time::{Duration, Instant};
 pub struct LruFileCache<K> {
     /// file descriptor to the cache directory
     dir: Arc<OwnedFd>,
-    /// Path of the cache directory. Only used to tell the caches apart in
-    /// the logs.
-    path: Arc<Path>,
+    /// Name of the cache. Only used to tell the caches apart in the logs.
+    name: &'static str,
     /// Tracks files present in `dir`, keyed by the same key as the
     /// on-disk filename, weighted by on-disk byte size. The value is the
     /// instant the entry's on-disk atime was last refreshed/created.
@@ -86,11 +85,14 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 
     /// Opens the directory at `path`, creating it if needed, and indexes the files in it.
     ///
+    /// `name` identifies the cache in the logs, e.g. `"compiled_contracts"`.
+    ///
     /// `max_bytes` is the maximum total size of the files kept in the directory. Returns an
     /// [`InvalidInput`] error if it is larger than [`Self::MAX_BYTES`].
     ///
     /// [`InvalidInput`]: std::io::ErrorKind::InvalidInput
     pub fn open(
+        name: &'static str,
         path: &Path,
         max_bytes: u64,
         bg_spawner: BackgroundJobSpawner,
@@ -101,10 +103,10 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         }
         std::fs::create_dir_all(path)?;
         let dir = open(path, OFlags::DIRECTORY, Mode::empty())?;
-        let disk_index = Mutex::new(build_disk_index(&dir, path, max_bytes)?);
+        let disk_index = Mutex::new(build_disk_index(&dir, name, max_bytes)?);
         Ok(Self {
             dir: Arc::new(dir),
-            path: Arc::from(path),
+            name,
             disk_index,
             access_time_refresh_throttle: ACCESS_TIME_REFRESH_THROTTLE,
             bg_spawner,
@@ -122,7 +124,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 
     /// Stamp `key`'s on-disk file with the current access time, leaving its
     /// modification time untouched. Best-effort: failures are logged and dropped.
-    fn refresh_disk_atime(dir: &OwnedFd, path: &Path, key: &K) {
+    fn refresh_disk_atime(dir: &OwnedFd, name: &str, key: &K) {
         let filename = key.to_string();
         let times = Timestamps {
             last_access: Timespec { tv_sec: 0, tv_nsec: UTIME_NOW },
@@ -133,7 +135,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
             Ok(()) | Err(Errno::NOENT) => {}
             Err(err) => tracing::debug!(
                 target: "cache",
-                path = %path.display(),
+                cache = name,
                 key = %key,
                 err = &err as &dyn std::error::Error,
                 "failed to refresh cache file atime",
@@ -206,7 +208,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                     Ok(()) | Err(Errno::NOENT) => {}
                     Err(err) => tracing::debug!(
                         target: "cache",
-                        path = %self.path.display(),
+                        cache = self.name,
                         victim = %victim,
                         err = &err as &dyn std::error::Error,
                         "failed to unlink evicted cache file; file cache may exceed its size limit"
@@ -285,9 +287,9 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         };
         if needs_refresh {
             let dir = Arc::clone(&self.dir);
-            let path = Arc::clone(&self.path);
+            let name = self.name;
             let key = *key;
-            (self.bg_spawner)(Box::new(move || Self::refresh_disk_atime(&dir, &path, &key)));
+            (self.bg_spawner)(Box::new(move || Self::refresh_disk_atime(&dir, name, &key)));
         }
     }
 
@@ -315,7 +317,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                     if let Err(err) = unlinkat(&self.dir, entry.file_name(), AtFlags::empty()) {
                         tracing::error!(
                             target: "cache",
-                            path = %self.path.display(),
+                            cache = self.name,
                             file_name = ?entry.file_name(),
                             err = &err as &dyn std::error::Error,
                             "failed to remove cache file",
@@ -336,7 +338,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 /// tracked entries are unlinked until the index fits.
 fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
     dir: &rustix::fd::OwnedFd,
-    path: &Path,
+    name: &str,
     max_bytes: u64,
 ) -> std::io::Result<LruWeightedCache<K, Instant>> {
     let mut index = LruWeightedCache::<K, Instant>::without_item_cap(max_bytes);
@@ -382,7 +384,7 @@ fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
                 Ok(()) | Err(Errno::NOENT) => {}
                 Err(err) => tracing::debug!(
                     target: "cache",
-                    path = %path.display(),
+                    cache = name,
                     victim = %victim,
                     err = &err as &dyn std::error::Error,
                     "failed to unlink evicted cache file; file cache may exceed its size limit"
@@ -395,7 +397,7 @@ fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
     if 0 < over_limit_trimmed {
         tracing::info!(
             target: "cache",
-            path = %path.display(),
+            cache = name,
             trimmed = over_limit_trimmed,
             trimmed_bytes,
             max_bytes,
@@ -416,7 +418,7 @@ mod tests {
         temp_dir: &tempfile::TempDir,
         bg_spawner: BackgroundJobSpawner,
     ) -> LruFileCache<u64> {
-        LruFileCache::open(temp_dir.path(), 1 << 20, bg_spawner).unwrap()
+        LruFileCache::open("test", temp_dir.path(), 1 << 20, bg_spawner).unwrap()
     }
 
     fn put(cache: &LruFileCache<u64>, key: u64, filler: u8) {
@@ -434,7 +436,7 @@ mod tests {
         let path = temp_dir.path().join("cache");
         let too_big = LruFileCache::<u64>::MAX_BYTES + 1;
         let bg_spawner = crate::noop_background_spawner();
-        match LruFileCache::<u64>::open(&path, too_big, bg_spawner) {
+        match LruFileCache::<u64>::open("test", &path, too_big, bg_spawner) {
             Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput),
             Ok(_) => panic!("limit above the cap must be rejected"),
         }
@@ -458,7 +460,7 @@ mod tests {
         let times = std::fs::FileTimes::new().set_accessed(old).set_modified(old);
         std::fs::File::open(&path).unwrap().set_times(times).unwrap();
 
-        LruFileCache::refresh_disk_atime(&cache.dir, &cache.path, &k);
+        LruFileCache::refresh_disk_atime(&cache.dir, cache.name, &k);
 
         let meta = std::fs::metadata(&path).unwrap();
         assert!(
