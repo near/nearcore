@@ -10,9 +10,10 @@ use near_client::NetworkAdversarialMessage;
 use near_client::client_actor::AdvProduceChunksMode;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
-use near_primitives::types::{BlockHeight, Gas};
+use near_primitives::types::{Balance, BlockHeight, Gas, ShardId};
 use near_primitives::utils::{get_endorsements_key_prefix, get_spice_invalid_chunk_key_rev};
 use near_store::DBCol;
 use near_store::db::{COLD_HEAD_KEY, Database};
@@ -261,4 +262,111 @@ fn stored_invalid_chunk_keys(node: &TestLoopNode) -> Vec<Box<[u8]>> {
 #[cfg(feature = "test_features")]
 fn cold_head_height(node: &TestLoopNode) -> BlockHeight {
     node.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).map_or(0, |tip| tip.height)
+}
+
+/// Under SPICE an invalid chunk has no `ShardChunk` in `DBCol::Chunks`. A node tracking every
+/// shard must still drop a transaction from its pool once a block includes it, even when that
+/// block carries an invalid chunk for an earlier shard.
+#[cfg(feature = "test_features")]
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_tx_leaves_pool_next_to_invalid_chunk() {
+    init_test_logger();
+
+    let num_producers = 8;
+    let sender = create_account_id("usera");
+    let receiver = create_account_id("userb");
+    let mut env = TestLoopBuilder::new()
+        .validators(num_producers, 0)
+        .num_shards(2)
+        .track_all_shards()
+        .add_user_accounts([&sender, &receiver], Balance::from_near(1_000))
+        .build();
+
+    // Accounts sort after the boundary account, so they live in the last shard.
+    let observer_node = env.node(0);
+    let epoch_id = observer_node.head().epoch_id;
+    let epoch_manager = observer_node.client().epoch_manager.clone();
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let invalid_shard_id = shard_layout.shard_ids().next().unwrap();
+    let tx_shard_uid = shard_layout.account_id_to_shard_uid(&sender);
+    assert_ne!(tx_shard_uid.shard_id(), invalid_shard_id);
+    let tx_shard_producers = epoch_manager
+        .get_epoch_chunk_producers_for_shard(&epoch_id, tx_shard_uid.shard_id())
+        .unwrap();
+    let invalid_shard_producers =
+        epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, invalid_shard_id).unwrap();
+    let malicious = invalid_shard_producers
+        .iter()
+        .find(|account| !tx_shard_producers.contains(account))
+        .expect("a producer of only the first shard")
+        .clone();
+    let observer = tx_shard_producers[0].clone();
+    let malicious_idx = env.account_data_idx(&malicious);
+    env.node_runner(malicious_idx).send_adversarial_message(
+        NetworkAdversarialMessage::AdvProduceChunks(
+            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+        ),
+    );
+
+    let mut rounds_next_to_invalid_chunk = 0;
+    for _ in 0..24 {
+        let tx = env.node_for_account(&observer).tx_send_money(
+            &sender,
+            &receiver,
+            Balance::from_millinear(1),
+        );
+        let tx_hash = tx.get_hash();
+        // A chunk producer only keeps transactions it was handed itself, so every producer of
+        // the shard gets one. The observer then holds a copy whichever of them includes it.
+        for producer in &tx_shard_producers {
+            env.node_for_account(producer).submit_tx(tx.clone());
+        }
+        env.runner_for_account(&observer).run_until(
+            |node| tx_in_shard_chunk(node, tx_shard_uid.shard_id(), tx_hash),
+            Duration::seconds(30),
+        );
+
+        let node = env.node_for_account(&observer);
+        let block = node.head_block();
+        let included_at = block.header().height();
+        let invalid_next_to_tx = block.chunks().iter_new().any(|header| {
+            header.shard_id() == invalid_shard_id
+                && node
+                    .client()
+                    .chain
+                    .chain_store()
+                    .is_invalid_chunk(header.height_created(), header.chunk_hash())
+                    .is_some()
+        });
+        if invalid_next_to_tx {
+            rounds_next_to_invalid_chunk += 1;
+        }
+        let pooled = node
+            .client()
+            .chunk_producer
+            .sharded_tx_pool
+            .lock()
+            .get_pool_iterator(tx_shard_uid)
+            .map_or(0, |pool| pool.drain().len());
+        assert_eq!(
+            pooled, 0,
+            "tx {tx_hash} included at height {included_at} is still in the pool of {observer} \
+             (invalid chunk in the same block: {invalid_next_to_tx})",
+        );
+    }
+    assert!(
+        rounds_next_to_invalid_chunk > 0,
+        "no transaction was included in a block with an invalid chunk, so the test proves nothing",
+    );
+}
+
+/// Whether the chunk of `shard_id` in the head block of `node` carries `tx_hash`.
+#[cfg(feature = "test_features")]
+fn tx_in_shard_chunk(node: &TestLoopNode, shard_id: ShardId, tx_hash: CryptoHash) -> bool {
+    let block = node.head_block();
+    block.chunks().iter_new().filter(|header| header.shard_id() == shard_id).any(|header| {
+        let chunk = node.client().chain.get_chunk(header.chunk_hash()).unwrap();
+        chunk.to_transactions().iter().any(|tx| tx.get_hash() == tx_hash)
+    })
 }

@@ -200,6 +200,15 @@ impl AsRef<Client> for Client {
     }
 }
 
+/// Invalid chunks (SPICE) have no stored `ShardChunk` and execute as empty, so they carry no
+/// transactions and cannot be read with `Chain::get_chunk`.
+fn is_invalid_chunk(chain: &Chain, chunk_header: &ShardChunkHeader) -> bool {
+    chain
+        .chain_store()
+        .is_invalid_chunk(chunk_header.height_created(), chunk_header.chunk_hash())
+        .is_some()
+}
+
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdatableClientConfig) -> bool {
         let mut is_updated = false;
@@ -555,7 +564,10 @@ impl Client {
                 .shard_tracker
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
-                // By now the chunk must be in store, otherwise the block would have been orphaned
+                if is_invalid_chunk(&self.chain, chunk_header) {
+                    continue;
+                }
+                // Otherwise the chunk must be in store, or the block would have been orphaned.
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
                 let transactions = chunk.to_transactions();
                 for tx in transactions {
@@ -588,7 +600,10 @@ impl Client {
                 .shard_tracker
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
-                // By now the chunk must be in store, otherwise the block would have been orphaned
+                if is_invalid_chunk(&self.chain, chunk_header) {
+                    continue;
+                }
+                // Otherwise the chunk must be in store, or the block would have been orphaned.
                 let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
 
                 let validated_txs = chunk
@@ -671,6 +686,9 @@ impl Client {
             {
                 continue;
             }
+            if is_invalid_chunk(&self.chain, chunk_header) {
+                continue;
+            }
             let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
             let transactions = chunk.to_transactions();
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
@@ -723,6 +741,9 @@ impl Client {
                 if !shard_tracker
                     .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
                 {
+                    continue;
+                }
+                if is_invalid_chunk(&chain, chunk_header) {
                     continue;
                 }
                 let chunk = chain.get_chunk(&chunk_header.chunk_hash())?;
