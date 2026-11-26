@@ -24,9 +24,19 @@ use std::time::{Duration, Instant};
 /// Files are tracked by key and on-disk byte size; LRU victims are unlinked on `commit_file`.
 ///
 /// The key is the name of the file: it has to round-trip through [`Display`] and [`FromStr`].
+///
+/// [`read`] and [`has`] go straight to the file system. They do not consult
+/// the index and do not mark the key as recently used, so the caller has to
+/// call [`touch`] for every access that should count for the eviction order.
+///
+/// [`read`]: LruFileCache::read
+/// [`has`]: LruFileCache::has
+/// [`touch`]: LruFileCache::touch
 pub struct LruFileCache<K> {
     /// file descriptor to the cache directory
     dir: Arc<OwnedFd>,
+    /// Name of the cache. Only used to tell the caches apart in the logs.
+    name: &'static str,
     /// Tracks files present in `dir`, keyed by the same key as the
     /// on-disk filename, weighted by on-disk byte size. The value is the
     /// instant the entry's on-disk atime was last refreshed/created.
@@ -75,18 +85,28 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 
     /// Opens the directory at `path`, creating it if needed, and indexes the files in it.
     ///
-    /// `max_bytes` is the maximum total size of the files kept in the directory. Panics if it
-    /// is larger than [`Self::MAX_BYTES`].
+    /// `name` identifies the cache in the logs, e.g. `"compiled_contracts"`.
+    ///
+    /// `max_bytes` is the maximum total size of the files kept in the directory. Returns an
+    /// [`InvalidInput`] error if it is larger than [`Self::MAX_BYTES`].
+    ///
+    /// [`InvalidInput`]: std::io::ErrorKind::InvalidInput
     pub fn open(
+        name: &'static str,
         path: &Path,
         max_bytes: u64,
         bg_spawner: BackgroundJobSpawner,
     ) -> std::io::Result<Self> {
+        if max_bytes > Self::MAX_BYTES {
+            let message = format!("max_bytes must be at most {} bytes", Self::MAX_BYTES);
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, message));
+        }
         std::fs::create_dir_all(path)?;
         let dir = open(path, OFlags::DIRECTORY, Mode::empty())?;
-        let disk_index = Mutex::new(build_disk_index(&dir, max_bytes)?);
+        let disk_index = Mutex::new(build_disk_index(&dir, name, max_bytes)?);
         Ok(Self {
             dir: Arc::new(dir),
+            name,
             disk_index,
             access_time_refresh_throttle: ACCESS_TIME_REFRESH_THROTTLE,
             bg_spawner,
@@ -104,7 +124,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 
     /// Stamp `key`'s on-disk file with the current access time, leaving its
     /// modification time untouched. Best-effort: failures are logged and dropped.
-    fn refresh_disk_atime(dir: &OwnedFd, key: &K) {
+    fn refresh_disk_atime(dir: &OwnedFd, name: &str, key: &K) {
         let filename = key.to_string();
         let times = Timestamps {
             last_access: Timespec { tv_sec: 0, tv_nsec: UTIME_NOW },
@@ -114,10 +134,11 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
             // Success, or the file was evicted/removed out from under us.
             Ok(()) | Err(Errno::NOENT) => {}
             Err(err) => tracing::debug!(
-                target: "vm",
+                target: "cache",
+                cache = name,
                 key = %key,
                 err = &err as &dyn std::error::Error,
-                "failed to refresh contract cache file atime",
+                "failed to refresh cache file atime",
             ),
         }
     }
@@ -186,10 +207,11 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                 match unlinkat(&self.dir, victim.to_string(), AtFlags::empty()) {
                     Ok(()) | Err(Errno::NOENT) => {}
                     Err(err) => tracing::debug!(
-                        target: "vm",
+                        target: "cache",
+                        cache = self.name,
                         victim = %victim,
                         err = &err as &dyn std::error::Error,
-                        "failed to unlink evicted compiled-contract cache file; on-disk cache may exceed its size limit"
+                        "failed to unlink evicted cache file; file cache may exceed its size limit"
                     ),
                 }
             }
@@ -205,6 +227,10 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
     }
 
     /// Reads the whole file for `key`. Returns `None` if there is no such file.
+    ///
+    /// Does not mark `key` as recently used: call [`Self::touch`] for that.
+    /// The file is looked up in the directory, not in the index, so a file
+    /// that the index does not track is returned as well.
     pub fn read(&self, key: &K) -> std::io::Result<Option<Vec<u8>>> {
         let filename = key.to_string();
         let mode = Mode::empty();
@@ -226,6 +252,9 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
     }
 
     /// Whether the file for `key` exists.
+    ///
+    /// Like [`Self::read`], this checks the directory, not the index, and
+    /// does not mark `key` as recently used.
     pub fn has(&self, key: &K) -> std::io::Result<bool> {
         let filename = key.to_string();
         match accessat(&self.dir, &filename, Access::EXISTS, AtFlags::empty()) {
@@ -236,6 +265,9 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
     }
 
     /// Marks `key` as recently used.
+    ///
+    /// This is the only way to protect a file from eviction: reading it is
+    /// not enough. Does nothing if the index does not track `key`.
     pub fn touch(&self, key: &K) {
         // Promote in the in-memory LRU and check if on-disk atime refresh is needed.
         let needs_refresh = {
@@ -255,8 +287,9 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
         };
         if needs_refresh {
             let dir = Arc::clone(&self.dir);
+            let name = self.name;
             let key = *key;
-            (self.bg_spawner)(Box::new(move || Self::refresh_disk_atime(&dir, &key)));
+            (self.bg_spawner)(Box::new(move || Self::refresh_disk_atime(&dir, name, &key)));
         }
     }
 
@@ -277,15 +310,17 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
                 } else if !entry.file_type().is_file() {
                     debug_assert!(
                         false,
-                        "contract code cache should only contain file items, but found {:?}",
+                        "the cache directory should only contain files, but found {:?}",
                         entry.file_name()
                     );
                 } else {
                     if let Err(err) = unlinkat(&self.dir, entry.file_name(), AtFlags::empty()) {
                         tracing::error!(
+                            target: "cache",
+                            cache = self.name,
                             file_name = ?entry.file_name(),
                             err = &err as &dyn std::error::Error,
-                            "failed to remove contract cache file",
+                            "failed to remove cache file",
                         );
                     }
                 }
@@ -303,6 +338,7 @@ impl<K: Copy + Eq + Hash + Display + FromStr + Send + 'static> LruFileCache<K> {
 /// tracked entries are unlinked until the index fits.
 fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
     dir: &rustix::fd::OwnedFd,
+    name: &str,
     max_bytes: u64,
 ) -> std::io::Result<LruWeightedCache<K, Instant>> {
     let mut index = LruWeightedCache::<K, Instant>::without_item_cap(max_bytes);
@@ -347,10 +383,11 @@ fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
             match unlinkat(dir, victim.to_string(), AtFlags::empty()) {
                 Ok(()) | Err(Errno::NOENT) => {}
                 Err(err) => tracing::debug!(
-                    target: "vm",
+                    target: "cache",
+                    cache = name,
                     victim = %victim,
                     err = &err as &dyn std::error::Error,
-                    "failed to unlink evicted compiled-contract cache file; on-disk cache may exceed its size limit"
+                    "failed to unlink evicted cache file; file cache may exceed its size limit"
                 ),
             }
             over_limit_trimmed += 1;
@@ -359,11 +396,12 @@ fn build_disk_index<K: Copy + Eq + Hash + Display + FromStr>(
 
     if 0 < over_limit_trimmed {
         tracing::info!(
-            target: "vm",
+            target: "cache",
+            cache = name,
             trimmed = over_limit_trimmed,
             trimmed_bytes,
             max_bytes,
-            "compiled-contract cache exceeded its on-disk size limit at startup; trimmed oldest entries"
+            "file cache exceeded its size limit at startup; trimmed oldest entries"
         );
     }
 
@@ -380,7 +418,7 @@ mod tests {
         temp_dir: &tempfile::TempDir,
         bg_spawner: BackgroundJobSpawner,
     ) -> LruFileCache<u64> {
-        LruFileCache::open(temp_dir.path(), 1 << 20, bg_spawner).unwrap()
+        LruFileCache::open("test", temp_dir.path(), 1 << 20, bg_spawner).unwrap()
     }
 
     fn put(cache: &LruFileCache<u64>, key: u64, filler: u8) {
@@ -391,11 +429,26 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_max_bytes_above_the_cap() {
+        // A limit the index can't represent must surface as an `Err`, not a
+        // panic, and must not create the directory.
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().join("cache");
+        let too_big = LruFileCache::<u64>::MAX_BYTES + 1;
+        let bg_spawner = crate::noop_background_spawner();
+        match LruFileCache::<u64>::open("test", &path, too_big, bg_spawner) {
+            Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput),
+            Ok(_) => panic!("limit above the cap must be rejected"),
+        }
+        assert!(!path.exists(), "a rejected open must not create the directory");
+    }
+
+    #[test]
     fn refresh_disk_atime_advances_atime_and_preserves_mtime() {
         use std::time::{Duration, UNIX_EPOCH};
         // An explicit `utimensat` must bump atime regardless of the mount's
-        // atime policy, while leaving mtime (which records compile time for the
-        // protocol-version sweep) untouched.
+        // atime policy, while leaving mtime (which callers may rely on as the
+        // time the file was written) untouched.
         let temp_dir = tempfile::TempDir::new().unwrap();
         let cache = test_cache(&temp_dir, crate::noop_background_spawner());
         let k = 1u64;
@@ -407,7 +460,7 @@ mod tests {
         let times = std::fs::FileTimes::new().set_accessed(old).set_modified(old);
         std::fs::File::open(&path).unwrap().set_times(times).unwrap();
 
-        LruFileCache::refresh_disk_atime(&cache.dir, &k);
+        LruFileCache::refresh_disk_atime(&cache.dir, cache.name, &k);
 
         let meta = std::fs::metadata(&path).unwrap();
         assert!(
