@@ -66,7 +66,7 @@ fn get_execution_outcome_returns_the_inclusion_that_used_the_nonce_over_an_earli
         save_outcome(&chain, &b2, id, used_nonce.clone());
         save_outcome(&chain, &b3, id, invalid_nonce.clone());
 
-        let outcome = chain.get_execution_outcome(&id).unwrap();
+        let outcome = chain.chain_store().get_execution_outcome(&id).unwrap();
         assert_eq!(outcome.block_hash, *b2.hash());
         assert_eq!(outcome.outcome_with_id.outcome.status, used_nonce);
     }
@@ -85,7 +85,7 @@ fn get_execution_outcome_returns_the_earliest_rejection_when_no_inclusion_used_t
     let expired = ExecutionStatus::Failure(InvalidTxError::Expired.into());
     save_outcome(&chain, &b2, id, expired.clone());
 
-    let outcome = chain.get_execution_outcome(&id).unwrap();
+    let outcome = chain.chain_store().get_execution_outcome(&id).unwrap();
     assert_eq!(outcome.block_hash, *b2.hash());
     assert_eq!(outcome.outcome_with_id.outcome.status, expired);
 }
@@ -103,6 +103,6 @@ fn get_execution_outcome_skips_an_inclusion_that_used_the_nonce_off_the_canonica
         ExecutionStatus::Failure(InvalidTxError::InvalidNonce { tx_nonce: 1, ak_nonce: 1 }.into()),
     );
 
-    let outcome = chain.get_execution_outcome(&id).unwrap();
+    let outcome = chain.chain_store().get_execution_outcome(&id).unwrap();
     assert_eq!(outcome.block_hash, *b3.hash());
 }

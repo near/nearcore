@@ -9,7 +9,7 @@ use near_async::time::Duration;
 use near_chain::spice::boundary::is_last_pre_spice_block;
 use near_chain::spice::core::get_last_certified_block_header;
 use near_chain::types::Tip;
-use near_chain::{Block, BlockHeader};
+use near_chain::{Block, BlockHeader, Error};
 use near_client::client_actor::ClientActor;
 use near_client::{
     Client, ProcessTxRequest, ProcessTxResponse, Query, QueryError, ViewClientActor,
@@ -176,11 +176,32 @@ impl<'a> TestLoopNode<'a> {
         self.client().chain.chain_store.get_receipt(&receipt_id).unwrap()
     }
 
+    pub fn get_execution_outcome(
+        &self,
+        tx_hash_or_receipt_id: &CryptoHash,
+    ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
+        self.client().chain.chain_store().get_execution_outcome(tx_hash_or_receipt_id)
+    }
+
+    pub fn get_final_transaction_result(
+        &self,
+        tx_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        self.client().chain.chain_store().get_final_transaction_result(tx_hash)
+    }
+
+    pub fn get_partial_transaction_result(
+        &self,
+        tx_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        self.client().chain.chain_store().get_partial_transaction_result(tx_hash)
+    }
+
     pub fn execution_outcome_with_proof(
         &self,
         tx_hash_or_receipt_id: CryptoHash,
     ) -> ExecutionOutcomeWithIdAndProof {
-        self.client().chain.get_execution_outcome(&tx_hash_or_receipt_id).unwrap_or_else(|err| {
+        self.get_execution_outcome(&tx_hash_or_receipt_id).unwrap_or_else(|err| {
             panic!("outcome with id {tx_hash_or_receipt_id} is not available: {err}")
         })
     }
@@ -671,7 +692,7 @@ impl<'a> NodeRunner<'a> {
     ) -> ExecutionOutcomeWithIdAndProof {
         let mut ret = None;
         self.run_until(
-            |node| match node.client().chain.get_execution_outcome(&tx_hash_or_receipt_id) {
+            |node| match node.get_execution_outcome(&tx_hash_or_receipt_id) {
                 Ok(outcome) => {
                     ret = Some(outcome);
                     true

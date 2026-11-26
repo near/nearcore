@@ -1211,12 +1211,12 @@ fn test_gc_execution_outcome() {
     for i in 1..epoch_length {
         env.produce_block(0, i);
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_ok());
+    assert!(env.get_final_transaction_result(&tx_hash).is_ok());
 
     for i in epoch_length..=epoch_length * 6 + 1 {
         env.produce_block(0, i);
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_err());
+    assert!(env.get_final_transaction_result(&tx_hash).is_err());
 }
 
 #[test]
@@ -2147,7 +2147,7 @@ fn test_block_execution_outcomes() {
     // Due to gas limit, the first two transactions will create local receipts and they get executed
     // in the same block. The last local receipt will become delayed receipt
     for (i, id) in tx_hashes.into_iter().enumerate() {
-        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+        let execution_outcome = env.get_execution_outcome(&id).unwrap();
         assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
         expected_outcome_ids.insert(id);
         if i < 2 {
@@ -2251,7 +2251,7 @@ fn test_save_tx_outcomes_false() {
 
     // Check that the execution outcomes are not saved in the chain store.
     for id in tx_hashes {
-        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id);
+        let execution_outcome = env.get_execution_outcome(&id);
         assert_matches!(execution_outcome, Err(Error::DBNotFoundErr(_)));
     }
 }
@@ -2302,10 +2302,10 @@ fn test_refund_receipts_processing() {
     let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
     let test_shard_id = test_shard_uid.shard_id();
     for tx_hash in tx_hashes {
-        let tx_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+        let tx_outcome = env.get_execution_outcome(&tx_hash).unwrap();
         assert_eq!(tx_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
         if let ExecutionStatus::SuccessReceiptId(id) = tx_outcome.outcome_with_id.outcome.status {
-            let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+            let receipt_outcome = env.get_execution_outcome(&id).unwrap();
             assert_matches!(
                 receipt_outcome.outcome_with_id.outcome.status,
                 ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
@@ -2928,7 +2928,7 @@ fn test_fork_execution_outcome() {
     let receipt_execution_outcomes =
         env.clients[0].chain.mut_chain_store().get_outcomes_by_id(&receipt_id).unwrap();
     assert_eq!(receipt_execution_outcomes.len(), 2);
-    let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
+    let canonical_chain_outcome = env.get_execution_outcome(&receipt_id).unwrap();
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
 
     // Make sure that GC cleanups execution outcomes.
@@ -3402,16 +3402,16 @@ fn test_congestion_receipt_execution() {
     }
 
     for tx_hash in &tx_hashes {
-        let final_outcome = env.clients[0].chain.get_final_transaction_result(tx_hash).unwrap();
+        let final_outcome = env.get_final_transaction_result(tx_hash).unwrap();
         assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
 
         // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
-        let transaction_outcome = env.clients[0].chain.get_execution_outcome(tx_hash).unwrap();
+        let transaction_outcome = env.get_execution_outcome(tx_hash).unwrap();
         let mut receipt_ids: VecDeque<_> =
             transaction_outcome.outcome_with_id.outcome.receipt_ids.into();
         while !receipt_ids.is_empty() {
             let receipt_id = receipt_ids.pop_front().unwrap();
-            let receipt_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
+            let receipt_outcome = env.get_execution_outcome(&receipt_id).unwrap();
             match receipt_outcome.outcome_with_id.outcome.status {
                 ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => {}
                 ExecutionStatus::Failure(_) | ExecutionStatus::Unknown => {

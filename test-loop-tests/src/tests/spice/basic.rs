@@ -700,10 +700,9 @@ fn test_spice_chain_with_missing_chunks() {
             if sent_txs.len() < accounts.len() {
                 return false;
             }
-            let client = node.client();
             for tx_hash in sent_txs.iter() {
                 if !finalized_txs.contains(tx_hash)
-                    && client.chain.get_final_transaction_result(tx_hash).is_ok()
+                    && node.get_final_transaction_result(tx_hash).is_ok()
                 {
                     finalized_txs.insert(*tx_hash);
                 }

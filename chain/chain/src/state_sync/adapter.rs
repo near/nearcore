@@ -740,16 +740,8 @@ impl ChainStateSyncAdapter {
             return Ok(false);
         }
 
-        Ok(self.is_on_current_chain(&sync_header)? && self.is_on_current_chain(header)?)
-    }
-
-    /// Returns if given block header is on the current chain.
-    ///
-    /// This is done by fetching header by height and checking that it's the
-    /// same one as provided.
-    fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let chain_header = self.chain_store.get_block_header_by_height(header.height())?;
-        Ok(chain_header.hash() == header.hash())
+        Ok(self.chain_store.is_on_current_chain(&sync_header)?
+            && self.chain_store.is_on_current_chain(header)?)
     }
 
     pub fn set_state_part(

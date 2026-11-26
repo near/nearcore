@@ -191,7 +191,8 @@ pub(crate) fn execute_storage_operations(
                     continue;
                 }
 
-                let tx_outcome = client_actor.client.chain.get_partial_transaction_result(&tx);
+                let tx_outcome =
+                    client_actor.client.chain.chain_store().get_partial_transaction_result(&tx);
                 let status = tx_outcome.as_ref().map(|o| o.status.clone());
                 assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
             }
@@ -257,7 +258,7 @@ fn check_txs_with_retry(
 ) {
     let mut remaining = vec![];
     for (tx, tx_height) in txs.take() {
-        let tx_outcome = client.chain.get_partial_transaction_result(&tx);
+        let tx_outcome = client.chain.chain_store().get_partial_transaction_result(&tx);
         let status = match tx_outcome {
             Err(e) => panic!("transaction {tx} not found: {e}"),
             Ok(outcome) => outcome.status,
@@ -1253,8 +1254,11 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                 {
                     let txs = txs.take();
                     for (index, (tx, tx_height)) in txs.iter().enumerate() {
-                        let tx_outcome =
-                            client_actor.client.chain.get_partial_transaction_result(&tx);
+                        let tx_outcome = client_actor
+                            .client
+                            .chain
+                            .chain_store()
+                            .get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());
                         tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
                         // First two txs should have been GC'd, so these cannot be found.
@@ -1417,8 +1421,11 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
                 (Some(resharding), latest) if latest == resharding + 5 + 5 => {
                     let txs = txs.take();
                     for (tx, tx_height) in &txs {
-                        let tx_outcome =
-                            client_actor.client.chain.get_partial_transaction_result(&tx);
+                        let tx_outcome = client_actor
+                            .client
+                            .chain
+                            .chain_store()
+                            .get_partial_transaction_result(&tx);
                         let status = tx_outcome.as_ref().map(|o| o.status.clone());
                         tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
                         assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
@@ -1591,7 +1598,7 @@ where
 fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
     let mut unfinished_txs = Vec::new();
     for (tx_hash, tx_height) in txs.take() {
-        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
+        let tx_outcome = client.chain.chain_store().get_final_transaction_result(&tx_hash);
         let status = tx_outcome.as_ref().map(|o| o.status.clone());
         tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
         match status {

@@ -84,11 +84,11 @@ fn check_deploy_compute_cost_limits_chunk_capacity(code: Vec<u8>, max_per_chunk:
 
     // Collect the deploy receipt IDs produced by each transaction.
     let rpc_node = env.rpc_node();
-    let chain = &rpc_node.client().chain;
     let receipt_ids: Vec<_> = txs
         .iter()
         .map(|tx| {
-            match chain.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status {
+            match rpc_node.get_execution_outcome(tx.hash()).unwrap().outcome_with_id.outcome.status
+            {
                 ExecutionStatus::SuccessReceiptId(id) => id,
                 status => panic!("unexpected tx outcome status: {status:?}"),
             }
@@ -97,7 +97,7 @@ fn check_deploy_compute_cost_limits_chunk_capacity(code: Vec<u8>, max_per_chunk:
 
     // max_per_chunk is an overestimation; partition into executed vs delayed.
     let (executed, delayed): (Vec<_>, Vec<_>) =
-        receipt_ids.iter().copied().partition(|id| chain.get_execution_outcome(id).is_ok());
+        receipt_ids.iter().copied().partition(|id| rpc_node.get_execution_outcome(id).is_ok());
 
     assert!(
         executed.len() >= max_per_chunk / 2,

@@ -40,8 +40,7 @@ fn test_create_top_level_accounts() {
             1 + index as u64 * epoch_length,
             PROTOCOL_VERSION,
         );
-        let transaction_result =
-            env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        let transaction_result = env.get_final_transaction_result(&tx_hash).unwrap();
         assert_eq!(
             transaction_result.status,
             FinalExecutionStatus::Failure(

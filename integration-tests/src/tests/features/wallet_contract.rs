@@ -40,7 +40,7 @@ fn check_tx_processing(
     let tx_hash = tx.get_hash();
     assert_eq!(env.rpc_handlers[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
-    let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    let final_outcome = env.get_final_transaction_result(&tx_hash).unwrap();
     println!("{final_outcome:?}");
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
     next_height

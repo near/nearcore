@@ -56,6 +56,7 @@ use utils::{
 };
 
 pub mod latest_witnesses;
+mod transaction_results;
 pub mod utils;
 
 /// Filter receipts mode for incoming receipts collection.

@@ -130,7 +130,7 @@ fn test_save_receipt_to_tx_independent_of_outcomes() {
 
     // Outcome NOT saved (save_tx_outcomes=false).
     assert!(
-        env.validator().client().chain.get_execution_outcome(&tx_hash).is_err(),
+        env.validator().get_execution_outcome(&tx_hash).is_err(),
         "outcomes must not be saved when save_tx_outcomes=false"
     );
 
@@ -186,7 +186,7 @@ fn test_no_index_when_both_disabled() {
 
     // Outcomes NOT saved (save_tx_outcomes=false).
     assert!(
-        env.validator().client().chain.get_execution_outcome(&tx_hash).is_err(),
+        env.validator().get_execution_outcome(&tx_hash).is_err(),
         "outcomes must not be saved when save_tx_outcomes=false"
     );
 

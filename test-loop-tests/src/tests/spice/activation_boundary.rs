@@ -824,7 +824,7 @@ fn test_protocol_upgrade_to_spice_applies_each_receipt_once_with_mixed_missing_c
                 "{patterns}: undelivered receipts from shard {source_shard_id}",
             );
             for receipt in &undelivered_receipts {
-                let receipt_outcome = chain.get_execution_outcome(receipt.receipt_id()).unwrap();
+                let receipt_outcome = node.get_execution_outcome(receipt.receipt_id()).unwrap();
                 assert_eq!(
                     receipt_outcome.block_hash,
                     *first_spice.hash(),

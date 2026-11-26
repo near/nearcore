@@ -282,10 +282,8 @@ fn find_common_header(
 ) -> Option<Arc<BlockHeader>> {
     for hash in hashes {
         if let Ok(header) = chain_store.get_block_header(hash) {
-            if let Ok(header_at_height) = chain_store.get_block_header_by_height(header.height()) {
-                if header.hash() == header_at_height.hash() {
-                    return Some(header);
-                }
+            if chain_store.is_on_current_chain(&header).unwrap_or(false) {
+                return Some(header);
             }
         }
     }
