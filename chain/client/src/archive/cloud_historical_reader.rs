@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::{CloudRetrievalError, CloudStorage};
-use near_store::{ShardTries, ShardUId, Store};
+use near_store::{DBCol, ShardTries, ShardUId, Store};
 
 /// Downloads block, epoch, and per-shard chunk data covering `[start_height,
 /// end_height]` from cloud storage and writes it into the local store. Each shard's state
@@ -22,6 +22,10 @@ use near_store::{ShardTries, ShardUId, Store};
 ///
 /// `start_height` must be above the first archived block, since the walk is anchored on
 /// the block below it.
+///
+/// Operators who need the current-epoch `validators` endpoint are expected to start the
+/// range at or below the first block of the epoch the range ends in, or to extend a range
+/// that does.
 pub async fn bootstrap_range(
     store: &Store,
     cloud_storage: &CloudStorage,
@@ -82,7 +86,7 @@ pub async fn bootstrap_range(
             let state_root = shard_state_anchor(&tries, &prev_block_hash, shard_uid)?;
             apply_batch_state_changes(&tries, shard_uid, &shard_batch, height, state_root)?;
         }
-        if let Some(block_hash) = batch_pull.last_present_block_hash {
+        if let Some(block_hash) = batch_pull.block_hashes.last().copied() {
             prev_block_hash = block_hash;
         }
         height = batch_pull.end_height + 1;
@@ -110,6 +114,16 @@ pub async fn bootstrap_range(
         covered_to,
         "bootstrap complete",
     );
+    // No epoch start in the range, and no earlier range to extend, so the range's epoch has
+    // no rows.
+    if !store.exists(DBCol::AggregatedEpochStats, prev_block_hash.as_ref()) {
+        tracing::warn!(
+            target: "cloud_archival",
+            start_height,
+            covered_to,
+            "validators endpoint data not available until the next epoch start"
+        );
+    }
     Ok(())
 }
 

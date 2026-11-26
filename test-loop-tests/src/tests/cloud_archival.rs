@@ -6,13 +6,14 @@ use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
     assert_blob_stats_are_archived, assert_resharding_epoch_snapshot_forced, assert_store_parity,
     assert_writer_agrees_with_rpc_node, assert_writer_inverse_deltas, bootstrap_historical_reader,
-    check_account_balance, check_data_at_height_for_shards, delete_epoch_sync_hash, epoch_id_at,
-    exec, gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head,
-    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
-    run_receipts_of_every_kind, run_until_one_epoch_after_resharding,
+    bootstrap_reader_range, check_account_balance, check_data_at_height_for_shards,
+    delete_epoch_sync_hash, epoch_id_at, exec, gc_and_heads_sanity_checks, get_cloud_storage,
+    get_local_min_head, get_state_header_for_epoch, get_writer_handle, has_state_root,
+    run_node_until, run_receipts_of_every_kind, run_until_one_epoch_after_resharding,
     run_until_resharding_epoch_starts, set_scheduler_run_time, simulate_lagging_shard,
     snapshots_sanity_check, stop_and_restart_node,
 };
+use assert_matches::assert_matches;
 use borsh::to_vec;
 use near_async::futures::FutureSpawnerExt;
 use near_async::time::Duration;
@@ -24,16 +25,20 @@ use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 use near_client::archive::cloud_archival_utils::save_block_data;
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::errors::EpochError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptOrigin, ReceiptToTxInfo};
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
-use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId, ValidatorInfoIdentifier,
+};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -390,6 +395,13 @@ impl CloudArchiveHarness {
         self.historical_reader_id = Some(reader_id);
     }
 
+    /// Bootstraps a second range into the historical reader's store, on top of the first.
+    fn extend_historical_reader(&self, start_height: BlockHeight, target_height: BlockHeight) {
+        let reader_id =
+            self.historical_reader_id.as_ref().expect("no historical reader bootstrapped");
+        bootstrap_reader_range(&self.env, reader_id, start_height, target_height, false);
+    }
+
     fn kill_historical_reader(&mut self) {
         let reader_id = self.historical_reader_id.take().expect("no historical reader");
         self.env.kill_node(reader_id.as_ref());
@@ -553,6 +565,48 @@ impl CloudArchiveHarness {
 
     fn assert_reader_writer_parity(&self, reader: Reader, start: BlockHeight, end: BlockHeight) {
         assert_store_parity(&self.reader_store(reader), &self.writer_store(), start, end);
+    }
+
+    fn reader_epoch_manager(&self, reader: Reader) -> Arc<dyn EpochManagerAdapter> {
+        match reader {
+            Reader::Historical => {
+                let reader_id =
+                    self.historical_reader_id.as_ref().expect("no historical reader bootstrapped");
+                self.env.node_for_account(reader_id).client().epoch_manager.clone()
+            }
+            Reader::Recent => {
+                assert!(self.rpc_taken_over, "the recent reader is not started");
+                let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
+                self.env.node_for_account(&reader_id).client().epoch_manager.clone()
+            }
+        }
+    }
+
+    fn writer_block_hash(&self, height: BlockHeight) -> CryptoHash {
+        self.writer_store().chain_store().get_block_hash_by_height(height).unwrap()
+    }
+
+    /// Height of the first block of the epoch that holds the writer's block at `height`.
+    fn writer_epoch_start_height(&self, height: BlockHeight) -> BlockHeight {
+        let epoch_manager =
+            self.env.node_for_account(&self.writer_id).client().epoch_manager.clone();
+        epoch_manager.get_epoch_start_height(&self.writer_block_hash(height)).unwrap()
+    }
+
+    /// `get_validator_info` at the writer's block at `height`, which backs the `validators`
+    /// endpoint, returns the same on the reader as on the writer.
+    fn assert_validator_info_matches_writer(&self, reader: Reader, height: BlockHeight) {
+        let block_hash = self.writer_block_hash(height);
+        let reader_epoch_manager = self.reader_epoch_manager(reader);
+        let identifier = ValidatorInfoIdentifier::BlockHash(block_hash);
+        let reader_info =
+            reader_epoch_manager.get_validator_info(identifier.clone()).unwrap_or_else(|err| {
+                panic!("the reader has no validator info at {block_hash}: {err}")
+            });
+        let writer_epoch_manager =
+            self.env.node_for_account(&self.writer_id).client().epoch_manager.clone();
+        let writer_info = writer_epoch_manager.get_validator_info(identifier).unwrap();
+        assert_eq!(reader_info, writer_info, "validator info differs at {block_hash}");
     }
 
     fn store_for(&self, account_id: &AccountId) -> Store {
@@ -2841,5 +2895,143 @@ fn test_cloud_archival_reader_clears_forked_height() {
     );
 
     reader.stop();
+    h.shutdown();
+}
+
+/// The recent reader builds its aggregator rows on the row the RPC node hands over, across an
+/// epoch start, so `validators` matches the writer before, at and after that epoch start.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_validators_match_writer() {
+    let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
+    h.run_until_epoch(2);
+    let takeover_height = h.rpc_store().chain_store().final_head().unwrap().height;
+    let reader = h.start_recent_reader();
+    // Stop two epochs past the takeover, in the middle of an epoch, so the reader's rows run
+    // across an epoch start and its head is not one.
+    let middle_of_epoch_4 = 4 * h.epoch_length + h.epoch_length / 2;
+    h.run_until(middle_of_epoch_4);
+
+    let reader_head = h.recent_reader_height();
+    let epoch_start = h.writer_epoch_start_height(reader_head);
+    // The last block of the takeover epoch, whose row the reader builds on the handed-over
+    // row.
+    let takeover_epoch_last = h.writer_epoch_start_height(takeover_height + h.epoch_length) - 1;
+    assert_eq!(
+        h.writer_epoch_start_height(takeover_epoch_last),
+        h.writer_epoch_start_height(takeover_height),
+        "the block is past the takeover epoch"
+    );
+    assert!(takeover_height < takeover_epoch_last, "the takeover is at its epoch's last block");
+    // The reader took over in an earlier epoch, so its rows run across an epoch start.
+    assert!(takeover_epoch_last < epoch_start, "the reader head is in the takeover epoch");
+    assert!(epoch_start < reader_head, "the reader head is an epoch start");
+    h.assert_validator_info_matches_writer(Reader::Recent, takeover_epoch_last);
+    h.assert_validator_info_matches_writer(Reader::Recent, reader_head);
+    h.assert_validator_info_matches_writer(Reader::Recent, epoch_start);
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A recent reader handed a store without aggregator rows keeps pulling, has no `validators`
+/// data for the rest of that epoch, and matches the writer again from the next epoch start.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_recent_reader_resumes_validators_after_missing_rows() {
+    let mut h = CloudArchiveHarness::builder().dont_take_over_rpc().disable_gc().build();
+    h.run_until_epoch(2);
+    let takeover_height = h.rpc_store().chain_store().final_head().unwrap().height;
+    // Setup: hand over a store without aggregator rows, as a store bootstrapped mid-epoch. The
+    // rows above the final head go too, so none of them can answer for a reader block.
+    let mut update = h.rpc_store().store_update();
+    update.delete_all(DBCol::AggregatedEpochStats);
+    update.commit();
+    let reader = h.start_recent_reader();
+    // Stop two epochs past the takeover, in the middle of an epoch, as in the test above.
+    let middle_of_epoch_4 = 4 * h.epoch_length + h.epoch_length / 2;
+    h.run_until(middle_of_epoch_4);
+
+    // Check: the rest of the takeover epoch has no rows, and the reader kept pulling.
+    let takeover_epoch_last = h.writer_epoch_start_height(takeover_height + h.epoch_length) - 1;
+    assert!(takeover_height < takeover_epoch_last, "the takeover is at its epoch's last block");
+    let result = h.reader_epoch_manager(Reader::Recent).get_validator_info(
+        ValidatorInfoIdentifier::BlockHash(h.writer_block_hash(takeover_epoch_last)),
+    );
+    assert_matches!(result, Err(EpochError::MissingBlock(_)));
+    // Check: rows start again at the next epoch start and match the writer up to the head.
+    h.assert_validator_info_matches_writer(Reader::Recent, takeover_epoch_last + 1);
+    h.assert_validator_info_matches_writer(Reader::Recent, h.recent_reader_height());
+
+    reader.stop();
+    h.shutdown();
+}
+
+/// A bootstrap that starts mid-epoch has no `validators` data before the first epoch start in
+/// its range, and matches the writer after it.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_mid_epoch_validators_match_writer() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().build();
+    h.run_until_epoch(6);
+
+    // Epoch starts depend on the genesis height, so read epoch 3's start from the writer. Epoch
+    // 3 has a snapshot to bootstrap from, and the writer archives well past the range.
+    let epoch_3_start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
+    // Start half an epoch in and end one epoch later, past the next epoch start.
+    let start = epoch_3_start + h.epoch_length / 2;
+    let target = start + h.epoch_length;
+    let next_epoch_start = h.writer_epoch_start_height(target);
+    assert!(start < next_epoch_start, "the range does not cross an epoch start");
+    h.bootstrap_historical_reader(start, target);
+    let result = h
+        .reader_epoch_manager(Reader::Historical)
+        .get_validator_info(ValidatorInfoIdentifier::BlockHash(h.writer_block_hash(start)));
+    assert_matches!(result, Err(EpochError::MissingBlock(_)));
+    h.assert_validator_info_matches_writer(Reader::Historical, target);
+
+    h.kill_historical_reader();
+    h.shutdown();
+}
+
+/// A second bootstrap range on the same store builds its aggregator rows on the first range's
+/// rows, so `validators` matches the writer in the middle of the epoch.
+#[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_cloud_archival_bootstrap_extended_mid_epoch_validators_match_writer() {
+    let mut h = CloudArchiveHarness::builder().disable_gc().build();
+    h.run_until_epoch(6);
+
+    // Setup: a first range from epoch 3's start to a quarter epoch in. Epoch starts depend on
+    // the genesis height, so read it from the writer.
+    let start = h.writer_epoch_start_height(3 * h.epoch_length + h.epoch_length / 2);
+    let first_target = start + h.epoch_length / 4;
+    h.bootstrap_historical_reader(start, first_target);
+    h.assert_validator_info_matches_writer(Reader::Historical, first_target);
+    let covered_to = h
+        .historical_reader_store()
+        .cloud_archival_store()
+        .reader_head()
+        .expect("the bootstrap holds a reader head")
+        .height;
+
+    // Apply: a second range on the same store, from mid-epoch to another quarter epoch on.
+    let second_start = covered_to + 1;
+    let second_target = second_start + h.epoch_length / 4;
+    assert_eq!(
+        h.writer_epoch_start_height(second_target),
+        start,
+        "the second range leaves the first range's epoch"
+    );
+    h.extend_historical_reader(second_start, second_target);
+
+    // Check: the rows of the second range build on the first range's rows.
+    h.assert_validator_info_matches_writer(Reader::Historical, second_target);
+
+    h.kill_historical_reader();
     h.shutdown();
 }

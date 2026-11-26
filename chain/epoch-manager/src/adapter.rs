@@ -801,6 +801,17 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_info: &EpochInfo,
     ) -> Result<(), EpochError>;
 
+    /// Write the `DBCol::AggregatedEpochStats` rows of `block_hashes`, a chain in height order
+    /// stored without `record_block_info`, as the cloud archival readers store blocks. Each
+    /// block's and its parent's `BlockInfo` and the block's `EpochInfo` must be committed, and
+    /// the first block's parent row too unless that block starts an epoch. Each row after the
+    /// first is computed from the row before it in memory, so all rows go into one update.
+    fn set_aggregated_epoch_stats_for_stored_blocks(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hashes: &[CryptoHash],
+    ) -> Result<(), EpochError>;
+
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
         &self,
@@ -1329,6 +1340,27 @@ impl EpochManagerAdapter for EpochManagerHandle {
             prev_block_info,
             epoch_info,
         )
+    }
+
+    fn set_aggregated_epoch_stats_for_stored_blocks(
+        &self,
+        store_update: &mut EpochStoreUpdateAdapter,
+        block_hashes: &[CryptoHash],
+    ) -> Result<(), EpochError> {
+        let epoch_manager = self.read();
+        let mut last_computed_stats = None;
+        for block_hash in block_hashes {
+            let block_info = epoch_manager.get_block_info(block_hash)?;
+            let prev_block_info = epoch_manager.get_block_info(block_info.prev_hash())?;
+            let stats = epoch_manager.compute_aggregated_epoch_stats_with_parent(
+                &block_info,
+                &prev_block_info,
+                last_computed_stats.take(),
+            )?;
+            store_update.set_aggregated_epoch_stats(block_hash, &stats);
+            last_computed_stats = Some(stats);
+        }
+        Ok(())
     }
 
     fn get_shard_layout_history(

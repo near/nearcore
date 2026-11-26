@@ -12,7 +12,7 @@ use near_primitives::types::BlockHeight;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::archive::cloud_storage::CloudStorage;
-use near_store::{ShardTries, ShardUId, Store};
+use near_store::{DBCol, ShardTries, ShardUId, Store};
 use std::mem;
 use std::sync::Arc;
 
@@ -142,12 +142,29 @@ impl CloudArchivalRecentReader {
         Ok(())
     }
 
-    /// Follows the bucket, copying what it holds into the local store, until interrupted.
-    pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
-        let mut reader_head = self.ensure_reader_head()?;
+    /// Returns the head the reader follows the bucket from, once the store is checked to serve
+    /// from it.
+    fn init(&self) -> Result<CloudReaderHead, CloudArchivalReaderError> {
+        let reader_head = self.ensure_reader_head()?;
         self.check_state_anchors(&reader_head)?;
         tracing::info!(target: "cloud_archival", ?reader_head, "following the cloud archive");
+        // Without a row at the head, the pulls write no rows until the next epoch start.
+        if !self
+            .store
+            .exists(DBCol::AggregatedEpochStats, reader_head.last_present_block_hash.as_ref())
+        {
+            tracing::warn!(
+                target: "cloud_archival",
+                block_hash = %reader_head.last_present_block_hash,
+                "validators endpoint data not available until the next epoch start"
+            );
+        }
+        Ok(reader_head)
+    }
 
+    /// Follows the bucket, copying what it holds into the local store, until interrupted.
+    pub async fn cloud_archival_loop(mut self) -> Result<(), CloudArchivalReaderError> {
+        let mut reader_head = self.init()?;
         while !self.interrupt.is_cancelled() {
             let sleep_duration = match self.try_pull_next_batch(&reader_head).await {
                 Ok(outcome) => {
@@ -245,7 +262,7 @@ impl CloudArchivalRecentReader {
             batch_pull.opening_epoch_id,
         )?;
         let last_present_block_hash =
-            batch_pull.last_present_block_hash.unwrap_or(reader_head.last_present_block_hash);
+            batch_pull.block_hashes.last().copied().unwrap_or(reader_head.last_present_block_hash);
         let window = PendingWindow {
             end_height: batch_pull.end_height,
             last_present_block_hash,
