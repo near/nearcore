@@ -60,6 +60,12 @@ pub struct CreateSubAccountsArgs {
     /// Upper bound on request rate to the network for transaction (and other auxiliary) calls. The actual rate may be lower in case of congestions.
     #[arg(long)]
     pub requests_per_second: u64,
+    /// Upper bound on the rate of the view calls that query the nonces of the
+    /// created accounts. Those calls are read-only and do not have to arrive
+    /// in order, so the rate can be much higher than `requests_per_second`.
+    /// Defaults to `requests_per_second`.
+    #[arg(long)]
+    pub nonce_query_requests_per_second: Option<u64>,
     /// Directory where created user account data (incl. key and nonce) is stored.
     #[arg(long)]
     pub user_data_dir: PathBuf,
@@ -286,10 +292,11 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
 
     // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
     // Query them from the rpc to write `Accounts` with valid nonces to disk
+    let nonce_query_rps = args.nonce_query_requests_per_second.unwrap_or(args.requests_per_second);
     sub_accounts = update_account_nonces(
         client.clone(),
         sub_accounts,
-        args.requests_per_second,
+        nonce_query_rps,
         None,
         args.ignore_failures,
     )
