@@ -1567,6 +1567,47 @@ pub enum ActionView {
     } = 17,
 }
 
+impl ActionView {
+    /// Total NEAR deposit this action carries, recursing into the inner
+    /// actions of delegate-style actions. Mirrors
+    /// [`near_primitives::fees::total_deposit`] so consumers of transaction
+    /// views (such as the Rosetta adapter) see every deposit the runtime
+    /// charges the payer for. The exhaustive match ensures a new action
+    /// variant with a deposit cannot be silently missed.
+    pub fn get_deposit_balance(&self) -> Balance {
+        match self {
+            ActionView::Transfer { deposit }
+            | ActionView::FunctionCall { deposit, .. }
+            | ActionView::TransferToGasKey { deposit, .. }
+            | ActionView::DeterministicStateInit { deposit, .. }
+            | ActionView::UniversalStateInit { deposit, .. } => *deposit,
+            ActionView::Delegate { delegate_action, .. } => {
+                sum_inner_deposits(&delegate_action.get_actions())
+            }
+            ActionView::DelegateV2 { delegate_action, .. } => {
+                sum_inner_deposits(&delegate_action.get_actions())
+            }
+            ActionView::CreateAccount
+            | ActionView::DeployContract { .. }
+            | ActionView::Stake { .. }
+            | ActionView::AddKey { .. }
+            | ActionView::DeleteKey { .. }
+            | ActionView::DeleteAccount { .. }
+            | ActionView::DeployGlobalContract { .. }
+            | ActionView::DeployGlobalContractByAccountId { .. }
+            | ActionView::UseGlobalContract { .. }
+            | ActionView::UseGlobalContractByAccountId { .. }
+            | ActionView::WithdrawFromGasKey { .. } => Balance::ZERO,
+        }
+    }
+}
+
+fn sum_inner_deposits(actions: &[Action]) -> Balance {
+    actions.iter().fold(Balance::ZERO, |sum, action| {
+        sum.checked_add(action.get_deposit_balance()).expect("deposit sum overflowed Balance")
+    })
+}
+
 impl From<Action> for ActionView {
     fn from(action: Action) -> Self {
         match action {
