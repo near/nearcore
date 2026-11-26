@@ -216,6 +216,15 @@ impl ChainStoreAdapter {
         self.get_block_header(&hash)
     }
 
+    /// Returns if given block header is on the current chain.
+    ///
+    /// This is done by fetching header by height and checking that it's the
+    /// same one as provided.
+    pub fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let chain_header = self.get_block_header_by_height(header.height())?;
+        Ok(chain_header.hash() == header.hash())
+    }
+
     pub fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::NextBlockHashes, hash.as_ref()),

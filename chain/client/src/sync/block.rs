@@ -32,8 +32,7 @@ const OUTSTANDING_REQUEST_BATCHES: usize = 4;
 /// peer we asked owes us nothing.
 fn on_canonical_chain(chain: &Chain, block_hash: &CryptoHash) -> bool {
     let Ok(header) = chain.get_block_header(block_hash) else { return false };
-    let Ok(canonical) = chain.get_block_header_by_height(header.height()) else { return false };
-    canonical.hash() == block_hash
+    chain.chain_store().is_on_current_chain(&header).unwrap_or(false)
 }
 
 /// Helper to track block syncing.

@@ -10,7 +10,6 @@ use near_chain_primitives::error::{EpochErrorResultToChainError, QueryError};
 use near_crypto::PublicKeyHandle;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
-use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::TransactionEnvelope;
@@ -44,14 +43,6 @@ pub(crate) struct Follow {
     /// The highest height the mirror has asked about, raised as it asks. The extending
     /// task keeps the store a bounded distance above it.
     pub(crate) asked: Arc<AtomicU64>,
-}
-
-fn is_on_current_chain(
-    chain: &ChainStore,
-    header: &BlockHeader,
-) -> Result<bool, near_chain_primitives::Error> {
-    let chain_header = chain.get_block_header_by_height(header.height())?;
-    Ok(chain_header.hash() == header.hash())
 }
 
 pub(crate) struct ChainAccess {
@@ -316,14 +307,14 @@ impl crate::ChainAccess for ChainAccess {
                 continue;
             }
             let Ok(header) = self.chain.get_block_header(&outcome.block_hash) else { continue };
-            if is_on_current_chain(&self.chain, &header).unwrap_or(false) {
+            if self.chain.is_on_current_chain(&header).unwrap_or(false) {
                 return Ok(outcome.into());
             }
         }
         let mut earliest: Option<(BlockHeight, _)> = None;
         for outcome in rejected {
             let Ok(header) = self.chain.get_block_header(&outcome.block_hash) else { continue };
-            if !is_on_current_chain(&self.chain, &header).unwrap_or(false) {
+            if !self.chain.is_on_current_chain(&header).unwrap_or(false) {
                 continue;
             }
             if earliest.as_ref().is_none_or(|(height, _)| header.height() < *height) {

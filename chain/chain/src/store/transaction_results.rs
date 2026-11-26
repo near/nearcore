@@ -2,7 +2,6 @@
 
 use super::{ChainStore, ChainStoreAccess};
 use crate::Error;
-use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -14,15 +13,6 @@ use near_primitives::views::{
 use std::sync::Arc;
 
 impl ChainStore {
-    /// Returns if given block header is on the current chain.
-    ///
-    /// This is done by fetching header by height and checking that it's the
-    /// same one as provided.
-    pub fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let chain_header = self.get_block_header_by_height(header.height())?;
-        Ok(chain_header.hash() == header.hash())
-    }
-
     /// Returns execution status based on the list of currently existing outcomes
     fn get_execution_status(
         &self,
