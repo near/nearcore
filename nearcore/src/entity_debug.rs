@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
+use near_epoch_manager::aggregated_epoch_stats::AggregatedEpochStats;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -13,7 +13,6 @@ use near_jsonrpc_primitives::types::entity_debug::{
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
@@ -164,10 +163,12 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Chunk extra not found"))?;
                 Ok(serialize_entity(&chunk_extra))
             }
-            EntityQuery::EpochInfoAggregator(()) => {
-                let aggregator = store
-                    .get_ser::<EpochInfoAggregator>(DBCol::EpochInfo, AGGREGATOR_KEY)
-                    .ok_or_else(|| anyhow!("Aggregator not found"))?;
+            EntityQuery::AggregatedEpochStats(()) => {
+                let final_head = store.chain_store().final_head()?;
+                let aggregator =
+                    store.epoch_store().get_aggregated_epoch_stats::<AggregatedEpochStats>(
+                        &final_head.last_block_hash,
+                    )?;
                 Ok(serialize_entity(&aggregator))
             }
             EntityQuery::EpochInfoByEpochId { epoch_id } => {

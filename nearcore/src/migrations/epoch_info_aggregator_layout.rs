@@ -1,6 +1,6 @@
+use super::AGGREGATOR_KEY;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_epoch_manager::aggregated_epoch_stats::AggregatedEpochStatsV1;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -10,7 +10,7 @@ use near_primitives::version::ProtocolVersion;
 use near_store::{DBCol, Store};
 use std::collections::{BTreeMap, HashMap};
 
-/// Layout of [`EpochInfoAggregator`] before DB version 54.
+/// Layout of [`AggregatedEpochStatsV1`] before DB version 54.
 #[derive(BorshSerialize, BorshDeserialize)]
 struct EpochInfoAggregatorV53 {
     block_tracker: HashMap<ValidatorId, ValidatorStats>,
@@ -21,7 +21,7 @@ struct EpochInfoAggregatorV53 {
     last_block_hash: CryptoHash,
 }
 
-/// Rewrites the stored [`EpochInfoAggregator`] to the layout that splits `shard_tracker`
+/// Rewrites the stored [`AggregatedEpochStatsV1`] to the layout that splits `shard_tracker`
 /// into per-shard chunk production stats, chunk endorsement stats summed over shards, and
 /// chunk endorsement stats summed over the validators of each shard.
 ///
@@ -65,7 +65,7 @@ pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
             }
         }
     }
-    let new = EpochInfoAggregator {
+    let new = AggregatedEpochStatsV1 {
         block_tracker: old.block_tracker,
         chunk_production,
         chunk_endorsement,
@@ -93,10 +93,10 @@ pub(super) fn migrate_53_to_54(hot_store: &Store) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::AGGREGATOR_KEY;
     use super::{EpochInfoAggregatorV53, migrate_53_to_54};
     use near_crypto::{KeyType, PublicKey};
-    use near_epoch_manager::epoch_info_aggregator::EpochInfoAggregator;
-    use near_primitives::epoch_manager::AGGREGATOR_KEY;
+    use near_epoch_manager::aggregated_epoch_stats::AggregatedEpochStatsV1;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{Balance, ChunkStats, EpochId, ShardId, ValidatorStats};
@@ -145,7 +145,7 @@ mod tests {
 
         migrate_53_to_54(&store).unwrap();
 
-        let new: EpochInfoAggregator = store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY).unwrap();
+        let new: AggregatedEpochStatsV1 = store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY).unwrap();
         assert_eq!(new.block_tracker, old.block_tracker);
         assert_eq!(
             new.chunk_production,
