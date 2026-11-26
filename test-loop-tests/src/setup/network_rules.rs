@@ -4,12 +4,15 @@
 //! restarted keeps its rules, and a node added later is covered by the rules added for its
 //! account before.
 
+use super::drop_condition::TestLoopChunksStorage;
 use super::peer_manager_actor::{DeferredNetworkRequest, TestLoopPeerManagerActor};
+use super::state::SharedState;
 use near_async::messaging::CanSend as _;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_network::types::NetworkRequests;
 use near_primitives::block_header::ApprovalInner;
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -20,20 +23,66 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 /// node has shown it knows, whether the request may go out now.
 pub type Release = Box<dyn Fn(&NetworkRequests, BlockHeight) -> bool + Send + Sync>;
 
+/// Which requests a rule applies to.
+pub struct NetworkRequestsMatcher(Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync>);
+
+impl NetworkRequestsMatcher {
+    pub fn new(matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static) -> Self {
+        Self(Box::new(matches))
+    }
+
+    pub fn matches(&self, request: &NetworkRequests) -> bool {
+        (self.0)(request)
+    }
+
+    /// Matches every message that carries parts of a chunk `selects`: the parts a producer
+    /// pushes, the parts owners forward, and the request and response pair a node falls back
+    /// to.
+    pub fn chunk_parts(
+        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+        selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self::new(move |request| {
+            let by_hash = |hash| chunks_storage.lock().get(hash).is_some_and(&selects);
+            match request {
+                NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } => {
+                    selects(&partial_encoded_chunk.header)
+                }
+                NetworkRequests::PartialEncodedChunkForward { forward, .. } => {
+                    by_hash(&forward.chunk_hash)
+                }
+                NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                    by_hash(&request.chunk_hash)
+                }
+                NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
+                    by_hash(&response.chunk_hash)
+                }
+                _ => false,
+            }
+        })
+    }
+}
+
 /// What a rule does with a request it matches.
 pub enum Action {
     /// The request never leaves the node. A dropped block broadcast does not keep the block
     /// from the network: peers can still fetch it by hash.
     Drop,
-    /// The request leaves the node this much later, in test-loop time.
-    Delay(Duration),
-    /// [`Self::Delay`] by an amount the function picks per request.
+    /// The request leaves the node later, in test-loop time, by an amount the function picks
+    /// per request. See [`Self::delay`] for a fixed delay.
     DelayBy(Box<dyn Fn(&NetworkRequests) -> Duration + Send + Sync>),
     /// The request is held until its release rule says so. The rule is asked again each time
     /// the node sends anything, with the latest block height the node has shown it knows.
     Hold(Release),
     /// The request is reported to the function and goes out unchanged.
     Observe(Box<dyn Fn(&NetworkRequests) + Send + Sync>),
+}
+
+impl Action {
+    /// Every matched request leaves the node `delay` later, in test-loop time.
+    pub fn delay(delay: Duration) -> Self {
+        Self::DelayBy(Box::new(move |_| delay))
+    }
 }
 
 /// The part of a rule the test keeps: switches it off and says how often it matched. A rule
@@ -69,7 +118,7 @@ impl RuleHandle {
 struct Rule {
     account_id: AccountId,
     tag: Option<&'static str>,
-    matches: Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync>,
+    matches: NetworkRequestsMatcher,
     action: Action,
     state: Arc<RuleState>,
 }
@@ -77,6 +126,54 @@ struct Rule {
 impl Rule {
     fn lifted(&self) -> bool {
         self.state.lifted.load(Ordering::Relaxed)
+    }
+}
+
+/// The network of one node, through which a test adds rules on the requests the node sends.
+/// Obtained via [`super::env::TestLoopEnv::node_network`] and
+/// [`super::env::TestLoopEnv::node_network_for_account`].
+pub struct TestLoopNodeNetwork<'a> {
+    account_id: &'a AccountId,
+    shared_state: &'a SharedState,
+}
+
+impl<'a> TestLoopNodeNetwork<'a> {
+    pub(crate) fn new(account_id: &'a AccountId, shared_state: &'a SharedState) -> Self {
+        Self { account_id, shared_state }
+    }
+
+    /// From now on `action` applies to every request the node sends that `matches`, until the
+    /// handle is lifted. The rule is keyed by the node's account, so it stays on a node that
+    /// is killed and restarted.
+    pub fn add_rule(&self, matches: NetworkRequestsMatcher, action: Action) -> RuleHandle {
+        self.shared_state.network_rules.add(self.account_id.clone(), matches, action)
+    }
+
+    /// [`Self::add_rule`] on the messages that carry the parts of the chunks `selects`. See
+    /// [`NetworkRequestsMatcher::chunk_parts`].
+    pub fn add_chunk_parts_rule(
+        &self,
+        selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
+        action: Action,
+    ) -> RuleHandle {
+        let matches =
+            NetworkRequestsMatcher::chunk_parts(self.shared_state.chunks_storage.clone(), selects);
+        self.add_rule(matches, action)
+    }
+
+    /// From now on `observe` reports every request the node sends that `matches`, as the node
+    /// sent it, ahead of the node's rules.
+    pub fn observe_messages(
+        &self,
+        matches: NetworkRequestsMatcher,
+        observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
+    ) -> RuleHandle {
+        self.shared_state.network_rules.observe_first(self.account_id.clone(), matches, observe)
+    }
+
+    /// From now on the node drops every request it sends that `matches`.
+    pub fn drop_messages(&self, matches: NetworkRequestsMatcher) -> RuleHandle {
+        self.add_rule(matches, Action::Drop)
     }
 }
 
@@ -111,10 +208,10 @@ impl NetworkRules {
     pub fn add(
         &self,
         account_id: AccountId,
-        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        matches: NetworkRequestsMatcher,
         action: Action,
     ) -> RuleHandle {
-        self.add_rule(account_id, None, Box::new(matches), action)
+        self.add_rule(account_id, None, matches, action)
     }
 
     /// [`Self::add`] with a tag, by which the rule can be found again: what a feature built
@@ -123,10 +220,10 @@ impl NetworkRules {
         &self,
         account_id: AccountId,
         tag: &'static str,
-        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        matches: NetworkRequestsMatcher,
         action: Action,
     ) -> RuleHandle {
-        self.add_rule(account_id, Some(tag), Box::new(matches), action)
+        self.add_rule(account_id, Some(tag), matches, action)
     }
 
     /// Adds an observer of the outgoing requests of `account_id` ahead of the account's
@@ -135,14 +232,14 @@ impl NetworkRules {
     pub fn observe_first(
         &self,
         account_id: AccountId,
-        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        matches: NetworkRequestsMatcher,
         observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
     ) -> RuleHandle {
         let state = Arc::new(RuleState::default());
         let rule = Rule {
             account_id,
             tag: None,
-            matches: Box::new(matches),
+            matches: matches,
             action: Action::Observe(Box::new(observe)),
             state: state.clone(),
         };
@@ -158,11 +255,10 @@ impl NetworkRules {
         handle: &RuleHandle,
         account_id: AccountId,
         tag: Option<&'static str>,
-        matches: impl Fn(&NetworkRequests) -> bool + Send + Sync + 'static,
+        matches: NetworkRequestsMatcher,
         action: Action,
     ) {
-        let rule =
-            Rule { account_id, tag, matches: Box::new(matches), action, state: handle.0.clone() };
+        let rule = Rule { account_id, tag, matches: matches, action, state: handle.0.clone() };
         self.0.lock().rules.push(Arc::new(rule));
     }
 
@@ -170,7 +266,7 @@ impl NetworkRules {
         &self,
         account_id: AccountId,
         tag: Option<&'static str>,
-        matches: Box<dyn Fn(&NetworkRequests) -> bool + Send + Sync>,
+        matches: NetworkRequestsMatcher,
         action: Action,
     ) -> RuleHandle {
         let handle = RuleHandle::default();
@@ -230,13 +326,12 @@ impl NetworkRules {
                 .collect()
         };
         for rule in rules {
-            if rule.lifted() || !(rule.matches)(&request) {
+            if rule.lifted() || !rule.matches.matches(&request) {
                 continue;
             }
             rule.state.matched.fetch_add(1, Ordering::Relaxed);
             match &rule.action {
                 Action::Drop => {}
-                Action::Delay(delay) => self.defer(account_id, request, *delay),
                 Action::DelayBy(delay) => {
                     let delay = delay(&request);
                     self.defer(account_id, request, delay);

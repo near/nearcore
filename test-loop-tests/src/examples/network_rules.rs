@@ -2,7 +2,7 @@
 //! test runs.
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::network_rules::Action;
+use crate::setup::network_rules::{Action, NetworkRequestsMatcher};
 use near_async::time::Duration;
 use near_network::types::NetworkRequests;
 use near_o11y::testonly::init_test_logger;
@@ -10,8 +10,8 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-fn is_approval(request: &NetworkRequests) -> bool {
-    matches!(request, NetworkRequests::Approval { .. })
+fn approvals() -> NetworkRequestsMatcher {
+    NetworkRequestsMatcher::new(|request| matches!(request, NetworkRequests::Approval { .. }))
 }
 
 /// A rule that counts the approvals reaching it: a rule sees a request after the rules added
@@ -28,9 +28,9 @@ fn test_drop_messages_from_node() {
     init_test_logger();
     let mut env = TestLoopBuilder::new().validators(4, 0).build();
 
-    let dropped = env.drop_messages_from(0, is_approval);
+    let dropped = env.node_network(0).drop_messages(approvals());
     let passed = Arc::new(Mutex::new(0));
-    env.network_rule(0, is_approval, count_approvals(&passed));
+    env.node_network(0).add_rule(approvals(), count_approvals(&passed));
 
     env.node_runner(1).run_for_number_of_blocks(5);
     assert!(dropped.matched() > 0, "node 0 sent no approval to drop");
@@ -48,9 +48,9 @@ fn test_delay_messages_from_node() {
     init_test_logger();
     let mut env = TestLoopBuilder::new().validators(4, 0).build();
 
-    let delayed = env.network_rule(0, is_approval, Action::Delay(Duration::seconds(1)));
+    let delayed = env.node_network(0).add_rule(approvals(), Action::delay(Duration::seconds(1)));
     let passed = Arc::new(Mutex::new(0));
-    env.network_rule(0, is_approval, count_approvals(&passed));
+    env.node_network(0).add_rule(approvals(), count_approvals(&passed));
 
     env.node_runner(1).run_for_number_of_blocks(10);
     assert!(delayed.matched() > 0, "node 0 sent no approval to delay");
@@ -58,17 +58,17 @@ fn test_delay_messages_from_node() {
 }
 
 /// Node 0 delays its approvals, and an observer added after the delay still sees every one
-/// of them: `observe_messages_from` reports what the node sent ahead of its rules, where a
+/// of them: `observe_messages` reports what the node sent ahead of its rules, where a
 /// rule added after the delay never sees a delayed request.
 #[test]
 fn test_observe_messages_from_node() {
     init_test_logger();
     let mut env = TestLoopBuilder::new().validators(4, 0).build();
 
-    let delayed = env.network_rule(0, is_approval, Action::Delay(Duration::seconds(1)));
+    let delayed = env.node_network(0).add_rule(approvals(), Action::delay(Duration::seconds(1)));
     let observed = Arc::new(Mutex::new(0));
     let observed_clone = observed.clone();
-    env.observe_messages_from(0, is_approval, move |_| *observed_clone.lock() += 1);
+    env.node_network(0).observe_messages(approvals(), move |_| *observed_clone.lock() += 1);
 
     env.node_runner(1).run_for_number_of_blocks(10);
     assert!(delayed.matched() > 0, "node 0 sent no approval to delay");
@@ -106,8 +106,7 @@ fn test_chunk_parts_rule() {
 
     let rules: Vec<_> = (0..env.node_datas.len())
         .map(|index| {
-            env.chunk_parts_rule(
-                index,
+            env.node_network(index).add_chunk_parts_rule(
                 move |chunk| {
                     chunk.shard_id() == shard_id && chunk.height_created() == missing_height
                 },

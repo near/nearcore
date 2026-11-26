@@ -171,27 +171,30 @@ env.add_node(identifier, new_node_state);
 
 ### Network rules
 
-A rule applies an `Action` (`Drop`, `Delay`, `DelayBy`, `Hold`, `Observe`) to the
-requests a node sends that match a predicate, until its `RuleHandle` is lifted. Rules
-are keyed by account, so they survive a node restart. See `src/setup/network_rules.rs`.
+A rule applies an `Action` (`Drop`, `DelayBy` or `Action::delay(..)`, `Hold`, `Observe`)
+to the requests a node sends that match a `NetworkRequestsMatcher`, until its `RuleHandle` is lifted. Rules
+are added through `env.node_network(idx)` or `env.node_network_for_account(&account_id)`.
+They are keyed by account, so they survive a node restart. See `src/setup/network_rules.rs`.
 
 ```rust
-let rule = env.drop_messages_from(2, |request| {
+let rule = env.node_network(2).drop_messages(NetworkRequestsMatcher::new(|request| {
     matches!(request, NetworkRequests::ChunkEndorsement(..))
-});
+}));
 env.node_runner(0).run_for_number_of_blocks(5);
 assert!(rule.matched() > 0);
 rule.lift();
 
-env.network_rule(1, |request| matches!(request, NetworkRequests::Approval { .. }),
-    Action::Delay(Duration::seconds(1)));
+env.node_network(1).add_rule(
+    NetworkRequestsMatcher::new(|request| matches!(request, NetworkRequests::Approval { .. })),
+    Action::delay(Duration::seconds(1)),
+);
 ```
 
 - Rules run in the order they were added. A delayed or held request skips the rules after
-  the one that delayed it; `observe_messages_from` sees requests before any rule does.
+  the one that delayed it; `observe_messages` sees requests before any rule does.
 - Dropping a block broadcast does not keep the block from the network: peers can still
   fetch it by hash. A test that needs it unfetchable also drops the `BlockRequest`s for it.
-- `chunk_parts_rule` matches every message that carries a chunk's parts.
+- `add_chunk_parts_rule` (built on `NetworkRequestsMatcher::chunk_parts`) matches every message that carries a chunk's parts.
 - To withhold a block from one recipient only, use `withhold_block_delivery` /
   `deliver_withheld_blocks` on `env.shared_state.network_shared_state`.
 - `register_override_handler` is still available for tests that deliver messages
