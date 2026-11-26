@@ -91,11 +91,32 @@ impl Pulls {
     /// pull-only items of the `pulled_heights_of_pull_only_items` lowest heights into each destination shard,
     /// looked up in `items`. Records every request it returns as created at `now`.
     pub(super) fn to_issue(&mut self, now: Instant, items: &Items) -> Vec<PullRequest> {
+        self.issue(now, items, |_| true)
+    }
+
+    /// The requests `to_issue` returns, restricted to receipt proofs.
+    pub(super) fn receipt_proofs_to_issue(
+        &mut self,
+        now: Instant,
+        items: &Items,
+    ) -> Vec<PullRequest> {
+        self.issue(now, items, |id| matches!(id, DataId::ReceiptProof(_)))
+    }
+
+    fn issue(
+        &mut self,
+        now: Instant,
+        items: &Items,
+        included: fn(&DataId) -> bool,
+    ) -> Vec<PullRequest> {
         let trigger = Trigger::new(now, self.config.request_timeout);
-        let push_ids = items.lowest_pullable_pushed(self.config.pulled_heights_of_pushed_items);
+        let push_ids = items
+            .lowest_pullable_pushed(self.config.pulled_heights_of_pushed_items)
+            .filter(|id| included(id));
         let push_wants = wants_by_producer(push_ids, items, &mut self.requests, &trigger);
-        let pull_only_ids =
-            items.lowest_pullable_pull_only(self.config.pulled_heights_of_pull_only_items);
+        let pull_only_ids = items
+            .lowest_pullable_pull_only(self.config.pulled_heights_of_pull_only_items)
+            .filter(|id| included(id));
         let pull_only_wants = wants_by_producer(pull_only_ids, items, &mut self.requests, &trigger);
         // TODO(spice-data-distribution): send pull-only requests in a serve-side lane of their own,
         // so they cannot crowd out the requests for pushed items under the server's rate limit.

@@ -315,7 +315,7 @@ fn a_decoded_witness_is_paired_with_its_chunk() {
 
     assert_matches!(
         decoded,
-        Ok(Decoded::Witness { chunk_id: decoded_chunk_id, .. }) if decoded_chunk_id == chunk_id
+        Ok(Decoded::Witness(witness)) if witness.chunk_id() == &chunk_id
     );
 }
 

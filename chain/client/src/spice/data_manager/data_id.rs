@@ -30,7 +30,7 @@ pub struct ReceiptProofId {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Decoded {
     ReceiptProof(ReceiptProofId, ReceiptProof),
-    Witness { chunk_id: SpiceChunkId, witness: Box<SpiceChunkStateWitness> },
+    Witness(Box<SpiceChunkStateWitness>),
 }
 
 impl ReceiptProofId {
@@ -86,7 +86,7 @@ impl DataId {
                 if witness.chunk_id() != chunk_id {
                     return Err(AssembledDataError::InvalidWitnessChunkId);
                 }
-                Ok(Decoded::Witness { chunk_id: chunk_id.clone(), witness })
+                Ok(Decoded::Witness(witness))
             }
             (DataId::ReceiptProof(_), SpiceData::StateWitness(_))
             | (DataId::Witness(_), SpiceData::ReceiptProof(_)) => {

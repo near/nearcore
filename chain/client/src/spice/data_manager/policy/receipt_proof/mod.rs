@@ -2,7 +2,7 @@ mod fetch;
 mod serve;
 
 pub(in crate::spice::data_manager) use fetch::{
-    is_done, lowest_needed_height, made_pullable_by, needed_items,
+    is_done, is_pushed_to, lowest_needed_height, made_pullable_by, needed_items,
 };
 use near_chain::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -13,7 +13,7 @@ use std::collections::HashSet;
 
 /// The nodes the proofs from `source_block` into `to_shard` are pushed to: the next block's chunk
 /// producers of `to_shard`; across a resharding, of the shards it splits into.
-pub(in crate::spice::data_manager) fn recipients(
+fn recipients(
     epoch_manager: &dyn EpochManagerAdapter,
     source_block: &CryptoHash,
     to_shard: ShardId,

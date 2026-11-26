@@ -440,6 +440,19 @@ pub fn produce_spice_block_certifying_parent(chain: &mut Chain, prev_block: &Blo
     block
 }
 
+/// Produces and processes a spice block on `prev_block` that certifies nothing.
+pub fn produce_spice_block_certifying_nothing(chain: &mut Chain, prev_block: &Block) -> Arc<Block> {
+    let block = build_spice_test_block(chain, prev_block, vec![], &[]);
+    process_block_sync(
+        chain,
+        block.clone().into(),
+        Provenance::PRODUCED,
+        &mut BlockProcessingArtifact::default(),
+    )
+    .unwrap();
+    block
+}
+
 /// Returns the signer from `signers` holding `validator`'s key, or `create_test_signer` for it.
 fn test_signer_with_key(
     validator: &ValidatorStake,

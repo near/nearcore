@@ -510,8 +510,8 @@ impl SpiceDataDistributorActor {
                 tracing::trace!(target: "spice_data_distribution", ?id, "delivering decoded receipt proof");
                 self.executor_sender.send(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
             }
-            Decoded::Witness { chunk_id, witness } => {
-                tracing::trace!(target: "spice_data_distribution", ?chunk_id, "delivering decoded witness");
+            Decoded::Witness(witness) => {
+                tracing::trace!(target: "spice_data_distribution", chunk_id = ?witness.chunk_id(), "delivering decoded witness");
                 self.witness_validator_sender
                     .send(SpiceChunkStateWitnessMessage { witness: *witness }.span_wrap());
             }

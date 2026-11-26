@@ -153,8 +153,8 @@ impl TestManager {
     }
 
     /// Certifies every shard's chunks of every canonical block up to `height`, as the block after
-    /// it would: the stored uncertified chunks of the canonical blocks above it drop them, the
-    /// tracked items are marked pullable, and their witnesses are dropped.
+    /// it would: the stored uncertified chunks of the canonical blocks above it drop them, and the
+    /// manager applies the core statements of a block certifying them.
     fn certify_up_to(&mut self, height: BlockHeight) {
         let chain_store = self.store.chain_store();
         let chunk_ids: Vec<SpiceChunkId> = (1..=height)
@@ -165,10 +165,7 @@ impl TestManager {
             .collect();
         let head = chain_store.get_block(&chain_store.head().unwrap().last_block_hash).unwrap();
         self.drop_uncertified_chunks(height + 1..=head.header().height(), &chunk_ids);
-        self.manager.mark_pullable_by(&certifying_block(&head, &chunk_ids)).unwrap();
-        for chunk_id in chunk_ids {
-            self.manager.remove_item(&DataId::Witness(chunk_id));
-        }
+        self.manager.apply_core_statements(&certifying_block(&head, &chunk_ids)).unwrap();
         self.certified_height = self.certified_height.max(height);
     }
 

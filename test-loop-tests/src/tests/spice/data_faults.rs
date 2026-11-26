@@ -1,14 +1,10 @@
-//! Spice data distribution under injected faults. Each test arms a fault against a producer, then
-//! asserts the fault fired and that the nodes which produce nothing still endorsed — which they
-//! can only do after receiving and validating the witness. The producers certify among themselves
-//! either way, so chain progress alone would prove nothing; see
-//! `test_spice_partial_data_faults_starve_the_recipients`.
+//! Spice data distribution under injected faults. The producers hold too little stake to certify
+//! a chunk on their own, so certification advances only while witnesses reach the validators that
+//! produce nothing. Each test arms a fault against a producer, then asserts the fault fired and
+//! that certification kept advancing; `test_spice_partial_data_faults_starve_the_recipients` is
+//! the control in which it stops.
 //!
-//! Faults are keyed by the sending account, so every recipient sees the same treatment and all of
-//! them are asserted on: a fault reaching only some recipients is a harness bug.
-// TODO(spice-data-distribution): assert how many chunks the recipient endorsed rather than that it
-// endorsed at all. Under dropped or delayed pushes the slower recipient recovers a fraction of what
-// the faster one does, which having endorsed cannot tell apart from recovering every chunk.
+//! Faults are keyed by the sending account, so every recipient sees the same treatment.
 
 use crate::setup::builder::TestLoopBuilder;
 use crate::setup::drop_condition::DropCondition;
@@ -27,8 +23,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 const NUM_PRODUCERS: usize = 4;
-/// Chunk validators that produce nothing, so they have to receive every witness.
-const NUM_VALIDATORS: usize = 2;
+/// Chunk validators that produce nothing. With four producers, three of them hold enough stake
+/// that the producers cannot certify alone.
+const NUM_VALIDATORS: usize = 3;
 
 struct Setup {
     env: TestLoopEnv,
@@ -39,7 +36,21 @@ struct Setup {
 }
 
 fn setup() -> Setup {
-    setup_with_shards(1, NUM_PRODUCERS)
+    let setup = setup_with_shards(1, NUM_PRODUCERS);
+    let node = setup.env.node_for_account(&setup.recipients[0]);
+    let head = node.head();
+    let epoch_manager = node.client().epoch_manager.as_ref();
+    let producers: HashSet<AccountId> = setup.producers.iter().cloned().collect();
+    for shard_id in epoch_manager.shard_ids(&head.epoch_id).unwrap() {
+        let assignments = epoch_manager
+            .get_chunk_validator_assignments(&head.epoch_id, shard_id, head.height)
+            .unwrap();
+        assert!(
+            !assignments.is_endorsed(&producers),
+            "the producers certify without the recipients, so chain progress proves nothing"
+        );
+    }
+    setup
 }
 
 /// A setup with `num_shards` shards and `num_producers` producers spread over them. Receipt proofs
@@ -100,12 +111,6 @@ fn single_shard_decode_threshold(env: &TestLoopEnv, observer: &AccountId) -> usi
     reed_solomon_num_data_parts(producers.len(), DATA_PARTS_RATIO)
 }
 
-fn assert_endorsed(observed: &SpicePartialDataObserved, recipients: &[AccountId]) {
-    for recipient in recipients {
-        assert!(observed.endorsements.contains_key(recipient), "{recipient} never endorsed");
-    }
-}
-
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_with_one_answering_producer() {
@@ -132,7 +137,6 @@ fn test_spice_partial_data_faults_with_one_answering_producer() {
             "{recipient} never had to request the dropped data"
         );
     }
-    assert_endorsed(&observed, &recipients);
 }
 
 /// Each shard's producers, ordered by shard id.
@@ -182,7 +186,6 @@ fn test_spice_partial_data_faults_with_one_answering_receipt_proof_producer() {
             "{recipient} never had to request the dropped receipt proofs"
         );
     }
-    assert_endorsed(&observed, &recipients);
 }
 
 /// One honest producer is enough: three of one shard's four producers corrupt every
@@ -215,7 +218,6 @@ fn test_spice_partial_data_faults_with_a_single_honest_receipt_proof_producer() 
             "{recipient} never had to request the honest receipt proof parts"
         );
     }
-    assert_endorsed(&observed, &recipients);
 }
 
 /// The witness twin of the single honest receipt proof producer: three of the four producers
@@ -243,7 +245,6 @@ fn test_spice_partial_data_faults_with_a_single_honest_witness_producer() {
             "{recipient} never had to request the honest witness parts"
         );
     }
-    assert_endorsed(&observed, &recipients);
 }
 
 #[test]
@@ -269,7 +270,6 @@ fn test_spice_partial_data_faults_with_delayed_pushes() {
             "the delay never outlasted {recipient}'s pull gate"
         );
     }
-    assert_endorsed(&observed, &recipients);
 }
 
 #[test]
@@ -292,7 +292,6 @@ fn test_spice_partial_data_faults_with_corrupted_parts() {
         observed.data_requests.is_empty(),
         "the corrupted part pushed a recipient into pulling"
     );
-    assert_endorsed(&observed, &recipients);
 }
 
 #[test]
@@ -311,7 +310,6 @@ fn test_spice_partial_data_faults_with_equivocating_producer() {
         observed.data_requests.is_empty(),
         "the conflicting commitment pushed a recipient into pulling"
     );
-    assert_endorsed(&observed, &recipients);
 }
 
 #[test]
@@ -325,7 +323,6 @@ fn test_spice_partial_data_faults_with_dropped_contract_accesses() {
     let observed = observed.lock();
     assert!(observed.dropped_contract_accesses > 0, "no accesses message was dropped");
     assert!(observed.data_requests.is_empty(), "the pushed parts were enough; nothing to pull");
-    assert_endorsed(&observed, &recipients);
 }
 
 /// The fault-free baseline for the fault tests: pushes alone carry every witness, so the recipients
@@ -341,20 +338,28 @@ fn test_spice_partial_data_faults_none_armed() {
     let observed = observed.lock();
     assert_eq!(observed.dropped + observed.delayed + observed.corrupted + observed.equivocated, 0);
     assert!(observed.data_requests.is_empty(), "a healthy chain requested data");
-    assert_endorsed(&observed, &recipients);
 }
 
 /// The control for the fault tests: with every producer silent the recipients have nothing to
-/// validate and never endorse, while the producers keep certifying among themselves. If this ever
-/// starts endorsing, the others are passing without the data path being exercised.
+/// validate and never endorse, and without their stake certification stops while blocks keep being
+/// produced. If this ever keeps certifying, the others are passing without the data path.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_starve_the_recipients() {
+    /// Enough for anything already in flight to land, and then for a stall to be unambiguous.
+    const STARVED_BLOCKS: usize = 8;
+
     let Setup { mut env, producers, recipients, faults, observed } = setup();
     faults.lock().drop_from.extend(producers.iter().cloned());
 
-    run_past_certified_frontier(&mut env, &recipients[0], PUSH_HEIGHTS);
+    env.runner_for_account(&recipients[0]).run_for_number_of_blocks(STARVED_BLOCKS);
+    let draining = env.node_for_account(&recipients[0]).last_certified_block_header().height();
+    env.runner_for_account(&recipients[0]).run_for_number_of_blocks(STARVED_BLOCKS);
 
+    let node = env.node_for_account(&recipients[0]);
+    let certified = node.last_certified_block_header().height();
+    assert_eq!(certified, draining, "certification kept going without the recipients");
+    assert!(node.head().height > certified, "blocks stopped being produced too");
     let observed = observed.lock();
     assert!(observed.dropped > 0, "no push was dropped");
     for recipient in &recipients {
@@ -423,7 +428,12 @@ fn test_spice_partial_data_faults_alongside_delayed_endorsements() {
 
     let observed = observed.lock();
     assert!(observed.corrupted > 0, "no part was corrupted");
-    assert_endorsed(&observed, &recipients);
+    for recipient in &recipients {
+        assert!(
+            observed.endorsements.contains_key(recipient),
+            "{recipient}'s endorsement was not recorded"
+        );
+    }
 }
 
 /// A skipped height grows the certification lag by one block. Every push still lands before the
@@ -445,24 +455,24 @@ fn test_spice_partial_data_faults_none_armed_with_a_skipped_block() {
     );
     let observed = observed.lock();
     assert!(observed.data_requests.is_empty(), "a healthy chain requested data");
-    assert_endorsed(&observed, &recipients);
 }
 
 /// A validator that applies no shard advances its final execution head with consensus finality.
-/// With certification lagging, the chunks it missed while down are below that head when it
-/// restarts, and it still pulls their witnesses.
+/// Only its endorsements count besides the producers', so certification stalls while it is down
+/// and the chunks it missed are below that head when it restarts. Certification resumes only if
+/// it pulls their witnesses.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_spice_partial_data_faults_restart_pulls_witnesses_below_the_final_execution_head() {
-    /// Blocks an endorsement is held back for, so certification lags finality.
-    const ENDORSEMENT_DELAY: BlockHeight = 4;
     /// Blocks the validator is down for.
     const DOWNTIME: usize = 6;
 
-    let Setup { mut env, producers, recipients, observed, .. } = setup();
-    env.delay_endorsements_propagation(ENDORSEMENT_DELAY);
+    let Setup { env, producers, recipients, observed, .. } = setup();
     let restarted = recipients[0].clone();
-    env.runner_for_account(&producers[0]).run_for_number_of_blocks(4);
+    let mut env = recipients[1..]
+        .iter()
+        .fold(env, |env, recipient| env.drop(DropCondition::EndorsementsFrom(recipient.clone())));
+    run_past_certified_frontier(&mut env, &restarted, PUSH_HEIGHTS);
     assert!(
         !observed.lock().data_requests.contains_key(&restarted),
         "the validator pulled before it went down"
@@ -473,7 +483,8 @@ fn test_spice_partial_data_faults_restart_pulls_witnesses_below_the_final_execut
     env.runner_for_account(&producers[0]).run_for_number_of_blocks(DOWNTIME);
     env.restart_node(&format!("{identifier}-restart"), killed_state);
     env.install_spice_partial_data_faults();
-    env.delay_endorsements_propagation(ENDORSEMENT_DELAY);
+    let head_while_down = env.node_for_account(&producers[0]).head().height;
+    env.runner_for_account(&restarted).run_until_head_height(head_while_down);
     {
         let node = env.node_for_account(&restarted);
         let final_execution_head =
@@ -484,12 +495,10 @@ fn test_spice_partial_data_faults_restart_pulls_witnesses_below_the_final_execut
         );
     }
 
-    env.runner_for_account(&restarted).run_for_number_of_blocks(PULL_HEIGHTS as usize);
+    run_past_certified_frontier(&mut env, &restarted, PULL_HEIGHTS);
 
-    let observed = observed.lock();
     assert!(
-        observed.data_requests.contains_key(&restarted),
+        observed.lock().data_requests.contains_key(&restarted),
         "the restarted validator never pulled the witnesses it missed"
     );
-    assert_endorsed(&observed, &[restarted]);
 }

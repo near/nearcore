@@ -63,6 +63,18 @@ pub(crate) fn needed_items(
     Ok(ids)
 }
 
+/// Whether the proofs `id` names are pushed to `me`; never to a node without an account.
+pub(crate) fn is_pushed_to(
+    epoch_manager: &dyn EpochManagerAdapter,
+    me: Option<&AccountId>,
+    id: &ReceiptProofId,
+) -> Result<bool, Error> {
+    let Some(me) = me else {
+        return Ok(false);
+    };
+    Ok(super::recipients(epoch_manager, &id.source.block_hash, id.to_shard)?.contains(me))
+}
+
 /// The lowest height whose receipt proofs pushed to this node may still be needed: the final
 /// execution head's, whose proofs the next block applies. The genesis height before the first head
 /// is recorded.

@@ -61,6 +61,8 @@ impl SpiceDataManager {
         // Only items pushed to this node are parked: parts for an item only pulled answer a request
         // for an item no longer tracked. A recipient set that cannot be read leaves the parts
         // parked for the block's trigger to decide.
+        // TODO(spice-data-distribution): drop the recipient check once admission control charges
+        // parked parts per sender; it stops no malicious producer.
         if header.as_ref().is_some_and(|header| {
             self.heights.expired(&id, header.height()) || !self.is_pushed_to_me(&id).unwrap_or(true)
         }) {

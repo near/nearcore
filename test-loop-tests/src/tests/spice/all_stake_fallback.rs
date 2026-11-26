@@ -153,6 +153,18 @@ fn assert_certified_via_fallback(node: &TestLoopNode, header: &BlockHeader) {
     );
 }
 
+/// Runs `env` until node 0's certified height advances by `heights`, which under a total outage
+/// of designated endorsements takes a fallback window per height.
+fn run_until_certification_advances_by(env: &mut TestLoopEnv, heights: BlockHeight) {
+    let target = env.node(0).last_certified_block_header().height() + heights;
+    env.node_runner(0).run_until(
+        |node| node.last_certified_block_header().height() >= target,
+        Duration::seconds(300),
+    );
+}
+
+/// The producers push the witness to the whole fallback set when the fallback opens, one block
+/// before anyone may pull it, so a network that loses nothing asks for no data.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements() {
@@ -165,17 +177,15 @@ fn slow_test_spice_all_stake_fallback_certifies_without_designated_endorsements(
         .clients(accounts)
         .build()
         .drop(DropCondition::DesignatedSpiceEndorsements);
+    let (_faults, observed) = env.install_spice_partial_data_faults();
     assert_fallback_has_enough_stake(&env.node(0));
 
     // The certified frontier must keep advancing via the all-stake fallback though every designated
     // endorsement is dropped (slowly: ~1 block per fallback window under a total outage).
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
+    run_until_certification_advances_by(&mut env, 4);
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
+    assert!(observed.lock().data_requests.is_empty(), "a network losing nothing requested data");
 }
 
 #[test]
@@ -195,11 +205,7 @@ fn slow_test_spice_all_stake_fallback_certifies_without_witness_requests() {
         .drop(DropCondition::SpiceDataRequests);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
+    run_until_certification_advances_by(&mut env, 4);
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
 }
@@ -222,11 +228,7 @@ fn slow_test_spice_all_stake_fallback_certifies_without_accesses_messages() {
     faults.lock().drop_contract_accesses_from.extend(accounts);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
+    run_until_certification_advances_by(&mut env, 4);
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
     assert!(observed.lock().dropped_contract_accesses > 0, "no accesses message was dropped");
@@ -285,11 +287,7 @@ fn slow_test_spice_all_stake_fallback_certifies_when_validators_track_all_shards
         .drop(DropCondition::DesignatedSpiceEndorsements);
     assert_fallback_has_enough_stake(&env.node(0));
 
-    let target = env.node(0).last_certified_block_header().height() + 4;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
+    run_until_certification_advances_by(&mut env, 4);
     let frontier = env.node(0).last_certified_block_header();
     assert_certified_via_fallback(&env.node(0), frontier.as_ref());
 }
@@ -538,40 +536,6 @@ fn slow_test_spice_fallback_only_chunk_certifies_when_validators_track_all_shard
     assert_every_fallback_only_chunk_certifies(&mut env, epoch_length);
 }
 
-/// Runs `env` until node 0's certified frontier advances by `heights`, which under a total outage
-/// of designated endorsements takes a fallback window per height.
-fn run_until_certified_past_frontier(env: &mut TestLoopEnv, heights: BlockHeight) {
-    let target = env.node(0).last_certified_block_header().height() + heights;
-    env.node_runner(0).run_until(
-        |node| node.last_certified_block_header().height() >= target,
-        Duration::seconds(300),
-    );
-}
-
-/// The producers push the witness to the whole fallback set when the fallback opens, one block
-/// before anyone may pull it, so a network that loses nothing asks for no data.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn slow_test_spice_all_stake_fallback_certifies_without_any_data_request() {
-    init_test_logger();
-
-    let (accounts, genesis, epoch_config_store) = FallbackSetup::new().build();
-    let mut env = TestLoopBuilder::new()
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(accounts)
-        .build()
-        .drop(DropCondition::DesignatedSpiceEndorsements);
-    let (_faults, observed) = env.install_spice_partial_data_faults();
-    assert_fallback_has_enough_stake(&env.node(0));
-
-    run_until_certified_past_frontier(&mut env, 4);
-
-    let frontier = env.node(0).last_certified_block_header();
-    assert_certified_via_fallback(&env.node(0), frontier.as_ref());
-    assert!(observed.lock().data_requests.is_empty(), "a network losing nothing requested data");
-}
-
 /// A validator that applies no shard moves its final execution head with consensus finality.
 /// The fallback opens long after that head passed the chunk, and the validator still receives
 /// the witness and endorses through the fallback.
@@ -610,7 +574,7 @@ fn slow_test_spice_all_stake_fallback_endorsed_by_a_validator_applying_no_shard(
         "{validator} tracks shards, so it applies chunks itself"
     );
 
-    run_until_certified_past_frontier(&mut env, 4);
+    run_until_certification_advances_by(&mut env, 4);
 
     let observed = observed.lock();
     let endorsed = observed.endorsements.get(&validator).cloned().unwrap_or_default();

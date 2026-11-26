@@ -7,7 +7,8 @@ use crate::spice::data_distributor_actor::{
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, SpiceReceiptProofNeeds,
 };
 use crate::spice::data_manager::{
-    AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, SenderFault,
+    AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, FALLBACK_TRACKING_DELAY,
+    SenderFault,
 };
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, pre_spice_boundary_genesis,
@@ -30,7 +31,8 @@ use near_chain::spice::core::SpiceCoreReader;
 use near_chain::spice::core_writer_actor::{ProcessedBlock, SpiceCoreWriterActor};
 use near_chain::test_utils::{
     SpiceKeyRotationSetup, get_chain_with_genesis, get_fake_next_block_chunk_headers,
-    process_block_sync, produce_spice_block_certifying_parent, setup_spice_key_rotation,
+    process_block_sync, produce_spice_block_certifying_nothing,
+    produce_spice_block_certifying_parent, setup_spice_key_rotation,
 };
 use near_chain::types::Tip;
 use near_chain::{BlockProcessingArtifact, Chain, Provenance};
@@ -3334,29 +3336,6 @@ fn produce_block_certifying_uncertified_chunks(
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_a_witness_is_dropped_at_the_block_after_the_one_certifying_its_chunk() {
-    let (_genesis, mut chain) = setup_with_shard_layout(1, 1, ShardLayout::single_shard());
-    let block = latest_block(&chain);
-    let validator = non_producer_witness_validator_account(&chain);
-    let next_block = produce_block(&mut chain, &block);
-
-    let (outgoing_sc, _outgoing_rc) = unbounded_channel();
-    let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
-    let mut fake_runner = FakeDelayedActionRunner::default();
-    actor.start_actor(&mut fake_runner);
-    assert!(tracks_witness_of(&actor, &chain, &next_block));
-
-    let certifying_block = produce_block_certifying_uncertified_chunks(&mut chain, &next_block);
-    actor.handle(ProcessedBlock { block_hash: *certifying_block.hash() });
-    assert!(tracks_witness_of(&actor, &chain, &next_block));
-    let child = produce_block(&mut chain, &certifying_block);
-    actor.handle(ProcessedBlock { block_hash: *child.hash() });
-
-    assert!(!tracks_witness_of(&actor, &chain, &next_block));
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_fork_data_below_the_final_head_is_dropped() {
     let (genesis, mut chain) = setup(2, 0);
     let (from_shard_id, to_shard_id) =
@@ -3366,8 +3345,11 @@ fn test_fork_data_below_the_final_head_is_dropped() {
     let block = latest_block(&chain);
     let next_block = produce_block(&mut chain, &block);
     let fork_block = produce_block(&mut chain, &block);
-    // A block on the fork certifies the fork's chunks, so the fork's proof is pullable.
+    // A block on the fork certifies the fork's chunks, so the fork's proof is pullable. That
+    // certification also drops the fork's witness, so the witness is checked on a second fork that
+    // nothing certifies.
     produce_block_certifying_uncertified_chunks(&mut chain, &fork_block);
+    let uncertified_fork_block = produce_block(&mut chain, &block);
     save_final_execution_head(&chain, &block);
     let proof_id = |block: &Block| DataId::receipt_proof(*block.hash(), from_shard_id, to_shard_id);
     // The blocks whose witnesses and whose receipt proofs were requested, in that order.
@@ -3393,9 +3375,7 @@ fn test_fork_data_below_the_final_head_is_dropped() {
         ActorBuilder::new(Some(recipient)).clock(clock.clock()).build(outgoing_sc, &chain);
     let mut fake_runner = FakeDelayedActionRunner::default();
     actor.start_actor(&mut fake_runner);
-    // The fork's chunks are certified by the fork's tip, whose trigger keeps the witness for one
-    // more pull round.
-    assert!(tracks_witness_of(&actor, &chain, &fork_block));
+    assert!(tracks_witness_of(&actor, &chain, &uncertified_fork_block));
     assert!(actor.is_tracking(&proof_id(&fork_block)));
     assert!(tracks_witness_of(&actor, &chain, &next_block));
     assert!(actor.is_tracking(&proof_id(&next_block)));
@@ -3406,12 +3386,12 @@ fn test_fork_data_below_the_final_head_is_dropped() {
     actor.handle(ProcessedBlock { block_hash: *head.hash() });
     // The dead fork's witness and certified proof are dropped at the final head, and are not
     // asked for. The canonical block's witness and proof stay.
-    assert!(!tracks_witness_of(&actor, &chain, &fork_block));
+    assert!(!tracks_witness_of(&actor, &chain, &uncertified_fork_block));
     assert!(tracks_witness_of(&actor, &chain, &next_block));
     assert!(actor.is_tracking(&proof_id(&next_block)));
     assert!(!actor.is_tracking(&proof_id(&fork_block)));
     let (witness_blocks, proof_blocks) = requested_blocks(&mut outgoing_rc);
-    assert!(!witness_blocks.contains(fork_block.hash()));
+    assert!(!witness_blocks.contains(uncertified_fork_block.hash()));
     assert!(!proof_blocks.contains(fork_block.hash()));
 
     // The canonical block's proof is pushed to this node, so it expires once the final execution
@@ -3745,15 +3725,40 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
     assert_eq!(witnesses.iter().map(|witness| witness.chunk_id()).collect_vec(), vec![&chunk_id]);
 }
 
-/// Every validator of the epoch tracks a chunk's witness from the chunk's own block, so a
-/// fallback push is delivered even before the receiver sees the fallback open.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_pushed_fallback_witness_is_delivered_before_the_receiver_sees_the_fallback_open() {
+/// Grows the chain until its head is `blocks_short` blocks below the height at which validators
+/// outside the designated set start tracking the witness of the shard's oldest uncertified chunk,
+/// and returns that chunk.
+fn grow_chain_toward_fallback_tracking(
+    chain: &mut Chain,
+    shard_id: ShardId,
+    blocks_short: BlockHeight,
+) -> SpiceChunkId {
+    let head = chain.chain_store.head().unwrap();
+    let chunk_id = chain
+        .spice_core_reader
+        .get_uncertified_chunks(&head.last_block_hash)
+        .unwrap()
+        .into_iter()
+        .find(|chunk_info| chunk_info.chunk_id.shard_id == shard_id)
+        .expect("no uncertified chunk for the shard")
+        .chunk_id;
+    let chunk_height = chain.chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
+    while chain.chain_store.head().unwrap().height + blocks_short
+        < chunk_height + FALLBACK_TRACKING_DELAY
+    {
+        produce_block(chain, &latest_block(chain));
+    }
+    chunk_id
+}
+
+/// A validator outside the chunk's designated set starts the actor with the head `blocks_short`
+/// blocks below the chunk's fallback tracking height, receives a fallback push of the chunk's
+/// witness, and returns the witnesses it delivered.
+fn deliver_fallback_push_short_of_tracking(blocks_short: BlockHeight) -> Vec<SpiceChunkId> {
     // More validators than mandates per shard, so some are outside every chunk's designated set.
     let (_genesis, mut chain) = setup(2, 100);
     let shard_id = witness_shard_id(&latest_block(&chain));
-    let chunk_id = grow_chain_toward_fallback_opening(&mut chain, shard_id, 5);
+    let chunk_id = grow_chain_toward_fallback_tracking(&mut chain, shard_id, blocks_short);
     let data = pushed_witness_data(&chain, &chunk_id);
     let validator = fallback_witness_recipient(&chain, &chunk_id);
 
@@ -3764,8 +3769,30 @@ fn test_pushed_fallback_witness_is_delivered_before_the_receiver_sees_the_fallba
     drain_all(&mut outgoing_rc);
     actor.handle(SpiceIncomingPartialData { data, recv_permit: RecvMessagePermit::none() });
 
-    let witnesses = drain_delivered_witnesses(&mut outgoing_rc);
-    assert_eq!(witnesses.iter().map(|witness| witness.chunk_id()).collect_vec(), vec![&chunk_id]);
+    drain_delivered_witnesses(&mut outgoing_rc)
+        .iter()
+        .map(|witness| witness.chunk_id().clone())
+        .collect()
+}
+
+/// A validator outside the designated set tracks an uncertified chunk's witness once the chain
+/// reaches the chunk's height plus `FALLBACK_TRACKING_DELAY`, before the fallback can open, so a
+/// fallback push is delivered even before the receiver sees the fallback open.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pushed_fallback_witness_is_delivered_from_the_fallback_tracking_height() {
+    let delivered = deliver_fallback_push_short_of_tracking(0);
+    assert_eq!(delivered.len(), 1);
+}
+
+/// Below the fallback tracking height, a validator outside the designated set does not want the
+/// witness, so a producer cannot make it validate one.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pushed_witness_is_not_delivered_to_a_non_designated_validator_below_the_fallback_tracking_height()
+ {
+    let delivered = deliver_fallback_push_short_of_tracking(1);
+    assert_eq!(delivered, vec![]);
 }
 
 #[test]
@@ -3904,7 +3931,8 @@ fn test_requesting_witnesses_of_a_shard_being_caught_up() {
     // The epoch's first block, where the shard is synced, and a block after it.
     let sync_block = produce_spice_block_certifying_parent(&mut chain, &block);
     assert!(chain.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap());
-    let after_sync = produce_spice_block_certifying_parent(&mut chain, &sync_block);
+    // Leaves the sync block's chunks uncertified, so their witnesses are still needed.
+    let after_sync = produce_spice_block_certifying_nothing(&mut chain, &sync_block);
     assert_eq!(after_sync.header().epoch_id(), sync_block.header().epoch_id());
     for block in [&sync_block, &after_sync] {
         let assignments = chain
