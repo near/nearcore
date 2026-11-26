@@ -216,6 +216,28 @@ pub(crate) static VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED: LazyLock<IntGaugeVec> 
         .unwrap()
     });
 
+pub(crate) static CHUNK_ENDORSEMENTS_PRODUCED_BY_SHARD: LazyLock<IntGaugeVec> = LazyLock::new(
+    || {
+        try_create_int_gauge_vec(
+            "near_chunk_endorsements_produced_by_shard",
+            "Number of chunk endorsements recorded for a shard in the current epoch, summed over its chunk validators",
+            &["shard_id"],
+        )
+        .unwrap()
+    },
+);
+
+pub(crate) static CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD: LazyLock<IntGaugeVec> = LazyLock::new(
+    || {
+        try_create_int_gauge_vec(
+            "near_chunk_endorsements_expected_by_shard",
+            "Number of chunk endorsements expected for a shard in the current epoch, summed over its chunk validators",
+            &["shard_id"],
+        )
+        .unwrap()
+    },
+);
+
 pub(crate) static VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH: LazyLock<IntGaugeVec> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(

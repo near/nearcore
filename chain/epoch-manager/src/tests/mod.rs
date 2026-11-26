@@ -1850,6 +1850,88 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
 }
 
 #[test]
+// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
+#[cfg_attr(feature = "protocol_feature_spice", ignore)]
+fn test_chunk_endorsement_stats_by_shard() {
+    let num_validators = 3;
+    let num_blocks = 5;
+    let epoch_length = 10;
+    let validators: Vec<(AccountId, Balance)> = (0..num_validators)
+        .map(|i| (format!("test{i}").parse().unwrap(), Balance::from_yoctonear(1_000_000)))
+        .collect();
+    let mut em =
+        setup_default_epoch_manager(validators, epoch_length, 2, num_validators as u64, 90, 60);
+    // Genesis plus `num_blocks` blocks, all in the first epoch.
+    assert!(num_blocks < epoch_length);
+    let h = hash_range(num_blocks as usize + 1);
+    record_block(&mut em, Default::default(), h[0], 0, vec![]);
+    let epoch_id = em.get_next_epoch_id(&h[0]).unwrap();
+    let shard_layout = em.get_shard_layout(&epoch_id).unwrap();
+
+    // Setup: "test2" misses its endorsements on shard 1 only.
+    for height in 1..h.len() {
+        let height = height as u64;
+        let mut endorsements = vec![];
+        for shard_id in shard_layout.shard_ids() {
+            let shard_endorsements = em
+                .get_chunk_validator_assignments(&epoch_id, shard_id, height)
+                .unwrap()
+                .ordered_chunk_validators()
+                .iter()
+                .map(|account| !(account.as_str() == "test2" && shard_id == ShardId::new(1)))
+                .collect();
+            endorsements.push(shard_endorsements);
+        }
+        let prev_hash = h[height as usize - 1];
+        let block_info = BlockInfo::new(
+            h[height as usize],
+            height,
+            height - 1,
+            prev_hash,
+            prev_hash,
+            vec![],
+            vec![true, true],
+            DEFAULT_TOTAL_SUPPLY,
+            PROTOCOL_VERSION,
+            height * NUM_NS_IN_SECOND,
+            ChunkEndorsementsBitmap::from_endorsements(endorsements),
+            None,
+        );
+        em.record_block_info(block_info, [0; 32]).unwrap().store_update.commit();
+    }
+
+    // Check: every validator validates both shards at every height, so each shard expects one
+    // endorsement per validator per block, and shard 1 misses one per block from "test2".
+    let aggregator = em.get_epoch_info_aggregator_upto_last(h.last().unwrap()).unwrap();
+    let expected = num_blocks * num_validators;
+    assert_eq!(
+        aggregator.chunk_endorsement_by_shard,
+        HashMap::from([
+            (ShardId::new(0), ValidatorStats { produced: expected, expected }),
+            (ShardId::new(1), ValidatorStats { produced: expected - num_blocks, expected }),
+        ])
+    );
+    // The `validators` RPC lists the same totals in shard id order.
+    let validator_info =
+        em.get_validator_info(ValidatorInfoIdentifier::BlockHash(*h.last().unwrap())).unwrap();
+    assert_eq!(
+        validator_info.chunk_endorsements_per_shard,
+        vec![
+            ShardChunkEndorsementsView {
+                shard_id: ShardId::new(0),
+                num_produced_endorsements: expected,
+                num_expected_endorsements: expected,
+            },
+            ShardChunkEndorsementsView {
+                shard_id: ShardId::new(1),
+                num_produced_endorsements: expected - num_blocks,
+                num_expected_endorsements: expected,
+            },
+        ]
+    );
+}
+
+#[test]
 fn test_compare_epoch_id() {
     let amount_staked = Balance::from_yoctonear(1_000_000);
     let validators =
