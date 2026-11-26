@@ -1,4 +1,4 @@
-use super::core::{build_block, process_block, setup};
+use super::core::{block_certification_core_statements, build_block, process_block, setup};
 use crate::Chain;
 use crate::spice::block_application::{apply_block_postprocessing, apply_shard_postprocessing};
 use near_primitives::block::Block;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_postprocessing_follows_the_final_execution_head_only_for_applied_shards() {
-    let (chain, blocks, shard_uids) = setup_with_flat_storage_and_memtries();
+    let (chain, blocks, shard_uids) = setup_with_flat_storage_and_memtries(true);
     let genesis = &blocks[0];
     let &[applied_shard, lagging_shard, ..] = shard_uids.as_slice() else {
         panic!("the test needs an applied shard and a lagging one");
@@ -61,7 +61,7 @@ fn test_postprocessing_follows_the_final_execution_head_only_for_applied_shards(
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_shard_postprocessing_follows_a_final_block() {
-    let (chain, blocks, shard_uids) = setup_with_flat_storage_and_memtries();
+    let (chain, blocks, shard_uids) = setup_with_flat_storage_and_memtries(true);
     let &[shard_uid, other_shard_uid, ..] = shard_uids.as_slice() else {
         panic!("the test needs two shards");
     };
@@ -83,14 +83,56 @@ fn test_shard_postprocessing_follows_a_final_block() {
     assert_eq!(num_memtrie_roots(&chain, other_shard_uid), 1);
 }
 
+/// RPC validates transactions against the state of the last certified block, so memtrie GC must
+/// keep its root even when the final execution head is well past it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_postprocessing_keeps_the_memtrie_root_of_the_last_certified_block() {
+    // Nothing past genesis is certified, so genesis is the last certified block.
+    let (chain, blocks, shard_uids) = setup_with_flat_storage_and_memtries(false);
+    let genesis = &blocks[0];
+    let &[shard_uid, ..] = shard_uids.as_slice() else {
+        panic!("the test needs a shard");
+    };
+    let block = blocks.last().unwrap();
+    let last_final_block = chain.get_block_header(block.header().last_final_block()).unwrap();
+    // The final execution head is far enough past genesis to have dropped its root before.
+    assert!(last_final_block.prev_height().unwrap() > genesis.header().height());
+    let mut store_update = chain.chain_store().store().store_update();
+    store_update.chunk_store_update().set_chunk_extra(
+        last_final_block.hash(),
+        &shard_uid,
+        &ChunkExtra::new_with_only_state_root(&CryptoHash::default()),
+    );
+    store_update.commit();
+
+    apply_block_postprocessing(
+        chain.runtime_adapter.as_ref(),
+        chain.epoch_manager.as_ref(),
+        &chain.chain_store().chain_store(),
+        block,
+    )
+    .unwrap();
+
+    assert_eq!(num_memtrie_roots(&chain, shard_uid), 1);
+}
+
 /// A chain of a few blocks whose shards all have their flat head and a memtrie root at genesis, and
-/// a flat state delta for every block after it.
-fn setup_with_flat_storage_and_memtries() -> (Chain, Vec<Arc<Block>>, Vec<ShardUId>) {
+/// a flat state delta for every block after it. The first block after genesis is certified in the
+/// second one if `certify_first_block` is set, and nothing is otherwise.
+fn setup_with_flat_storage_and_memtries(
+    certify_first_block: bool,
+) -> (Chain, Vec<Arc<Block>>, Vec<ShardUId>) {
     const NUM_BLOCKS_AFTER_GENESIS: usize = 5;
     let (mut chain, _) = setup();
     let mut blocks = vec![chain.genesis_block()];
-    for _ in 0..NUM_BLOCKS_AFTER_GENESIS {
-        let block = build_block(&chain, blocks.last().unwrap(), vec![]);
+    for i in 0..NUM_BLOCKS_AFTER_GENESIS {
+        let core_statements = if certify_first_block && i == 1 {
+            block_certification_core_statements(&blocks[1])
+        } else {
+            vec![]
+        };
+        let block = build_block(&chain, blocks.last().unwrap(), core_statements);
         process_block(&mut chain, block.clone());
         blocks.push(block);
     }

@@ -1,5 +1,6 @@
 use crate::Block;
 use crate::metrics::BLOCK_HEIGHT_SPICE_EXECUTION_HEAD;
+use crate::spice::core::get_last_certified_block_header;
 use crate::types::{RuntimeAdapter, Tip};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -107,8 +108,17 @@ fn gc_memtrie_roots(
     let Some(prev_height) = header.prev_height() else {
         return;
     };
+    // RPC validates transactions against the state of the last certified block, which can be
+    // older than the block below the final execution head, so its root must stay in memtrie.
+    // Certification only moves forward, so the last certified block of the final execution head
+    // is no later than the one RPC reads.
+    let last_certified_height =
+        get_last_certified_block_header(chain_store, &final_execution_head.last_block_hash)
+            .unwrap()
+            .height();
+    let gc_height = prev_height.min(last_certified_height);
     let tries = runtime_adapter.get_tries();
     for &shard_uid in shard_uids {
-        tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
+        tries.delete_memtrie_roots_up_to_height(shard_uid, gc_height);
     }
 }
