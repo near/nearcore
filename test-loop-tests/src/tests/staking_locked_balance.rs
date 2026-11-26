@@ -228,22 +228,14 @@ fn send_stakes(
     accounts: &[AccountId],
     stakes: &[Balance; 3],
 ) -> BlockHeight {
-    let tx_hashes: Vec<_> = accounts
-        .iter()
-        .zip(stakes)
-        .map(|(account, stake)| {
-            let rpc = env.rpc_node();
-            let tx = rpc.tx_from_actions(
-                account,
-                account,
-                vec![Action::Stake(Box::new(StakeAction {
-                    stake: *stake,
-                    public_key: create_test_signer(account.as_str()).public_key(),
-                }))],
-            );
-            rpc.submit_tx(tx)
-        })
-        .collect();
+    let rpc = env.rpc_node();
+    let mut tx_hashes = Vec::new();
+    for (account, stake) in accounts.iter().zip(stakes) {
+        let public_key = create_test_signer(account.as_str()).public_key();
+        let action = Action::Stake(Box::new(StakeAction { stake: *stake, public_key }));
+        let tx = rpc.tx_from_actions(account, account, vec![action]);
+        tx_hashes.push(rpc.submit_tx(tx));
+    }
     env.rpc_runner().run_until_included(&tx_hashes)
 }
 
