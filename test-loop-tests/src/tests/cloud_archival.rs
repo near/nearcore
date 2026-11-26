@@ -6,10 +6,10 @@ use crate::utils::cloud_archival::{
     ReshardingInfo, WriterConfig, add_writer_node, apply_writer_settings,
     assert_blob_stats_are_archived, assert_resharding_epoch_snapshot_forced, assert_store_parity,
     assert_writer_agrees_with_rpc_node, assert_writer_inverse_deltas, bootstrap_historical_reader,
-    check_account_balance, check_data_at_height_for_shards, delete_epoch_sync_hash, epoch_id_at,
-    exec, gc_and_heads_sanity_checks, get_cloud_storage, get_local_min_head,
-    get_state_header_for_epoch, get_writer_handle, has_state_root, run_node_until,
-    run_receipts_of_every_kind, run_until_one_epoch_after_resharding,
+    bootstrap_reader_range, check_account_balance, check_data_at_height_for_shards,
+    delete_epoch_sync_hash, epoch_id_at, exec, gc_and_heads_sanity_checks, get_cloud_storage,
+    get_local_min_head, get_state_header_for_epoch, get_writer_handle, has_state_root,
+    run_node_until, run_receipts_of_every_kind, run_until_one_epoch_after_resharding,
     run_until_resharding_epoch_starts, set_scheduler_run_time, simulate_lagging_shard,
     snapshots_sanity_check, stop_and_restart_node,
 };
@@ -23,7 +23,6 @@ use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
 use near_client::archive::cloud_archival_utils::save_block_data;
-use near_client::archive::cloud_historical_reader::bootstrap_range;
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_epoch_manager::EpochManagerAdapter;
@@ -72,9 +71,6 @@ struct CloudArchiveHarness {
     batch_size: u32,
     /// Whether the recent reader has taken over the RPC node.
     rpc_taken_over: bool,
-    /// The epoch manager the recent reader runs on, set by `start_recent_reader()`. Kept here
-    /// because `start_recent_reader()` kills the RPC node, so `env` no longer has it.
-    recent_reader_epoch_manager: Option<Arc<dyn EpochManagerAdapter>>,
     /// Account ID of the historical reader node, set after
     /// `bootstrap_historical_reader()`.
     historical_reader_id: Option<AccountId>,
@@ -288,7 +284,6 @@ impl CloudArchiveHarnessBuilder {
             gc_num_epochs_to_keep: self.gc_num_epochs_to_keep,
             batch_size: self.batch_size,
             rpc_taken_over: false,
-            recent_reader_epoch_manager: None,
             historical_reader_id: None,
             new_shard_layout,
             resharding_boundary,
@@ -404,18 +399,7 @@ impl CloudArchiveHarness {
     fn extend_historical_reader(&self, start_height: BlockHeight, target_height: BlockHeight) {
         let reader_id =
             self.historical_reader_id.as_ref().expect("no historical reader bootstrapped");
-        let cloud_storage = get_cloud_storage(&self.env, reader_id);
-        let client = self.env.node_for_account(reader_id).client();
-        exec(bootstrap_range(
-            &self.historical_reader_store(),
-            &cloud_storage,
-            client.epoch_manager.as_ref(),
-            &client.shard_tracker,
-            start_height,
-            target_height,
-            false,
-        ))
-        .expect("the second bootstrap succeeds");
+        bootstrap_reader_range(&self.env, reader_id, start_height, target_height, false);
     }
 
     fn kill_historical_reader(&mut self) {
@@ -432,7 +416,6 @@ impl CloudArchiveHarness {
         let shard_tracker = client.shard_tracker.clone();
         let cloud_storage = self.open_cloud_storage(&reader_id);
         self.env.kill_node(Self::RECENT_READER_ACCOUNT);
-        self.recent_reader_epoch_manager = Some(epoch_manager.clone());
         let reader = CloudArchivalRecentReader::new(
             self.env.test_loop.clock(),
             self.recent_reader_store(),
@@ -592,7 +575,9 @@ impl CloudArchiveHarness {
                 self.env.node_for_account(reader_id).client().epoch_manager.clone()
             }
             Reader::Recent => {
-                self.recent_reader_epoch_manager.clone().expect("the recent reader is not started")
+                assert!(self.rpc_taken_over, "the recent reader is not started");
+                let reader_id: AccountId = Self::RECENT_READER_ACCOUNT.parse().unwrap();
+                self.env.node_for_account(&reader_id).client().epoch_manager.clone()
             }
         }
     }

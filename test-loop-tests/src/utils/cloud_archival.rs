@@ -744,8 +744,8 @@ pub(crate) fn add_reader_node(env: &mut TestLoopEnv, reader_id: &AccountId) -> S
     env.node_for_account(reader_id).store()
 }
 
-/// Bootstraps a reader node from cloud storage and checks it reconstructed every
-/// shard's state through `target_block_height`.
+/// Brings up a reader node and bootstraps it from cloud storage over
+/// `[start_height, target_block_height]`, as `bootstrap_reader_range` does.
 pub fn bootstrap_historical_reader(
     env: &mut TestLoopEnv,
     reader_id: &AccountId,
@@ -754,7 +754,19 @@ pub fn bootstrap_historical_reader(
     skip_state: bool,
 ) {
     add_reader_node(env, reader_id);
+    bootstrap_reader_range(env, reader_id, start_height, target_block_height, skip_state);
+}
 
+/// Bootstraps the reader node's store from cloud storage over `[start_height,
+/// target_block_height]` and checks it reconstructed every shard's state through
+/// `target_block_height`.
+pub fn bootstrap_reader_range(
+    env: &TestLoopEnv,
+    reader_id: &AccountId,
+    start_height: BlockHeight,
+    target_block_height: BlockHeight,
+    skip_state: bool,
+) {
     let cloud_storage = get_cloud_storage(env, reader_id);
     {
         let client = env.node_for_account(reader_id).client();
