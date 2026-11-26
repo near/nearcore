@@ -14946,8 +14946,8 @@ To add a new test scenario:</p>
 <pre><code class="language-javascript">NODE_BINARY_URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard
 </code></pre>
 <h3 id="initialize-the-testing-environment"><a class="header" href="#initialize-the-testing-environment">Initialize the testing environment</a></h3>
-<p>This will upload the orchestrator (`neard-runner`) to all the hosts and create the necessary folders: </p>
-<pre><code class="language-javascript">mirror init-neard-runner --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url &quot;&quot;
+<p>This uploads the host scripts to <code>~/.near/forknet</code> on all the hosts, installs the <code>neard</code> systemd user unit and downloads the binary:</p>
+<pre><code class="language-javascript">mirror init --neard-binary-url $NODE_BINARY_URL --neard-upgrade-binary-url &quot;&quot;
 </code></pre>
 <h3 id="optional-genesis-configs"><a class="header" href="#optional-genesis-configs">[Optional] genesis configs</a></h3>
 <p>Reduce the min gas price to reduce the chance of running out of NEAR.
@@ -15005,7 +15005,7 @@ mirror stop-traffic
 </code></pre>
 <h3 id="reset-the-network"><a class="header" href="#reset-the-network">Reset the network</a></h3>
 <pre><code class="language-none">mirror stop-nodes
-mirror reset --backup-id start --yes
+mirror reset --yes
 </code></pre>
 <h3 id="update-the-binary"><a class="header" href="#update-the-binary">Update the binary</a></h3>
 <p>Stop the nodes before altering the running binary.</p>
@@ -15014,15 +15014,14 @@ mirror reset --backup-id start --yes
                     build, you will not need to amend the URL but just run update-binaries.
 </code></pre>
 <p>If you plan to use a binary from another branch, you need to alter the URL with <code>amend-binaries</code>:</p>
-<pre><code class="language-none"> amend-binaries      Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries. If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned on each
-                     host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade window for another binary.
+<pre><code class="language-none"> amend-binaries      Replace the URL of the neard binary at the given index and download it again.
 </code></pre>
 <pre><code class="language-bash">URL=https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/some_branch/neard
 mirror amend-binaries --neard-binary-url $URL --binary-idx 0
 </code></pre>
-<p>The following option is not recommended, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:<code>gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/neard-runner/binaries/neard0</code></p>
+<p>The following option is not recommended, but, if the binary isn't available at a public URL, but you have it on your machine/laptop, you can upload it like:<code>gcloud --project near-mocknet compute scp {local_neard_path} ubuntu@{instance_name}:/home/ubuntu/.near/forknet/binaries/neard0</code></p>
 <h3 id="run-commands-on-the-nodes"><a class="header" href="#run-commands-on-the-nodes">Run commands on the nodes</a></h3>
-<pre><code class="language-javascript">mirror run-cmd --cmd &quot;cat .near/neard-runner/.env&quot;
+<pre><code class="language-javascript">mirror run-cmd --cmd &quot;cat .near/forknet/neard.env&quot;
 </code></pre>
 <h3 id="target-specific-hosts"><a class="header" href="#target-specific-hosts">Target specific hosts</a></h3>
 <p>There are three selectors that can be combined</p>
@@ -15044,7 +15043,8 @@ mapped secret key: ed25519:5GnmuWueJptLxKYoirp6rHHDJpu7vLgM1BCXwfvc8CJ8cmoettg9v
 public key: ed25519:93zQfXQsfWEkDG2n5qKfbTQUxLZdMrvGpBtwpezWpWTJ
 </code></pre>
 <h3 id="check-the-logs"><a class="header" href="#check-the-logs">Check the logs</a></h3>
-<p>To get the logs of the <code>neard_runner.py</code> and see what commands were executed on the host during setup or operation, look at the <code>journalctl -ru neard-runner</code></p>
+<p>To see what the <code>new-test</code> setup and the <code>reset</code> command did on a host, look at <code>~/.near/forknet/setup.log</code>. <code>mirror status</code> shows the state of each host that is not ready, including setup errors. On the traffic generator the forknet home is <code>~/.near/target/forknet</code>.</p>
+<p>To check whether neard is running, use <code>systemctl --user status neard</code>.</p>
 <p>To check the <code>neard</code> logs look at the files in <code>~/neard-logs/logs.txt</code>. This file is rotated so it does not become too big.</p>
 <div style="break-before: page; page-break-before: always;"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
 <h1 id="overview-7"><a class="header" href="#overview-7">Overview</a></h1>
