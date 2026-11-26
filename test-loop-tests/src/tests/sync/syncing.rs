@@ -1,9 +1,12 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::node::TestLoopNode;
 use crate::utils::transactions::{execute_money_transfers, get_anchor_hash, get_next_nonce};
 use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
+use near_chain_configs::TrackedShardsConfig;
 use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
@@ -17,8 +20,6 @@ const NUM_CLIENTS: usize = 4;
 // Test that a new node that only has genesis can use whatever method available
 // to sync up to the current state of the network.
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn slow_test_sync_from_genesis() {
     init_test_logger();
     let accounts =
@@ -47,12 +48,18 @@ fn slow_test_sync_from_genesis() {
     env.node_runner(0).run_until(|node| node.head().height > 10050, Duration::seconds(50));
 
     // Add new node
-    let new_node_state = env.node_state_builder().account_id(&accounts[NUM_CLIENTS]).build();
+    let new_node_state = env
+        .node_state_builder()
+        .account_id(&accounts[NUM_CLIENTS])
+        .config_modifier(|config| config.tracked_shards_config = TrackedShardsConfig::AllShards)
+        .build();
     let new_node_idx = env.add_node(accounts[NUM_CLIENTS].as_str(), new_node_state);
 
     // Check that the new node will reach a high height as well.
     env.node_runner(new_node_idx)
         .run_until(|node| node.head().height > 10050, Duration::seconds(20));
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 /// Kill all validators simultaneously and restart them, repeating multiple
@@ -123,6 +130,8 @@ fn slow_test_validator_restart_under_cross_shard_load() {
                 idx,
             );
         }
+        assert_execution_kept_up(&env);
+        assert_certification_kept_up(&env);
 
         // Send cross-shard transfers after each restart to generate traffic
         // across all shards.

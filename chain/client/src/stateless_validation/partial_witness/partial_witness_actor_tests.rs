@@ -202,7 +202,6 @@ fn build_test_actor(
         request_sender: noop().into_sender(),
         request_with_permit_sender: noop().into_sender(),
         set_chain_info_sender: noop().into_sender(),
-        state_sync_event_sender: noop().into_sender(),
     };
     let chunk_validation_sender =
         ChunkValidationSenderForPartialWitness { chunk_state_witness: noop().into_sender() };

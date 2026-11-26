@@ -87,6 +87,30 @@ ignore = [
     # RUSTSEC-2026-0379: Bug in cranelift backend on aarch64, we only use this
     # for development, never on real nodes.
     "RUSTSEC-2026-0379",
+    # RUSTSEC-2026-0566: unbounded host memory growth in wasmtime-wasi's
+    # `AsyncWriteStream`. Nearcore does not enable or link Wasmtime's WASI
+    # support.
+    "RUSTSEC-2026-0566",
+    # RUSTSEC-2026-0571: unbounded heap usage in wasmtime-wasi-http. Nearcore
+    # does not enable or link Wasmtime's WASI support.
+    "RUSTSEC-2026-0571",
+    # RUSTSEC-2026-0567: process abort on `memory.atomic.*` instructions in
+    # builds without the `threads` cargo feature. It needs the embedder to turn
+    # the threads proposal back on through `Config::wasm_features`. Nearcore
+    # builds without the `threads` feature but uses `Config::default()` (see
+    # `runtime/near-vm-runner/src/features.rs`), which leaves threads disabled,
+    # and contract validation rejects the threads proposal (`THREADS = false`).
+    "RUSTSEC-2026-0567",
+    # RUSTSEC-2026-0569: `Caller::get_module_export` panics when the host
+    # function was called by the embedder instead of by wasm, e.g. a contract
+    # method that is a re-export of an imported host function. Nearcore does
+    # call `Caller::get_module_export` (`get_memory` in
+    # `runtime/near-vm-runner/src/wasmtime_runner/mod.rs`), but only while the
+    # memory export is still unresolved, and it is resolved on the real instance
+    # right after instantiation, before any contract method is called. The
+    # preparation step guarantees that the `memory` export is a memory. Covered
+    # by `test_panic_re_export` and `test_trampoline_only_*`.
+    "RUSTSEC-2026-0569",
 
     # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained. Reached only through
     # serde_yaml (itself marked deprecated upstream; latest is 0.9.34+deprecated),

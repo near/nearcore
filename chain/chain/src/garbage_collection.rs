@@ -427,6 +427,8 @@ impl ChainStore {
             let block_height = self.get_block_height(&block_hash)?;
             if block_height <= last_certified_height {
                 store_update.delete(DBCol::witnesses(), &key);
+                // Contract accesses are written atomically with the witness under the same key.
+                store_update.delete(DBCol::contract_accesses(), &key);
                 entries_cleared += 1;
             }
         }
@@ -627,7 +629,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// garbage collected.  Roughly speaking this represents start of the 'hot'
     /// data that we want to keep.
     ///
-    /// `gt_height_limit` indicates limit of how many non-empty heights to
+    /// `gc_height_limit` indicates limit of how many non-empty heights to
     /// process.  This limit means that the method may stop garbage collection
     /// before reaching `gc_stop_height`.
     fn clear_redundant_chunk_data(
@@ -735,7 +737,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store().get_state_header(shard_id, block_hash)
             {
                 let state_num_parts = shard_state_header.num_state_parts();
-                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts);
                 let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &key);
             }
@@ -970,9 +972,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
             // TODO(spice): Add other relevant columns here
             #[cfg(feature = "protocol_feature_spice")]
-            self.gc_col(DBCol::witnesses(), &block_shard_id);
+            self.gc_col(DBCol::witnesses(), &get_block_shard_id(&block_hash, shard_id));
             #[cfg(feature = "protocol_feature_spice")]
-            self.gc_col(DBCol::contract_accesses(), &block_shard_id);
+            self.gc_col(DBCol::contract_accesses(), &get_block_shard_id(&block_hash, shard_id));
             #[cfg(feature = "protocol_feature_spice")]
             self.gc_col(
                 DBCol::chunk_certifying_block(),
@@ -987,7 +989,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store().get_state_header(shard_id, block_hash)
             {
                 let state_num_parts = shard_state_header.num_state_parts();
-                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts);
                 let state_header_key =
                     borsh::to_vec(&StateHeaderKey(shard_id, block_hash)).unwrap();
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
@@ -1105,18 +1107,12 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn gc_col_state_parts(
-        &mut self,
-        sync_hash: CryptoHash,
-        shard_id: ShardId,
-        num_parts: u64,
-    ) -> Result<(), Error> {
+    pub fn gc_col_state_parts(&mut self, sync_hash: CryptoHash, shard_id: ShardId, num_parts: u64) {
         for part_idx in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_idx)).unwrap();
             self.gc_col(DBCol::StateParts, &key);
             self.gc_col(DBCol::StatePartsApplied, &key);
         }
-        Ok(())
     }
 
     fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {

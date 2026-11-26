@@ -39,7 +39,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::archive::cloud_storage::CloudStorage;
 use near_store::archive::cloud_storage::bucket_config::BucketConfig;
 use near_store::test_utils::TestNodeStorage;
-use nearcore::state_sync::StateSyncDumpHandle;
+use nearcore::state_sync_dumper::StateSyncDumpHandle;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};

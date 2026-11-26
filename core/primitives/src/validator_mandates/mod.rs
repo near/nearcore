@@ -101,7 +101,7 @@ impl ValidatorMandates {
             }
         }
 
-        // Not counting partials towards `required_mandates` as the weight of partials and its
+        // Not counting partials towards the mandates per shard as the weight of partials and its
         // distribution across shards may vary widely.
         //
         // Construct vector with capacity as most likely some validators' stake will not be evenly
@@ -307,7 +307,7 @@ mod tests {
         )
     }
 
-    /// Constructs some `ValidatorStakes` for usage in tests.
+    /// Constructs some validator stakes for usage in tests.
     ///
     /// # Properties of the corresponding `ValidatorMandates`
     ///

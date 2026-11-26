@@ -3,8 +3,8 @@ SSH connection sharing for the mocknet / forknet tooling.
 
 python-rc opens a new ssh session (TCP handshake, key exchange, auth) for
 every Machine.run()/upload()/download() call. The forknet tooling sends many
-short commands to each host (neard-runner JSON-RPC over `curl
-localhost:3000`, systemd-run, file uploads...). This module makes OpenSSH send
+short commands to each host (host scripts, systemctl, systemd-run, file
+uploads...). This module makes OpenSSH send
 all of them over one persistent master connection per (user, host, port), with
 ControlMaster/ControlPersist. The first command to a host still does the full
 handshake. Later commands use the master socket.

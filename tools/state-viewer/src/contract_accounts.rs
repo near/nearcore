@@ -197,7 +197,7 @@ impl ContractAccount {
 impl ContractAccountIterator {
     pub(crate) fn new(trie: Trie, filter: ContractAccountFilter) -> anyhow::Result<Self> {
         // TODO(shreyan): Change this function to use standard iterator API with seek/seek_prefix.
-        let mut trie_iter = trie.disk_iter()?;
+        let mut trie_iter = trie.disk_iter();
         // TODO(#8376): Consider changing the interface to TrieKey to make this easier.
         // `TrieKey::ContractCode` requires a valid `AccountId`, we use "xx"
         let key = TrieKey::ContractCode { account_id: "xx".parse()? }.to_vec();

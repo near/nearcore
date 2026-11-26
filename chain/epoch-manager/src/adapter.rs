@@ -95,7 +95,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         Ok(self.get_epoch_config_from_protocol_version(protocol_version))
     }
 
-    /// Returns true, if given hash is in an epoch that already finished.
+    /// Returns true, if given hash is the last block of an epoch that already finished.
     /// `is_next_block_epoch_start` works even if we didn't fully process the provided block.
     /// This function works even if we garbage collected `BlockInfo` of the first block of the epoch.
     /// Thus, this function is better suited for use in garbage collection.
@@ -731,7 +731,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         self.get_epoch_info(epoch_id).map(|info| info.protocol_version())
     }
 
-    /// Get protocol version of next epoch.
     fn get_next_epoch_protocol_version(
         &self,
         block_hash: &CryptoHash,

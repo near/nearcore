@@ -108,18 +108,14 @@ where
     /// Create a new iterator.
     /// If `start` is specified, the iterator will be positioned on the first element
     /// with key >= `start`, without recording nodes accessed during the seek.
-    pub fn new(
-        trie_interface: I,
-        prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<Self, StorageError> {
-        let iter = Self {
+    pub fn new(trie_interface: I, prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>) -> Self {
+        Self {
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
             initialized: false,
             trie_interface,
             prune_condition,
-        };
-        Ok(iter)
+        }
     }
 
     /// Position the iterator on the first element with key >= `key`.

@@ -12,6 +12,8 @@ use super::util::{
 };
 use crate::setup::builder::TestLoopBuilder;
 use crate::utils::account::create_account_id;
+use crate::utils::certification::assert_certification_kept_up;
+use crate::utils::execution::assert_execution_kept_up;
 use crate::utils::transactions::{execute_money_transfers, make_accounts};
 use near_async::time::Duration;
 use near_chain_configs::TrackedShardsConfig;
@@ -33,8 +35,6 @@ use near_primitives::types::{Balance, ShardId};
 //   - Sync status sequence: AwaitingPeers → NoSync → BlockSync → NoSync
 //   - No EpochSync or StateSync in the status history
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_block_sync() {
     init_test_logger();
 
@@ -52,6 +52,7 @@ fn test_near_horizon_block_sync() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -61,6 +62,8 @@ fn test_near_horizon_block_sync() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A node that is exactly at the edge of `epoch_sync_horizon` should
@@ -77,8 +80,6 @@ fn test_near_horizon_block_sync() {
 //   - Block sync succeeds (all needed blocks within GC window)
 //   - Node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_epoch_sync_boundary() {
     init_test_logger();
 
@@ -94,6 +95,7 @@ fn test_near_horizon_epoch_sync_boundary() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(|config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.epoch_sync.epoch_sync_horizon_num_epochs = TEST_EPOCH_SYNC_HORIZON;
         })
         .build();
@@ -103,6 +105,8 @@ fn test_near_horizon_epoch_sync_boundary() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node doing near-horizon block sync is killed mid-sync
@@ -117,8 +121,6 @@ fn test_near_horizon_epoch_sync_boundary() {
 // Assertions:
 //   - Restarted node catches up to network tip
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_restart_during_block_sync() {
     init_test_logger();
 
@@ -130,7 +132,11 @@ fn test_near_horizon_restart_during_block_sync() {
     env.node_runner(0).run_until_head_height(TEST_EPOCH_SYNC_HORIZON * epoch_length - 1);
 
     let new_account = create_account_id("new_node");
-    let node_state = env.node_state_builder().account_id(&new_account).build();
+    let node_state = env
+        .node_state_builder()
+        .account_id(&new_account)
+        .config_modifier(|config| config.tracked_shards_config = TrackedShardsConfig::AllShards)
+        .build();
     let new_node_idx = env.add_node("new_node", node_state);
 
     // Wait until new node is in the MIDDLE of BlockSync (current_height > start_height).
@@ -148,6 +154,8 @@ fn test_near_horizon_restart_during_block_sync() {
     let restarted_idx = env.restart_node("restart_block_sync", killed_state);
 
     run_until_synced(&mut env.test_loop, &env.node_datas, restarted_idx, 0);
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A validator tracking all shards is killed mid-epoch, its tracked
@@ -170,8 +178,6 @@ fn test_near_horizon_restart_during_block_sync() {
 //   - Node survives 2 more epoch boundaries (schedule rotates to [1, 2, 3])
 //   - No IncorrectStateRoot or FlatStorage panics
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_change_tracked_shards_on_restart() {
     init_test_logger();
     let epoch_length = 10;
@@ -223,6 +229,8 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
         restarted_height >= reference_height,
         "restarted node fell behind: {restarted_height} < {reference_height}"
     );
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }
 
 // Scenario: A fresh node has epoch_sync_horizon=10 but gc=3. The network is
@@ -240,8 +248,6 @@ fn test_near_horizon_change_tracked_shards_on_restart() {
 //   - Node enters BlockSync (near horizon, not EpochSync)
 //   - Node catches up to network tip despite its tight `gc_num_epochs_to_keep`
 #[test]
-// TODO(spice-test): Assess if this test is relevant for spice and if yes fix it.
-#[cfg_attr(feature = "protocol_feature_spice", ignore)]
 fn test_near_horizon_sync_beyond_gc_window() {
     init_test_logger();
 
@@ -261,6 +267,7 @@ fn test_near_horizon_sync_beyond_gc_window() {
         .node_state_builder()
         .account_id(&new_account)
         .config_modifier(move |config| {
+            config.tracked_shards_config = TrackedShardsConfig::AllShards;
             config.gc.gc_num_epochs_to_keep = 3;
             config.epoch_sync.epoch_sync_horizon_num_epochs = custom_horizon;
         })
@@ -271,4 +278,6 @@ fn test_near_horizon_sync_beyond_gc_window() {
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
     assert_near_horizon_sync_sequence(&sync_history.borrow());
+    assert_execution_kept_up(&env);
+    assert_certification_kept_up(&env);
 }

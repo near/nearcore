@@ -29,8 +29,7 @@ pub struct StoredChunkStateTransitionDataV1 {
     pub base_state: PartialState,
     /// If this is a new chunk state transition, the hash of the receipts that
     /// were used to apply the state transition. This is redundant information,
-    /// but is used to validate against `StateChunkWitness::exact_receipts_hash`
-    /// to ease debugging of why a state witness may be incorrect.
+    /// but is kept to ease debugging of why a state witness may be incorrect.
     pub receipts_hash: CryptoHash,
     /// The code-hashes of the contracts that are accessed (called) during the state transition.
     pub contract_accesses: Vec<CodeHash>,

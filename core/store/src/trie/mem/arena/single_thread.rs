@@ -37,10 +37,8 @@ pub struct STArena {
 }
 
 impl STArena {
-    /// Creates a new memory region of the given size to store trie nodes.
-    /// The `max_size_in_bytes` can be conservatively large as long as it
-    /// can fit into virtual memory (which there are terabytes of). The actual
-    /// memory usage will only be as much as is needed.
+    /// Creates a new memory region to store trie nodes. The actual memory usage
+    /// will only be as much as is needed.
     pub fn new(name: String) -> Self {
         Self { memory: Default::default(), allocator: Allocator::new(name) }
     }

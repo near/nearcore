@@ -180,7 +180,6 @@ impl<'a, Memory: ArenaMemory> ArenaPtr<'a, Memory> {
     }
 }
 
-/// Represents a slice of memory in the arena.
 #[derive_where(Clone)]
 pub struct ArenaSlice<'a, Memory: ArenaMemory> {
     arena: &'a Memory,

@@ -48,7 +48,7 @@ use std::sync::Arc;
 ///
 /// The resharder has also the following properties:
 /// - Background processing: the bulk of resharding is done in separate tasks, see
-///   [FlatStorageResharder::split_shard_task] and [FlatStorageResharder::shard_catchup_task].
+///   [FlatStorageResharder::split_shard_task_blocking] and [FlatStorageResharder::shard_catchup_task_interleaved].
 /// - Interruptible: a reshard operation can be cancelled through a
 ///   [ReshardingHandle].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
@@ -173,7 +173,7 @@ impl FlatStorageResharder {
     ///
     /// # Args:
     /// * `shard_uid`: UId of the shard
-    pub fn resume(&self, shard_uid: ShardUId) -> Result<(), Error> {
+    pub fn resume(&self, shard_uid: ShardUId) {
         let status = self.runtime.get_flat_storage_manager().get_flat_storage_status(shard_uid);
         let resharding_status = match status {
             FlatStorageStatus::Disabled
@@ -181,7 +181,7 @@ impl FlatStorageResharder {
             | FlatStorageStatus::Creation(_)
             | FlatStorageStatus::Ready(_) => {
                 tracing::info!(target: "resharding", ?shard_uid, ?status, "did not resume resharding");
-                return Ok(());
+                return;
             }
             // We only need to resume resharding if the status is `Resharding`.
             FlatStorageStatus::Resharding(status) => status,
@@ -209,7 +209,7 @@ impl FlatStorageResharder {
 
                 if all_children_done {
                     tracing::info!(target: "resharding", ?parent_shard_uid, ?status, "all children shards are ready, skipping resharding");
-                    return Ok(());
+                    return;
                 } else {
                     tracing::info!(target: "resharding", ?parent_shard_uid, ?status, "resuming flat storage shard split");
                     // On resume, flat storage status is already set correctly and read from DB.
@@ -235,7 +235,6 @@ impl FlatStorageResharder {
                 }
             }
         }
-        Ok(())
     }
 
     /// The preprocessing step sets the appropriate flat storage status for the parent and children shards.
@@ -325,7 +324,7 @@ impl FlatStorageResharder {
         task_status
     }
 
-    /// Performs the bulk of [split_shard_task]. This method splits the flat storage of the parent shard.
+    /// Performs the bulk of [split_shard_task_blocking]. This method splits the flat storage of the parent shard.
     ///
     /// Returns `true` if the routine completed successfully.
     fn split_shard_task_blocking_impl(
@@ -789,7 +788,6 @@ impl FlatStorageResharder {
         store_update.commit();
         metrics.set_status(&flat_storage_status);
         tracing::info!(target: "resharding", ?shard_uid, %deltas_gc_count, "garbage collected flat storage deltas");
-        // Create the flat storage entry for this shard in the manager.
         self.runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
         tracing::info!(target: "resharding", ?shard_uid, ?flat_head, "flat storage creation done");
         Ok(())
@@ -1175,7 +1173,7 @@ mod tests {
         store_update.commit();
 
         // Resume resharding
-        assert!(flat_storage_resharder.resume(parent_shard).is_ok(), "Resume should succeed");
+        flat_storage_resharder.resume(parent_shard);
 
         // Verify all dirty values are cleaned up from both children
         let store = flat_storage_resharder.runtime.store().flat_store();

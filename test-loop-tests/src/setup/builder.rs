@@ -318,7 +318,6 @@ impl TestLoopBuilder {
         self
     }
 
-    /// Adds a non-validator client node.
     pub fn add_non_validator_client(mut self, account_id: &AccountId) -> Self {
         let auto = self.setup_config.ensure_auto();
         auto.non_validator_clients.push(account_id.clone());

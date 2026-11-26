@@ -1,0 +1,9 @@
+[Unit]
+Description=rotate the neard log every minute
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

@@ -124,7 +124,7 @@ impl GasCounter {
 
     /// Deducts burnt and used gas.
     ///
-    /// Returns an error if the `max_gax_burnt` or the `prepaid_gas` limits are
+    /// Returns an error if the `max_gas_burnt` or the `prepaid_gas` limits are
     /// crossed or there are arithmetic overflows.
     ///
     /// Panics

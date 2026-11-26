@@ -50,15 +50,39 @@ jobs:
       - name: Run Nayduck tests and wait for results
         id: nayduck_run
         run: |
-          NEW_TEST=$(python3 ./scripts/nayduck.py  --test-file nightly/ci.txt)
-          RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
+          # Nayduck fails some of the requests when a few of them arrive at the
+          # same time, which is what a merge queue does, so retry. The random
+          # part of the delay keeps the jobs of other merge groups from
+          # retrying in the same second.
+          for ATTEMPT in 1 2 3 4; do
+            # With stdin closed the script fails rather than waits for a new
+            # authorization code if Nayduck rejects the current one.
+            NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci.txt < /dev/null 2>&1) || true
+            echo "$NEW_TEST"
+            RUN_ID=$(grep -oE '#/run/[0-9]+' <<< "$NEW_TEST" | grep -oE '[0-9]+' | tail -n 1) || true
+            if [ -n "$RUN_ID" ] || [ "$ATTEMPT" = 4 ]; then break; fi
+            DELAY=$((ATTEMPT * 30 + RANDOM % 30))
+            echo "Nayduck did not return a run id. Retrying in $DELAY seconds."
+            sleep "$DELAY"
+          done
           echo "nayduck_run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Failed to schedule the Nayduck run; see the output above."
+            exit 1
+          fi
 
           sleep 10
 
           # wait all the tests to finish
           while true; do
-            TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
+            TEST_RESULTS=$(curl -s --max-time 30 https://nayduck.nearone.org/api/run/$RUN_ID) || true
+            # Nayduck may be briefly unavailable and the response is then not
+            # the JSON of the run. Try again; the job timeout bounds the wait.
+            if ! jq -e '.tests | length > 0' <<< "$TEST_RESULTS" > /dev/null 2>&1; then
+              echo "Could not get the status of the run. Sleeping 1 minute..."
+              sleep 60
+              continue
+            fi
             TESTS_FAILED=$(jq '.tests | .[] | select(.status == "FAILED") ' <<< "$TEST_RESULTS" )
             if [ -n "$TESTS_FAILED" ]; then break; fi
             TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< "$TEST_RESULTS" )

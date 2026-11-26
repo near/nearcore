@@ -84,7 +84,7 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
         FORKNET_ENV="${FORKNET_ENV} SYNTH_BM_BASENAME=${SYNTH_BM_BASENAME}"
     fi
     FORKNET_NEARD_LOG="/home/ubuntu/neard-logs/logs.txt"
-    FORKNET_NEARD_PATH="${NEAR_HOME}/neard-runner/binaries/neard0"
+    FORKNET_NEARD_PATH="${NEAR_HOME}/forknet/binaries/neard0"
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
@@ -178,7 +178,7 @@ reset_forknet() {
     $MIRROR --host-type nodes run-cmd --cmd \
         "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR} "
     $MIRROR --host-type nodes env --clear-all
-    $MIRROR reset --backup-id start --yes
+    $MIRROR reset --yes
     if [ "${TX_GENERATOR}" = true ]; then
         $MIRROR --host-type nodes run-cmd --cmd \
             "jq 'del(.tx_generator)' ${CONFIG} > tmp.$$.json && \
@@ -323,8 +323,8 @@ check_neard_binary() {
 
 init_forknet() {
     cd ${PYTEST_PATH}
-    # Initialize neard runner with the specified binary
-    $MIRROR init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
+    # Install the neard unit and download the specified binary
+    $MIRROR init --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
     
     if [ "${UPDATE_BINARIES}" = "true" ] || [ "${UPDATE_BINARIES}" = "1" ]; then
         echo "===> Updating binaries"

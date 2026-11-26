@@ -101,7 +101,6 @@ impl ChunkStateWitnessTracker {
         }
     }
 
-    /// Records the roundtrip time in metrics.
     fn update_roundtrip_time_metric(record: &ChunkStateWitnessRecord, clock: &Clock) -> () {
         let received_time = clock.now();
         if received_time > record.sent_timestamp {

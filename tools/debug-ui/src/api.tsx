@@ -432,27 +432,6 @@ export interface ChainProcessingInfo {
     floating_chunks_info: ChunkProcessingInfo[];
 }
 
-// Helper to format the URL through the proxy
-const getProxyUrl = (addr: string, endpoint: string) => {
-    // This requests /api-proxy/address/endpoint relative to current domain
-    return `/api-proxy/${addr}/${endpoint}`;
-};
-
-// Helper to format the target URL based on current protocol
-function getTargetUrl(addr: string, endpoint: string): string {
-    const protocol = window.location.protocol;
-
-    if (protocol === 'https:') {
-        return getProxyUrl(addr, endpoint);
-    }
-
-    if (protocol === 'http:') {
-        return `http://${addr}/${endpoint}`;
-    }
-
-    throw new Error(`Unsupported protocol: ${protocol}`);
-}
-
 export interface ChainProcessingStatusResponse {
     status_response: {
         ChainProcessingStatus: ChainProcessingInfo;
@@ -481,19 +460,19 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function fetchBasicStatus(addr: string): Promise<StatusResponse> {
-    return fetchJson(getTargetUrl(addr, 'status'));
+    return fetchJson(`http://${addr}/status`);
 }
 
 export function fetchFullStatus(addr: string): Promise<StatusResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/status'));
+    return fetchJson(`http://${addr}/debug/api/status`);
 }
 
 export function fetchSyncStatus(addr: string): Promise<SyncStatusResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/sync_status'));
+    return fetchJson(`http://${addr}/debug/api/sync_status`);
 }
 
 export function fetchTrackedShards(addr: string): Promise<TrackedShardsResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/tracked_shards'));
+    return fetchJson(`http://${addr}/debug/api/tracked_shards`);
 }
 
 export function fetchBlockStatus(
@@ -513,7 +492,7 @@ export function fetchBlockStatus(
         params.append('num_blocks', numBlocks.toString());
     }
     const query = params.toString() ? '?' + params : '';
-    return fetchJson(getTargetUrl(addr, `debug/api/block_status${query}`));
+    return fetchJson(`http://${addr}/debug/api/block_status${query}`);
 }
 
 export function fetchEpochInfo(
@@ -521,7 +500,7 @@ export function fetchEpochInfo(
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    return fetchJson(getTargetUrl(addr, `debug/api/epoch_info${trailing}`));
+    return fetchJson(`http://${addr}/debug/api/epoch_info${trailing}`);
 }
 
 // Lightweight variant of the recent-epochs list that omits the heavy per-validator
@@ -532,27 +511,27 @@ export function fetchEpochInfoLight(
     epochId: string | null
 ): Promise<EpochInfoResponse> {
     const trailing = epochId ? `/${epochId}` : '';
-    return fetchJson(getTargetUrl(addr, `debug/api/epoch_info_light${trailing}`));
+    return fetchJson(`http://${addr}/debug/api/epoch_info_light${trailing}`);
 }
 
 export function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/peer_store'));
+    return fetchJson(`http://${addr}/debug/api/peer_store`);
 }
 
 export function fetchRecentOutboundConnections(
     addr: string
 ): Promise<RecentOutboundConnectionsResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/recent_outbound_connections'));
+    return fetchJson(`http://${addr}/debug/api/recent_outbound_connections`);
 }
 
 export function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/snapshot_hosts'));
+    return fetchJson(`http://${addr}/debug/api/snapshot_hosts`);
 }
 
 export function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/chain_processing_status'));
+    return fetchJson(`http://${addr}/debug/api/chain_processing_status`);
 }
 
 export type ApiEntityDataEntryValue = string | ApiEntityData;
@@ -563,7 +542,7 @@ export function fetchEntity(
     addr: string,
     request: EntityQueryWithParams
 ): Promise<ApiEntityDataEntryValue> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/entity'), {
+    return fetchJson(`http://${addr}/debug/api/entity`, {
         body: JSON.stringify(request),
         headers: {
             'Content-Type': 'application/json',
@@ -577,7 +556,7 @@ export const INSTRUMENTED_WINDOW_LEN_MS = 500;
 export function fetchInstrumentedThreadsView(
     addr: string
 ): Promise<InstrumentedThreadsViewResponse> {
-    return fetchJson(getTargetUrl(addr, 'debug/api/instrumented_threads'));
+    return fetchJson(`http://${addr}/debug/api/instrumented_threads`);
 }
 
 export interface InstrumentedThreadsViewResponse {

@@ -241,12 +241,10 @@ impl ExternalConnection {
     }
 }
 
-/// Extract file name from a full (string) path.
 fn extract_file_name_from_full_path(full_path: String) -> String {
     return extract_file_name_from_path_buf(PathBuf::from(full_path));
 }
 
-/// Extract file name from a PathBuf.
 fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
     return path_buf.file_name().unwrap().to_str().unwrap().to_string();
 }

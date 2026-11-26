@@ -208,7 +208,7 @@ impl TrieStateResharder {
         let next_key = {
             // If the child shard does not have memtries, we cannot proceed with resharding.
             let locked = trie.lock_for_iter();
-            let mut iter = locked.iter()?;
+            let mut iter = locked.iter();
             if let Some(seek_key) = seek_key {
                 // If seek_key is provided, this will prepare the iterator to continue from where
                 // it left off. Note this will not record any trie nodes to the recorder.
@@ -479,7 +479,6 @@ impl TrieStateResharder {
             .runtime
             .get_flat_storage_manager()
             .remove_flat_storage_for_shard(parent_shard_uid, &mut store_update)
-            .unwrap()
         {
             store_update.remove_flat_storage(parent_shard_uid);
         }
@@ -657,7 +656,7 @@ mod tests {
             let mut store_update = flat_store.store_update();
             let parent_trie = tries.get_trie_for_shard(parent_shard, parent_root);
             let iter = parent_trie.lock_for_iter();
-            for item in iter.iter().unwrap() {
+            for item in iter.iter() {
                 let (key, value) = item.unwrap();
                 store_update.set(parent_shard, key, Some(FlatStateValue::Inlined(value)));
             }
@@ -859,10 +858,9 @@ mod tests {
         let tries = test.runtime.get_tries();
         // Using view_trie to bypass the memtrie and read from disk.
         let left_trie = tries.get_view_trie_for_shard(test.left_shard, test.left_root);
-        let left_kvs = left_trie.lock_for_iter().iter().unwrap().map(Result::unwrap).collect_vec();
+        let left_kvs = left_trie.lock_for_iter().iter().map(Result::unwrap).collect_vec();
         let right_trie = tries.get_view_trie_for_shard(test.right_shard, test.right_root);
-        let right_kvs =
-            right_trie.lock_for_iter().iter().unwrap().map(Result::unwrap).collect_vec();
+        let right_kvs = right_trie.lock_for_iter().iter().map(Result::unwrap).collect_vec();
         assert!(!left_trie.has_memtries() && !right_trie.has_memtries());
 
         // Iterate the child shards and check we can access the key/values.

@@ -200,7 +200,7 @@ pub enum Error {
     /// Invalid epoch hash
     #[error("Invalid Epoch Hash")]
     InvalidEpochHash,
-    /// `next_bps_hash` doesn't correspond to the actual next block producers set
+    /// `next_bp_hash` doesn't correspond to the actual next block producers set
     #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
     /// The block has a protocol version that's outdated

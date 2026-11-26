@@ -296,7 +296,7 @@ impl ReplayController {
         )?;
 
         let shard_id = shard_uid.shard_id();
-        let shard_context = self.get_shard_context(shard_uid)?;
+        let shard_context = self.get_shard_context(shard_uid);
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -476,9 +476,9 @@ impl ReplayController {
 
     /// Generates a ShardContext specific to replaying the blocks, which indicates that
     /// we care about all the shards and should always apply chunk.
-    fn get_shard_context(&self, shard_uid: ShardUId) -> Result<ShardContext> {
+    fn get_shard_context(&self, shard_uid: ShardUId) -> ShardContext {
         let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
-        Ok(shard_context)
+        shard_context
     }
 
     /// Saves the ChunkExtras for the shards in the genesis block.

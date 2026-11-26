@@ -11,7 +11,6 @@ pub fn strip_comments_from_json_str(json_str: &String) -> std::io::Result<String
     Ok(content_without_comments)
 }
 
-// strip comments from a JSON input with comments.
 pub fn strip_comments_from_json_reader(reader: impl Read) -> impl Read {
     StripComments::new(reader)
 }

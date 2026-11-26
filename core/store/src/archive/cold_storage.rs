@@ -113,14 +113,16 @@ pub fn update_cold_db(
                             resharding_block_hash,
                         )
                     } else if col == DBCol::StateChanges {
-                        copy_state_changes_from_store(cold_db, &hot_store, block_hash_key)
+                        copy_state_changes_from_store(cold_db, &hot_store, block_hash_key);
+                        Ok(())
                     } else if let Some(res) =
                         maybe_copy_chunk_producers(col, cold_db, &hot_store, block_hash_key)
                     {
                         res
                     } else {
                         let keys = combine_keys(&key_type_to_keys, &col.key_type());
-                        copy_from_store(cold_db, &hot_store, col, keys)
+                        copy_from_store(cold_db, &hot_store, col, keys);
+                        Ok(())
                     }
                 })
                 // Return first found error, or Ok(())
@@ -305,12 +307,7 @@ fn copy_state_from_store(
 /// Gets values for given keys in a column from provided hot_store.
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
-fn copy_from_store(
-    cold_db: &ColdDB,
-    hot_store: &Store,
-    col: DBCol,
-    keys: Vec<StoreKey>,
-) -> io::Result<()> {
+fn copy_from_store(cold_db: &ColdDB, hot_store: &Store, col: DBCol, keys: Vec<StoreKey>) {
     debug_assert!(col.is_cold());
 
     // note this function should only be used for state in tests where it's
@@ -350,15 +347,9 @@ fn copy_from_store(
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_from_store finished");
-
-    return Ok(());
 }
 
-fn copy_state_changes_from_store(
-    cold_db: &ColdDB,
-    hot_store: &Store,
-    block_hash_key: &[u8],
-) -> io::Result<()> {
+fn copy_state_changes_from_store(cold_db: &ColdDB, hot_store: &Store, block_hash_key: &[u8]) {
     let col = DBCol::StateChanges;
     debug_assert!(col.is_cold() && !col.is_rc());
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_changes_from_store", %col);
@@ -383,8 +374,6 @@ fn copy_state_changes_from_store(
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?col, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_changes_from_store finished");
-
-    Ok(())
 }
 
 /// This function sets the cold head to the Tip that reflect provided height in two places:
@@ -435,7 +424,6 @@ pub fn update_cold_head(
     return Ok(());
 }
 
-/// Reads the cold-head from the Cold DB.
 pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
     cold_db
         .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)
@@ -449,7 +437,7 @@ pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
 /// Genesis state is written directly to the State column (not via TrieChanges),
 /// so `update_cold_db`'s `copy_state_from_store` copies nothing at genesis.
 /// Call this before the cold store loop processes genesis height.
-pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) {
     // Matches the historical `default_cold_store_initial_migration_batch_size`
     // from the pre-`e302517b8` BatchTransaction flow.
     #[cfg(not(test))]
@@ -476,14 +464,13 @@ pub fn copy_state_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()>
     if !transaction.ops.is_empty() {
         cold_db.write(transaction);
     }
-    Ok(())
 }
 
 // The copy_state_from_store function depends on the state nodes to be present
 // in the trie changes. This isn't the case for genesis so instead this method
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
-pub fn test_copy_all_data_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+pub fn test_copy_all_data_to_cold(cold_db: &ColdDB, hot_store: &Store) {
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
@@ -497,9 +484,8 @@ pub fn test_copy_all_data_to_cold(cold_db: &ColdDB, hot_store: &Store) -> io::Re
             &hot_store,
             col,
             hot_store.iter(col).map(|x| x.0.to_vec()).collect(),
-        )?;
+        );
     }
-    Ok(())
 }
 
 pub fn test_get_store_reads(column: DBCol) -> u64 {
@@ -764,7 +750,7 @@ mod test {
         }
         update.commit();
 
-        copy_state_to_cold(&cold_db, &hot_store).unwrap();
+        copy_state_to_cold(&cold_db, &hot_store);
 
         // Every key should be present in cold storage with matching value.
         let mut cold_keys: HashSet<Vec<u8>> = HashSet::new();

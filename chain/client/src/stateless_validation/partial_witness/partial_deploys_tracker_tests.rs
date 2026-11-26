@@ -82,20 +82,14 @@ fn deploys_from_two_anchors_do_not_displace_each_other() {
 
     // The colliding producer's part lands first and claims the slot.
     assert!(!tracker.already_processed(&theirs[0]));
-    assert!(
-        tracker
-            .store_partial_encoded_contract_deploys(theirs[0].clone(), encoder())
-            .unwrap()
-            .is_none()
-    );
+    assert!(tracker.store_partial_encoded_contract_deploys(theirs[0].clone(), encoder()).is_none());
 
     // Our own parts are still wanted, and still assemble.
     assert!(!tracker.already_processed(&mine[0]), "a part for another anchor is not ours");
     let mut decoded = None;
     for message in &mine {
         assert!(!tracker.already_processed(message));
-        decoded =
-            tracker.store_partial_encoded_contract_deploys(message.clone(), encoder()).unwrap();
+        decoded = tracker.store_partial_encoded_contract_deploys(message.clone(), encoder());
         if decoded.is_some() {
             break;
         }

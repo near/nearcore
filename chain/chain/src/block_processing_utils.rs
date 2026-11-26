@@ -299,7 +299,7 @@ mod tests {
 }
 
 /// Test-only gate to pause block processing in the spawned apply-chunks task.
-/// The gate blocks the task before `do_apply_chunks` runs, preventing results
+/// The gate blocks the task after chunks are applied, preventing results
 /// from reaching the channel until `resume` is called.
 #[cfg(feature = "test_features")]
 #[derive(Default)]
@@ -310,7 +310,7 @@ pub struct TestPausedBlocks {
 #[cfg(feature = "test_features")]
 impl TestPausedBlocks {
     /// Returns the gate for a block, if one is set. The caller passes it into
-    /// the spawned task to block before applying chunks.
+    /// the spawned task to block after applying chunks.
     pub fn get_gate(&self, block_hash: &CryptoHash) -> Option<Arc<std::sync::OnceLock<()>>> {
         self.gates.get(block_hash).cloned()
     }

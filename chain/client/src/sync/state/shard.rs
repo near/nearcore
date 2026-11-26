@@ -153,7 +153,7 @@ pub(super) async fn run_state_sync_for_shard(
         // A shard being state synced is usually absent from the registry, and then this
         // clears nothing.
         let cleared_via_registry = flat_storage_manager
-            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update())?;
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update.flat_store_update());
         if !cleared_via_registry {
             store_update.flat_store_update().remove_flat_storage(shard_uid);
         }

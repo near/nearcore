@@ -33,8 +33,7 @@ use near_network::state_witness::{
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    ReasonForBan, SetChainInfo, SnapshotHostEvent, StateRequestSenderForNetwork, StateSyncEvent,
-    Tier3Request,
+    ReasonForBan, SetChainInfo, SnapshotHostEvent, StateRequestSenderForNetwork, Tier3Request,
 };
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::genesis::GenesisId;
@@ -619,10 +618,6 @@ impl TestLoopNetworkSharedState {
 
 impl Handler<SetChainInfo> for TestLoopPeerManagerActor {
     fn handle(&mut self, _msg: SetChainInfo) {}
-}
-
-impl Handler<StateSyncEvent> for TestLoopPeerManagerActor {
-    fn handle(&mut self, _msg: StateSyncEvent) {}
 }
 
 impl Handler<Tier3Request> for TestLoopPeerManagerActor {

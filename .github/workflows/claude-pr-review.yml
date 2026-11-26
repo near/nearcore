@@ -183,7 +183,7 @@ jobs:
       - name: Run Claude Code Review
         id: claude-review
         if: ${{ steps.key-check.outputs.present == 'true' }}
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002 # v1.0.283
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDE_CODE_EFFORT_LEVEL: auto

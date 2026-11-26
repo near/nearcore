@@ -26,7 +26,7 @@ pub struct FlatStorage(pub(crate) Arc<RwLock<FlatStorageInner>>);
 // FlatStorage need to support concurrent access and be consistent if node crashes or restarts,
 // so we make sure to keep the following invariants in our implementation.
 // - `flat_head` is stored on disk. The value of flat_head in memory and on disk should always
-//   be consistent with the flat state stored in `DbCol::FlatState` on disk. This means, updates to
+//   be consistent with the flat state stored in `DBCol::FlatState` on disk. This means, updates to
 //   these values much be atomic from the outside.
 // - All changes and metadata in `deltas` are stored on disk. And if a block is accepted by chain
 //   then its changes must be stored on disk as well, if the block is a child of `flat_head`.
@@ -464,17 +464,13 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(
-        &self,
-        store_update: &mut FlatStoreUpdateAdapter,
-    ) -> Result<(), StorageError> {
+    pub fn clear_state(&self, store_update: &mut FlatStoreUpdateAdapter) {
         let guard = self.0.write();
         let shard_uid = guard.shard_uid;
         store_update.remove_all_values(shard_uid);
         store_update.remove_all_deltas(shard_uid);
         store_update.set_flat_storage_status(shard_uid, FlatStorageStatus::Empty);
         guard.update_delta_metrics();
-        Ok(())
     }
 
     pub(crate) fn get_head_hash(&self) -> CryptoHash {

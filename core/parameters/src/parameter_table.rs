@@ -532,6 +532,7 @@ fn get_congestion_control_config(
             let rational: Rational32 = params.get(Parameter::RejectTxCongestionThreshold)?;
             *rational.numer() as f64 / *rational.denom() as f64
         },
+        min_receipt_congestion_size: params.get(Parameter::MinReceiptCongestionSize)?,
     };
     Ok(congestion_control_config)
 }
@@ -740,9 +741,7 @@ mod tests {
     static DIFF_0: &str = include_str!("fixture_diff_0.yml");
     static DIFF_1: &str = include_str!("fixture_diff_1.yml");
 
-    // Tests synthetic small example configurations. For tests with "real"
-    // input data, we already have
-    // `test_old_and_new_runtime_config_format_match` in `configs_store.rs`.
+    // Tests synthetic small example configurations.
 
     /// Check empty input
     #[test]

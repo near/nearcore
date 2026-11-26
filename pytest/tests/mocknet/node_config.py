@@ -10,37 +10,37 @@ CONFIG_BY_ROLE = {
     'validator': {
         'can_validate': True,
         'want_state_dump': False,
-        'want_neard_runner': True,
+        'runs_neard': True,
     },
     'producer': {
         'can_validate': True,
         'want_state_dump': False,
-        'want_neard_runner': True,
+        'runs_neard': True,
     },
     'mocknet-archival': {
         'can_validate': False,
         'want_state_dump': False,
-        'want_neard_runner': True,
+        'runs_neard': True,
     },
     'state-dumper': {
         'can_validate': False,
         'want_state_dump': True,
-        'want_neard_runner': True,
+        'runs_neard': True,
     },
     'rpc': {
         'can_validate': False,
         'want_state_dump': False,
-        'want_neard_runner': True,
+        'runs_neard': True,
     },
     'traffic': {
         'can_validate': False,
         'want_state_dump': False,
-        'want_neard_runner': True,
+        'runs_neard': True,
     },
     'mocknet-tracing-server': {
         'can_validate': False,
         'want_state_dump': False,
-        'want_neard_runner': False,
+        'runs_neard': False,
     },
 }
 
@@ -56,5 +56,5 @@ def configure_nodes(nodes):
         node_config = CONFIG_BY_ROLE[role]
 
         node.can_validate = node_config['can_validate']
-        node.want_neard_runner = node_config['want_neard_runner']
+        node.runs_neard = node_config['runs_neard']
         node.want_state_dump = node_config['want_state_dump']

@@ -178,7 +178,6 @@ def main():
         description='Forknet cluster parameters to launch a release test')
     parser.set_defaults(
         chain_id=CHAIN_ID,
-        local_test=False,
         host_type="all",
         host_filter=None,
         select_partition=None,

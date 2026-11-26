@@ -628,12 +628,11 @@ impl CheckStateRootCmd {
         }
 
         let bytes = Self::read_state(store, shard_uid, hash);
-        if !matches!(bytes, Ok(Some(_))) {
+        if bytes.is_none() {
             iter_state.print_path();
         }
-        let bytes = bytes
-            .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
-            .with_context(|| format!("Failed to find raw bytes for hash {:?}", hash))?;
+        let bytes =
+            bytes.with_context(|| format!("Failed to find raw bytes for hash {:?}", hash))?;
 
         let node = near_store::RawTrieNodeWithSize::try_from_slice(&bytes)?;
         match node.node {
@@ -670,10 +669,10 @@ impl CheckStateRootCmd {
         store: &'a Store,
         shard_uid: &ShardUId,
         trie_key: &CryptoHash,
-    ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
+    ) -> Option<near_store::db::DBSlice<'a>> {
         let mapped_shard_uid = get_shard_uid_mapping(&store, *shard_uid);
         let cold_state_key = [mapped_shard_uid.to_bytes().as_ref(), trie_key.as_bytes()].concat();
-        Ok(store.get(DBCol::State, &cold_state_key))
+        store.get(DBCol::State, &cold_state_key)
     }
 }
 

@@ -55,3 +55,86 @@ traffic to the target chain.
 ML-DSA-65 keys work the same way, except that the derivation input is
 the on-trie key handle - the SHA3-256 digest of the pubkey - rather than
 the pubkey itself, since the full pubkey is never stored in state.
+
+## Source chain modes
+
+`neard mirror run --source-home <dir> --target-home <dir> --no-secret` reads the
+source chain's blocks out of the store under `--source-home` as it is, and stops
+once it has sent the transactions of the last block in it. `--online-source`
+instead starts a node in `--source-home` and follows the live chain.
+
+### Streaming the source chain from a cloud archive
+
+`--source-cloud-archive` streams the source chain out of a cloud archive bucket
+written by `cloud_archival.writer` nodes. `--source-home` is then a cloud archive
+reader home, like the one `neard cloud-archive bootstrap` and `follow` work in: the
+source chain's `genesis.json`, a `node_key.json`, and a `config.json` that enables
+archival, tracks every shard (the mirror needs every chunk) and names the bucket:
+
+```json
+{
+  "archive": true,
+  "tracked_shards_config": "AllShards",
+  "cloud_archival": {
+    "location": { "GCS": { "bucket": "my-cloud-archive" } },
+    "reader": {}
+  }
+}
+```
+
+`cloud_archival.reader.polling_interval` (5 seconds by default) is how often the
+mirror extends its store out of the bucket; `cloud_archival.credentials_file` can
+name a GCS key file. A `{"Filesystem": {"root_dir": "/path"}}` location works for a
+local test.
+
+The mirror opens that store once and shares it between its own reads and a
+background task that extends it with the same code as `cloud-archive bootstrap`,
+so it sees new batches as they land without another process on the store. No state
+is copied out of the bucket, like `cloud-archive bootstrap --skip-state`, so a
+bucket without state snapshots works:
+
+- A fresh home is filled first, from where the mirror goes on (the height after
+  the last one it sent, or the target chain's genesis height on a first run) up
+  3200 blocks, or to the bucket's block head if that is lower. After that, the
+  store is extended from its reader head, at most 3200 blocks at a time and only
+  while it is less than 3200 blocks above the heights the mirror asks for. So a
+  fork far behind the bucket's head does not copy the whole bucket before the
+  first transaction. The log says which range got copied.
+- The first fill always opens at that height, never above it. The bucket has to
+  hold that height and a block below it. A bucket whose head has not reached that
+  height yet is polled until it has. A failed fill is tried up to 5 times, a
+  polling interval apart; after that the mirror fails to start. A fill that fails
+  part way, after it has written a reader head, is taken on by the extends.
+- Once the mirror runs, a failed extend is tried again on the next tick, from the
+  reader head it left. At the bucket's head this is normal: the writer moves the
+  block head before it uploads the shard batches. Repeated failures are logged as
+  warnings.
+- A home that already has a reader head, from a `cloud-archive bootstrap` or an
+  earlier run, is extended from that head, unless the head is more than 3200
+  blocks below where the mirror goes on: the mirror then stops and asks for the
+  home's `data` directory to be removed, so the next start fills it at the right
+  height instead of copying everything in between.
+- The store is never pruned, and grows by about 190 KB per block. To free the
+  space, stop the mirror, remove the home's `data` directory and start it again:
+  it fills at the height the mirror goes on from.
+- Without state the mirror cannot look up an account's full access keys. This
+  lookup is only used for the transactions the mirror adds on its own: the extra
+  ones for a receipt that creates an account or adds a key, and the zero-stake
+  ones that undo a stake a mirrored function call made on the target chain.
+  Regular mirrored transactions are not affected. The added transactions are
+  signed with the default extra key. The forked state gives that key only to
+  accounts that had no full access key at the fork, so one signed by an account
+  that had one cannot be sent and is skipped. This is rare.
+- The mirror reads only blocks at least 100 heights below the reader head, so the
+  outcomes of their receipts are in the store when the create account lookahead
+  follows them. When it catches up to that point it waits for the next batch.
+- Without `--stop-height` the mirror runs until stopped. With `--stop-height` it
+  sends no block above that height, but still reads the 5 blocks after it for the
+  create account lookahead. So it finishes only once the reader head is about 105
+  heights past the stop height, and waits until then (it does not fail), also when
+  the stop height is above the bucket's head.
+- A `SIGTERM` or `SIGINT` drains the transactions already sent and stops the
+  extending task, dropping an extend in flight. The reader head stays at the last
+  whole batch, and the next start extends from there.
+- The `near_mirror_source_reader_head` and `near_mirror_source_bucket_head` gauges
+  report the reader head and the bucket's block head as last read.

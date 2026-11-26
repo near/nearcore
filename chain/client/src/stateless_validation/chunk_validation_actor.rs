@@ -45,7 +45,6 @@ use std::sync::Arc;
 /// have the previous block available (the chain head), so it wouldn't be an orphan.
 const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
 
-/// Outcome of processing an orphaned witness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandleOrphanWitnessOutcome {
     SavedToPool,

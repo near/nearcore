@@ -381,12 +381,6 @@ impl Chain {
 
     /// Check for orphans that are ready to be processed or request missing chunks, process these blocks.
     /// `prev_hash`: hash of the block that is just accepted
-    /// `block_accepted`: callback to be called when an orphan is accepted
-    /// `block_misses_chunks`: callback to be called when an orphan is added to the pool of blocks
-    ///                        that have missing chunks
-    /// `orphan_misses_chunks`: callback to be called when it is ready to request missing chunks for
-    ///                         an orphan
-    /// `on_challenge`: callback to be called when an orphan should be challenged
     pub fn check_orphans(
         &mut self,
         prev_hash: CryptoHash,

@@ -327,7 +327,7 @@ pub struct Chain {
     /// Determines whether client should exit if the protocol version is not supported
     /// in the next or next next epoch.
     protocol_version_check: ProtocolVersionCheckConfig,
-    /// Used to receive `PostStateReady` messages from the runtime.
+    /// Used to receive `PostStateReadyMessage` messages from the runtime.
     on_post_state_ready_sender: Option<PostStateReadySender>,
     #[cfg(feature = "test_features")]
     pub test_paused_blocks: crate::block_processing_utils::TestPausedBlocks,
@@ -677,7 +677,6 @@ impl Chain {
         })
     }
 
-    #[cfg(feature = "test_features")]
     pub fn adv_disable_doomslug(&mut self) {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
@@ -1313,7 +1312,6 @@ impl Chain {
         res
     }
 
-    /// Preprocess an optimistic block.
     pub fn preprocess_optimistic_block(
         &mut self,
         block: OptimisticBlock,
@@ -1544,7 +1542,6 @@ impl Chain {
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, mut headers: Vec<Arc<BlockHeader>>) -> Result<(), Error> {
-        // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
         if let (Some(first_header), Some(last_header)) = (headers.first(), headers.last()) {
@@ -1638,7 +1635,7 @@ impl Chain {
         }
     }
 
-    /// Set the new head after state sync was completed if it is indeed newer.
+    /// Set the new head after state sync was completed.
     /// Check for potentially unlocked orphans after this update.
     #[instrument(
         level = "debug",
@@ -1704,9 +1701,9 @@ impl Chain {
         let final_head = Tip::from_header(self.genesis.header());
         // Update related heads now.
         let mut chain_store_update = self.mut_chain_store().store_update();
-        chain_store_update.save_body_head(&tip)?;
+        chain_store_update.save_body_head(&tip);
         // Reset final head to genesis since at this point we don't have the last final block.
-        chain_store_update.save_final_head(&final_head)?;
+        chain_store_update.save_final_head(&final_head);
         // TODO(#16264): the gc loops start at tail and chunk_tail, so nothing collects the heights
         // this skips. Leaks blocks, chunks, partial chunks and their receipt refcounts.
         // New Tail can not be earlier than `prev_block.header.inner_lite.height`
@@ -2372,7 +2369,7 @@ impl Chain {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
             if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_uid)? {
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head);
             }
         }
 
@@ -3123,8 +3120,8 @@ impl Chain {
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
     ) -> ApplyChunkBlockContext {
-        // Before `FixApplyChunks` feature, gas price was taken from current
-        // block by mistake. Preserve it for backwards compatibility.
+        // For old chunks, gas price is taken from the current block by mistake.
+        // Preserved for backwards compatibility.
         let gas_price = if is_new_chunk {
             prev_block_header.next_gas_price()
         } else {
@@ -4072,13 +4069,11 @@ impl Chain {
         self.chain_store.final_head()
     }
 
-    /// Gets a block by hash.
     #[inline]
     pub fn get_block(&self, hash: &CryptoHash) -> Result<Arc<Block>, Error> {
         self.chain_store.get_block(hash)
     }
 
-    /// Gets the block at chain head
     pub fn get_head_block(&self) -> Result<Arc<Block>, Error> {
         let tip = self.head()?;
         self.chain_store.get_block(&tip.last_block_hash)
@@ -4101,7 +4096,6 @@ impl Chain {
         self.chain_store.get_block_hash_by_height(height)
     }
 
-    /// Gets a block header by hash.
     #[inline]
     pub fn get_block_header(&self, hash: &CryptoHash) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_block_header(hash)
@@ -4116,7 +4110,6 @@ impl Chain {
         self.chain_store.get_block_header_by_height(height)
     }
 
-    /// Get previous block header.
     #[inline]
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<Arc<BlockHeader>, Error> {
         self.chain_store.get_previous_header(header).map_err(|e: Error| match e {
@@ -4210,7 +4203,6 @@ impl Chain {
         &mut self.chain_store
     }
 
-    /// Returns genesis block.
     #[inline]
     pub fn genesis_block(&self) -> Arc<Block> {
         Arc::clone(&self.genesis)

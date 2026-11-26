@@ -477,7 +477,6 @@ async fn dump_state_parts(
 
     let timer = Instant::now();
 
-    // dump header
     if dump_header {
         let mut state_sync_header_buf: Vec<u8> = Vec::new();
         state_header.serialize(&mut state_sync_header_buf).unwrap();
@@ -534,7 +533,7 @@ async fn dump_state_parts(
 fn get_first_state_record(state_root: &StateRoot, trie_nodes: PartialState) -> Option<StateRecord> {
     let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
-    for (key, value) in trie.disk_iter().unwrap().flatten() {
+    for (key, value) in trie.disk_iter().flatten() {
         if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
             return Some(sr);
         }

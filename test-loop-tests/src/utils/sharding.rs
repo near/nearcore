@@ -40,7 +40,7 @@ pub fn print_and_assert_shard_accounts(clients: &[&Client], tip: &Tip) {
             )
             .unwrap();
         let mut shard_accounts = vec![];
-        for item in trie.lock_for_iter().iter().unwrap() {
+        for item in trie.lock_for_iter().iter() {
             let (key, value) = item.unwrap();
             let state_record = StateRecord::from_raw_key_value(&key, value);
             if let Some(StateRecord::Account { account_id, .. }) = state_record {

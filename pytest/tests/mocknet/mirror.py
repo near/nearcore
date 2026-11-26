@@ -6,25 +6,20 @@ from argparse import ArgumentParser, Action
 import copy
 import datetime
 import pathlib
-import json
-import random
-import shutil
 from rc import pmap
 import re
 import sys
 import time
 from typing import Callable
 import os
-import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-import local_test_node
 import mocknet_ssh
 import node_config
 import remote_node
-from node_handle import NodeHandle
+from node_handle import NodeHandle, check_env_key_values
 from utils import ScheduleContext, ScheduleMode, build_stake_distribution, PartitionSelector
 
 MOCKNET_STORE_PATH = os.getenv("MOCKNET_STORE_PATH",
@@ -90,7 +85,7 @@ class CommandContext:
         self.schedule_ctx = self._make_schedule_context()
 
         # will set the schedule context in the nodes if the command is scheduled
-        self._set_nodes()
+        self._get_remote_nodes()
         # Filter hosts based on the base args of the command
         self._filter_hosts()
 
@@ -119,32 +114,6 @@ class CommandContext:
         All the commands will be executed now.
         """
         return [node.with_schedule_ctx(None) for node in self.get_targeted()]
-
-    def _set_nodes(self):
-        """
-        Get the nodes in the network.
-        """
-        if self.args.local_test:
-            self._get_local_nodes()
-        else:
-            self._get_remote_nodes()
-
-    def _get_local_nodes(self):
-        """
-        Get nodes in the local infrastructure.
-        """
-        if (self.args.chain_id is not None or
-                self.args.start_height is not None or
-                self.args.unique_id is not None or
-                self.args.mocknet_id is not None):
-            sys.exit(
-                f'cannot give --chain-id, --start-height, --unique-id or --mocknet-id along with --local-test'
-            )
-
-        traffic_generator, nodes = local_test_node.get_nodes()
-        node_config.configure_nodes(nodes + to_list(traffic_generator))
-        self.traffic_generator = traffic_generator
-        self.nodes = nodes
 
     def get_mocknet_id(self):
         mocknet_id = None
@@ -177,8 +146,8 @@ class CommandContext:
         traffic_generator can become None,
         nodes list can become empty
         """
-        # Only keep nodes that want a neard runner not the auxiliary nodes i.e. tracers.
-        self.nodes = [node for node in self.nodes if node.want_neard_runner]
+        # Skip auxiliary nodes such as tracers.
+        self.nodes = [node for node in self.nodes if node.runs_neard]
 
         if self.args.host_filter is not None:
             if self.traffic_generator is not None and not re.search(
@@ -217,11 +186,10 @@ class CommandContext:
         return context
 
 
-def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
+def init_hosts(ctx: CommandContext, remove_home_dir=False):
     args = ctx.args
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
-    upgrade_by_epoch = getattr(args, 'upgrade_by_epoch', False)
     prompt_init_flags(args)
 
     if args.neard_upgrade_binary_url is not None and args.neard_upgrade_binary_url != '':
@@ -230,56 +198,26 @@ def init_neard_runners(ctx: CommandContext, remove_home_dir=False):
         neard_upgrade_binary_url = None
 
     run_id = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
-    all_nodes = []
-    all_configs = []
-
-    for node in nodes:
-        node_binaries = [{"url": args.neard_binary_url, "epoch_height": 0}]
-        if neard_upgrade_binary_url:
-            # Upgrade the binary at a random epoch.
-            # TODO: Consider upgrading specific portions of stake at every
-            # epoch.
-            node_binaries.append({
-                "url": neard_upgrade_binary_url,
-                "epoch_height": random.randint(1, 4),
-            })
-
-        node_config = {
-            "upgrade_by_epoch": upgrade_by_epoch,
-            "run_id": run_id,
-            "is_traffic_generator": False,
-            "binaries": node_binaries,
-            "mocknet_store_path": MOCKNET_STORE_PATH
-        }
-        all_nodes.append(node)
-        all_configs.append(node_config)
+    # Binary 0 runs first. The upgrade binary 1 is started with
+    # `start-nodes --binary-idx 1`.
+    node_binary_urls = [args.neard_binary_url]
+    if neard_upgrade_binary_url:
+        node_binary_urls.append(neard_upgrade_binary_url)
+    hosts = [(node, node_binary_urls) for node in nodes]
 
     if traffic_generator:
-        if neard_upgrade_binary_url:
-            # If our scenario upgrades the binary, use the latest binary for
-            # the traffic generator.
-            traffic_generator_binary = neard_upgrade_binary_url
-        else:
-            traffic_generator_binary = args.neard_binary_url
+        # If our scenario upgrades the binary, use the latest binary for the
+        # traffic generator.
+        hosts.append((traffic_generator,
+                      [neard_upgrade_binary_url or args.neard_binary_url]))
 
-        traffic_generator_config = {
-            "run_id": run_id,
-            "is_traffic_generator": True,
-            "binaries": [{
-                "url": traffic_generator_binary,
-                "epoch_height": 0
-            }]
-        }
-
-        all_nodes.append(traffic_generator)
-        all_configs.append(traffic_generator_config)
-
-    pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
-         zip(all_nodes, all_configs))
+    pmap(
+        lambda host: host[0].init_host(host[1], run_id, MOCKNET_STORE_PATH,
+                                       remove_home_dir), hosts)
 
 
 def init_cmd(ctx: CommandContext):
-    init_neard_runners(ctx, remove_home_dir=False)
+    init_hosts(ctx, remove_home_dir=False)
 
 
 def hard_reset_cmd(ctx: CommandContext):
@@ -296,21 +234,8 @@ def hard_reset_cmd(ctx: CommandContext):
             do_reset = True
     if not do_reset:
         return
-    init_neard_runners(ctx, remove_home_dir=True)
+    init_hosts(ctx, remove_home_dir=True)
     _clear_state_parts_if_exists(_get_state_parts_location(ctx.args), ctx.nodes)
-
-
-def restart_cmd(ctx: CommandContext):
-    targeted = ctx.get_targeted()
-    pmap(lambda node: node.stop_neard_runner(), targeted)
-    if ctx.args.upload_program:
-        pmap(lambda node: node.upload_neard_runner(), targeted)
-    pmap(lambda node: node.start_neard_runner(), targeted)
-
-
-def stop_runner_cmd(ctx: CommandContext):
-    targeted = ctx.get_targeted()
-    pmap(lambda node: node.stop_neard_runner(), targeted)
 
 
 # returns boot nodes and validators we want for the new test network
@@ -350,7 +275,7 @@ def get_network_nodes(new_test_rpc_responses, num_validators,
     # neither of these should happen, since we check the number of available nodes in new_test(), and
     # only the traffic generator will respond with null validator_account_id and validator_public_key
     if len(validators) == 0:
-        sys.exit('no validators available after new_test RPCs')
+        sys.exit('no validators available after new-test')
     if len(validators) < num_validators:
         logger.warning(
             f'wanted {num_validators} validators, but only {len(validators)} available'
@@ -371,11 +296,6 @@ def _clear_state_parts_if_exists(location, nodes):
         return
     logger.info('State dumper node found, cleaning up state parts.')
 
-    if location.get('Filesystem') is not None:
-        root_dir = location['Filesystem']['root_dir']
-        shutil.rmtree(root_dir)
-        return
-
     # For GCS-based state sync, looks for the state dumper and clears the GCP
     # bucket where it dumped the parts.
     bucket_name = location['GCS']['bucket']
@@ -389,14 +309,6 @@ def _get_state_parts_bucket_name(args):
 
 
 def _get_state_parts_location(args):
-    if args.local_test:
-        return {
-            "Filesystem": {
-                "root_dir":
-                    str(local_test_node.DEFAULT_LOCAL_MOCKNET_DIR /
-                        'state-parts')
-            }
-        }
     return {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
 
 
@@ -426,9 +338,7 @@ def new_test_cmd(ctx: CommandContext):
         rpc_ip = traffic_generator.ip_addr()
     else:
         rpc_ip = '0.0.0.0'
-    test_keys = pmap(
-        lambda node: node.neard_runner_new_test(ctx.get_mocknet_id(), rpc_ip),
-        targeted)
+    test_keys = pmap(lambda node: node.new_test(), targeted)
 
     stake_distribution = build_stake_distribution(
         getattr(args, 'stake_distribution', None), args.num_seats)
@@ -439,19 +349,46 @@ def new_test_cmd(ctx: CommandContext):
 Run `status` to check if the nodes are ready. After they're ready,
  you can run `start-nodes` and `start-traffic`""".format(validators))
     location = _get_state_parts_location(args) if args.gcs_state_sync else None
-    pmap(
-        lambda node: node.neard_runner_network_init(
-            validators,
-            boot_nodes,
-            args.state_source,
-            args.patches_path,
-            args.epoch_length,
-            args.num_seats,
-            args.new_chain_id,
-            args.genesis_protocol_version,
-            genesis_time=genesis_time,
-            state_sync_location=json.dumps(location),
-        ), targeted)
+    mocknet_id = ctx.get_mocknet_id()
+
+    def network_init(node, keys):
+        config_changes = [
+            (['network', 'boot_nodes'], ','.join(
+                b for b in boot_nodes if b.split('@')[0] != keys['node_key'])),
+            (['tracked_shards_config'],
+             'NoShards' if node.can_validate else 'AllShards'),
+            (['store', 'load_mem_tries_for_tracked_shards'], node.can_validate),
+        ]
+        if location is not None and node.want_state_dump:
+            dump_config = {'location': location}
+            config_changes.append((['state_sync', 'dump'], dump_config))
+        if len(validators) <= 3:
+            min_num_peers = len(validators) - 1
+            config_changes.append((['consensus',
+                                    'min_num_peers'], min_num_peers))
+        # Nodes with role "validator" are chunk validators. They start
+        # without state.
+        chunk_validator = node.role() == 'validator'
+        # The first validator uploads genesis for the chunk validators.
+        upload_setup = (node.can_validate and keys['validator_account_id']
+                        == validators[0]['account_id'])
+        setup_env = dict(
+            MOCKNET_ID=mocknet_id,
+            CHUNK_VALIDATOR=int(chunk_validator),
+            UPLOAD_SETUP=int(upload_setup),
+            STATE_SOURCE=args.state_source,
+            PATCHES_PATH=args.patches_path,
+            EPOCH_LENGTH=args.epoch_length,
+            NUM_SEATS=args.num_seats,
+            GENESIS_TIME=genesis_time,
+            NEW_CHAIN_ID=args.new_chain_id,
+            PROTOCOL_VERSION=args.genesis_protocol_version,
+            CLI_CHAIN_ID=args.new_chain_id or 'mocknet',
+            RPC_ADDR=f'{rpc_ip}:3030',
+        )
+        node.network_init(validators, config_changes, setup_env)
+
+    pmap(lambda x: network_init(*x), zip(targeted, test_keys))
 
     _clear_state_parts_if_exists(location, nodes)
 
@@ -465,7 +402,7 @@ def get_nodes_pending(condition: Callable[[NodeHandle], bool],
 
 def get_nodes_pending_new_test(nodes: list[NodeHandle]) -> list[NodeHandle]:
     # The node is ready when new-test command is finished.
-    return get_nodes_pending(lambda node: node.neard_runner_ready(), nodes)
+    return get_nodes_pending(lambda node: node.is_ready(), nodes)
 
 
 # TODO: Deprecate this function and use get_nodes_pending_new_test instead
@@ -476,20 +413,21 @@ def get_nodes_status(nodes: list[NodeHandle]) -> list[str]:
 
 def status_cmd(ctx: CommandContext):
     nodes = ctx.get_targeted()
-    not_ready_nodes = get_nodes_pending_new_test(nodes)
-    if len(not_ready_nodes) == 0:
+    states = pmap(lambda node: node.state(), nodes)
+    not_ready = [(node.name(), state)
+                 for node, state in zip(nodes, states)
+                 if state != 'ready']
+    if len(not_ready) == 0:
         print(f'all {len(nodes)} nodes ready')
     else:
-        node_names = [node.name() for node in not_ready_nodes[:3]]
         print(
-            f'{len(nodes)-len(not_ready_nodes)}/{len(nodes)} ready. Nodes not ready: {node_names}'
+            f'{len(nodes)-len(not_ready)}/{len(nodes)} ready. Nodes not ready: {not_ready[:3]}'
         )
 
 
 def reset_cmd(ctx: CommandContext):
     args = ctx.args
     nodes = ctx.nodes
-    traffic_generator = ctx.traffic_generator
 
     if not args.yes:
         print(
@@ -497,27 +435,10 @@ def reset_cmd(ctx: CommandContext):
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
-    if args.backup_id is None:
-        ref_node = traffic_generator if traffic_generator else nodes[0]
-        backups = ref_node.neard_runner_ls_backups()
-        backups_msg = 'ID |  Time  | Description\n'
-        if 'start' not in backups:
-            backups_msg += 'start | None | initial test state after state root computation\n'
-        for backup_id, backup_data in backups.items():
-            backups_msg += f'{backup_id} | {backup_data.get("time")} | {backup_data.get("description")}\n'
 
-        print(f'Backups as reported by {ref_node.name()}):\n\n{backups_msg}')
-        print('please enter a backup ID here:')
-        args.backup_id = sys.stdin.readline().strip()
-        if args.backup_id != 'start' and args.backup_id not in backups:
-            print(
-                f'Given backup ID ({args.backup_id}) was not in the list given')
-            sys.exit()
-
-    pmap(lambda node: node.neard_runner_reset(backup_id=args.backup_id),
-         ctx.get_targeted_with_schedule_ctx())
+    pmap(lambda node: node.reset(), ctx.get_targeted_with_schedule_ctx())
     logger.info(
-        'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
+        'Data dir reset in progress. Run the `status` command to see when this is finished.'
     )
     # Do not clear state parts if scheduling
     # NOTE: This may be a problem if you want to schedule the reset command on a dumper node
@@ -526,52 +447,17 @@ def reset_cmd(ctx: CommandContext):
         _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
 
-def make_backup_cmd(ctx: CommandContext):
-    args = ctx.args
-    if not args.yes:
-        print(
-            'this will stop all nodes and create a new backup of their home dirs. continue? [yes/no]'
-        )
-        if sys.stdin.readline().strip() != 'yes':
-            sys.exit()
-
-    if args.backup_id is None:
-        print('please enter a backup ID:')
-        args.backup_id = sys.stdin.readline().strip()
-        if re.match(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$', args.backup_id) is None:
-            sys.exit('invalid backup ID')
-        if args.description is None:
-            print('please enter a description (enter nothing to skip):')
-            description = sys.stdin.readline().strip()
-            if len(description) > 0:
-                args.description = description
-
-    pmap(
-        lambda node: node.neard_runner_make_backup(
-            backup_id=args.backup_id, description=args.description),
-        ctx.get_targeted_with_schedule_ctx())
-
-
 def stop_nodes_cmd(ctx: CommandContext):
-    pmap(lambda node: node.neard_runner_stop(),
-         ctx.get_targeted_with_schedule_ctx())
+    pmap(lambda node: node.stop_neard(), ctx.get_targeted_with_schedule_ctx())
 
 
 def stop_traffic_cmd(ctx: CommandContext):
-    ctx.traffic_generator.with_schedule_ctx(
-        ctx.schedule_ctx).neard_runner_stop()
-
-
-def do_update_config(node, config_change):
-    result = node.neard_update_config(config_change)
-    if not result:
-        logger.warning(
-            f'failed updating config on {node.name()}. result: {result}')
+    ctx.traffic_generator.with_schedule_ctx(ctx.schedule_ctx).stop_neard()
 
 
 def update_config_cmd(ctx: CommandContext):
     pmap(
-        lambda node: do_update_config(node, ctx.args.set),
+        lambda node: node.update_config(ctx.args.set),
         ctx.get_targeted_with_schedule_ctx(),
     )
 
@@ -580,15 +466,14 @@ def start_nodes_cmd(ctx: CommandContext):
     nodes = ctx.nodes
     binary_idx = getattr(ctx.args, 'binary_idx', None)
     force_restart = getattr(ctx.args, 'force_restart', False)
-    if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
+    if not all(pmap(lambda node: node.is_ready(), nodes)):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
     pmap(
-        lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(binary_idx=binary_idx, force_restart=force_restart),
-        nodes)
+        lambda node: node.with_schedule_ctx(ctx.schedule_ctx).start_neard(
+            binary_idx=binary_idx, force_restart=force_restart), nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         pmap(lambda node: node.wait_node_up(), nodes)
@@ -598,19 +483,29 @@ def start_traffic_cmd(ctx: CommandContext):
     nodes = ctx.nodes
     traffic_generator = ctx.traffic_generator
     force_restart = getattr(ctx.args, 'force_restart', False)
+    source_cloud_archive = getattr(ctx.args, 'source_cloud_archive', False)
+    source_home = getattr(ctx.args, 'source_home', None)
+    source_rpc_backup = getattr(ctx.args, 'source_rpc_backup', False)
+    if source_cloud_archive and source_home is None:
+        sys.exit(
+            '--source-cloud-archive needs --source-home, a cloud archive reader home'
+        )
+    if source_rpc_backup and (source_cloud_archive or source_home is not None):
+        sys.exit(
+            '--source-rpc-backup cannot be combined with other --source-* flags'
+        )
 
     if traffic_generator is None:
         logger.warning('No traffic node selected. Change filters.')
         return
-    if not all(pmap(lambda node: node.neard_runner_ready(),
-                    ctx.get_targeted())):
+    if not all(pmap(lambda node: node.is_ready(), ctx.get_targeted())):
         logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
     pmap(
-        lambda node: node.with_schedule_ctx(ctx.schedule_ctx).
-        neard_runner_start(force_restart=force_restart), nodes)
+        lambda node: node.with_schedule_ctx(ctx.schedule_ctx).start_neard(
+            force_restart=force_restart), nodes)
     # Wait for the nodes to be up if not scheduling
     if not ctx.is_scheduled():
         logger.info("waiting for validators to be up")
@@ -619,9 +514,12 @@ def start_traffic_cmd(ctx: CommandContext):
             "waiting a bit after validators started before starting traffic")
         time.sleep(10)
     # TODO: maybe add 20 seconds delay to the schedule command to allow the other nodes to start
-    traffic_generator.with_schedule_ctx(ctx.schedule_ctx).neard_runner_start(
+    traffic_generator.with_schedule_ctx(ctx.schedule_ctx).start_neard(
         batch_interval_millis=ctx.args.batch_interval_millis,
-        force_restart=force_restart)
+        force_restart=force_restart,
+        source_cloud_archive=source_cloud_archive,
+        source_home=source_home,
+        source_rpc_backup=source_rpc_backup)
     if not ctx.is_scheduled():
         logger.info(
             f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
@@ -629,16 +527,15 @@ def start_traffic_cmd(ctx: CommandContext):
 
 
 def update_binaries_cmd(ctx: CommandContext):
-    pmap(lambda node: node.neard_runner_update_binaries(),
+    pmap(lambda node: node.update_binaries(),
          ctx.get_targeted_with_schedule_ctx())
 
 
 def amend_binaries_cmd(ctx: CommandContext):
-    args = ctx.args
-    pmap(
-        lambda node: node.neard_runner_update_binaries(
-            args.neard_binary_url, args.epoch_height, args.binary_idx),
-        ctx.get_targeted_with_schedule_ctx())
+    url = ctx.args.neard_binary_url
+    binary_idx = ctx.args.binary_idx
+    pmap(lambda node: node.update_binaries(url, binary_idx),
+         ctx.get_targeted_with_schedule_ctx())
 
 
 # Only print stdout and stderr if they are not empty
@@ -733,9 +630,10 @@ def run_remote_download_file(ctx: CommandContext, include_node_name=False):
 
 def run_env_cmd(ctx: CommandContext):
     if ctx.args.clear_all:
-        func = lambda node: node.neard_clear_env()
+        func = lambda node: node.clear_env()
     else:
-        func = lambda node: node.neard_update_env(ctx.args.key_value)
+        check_env_key_values(ctx.args.key_value)
+        func = lambda node: node.update_env(ctx.args.key_value)
     pmap(func, ctx.get_targeted_with_schedule_ctx())
 
 
@@ -823,7 +721,6 @@ def build_parser():
     parser.add_argument('--chain-id', type=str)
     parser.add_argument('--start-height', type=int)
     parser.add_argument('--unique-id', type=str)
-    parser.add_argument('--local-test', action='store_true')
     parser.add_argument('--host-type',
                         type=str,
                         choices=['all', 'nodes', 'traffic'],
@@ -924,42 +821,21 @@ def register_schedule_subcommands(subparsers):
 
 
 def register_base_commands(subparsers):
-    init_parser = subparsers.add_parser('init-neard-runner',
+    init_parser = subparsers.add_parser('init',
                                         help='''
-    Sets up the helper servers on each of the nodes. Doesn't start initializing the test
+    Uploads the host scripts, installs the neard systemd unit and downloads the
+    neard binaries on each of the nodes. Doesn't start initializing the test
     state, which is done with the `new-test` command.
     ''')
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
-    init_parser.add_argument('--upgrade-by-epoch',
-                             action='store_true',
-                             help='''
-    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
-    Otherwise, the upgrade needs to be triggered with the start-nodes command.
-    ''')
     init_parser.set_defaults(func=init_cmd)
-
-    restart_parser = subparsers.add_parser(
-        'restart-neard-runner',
-        help='''Restarts the neard runner on all nodes.''')
-    restart_parser.add_argument('--upload-program', action='store_true')
-    restart_parser.set_defaults(func=restart_cmd, upload_program=False)
-
-    stop_runner_parser = subparsers.add_parser(
-        'stop-neard-runner', help='''Stops the neard runner on all nodes.''')
-    stop_runner_parser.set_defaults(func=stop_runner_cmd)
 
     hard_reset_parser = subparsers.add_parser(
         'hard-reset',
         help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
-    hard_reset_parser.add_argument('--upgrade-by-epoch',
-                                   action='store_true',
-                                   help='''
-    If this is set, the upgrade binary will be started at a random epoch height between 1 and 4.
-    Otherwise, the upgrade needs to be triggered with the start-nodes command.
-    ''')
     hard_reset_parser.add_argument('--yes', action='store_true')
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
 
@@ -980,9 +856,7 @@ def register_base_commands(subparsers):
     new_test_parser.add_argument(
         '--gcs-state-sync',
         action='store_true',
-        help=
-        """Enable state dumper nodes to sync state to GCS. On localnet, it will dump locally."""
-    )
+        help="""Enable state dumper nodes to sync state to GCS.""")
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.add_argument('--stake-distribution',
                                  type=str,
@@ -1073,6 +947,28 @@ def register_subcommands(subparsers):
         help=
         'Force restart the nodes. Applies to both traffic generator and other nodes.'
     )
+    start_traffic_parser.add_argument(
+        '--source-cloud-archive',
+        action='store_true',
+        help=
+        '''Stream the source chain out of a cloud archive bucket (neard mirror run --source-cloud-archive).
+        No state is copied, so a bucket without state snapshots works. Needs --source-home, a
+        cloud archive reader home on the traffic generator. The traffic generator keeps the
+        source settings, so a later start-traffic without --source-* flags reuses them; one with any
+        --source-* flag replaces them all.
+        ''')
+    start_traffic_parser.add_argument(
+        '--source-home',
+        type=str,
+        help=
+        'Source near home on the traffic generator to read the source chain from. Defaults to the RPC backup home.'
+    )
+    start_traffic_parser.add_argument(
+        '--source-rpc-backup',
+        action='store_true',
+        help=
+        'Go back to reading the source chain from the RPC backup home, dropping the source settings an earlier start-traffic saved.'
+    )
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 
     start_nodes_parser = subparsers.add_parser(
@@ -1101,15 +997,6 @@ def register_subcommands(subparsers):
         help='stop the traffic generator, but leave the other nodes running')
     stop_parser.set_defaults(func=stop_traffic_cmd)
 
-    backup_parser = subparsers.add_parser('make-backup',
-                                          help='''
-    Stops all nodes and haves them make a backup of the data dir that can later be restored to with the reset command
-    ''')
-    backup_parser.add_argument('--yes', action='store_true')
-    backup_parser.add_argument('--backup-id', type=str)
-    backup_parser.add_argument('--description', type=str)
-    backup_parser.set_defaults(func=make_backup_cmd)
-
     reset_parser = subparsers.add_parser('reset',
                                          help='''
     The new_test command saves the data directory after the genesis state roots are computed so that
@@ -1117,7 +1004,6 @@ def register_subcommands(subparsers):
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
     reset_parser.add_argument('--yes', action='store_true')
-    reset_parser.add_argument('--backup-id', type=str)
     reset_parser.set_defaults(func=reset_cmd)
 
     # It re-uses the same binary urls because it's quite easy to do it with the
@@ -1134,30 +1020,20 @@ def register_subcommands(subparsers):
 
     amend_binaries_parsers = subparsers.add_parser('amend-binaries',
                                                    help='''
-        Add or override the neard URLs by specifying the epoch height or index if you have multiple binaries.
-
-        If the network was started with 2 binaries, the epoch height for the second binary can be randomly assigned
-        on each host. Use caution when updating --epoch-height so that it will not add a binary in between the upgrade
-        window for another binary.''')
+        Replace the URL of the neard binary at the given index and download it again.'''
+                                                  )
 
     amend_binaries_parsers.add_argument('--neard-binary-url',
                                         type=str,
                                         required=True,
                                         help='URL to the neard binary.')
-    group = amend_binaries_parsers.add_mutually_exclusive_group(required=True)
-    group.add_argument('--epoch-height',
-                       type=int,
-                       help='''
-        The epoch height where this binary will begin to run.
-        If a binary already exists on the host for this epoch height, the old one will be replaced.
-        Otherwise a new binary will be added with this epoch height.
-        ''')
-    group.add_argument('--binary-idx',
-                       type=int,
-                       help='''
+    amend_binaries_parsers.add_argument('--binary-idx',
+                                        type=int,
+                                        required=True,
+                                        help='''
         0 based indexing.
         The index in the binary list that you want to replace.
-        If the index does not exist on the host this operation will not do anything.
+        The command fails if the index does not exist on the host.
         ''')
     amend_binaries_parsers.set_defaults(func=amend_binaries_cmd)
 

@@ -149,7 +149,7 @@ fn test_reads_with_incomplete_storage() {
         {
             println!("Testing TrieIterator over whole trie");
             let trie_records = |trie: Trie| -> Result<_, StorageError> {
-                let iterator = trie.disk_iter()?;
+                let iterator = trie.disk_iter();
                 iterator.collect::<Result<Vec<_>, _>>().map(move |v| (trie, v))
             };
             test_incomplete_storage(get_trie(), trie_records);
@@ -335,7 +335,7 @@ mod trie_storage_tests {
         let disk_iter_recorded = {
             let trie =
                 tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
-            let mut disk_iter = trie.disk_iter().unwrap();
+            let mut disk_iter = trie.disk_iter();
             disk_iter.seek_prefix(&iter_prefix).unwrap();
             let disk_iter_results = disk_iter.collect::<Result<Vec<_>, _>>().unwrap();
             assert_eq!(disk_iter_results, expected_iter_results);
@@ -347,7 +347,7 @@ mod trie_storage_tests {
                 tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
             {
                 let lock = trie.lock_for_iter();
-                let mut memtrie_iter = lock.iter().unwrap();
+                let mut memtrie_iter = lock.iter();
                 match memtrie_iter {
                     TrieIterator::Disk(_) => {
                         panic!("Expected Memtrie iterator, got Disk iterator");
@@ -366,7 +366,7 @@ mod trie_storage_tests {
         let partial_recorded = {
             let trie = Trie::from_recorded_storage(memtrie_iter_recorded, state_root)
                 .recording_reads_new_recorder();
-            let mut disk_iter = trie.disk_iter().unwrap();
+            let mut disk_iter = trie.disk_iter();
             disk_iter.seek_prefix(&iter_prefix).unwrap();
             let disk_iter_results = disk_iter.collect::<Result<Vec<_>, _>>().unwrap();
             assert_eq!(disk_iter_results, expected_iter_results);

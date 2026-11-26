@@ -234,7 +234,7 @@ impl FlatStorageCommand {
         let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let mut store_update = store.flat_store().store_update();
-        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update);
         store_update.commit();
         Ok(())
     }
@@ -285,7 +285,7 @@ impl FlatStorageCommand {
 
         let flat_state_entries_iter = hot_store.iter(shard_uid);
 
-        let trie_iter = trie.disk_iter()?;
+        let trie_iter = trie.disk_iter();
         let mut verified = 0;
         let mut success = true;
         for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, flat_state_entries_iter)) {

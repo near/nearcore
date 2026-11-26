@@ -1453,7 +1453,7 @@ fn pending_promise_yield(
         Arc::new(TrieDBStorage::new(client.chain.chain_store().store().trie_store(), shard_uid));
     let trie = Trie::new(trie_storage, state_root, None);
     let locked_trie = trie.lock_for_iter();
-    let mut iter = locked_trie.iter().unwrap();
+    let mut iter = locked_trie.iter();
     iter.seek_prefix(&[col::PROMISE_YIELD_RECEIPT]).unwrap();
     for item in iter {
         let (key, _) = item.unwrap();

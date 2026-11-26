@@ -808,9 +808,8 @@ impl PeerActor {
         #[cfg(test)]
         let edge_clone = edge.clone();
         // Here we stop processing any PeerActor events until PeerManager
-        // decides whether to accept the connection or not: ctx.wait makes
-        // the actor event loop poll on the future until it completes before
-        // processing any other events.
+        // decides whether to accept the connection or not: events that arrive
+        // in the meantime are buffered in `registration_buffered_actions`.
         debug_assert!(
             matches!(
                 self.registration_buffered_actions,
@@ -945,9 +944,7 @@ impl PeerActor {
                                         }
                                     });
                                 }
-                                // Sync the RoutingTable.
                                 act.sync_routing_table();
-                                // Sync snapshot hosts
                                 act.sync_snapshot_hosts();
                             }
 

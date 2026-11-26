@@ -15,7 +15,6 @@ use near_primitives::utils::{
     index_to_bytes,
 };
 use std::collections::HashSet;
-use std::io;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -55,7 +54,6 @@ impl ChunkStoreAdapter {
             .ok_or_else(|| ChunkAccessError::ChunkMissing(chunk_hash.clone()))
     }
 
-    /// Does this partial chunk exist?
     pub fn partial_chunk_exists(&self, h: &ChunkHash) -> bool {
         self.store.exists(DBCol::PartialChunks, h.as_ref())
     }
@@ -65,7 +63,6 @@ impl ChunkStoreAdapter {
         self.store.exists(DBCol::Chunks, h.as_ref())
     }
 
-    /// Returns a HashSet of Chunk Hashes for current Height
     pub fn get_all_chunk_hashes_by_height(&self, height: BlockHeight) -> HashSet<ChunkHash> {
         self.store.get_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height)).unwrap_or_default()
     }
@@ -136,10 +133,9 @@ impl Into<StoreUpdate> for ChunkStoreUpdateAdapter<'static> {
 }
 
 impl ChunkStoreUpdateAdapter<'static> {
-    pub fn commit(self) -> io::Result<()> {
+    pub fn commit(self) {
         let store_update: StoreUpdate = self.into();
         store_update.commit();
-        Ok(())
     }
 }
 

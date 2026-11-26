@@ -197,7 +197,7 @@ impl ColdStoreActor {
         // below when it processes genesis height.
         if cold_head.is_none() {
             tracing::info!(target: "cold_store", "cold store not initialized, copying genesis state");
-            copy_state_to_cold(&self.cold_db, &self.hot_store)?;
+            copy_state_to_cold(&self.cold_db, &self.hot_store);
         }
 
         // When cold HEAD is not set, start copying from genesis height.
@@ -292,7 +292,6 @@ impl ColdStoreActor {
 
 /// Creates the cold store actor and keep_going handle if cold store is configured.
 /// Returns None if cold store is not configured or trie changes are not saved.
-/// This replaces the original `spawn_cold_store_loop` function.
 pub fn create_cold_store_actor(
     save_trie_changes: Option<bool>,
     split_storage_config: &SplitStorageConfig,

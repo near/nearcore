@@ -101,8 +101,8 @@ impl OrphanStateWitnessPool {
         result
     }
 
-    /// Remove all witnesses below the given height from the pool.
-    /// Orphan witnesses below the final height of the chain won't be needed anymore,
+    /// Remove all witnesses at or below the given height from the pool.
+    /// Orphan witnesses at or below the final height of the chain won't be needed anymore,
     /// so they can be removed from the pool to free up memory.
     pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
         let mut to_remove: Vec<OrphanWitnessKey> = Vec::new();

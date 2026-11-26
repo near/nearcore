@@ -1,5 +1,5 @@
 use crate::spice::chunk_executor_actor::{
-    ChunkExecutorActor, is_descendant_of_final_execution_head,
+    CatchupFinished, ChunkExecutorActor, is_descendant_of_final_execution_head,
 };
 use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
 use crate::spice::chunk_executor_actor::{
@@ -8,6 +8,7 @@ use crate::spice::chunk_executor_actor::{
 use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
 use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
+use crate::spice::data_distributor_actor::{NeedChange, SpiceReceiptProofNeeds};
 use crate::spice::data_manager::ReceiptProofId;
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
@@ -52,7 +53,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::sharding::{ReceiptProof, StateSyncInfo};
+use near_primitives::sharding::{ReceiptProof, ShardProof, StateSyncInfo};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -118,6 +119,7 @@ enum OutgoingMessage {
     NetworkRequests(NetworkRequests),
     SpiceDistributorOutgoingReceipts(SpiceDistributorOutgoingReceipts),
     SpiceDistributorStateWitness(SpiceDistributorStateWitness),
+    SpiceReceiptProofNeeds(SpiceReceiptProofNeeds),
 }
 
 // We don't derive clone because it's desirable to not have clone for spice distributor message to
@@ -143,6 +145,9 @@ impl Clone for OutgoingMessage {
                 state_witness: state_witness.clone(),
                 contract_accesses: contract_accesses.clone(),
             }),
+            OutgoingMessage::SpiceReceiptProofNeeds(needs) => {
+                OutgoingMessage::SpiceReceiptProofNeeds(needs.clone())
+            }
         }
     }
 }
@@ -170,6 +175,16 @@ impl TestActor {
         outgoing_sc: UnboundedSender<OutgoingMessage>,
     ) -> TestActor {
         let chain = get_chain_with_genesis(Clock::real(), genesis.clone());
+        Self::with_chain(chain, &genesis, validator_signer, tracked_shards_config, outgoing_sc)
+    }
+
+    fn with_chain(
+        chain: Chain,
+        genesis: &Genesis,
+        validator_signer: MutableValidatorSigner,
+        tracked_shards_config: TrackedShardsConfig,
+        outgoing_sc: UnboundedSender<OutgoingMessage>,
+    ) -> TestActor {
         let epoch_manager = chain.epoch_manager.clone();
 
         let shard_tracker = ShardTracker::new(
@@ -189,7 +204,6 @@ impl TestActor {
         let network_adapter = PeerManagerAdapter {
             async_request_sender: noop().into_async_sender(),
             set_chain_info_sender: noop().into_sender(),
-            state_sync_event_sender: noop().into_sender(),
             request_sender: Sender::from_fn({
                 let outgoing_sc = outgoing_sc.clone();
                 move |message: PeerManagerMessageRequest| {
@@ -219,9 +233,17 @@ impl TestActor {
                 }
             }),
             witness: Sender::from_fn({
+                let outgoing_sc = outgoing_sc.clone();
                 move |message| {
                     outgoing_sc
                         .unbounded_send(OutgoingMessage::SpiceDistributorStateWitness(message))
+                        .unwrap();
+                }
+            }),
+            receipt_proof_needs: Sender::from_fn({
+                move |message| {
+                    outgoing_sc
+                        .unbounded_send(OutgoingMessage::SpiceReceiptProofNeeds(message))
                         .unwrap();
                 }
             }),
@@ -399,7 +421,8 @@ fn simulate_single_outgoing_message(actors: &mut [TestActor], message: &Outgoing
                 });
             }
         }
-        OutgoingMessage::SpiceDistributorStateWitness(_) => {}
+        OutgoingMessage::SpiceDistributorStateWitness(_)
+        | OutgoingMessage::SpiceReceiptProofNeeds(_) => {}
     }
 }
 
@@ -583,6 +606,129 @@ fn test_executing_blocks() {
         simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
         record_endorsements(&mut actors, &block);
     }
+}
+
+/// The sources of the receipt proofs declared needed, from the messages not read yet.
+fn declared_needs(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec<SpiceChunkId> {
+    let mut declared = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+            change: NeedChange::Needed(sources),
+            ..
+        }) = message
+        {
+            declared.extend(sources);
+        }
+    }
+    declared
+}
+
+/// A shard missing a receipt proof from a block that another shard of the node applies, and has not
+/// applied yet, waits for that application, which saves the proof.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_missing_receipt_proof_from_a_block_another_executor_applies_is_not_declared_needed() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let blocks = produce_n_blocks(&mut actors, 2);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    record_endorsements(&mut actors, &blocks[0]);
+    declared_needs(&mut outgoing_rc);
+    let node = &mut actors[1];
+    let shard_uids = node.actor.epoch_manager.shard_uids(blocks[0].header().epoch_id()).unwrap();
+    let (source_shard, waiting_shard) = (shard_uids[0], shard_uids[1]);
+
+    // Both shards apply the first block; only the waiting shard's application is done.
+    node.actor.handle(ProcessedBlock { block_hash: *blocks[0].hash() });
+    for task in node.drain_tasks() {
+        task();
+    }
+    let (source_done, waiting_done): (Vec<_>, Vec<_>) =
+        node.drain_events().into_iter().partition(|event| event.shard_uid == source_shard);
+    for event in waiting_done {
+        node.actor.handle(event);
+    }
+
+    // The second block misses the source shard's proof from the first, which that shard is
+    // applying.
+    node.actor.handle(ProcessedBlock { block_hash: *blocks[1].hash() });
+    assert!(!node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
+    assert_eq!(declared_needs(&mut outgoing_rc), vec![]);
+
+    // Once done, the source shard's proof is on disk and the second block is scheduled.
+    for event in source_done {
+        node.actor.handle(event);
+    }
+    assert!(node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
+    assert_eq!(declared_needs(&mut outgoing_rc), vec![]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_missing_receipt_proof_from_a_block_a_catching_up_executor_parks_is_declared_needed() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_non_validator(outgoing_sc);
+    let blocks = produce_n_blocks(&mut actors, 2);
+    actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    record_endorsements(&mut actors, &blocks[0]);
+    declared_needs(&mut outgoing_rc);
+    let node = &mut actors[1];
+    let shard_uids = node.actor.epoch_manager.shard_uids(blocks[0].header().epoch_id()).unwrap();
+    let (source_shard, waiting_shard) = (shard_uids[0], shard_uids[1]);
+
+    // The source shard is being caught up through the first block's epoch.
+    let epoch_first_block =
+        *node.actor.epoch_manager.get_block_info(blocks[0].hash()).unwrap().epoch_first_block();
+    let mut store_update = node.chain.chain_store.store().store_update();
+    store_update.set_ser(
+        DBCol::StateDlInfos,
+        epoch_first_block.as_ref(),
+        &StateSyncInfo::new(epoch_first_block, vec![source_shard.shard_id()]),
+    );
+    store_update.commit();
+
+    // The waiting shard applies the first block; the source shard parks it.
+    node.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[0].hash() });
+    assert!(node.actor.parked_blocks(source_shard.shard_id()).contains(blocks[0].hash()));
+
+    // The second block misses the source shard's proof from the first, which is declared.
+    node.handle_with_internal_events(ProcessedBlock { block_hash: *blocks[1].hash() });
+    assert!(!node.actor.parked_blocks(waiting_shard.shard_id()).is_empty());
+    assert_eq!(
+        declared_needs(&mut outgoing_rc),
+        vec![SpiceChunkId { block_hash: *blocks[0].hash(), shard_id: source_shard.shard_id() }]
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_releasing_the_receipts_below_the_shard_final_execution_head() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(1, outgoing_sc);
+    let genesis = actors[0].chain.genesis_block();
+    let blocks = produce_n_blocks(&mut actors, 5);
+    let mut reported_heights = Vec::new();
+    for block in &blocks {
+        actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        while let Ok(message) = outgoing_rc.try_recv() {
+            if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+                to_shard,
+                change: NeedChange::NoLongerNeededBelow(height),
+            }) = &message
+            {
+                assert_eq!(*to_shard, ShardId::new(0));
+                reported_heights.push(*height);
+            }
+            simulate_single_outgoing_message(&mut actors, &message);
+        }
+        record_endorsements(&mut actors, block);
+    }
+
+    // The head is the last final block of the last block the shard applied, two heights below it
+    // here, and each rise is released once. The first block has no last final block.
+    let expected_heights =
+        [&genesis, &blocks[0], &blocks[1], &blocks[2]].map(|block| block.header().height());
+    assert_eq!(reported_heights, expected_heights);
 }
 
 #[test]
@@ -828,6 +974,41 @@ fn test_not_applying_forks_past_final_execution_head() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_dropping_a_parked_fork_once_the_final_execution_head_passes_it() {
+    const NUM_SHARDS: usize = 2;
+    const NODE: usize = 0;
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(NUM_SHARDS, outgoing_sc);
+    let genesis = actors[NODE].chain.genesis_block();
+    let fork_block = produce_block(&mut actors, &genesis);
+    let fork_child = produce_block(&mut actors, &fork_block);
+    let shard_id = tracked_shard(&actors[NODE], &fork_block);
+    for block in [&fork_block, &fork_child] {
+        actors[NODE].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+    assert!(actors[NODE].actor.parked_blocks(shard_id).contains(fork_child.hash()));
+
+    let mut prev_block = genesis;
+    while actors[NODE].actor.chain_store.spice_final_execution_head().unwrap().height
+        < fork_child.header().height()
+    {
+        let block = produce_block(&mut actors, &prev_block);
+        for actor in &mut actors {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        }
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        record_endorsements(&mut actors, &block);
+        prev_block = block;
+    }
+
+    assert!(
+        !actors[NODE].actor.parked_blocks(shard_id).contains(fork_child.hash()),
+        "Once the final execution head of the canonical chain passes it, the fork block should be dropped"
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_final_execution_head_is_updated_when_tracking_no_shards() {
     init_test_logger();
 
@@ -1062,6 +1243,164 @@ fn test_a_receipt_for_an_untracked_shard_is_dropped() {
     actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
 
     assert_eq!(actors[0].actor.pending_receipts_count(), 0);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_a_receipt_buffered_below_the_shard_final_execution_head_is_dropped() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let mut blocks = produce_n_blocks(&mut actors, 2);
+    // A sibling of `blocks[1]`, produced before the final head passes its height.
+    let fork_block = produce_block(&mut actors, &blocks[0]);
+    for _ in 0..3 {
+        let block = produce_block(&mut actors, blocks.last().unwrap());
+        blocks.push(block);
+    }
+    let to_shard_id = tracked_shard(&actors[0], &fork_block);
+    let from_shard_id = untracked_shard(&actors[0], &fork_block);
+    let id = ReceiptProofId::new(*fork_block.hash(), from_shard_id, to_shard_id);
+    let receipt_proof =
+        ReceiptProof(vec![], ShardProof { from_shard_id, to_shard_id, proof: vec![] });
+    actors[0].handle_with_internal_events(ExecutorIncomingUnverifiedReceipts { id, receipt_proof });
+    assert_eq!(actors[0].actor.pending_receipts_count(), 1);
+
+    for (index, block) in blocks.iter().enumerate() {
+        for actor in &mut actors {
+            actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        }
+        simulate_outgoing_messages(&mut actors, &mut outgoing_rc);
+        record_endorsements(&mut actors, block);
+        // Verifies the receipts buffered against `block`, so only the fork's can be left.
+        actors[0]
+            .handle_with_internal_events(ExecutionResultEndorsed { block_hash: *block.hash() });
+        // The head reaches the fork's height, `blocks[1]`'s, with the fourth block, and passes it
+        // with the fifth.
+        let expected_count = if index < 4 { 1 } else { 0 };
+        assert_eq!(actors[0].actor.pending_receipts_count(), expected_count);
+    }
+}
+
+/// The shards whose receipts the executor released entirely, from the messages not read yet.
+fn released_shards(outgoing_rc: &mut UnboundedReceiver<OutgoingMessage>) -> Vec<ShardId> {
+    let mut released = Vec::new();
+    while let Ok(message) = outgoing_rc.try_recv() {
+        if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+            to_shard,
+            change: NeedChange::NoLongerNeeded,
+        }) = message
+        {
+            released.push(to_shard);
+        }
+    }
+    released
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_releasing_the_receipts_into_a_shard_whose_executor_is_evicted_once_the_final_head_moves() {
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actors = setup_with_shards(2, outgoing_sc);
+    let genesis = actors[0].chain.genesis_block();
+    let first_block = produce_block(&mut actors, &genesis);
+    // An executor for a shard the node no longer tracks, as one it applied before.
+    let stopped_shard = untracked_shard_uid(&actors[0], &first_block);
+    actors[0].actor.park_block(stopped_shard, first_block.header());
+
+    let mut releases = Vec::new();
+    let mut block = first_block.clone();
+    for _ in 0..4 {
+        actors[0].handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+        if released_shards(&mut outgoing_rc).contains(&stopped_shard.shard_id()) {
+            releases.push(block.header().height());
+        }
+        block = produce_block(&mut actors, &block);
+    }
+
+    // The final head first moves, to the first block, when the block two heights above it is
+    // processed. No block from it up to the head applies the shard, so the executor is evicted
+    // and the receipts into the shard released.
+    let first_height = first_block.header().height();
+    assert_eq!(releases, vec![first_height + 2]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_releasing_after_a_restart_the_receipts_into_a_shard_the_node_stops_applying() {
+    init_test_logger();
+    let shard_layout = ShardLayout::multi_shard(2, 0);
+    let shard_id = ShardId::new(1);
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&Clock::real())
+        .shard_layout(shard_layout)
+        .epoch_length(5)
+        // Leaves the total supply unchanged at epoch boundaries, which test blocks don't account
+        // for.
+        .max_inflation_rate(Rational32::from_integer(0))
+        .validators_spec(ValidatorsSpec::desired_roles(
+            &["test-producer-0", "test-producer-1"],
+            &[],
+        ))
+        .build();
+    let (outgoing_sc, _outgoing_rc) = unbounded();
+    // Tracked one epoch in three, so the node stops applying it at the first block of the epoch
+    // after.
+    let tracked_shards_config = TrackedShardsConfig::Schedule(vec![vec![shard_id], vec![], vec![]]);
+    let mut actor = TestActor::with_tracked_shards_config(
+        genesis.clone(),
+        MutableConfigValue::new(None, "validator_signer"),
+        tracked_shards_config.clone(),
+        outgoing_sc,
+    );
+    let shard_tracker = actor.actor.shard_tracker.clone();
+    let applies_shard = |block: &Block| {
+        shard_tracker
+            .tracked_shard_uids_this_or_next_epoch(block.header().prev_hash())
+            .unwrap()
+            .contains(&shard_uid)
+    };
+    let genesis_block = actor.chain.genesis_block();
+    let mut block = produce_spice_block_certifying_parent(&mut actor.chain, &genesis_block);
+    while !applies_shard(&block) {
+        assert!(block.header().height() < 4 * genesis.config.epoch_length, "never applies");
+        block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    }
+    while applies_shard(&block) {
+        block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    }
+    let stopping_block = block.clone();
+    // Two blocks above the stopping block make it final.
+    for _ in 0..2 {
+        block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    }
+    let stopping_height = stopping_block.header().height();
+    assert!(actor.chain.chain_store.final_head().unwrap().height >= stopping_height);
+
+    // The node restarts: a new actor on the same store, with no record of the eviction and its
+    // final execution head at genesis. Its replay gets the shard an executor back.
+    let (outgoing_sc, mut outgoing_rc) = unbounded();
+    let mut actor = TestActor::with_chain(
+        actor.chain,
+        &genesis,
+        MutableConfigValue::new(None, "validator_signer"),
+        tracked_shards_config,
+        outgoing_sc,
+    );
+    actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    actor.run_internal_events();
+    // The next move of the final head, past every block that applies the shard, evicts it again.
+    block = produce_spice_block_certifying_parent(&mut actor.chain, &block);
+    actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    assert_eq!(released_shards(&mut outgoing_rc), vec![shard_id]);
+}
+
+/// The `ShardUId` of [`untracked_shard`].
+fn untracked_shard_uid(actor: &TestActor, block: &Block) -> ShardUId {
+    let shard_layout =
+        actor.actor.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+    ShardUId::from_shard_id_and_layout(untracked_shard(actor, block), &shard_layout)
 }
 
 /// A shard `actor` tracks neither this nor next epoch as of `block`.
@@ -1844,6 +2183,7 @@ impl BoundaryActor {
                 OutgoingMessage::NetworkRequests(request) => {
                     panic!("unexpected network request {request:?}")
                 }
+                OutgoingMessage::SpiceReceiptProofNeeds(_) => {}
             }
         }
         sends
@@ -1986,7 +2326,7 @@ fn test_boundary_bootstrap_reruns_on_startup_from_forks() {
     assert!(is_last_pre_spice_block(chain.epoch_manager.as_ref(), sibling.hash()).unwrap());
     let mut store_update = chain.chain_store.store_update();
     store_update.save_head(&Tip::from_header(sibling.header())).unwrap();
-    store_update.save_final_head(&Tip::from_header(fork_point.header())).unwrap();
+    store_update.save_final_head(&Tip::from_header(fork_point.header()));
     store_update.commit().unwrap();
     boundary.seed_pre_spice_apply_artifacts(*boundary.last_pre_spice.hash(), &shard_uids);
     boundary.seed_pre_spice_apply_artifacts(*sibling.hash(), &shard_uids);
@@ -2146,9 +2486,7 @@ struct CatchUpTest {
     sync_block: Arc<Block>,
     blocks_up_to_head: Vec<Arc<Block>>,
     blocks_after_head: Vec<Arc<Block>>,
-    next_epoch_first_block: Arc<Block>,
-    /// Keeps the actor's outgoing channel open.
-    _outgoing_rc: UnboundedReceiver<OutgoingMessage>,
+    outgoing_rc: UnboundedReceiver<OutgoingMessage>,
 }
 
 impl CatchUpTest {
@@ -2249,8 +2587,7 @@ impl CatchUpTest {
             sync_block: sync_block.clone(),
             blocks_up_to_head: blocks_up_to_head.to_vec(),
             blocks_after_head: blocks_after_head.to_vec(),
-            next_epoch_first_block,
-            _outgoing_rc: outgoing_rc,
+            outgoing_rc,
         }
     }
 
@@ -2288,40 +2625,14 @@ impl CatchUpTest {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_parking_again_the_blocks_after_the_previous_epochs_sync_block() {
-    // The shard's catchup finished.
+fn test_parking_again_the_blocks_of_a_caught_up_shard_on_startup() {
+    // The shard's catchup finished, and the node restarted in the next epoch.
     let mut catch_up = CatchUpTest::setup();
     catch_up.finish_catchup();
 
-    // The restarted node processes the next epoch's first block.
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
-
-    // The blocks up to the final execution head are parked again, the ones after it are not.
-    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
-    for block in &catch_up.blocks_up_to_head {
-        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
-    }
-    for block in &catch_up.blocks_after_head {
-        assert!(!parked.contains(block.hash()), "parked at height {}", block.header().height());
-    }
-}
-
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_parking_again_the_blocks_after_the_current_epochs_sync_block() {
-    // The shard's catchup finished before the epoch's end.
-    let mut catch_up = CatchUpTest::setup();
-    catch_up.finish_catchup();
-
-    // Restarted after the catchup finished, the node processes the blocks after the final execution
-    // head.
-    for block in &catch_up.blocks_after_head {
-        catch_up
-            .test_actor
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-    }
+    // The node starts.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
     // The blocks up to the final execution head are parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
@@ -2332,17 +2643,50 @@ fn test_parking_again_the_blocks_after_the_current_epochs_sync_block() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_declaring_the_receipts_from_the_sync_block_a_caught_up_shard_misses() {
+    // The shard's catchup finished, and the node restarted in the next epoch.
+    let mut catch_up = CatchUpTest::setup();
+    catch_up.finish_catchup();
+
+    // The node starts, which parks again the blocks up to the final execution head.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
+
+    // The block after the sync block misses every proof from the sync block: state sync wrote the
+    // shard's chunk extra there, and no executor applies the sync block.
+    let mut needs = Vec::new();
+    while let Ok(message) = catch_up.outgoing_rc.try_recv() {
+        if let OutgoingMessage::SpiceReceiptProofNeeds(SpiceReceiptProofNeeds {
+            to_shard,
+            change: NeedChange::Needed(sources),
+        }) = message
+        {
+            needs.push((to_shard, sources.into_iter().sorted().collect_vec()));
+        }
+    }
+    let sync_block = catch_up.sync_block.header();
+    let sources = catch_up
+        .test_actor
+        .actor
+        .epoch_manager
+        .shard_ids(sync_block.epoch_id())
+        .unwrap()
+        .into_iter()
+        .map(|shard_id| SpiceChunkId { block_hash: *sync_block.hash(), shard_id })
+        .sorted()
+        .collect_vec();
+    assert_eq!(needs, vec![(catch_up.shard_id, sources)]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_parking_again_the_blocks_of_a_shard_still_being_caught_up() {
     // The shard's catchup is still running.
     let mut catch_up = CatchUpTest::setup();
 
-    // Restarted before the catchup finishes, the node processes the blocks after the final
-    // execution head.
-    for block in &catch_up.blocks_after_head {
-        catch_up
-            .test_actor
-            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
-    }
+    // The node starts.
+    catch_up.test_actor.actor.start_actor(&mut FakeDelayedActionRunner::default());
+    catch_up.test_actor.run_internal_events();
 
     // The blocks up to the final execution head are not parked again.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
@@ -2363,13 +2707,30 @@ fn test_parking_again_the_blocks_of_a_shard_once_its_catchup_finishes() {
             .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
     }
 
-    // The catchup finishes, and the node processes the next epoch's first block.
+    // The catchup finishes.
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The blocks up to the final execution head are parked again.
+    let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
+    for block in &catch_up.blocks_up_to_head {
+        assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_keeping_parked_canonical_blocks_below_the_final_execution_head() {
+    // The shard's catchup is still running, and the node processes the blocks up to the final
+    // execution head, which wait for it.
+    let mut catch_up = CatchUpTest::setup();
+    for block in &catch_up.blocks_up_to_head {
+        catch_up
+            .test_actor
+            .handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+    }
+
+    // They stay parked: they are on the canonical chain.
     let parked = catch_up.test_actor.actor.parked_blocks(catch_up.shard_id);
     for block in &catch_up.blocks_up_to_head {
         assert!(parked.contains(block.hash()), "not parked at height {}", block.header().height());
@@ -2411,6 +2772,24 @@ fn test_executing_a_shard_once_its_catchup_finishes() {
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_block_parked_during_the_catchup_once_it_finishes() {
+    // The node processed the block after the sync block while the shard's catchup was running, and
+    // has what the block needs to apply the shard.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash: *block.hash() });
+
+    // The catchup finishes.
+    catch_up.finish_catchup();
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
+
+    // The shard is applied at the block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
     // The node, which tracks no shard in the catch-up epoch, postprocessed the blocks after the
     // final execution head as it processed them.
@@ -2440,7 +2819,7 @@ fn test_not_postprocessing_again_a_block_a_catch_up_shard_applies() {
 fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
     // The shard's catchup is still running, and a block below the sync block, which the shard never
     // applies, is still parked, as after a restart that changed the tracked shards. The node has
-    // processed the sync block, which waits behind it.
+    // processed the sync block.
     let mut catch_up = CatchUpTest::setup();
     let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
     let stale_block = catch_up
@@ -2453,11 +2832,43 @@ fn test_executing_a_caught_up_shard_with_blocks_parked_below_its_sync_block() {
         .test_actor
         .handle_with_internal_events(ProcessedBlock { block_hash: *catch_up.sync_block.hash() });
 
-    // The catchup finishes, and the node processes the next epoch's first block.
+    // The catchup finishes.
     catch_up.finish_catchup();
-    catch_up.test_actor.handle_with_internal_events(ProcessedBlock {
-        block_hash: *catch_up.next_epoch_first_block.hash(),
-    });
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
+
+    // The shard is applied at the block after the sync block.
+    let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();
+    assert!(chunk_store.get_chunk_extra(block.hash(), &catch_up.shard_uid).is_ok());
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_executing_a_shard_caught_up_before_the_final_execution_head_passes_its_sync_block() {
+    // Restarted early in the epoch with changed tracked shards, the node has a block below the sync
+    // block parked, which the shard never applies, and its final execution head is below that
+    // block. While the shard's catchup ran, the node processed the sync block and the block after
+    // it.
+    let mut catch_up = CatchUpTest::setup();
+    let block = catch_up.save_inputs_of_the_block_after_the_sync_block();
+    let chain = &catch_up.test_actor.chain;
+    let stale_block = chain.get_block_header(catch_up.sync_block.header().prev_hash()).unwrap();
+    let final_execution_head = chain.get_block_header(stale_block.prev_hash()).unwrap();
+    let mut store_update = chain.chain_store.store().store_update();
+    store_update
+        .chain_store_update()
+        .set_spice_final_execution_head(&Tip::from_header(&final_execution_head));
+    store_update.commit();
+    catch_up.test_actor.actor.park_block(catch_up.shard_uid, &stale_block);
+    for block_hash in [*catch_up.sync_block.hash(), *block.hash()] {
+        catch_up.test_actor.handle_with_internal_events(ProcessedBlock { block_hash });
+    }
+
+    // The catchup finishes before the final execution head passes the sync block.
+    catch_up.finish_catchup();
+    let final_execution_head =
+        catch_up.test_actor.actor.chain_store.spice_final_execution_head().unwrap();
+    assert!(final_execution_head.height <= catch_up.sync_block.header().height());
+    catch_up.test_actor.handle_with_internal_events(CatchupFinished);
 
     // The shard is applied at the block after the sync block.
     let chunk_store = catch_up.test_actor.actor.chain_store.chunk_store();

@@ -285,6 +285,7 @@ pub enum Parameter {
     MaxTxGas,
     MinTxGas,
     RejectTxCongestionThreshold,
+    MinReceiptCongestionSize,
 
     // Bandwidth scheduler
     MaxShardBandwidth,
@@ -309,7 +310,7 @@ pub enum Parameter {
     /// classical schemes, so this charges its extra cost; the signer pays for
     /// that work as part of buying the transaction. Accepts the
     /// `{gas: ..., compute: ...}` form to set the compute cost independently
-    /// of the gas cost. 0 before `PostQuantumSignatures`.
+    /// of the gas cost.
     #[strum(serialize = "ml_dsa_65_verification_cost")]
     MlDsa65VerificationCost,
 

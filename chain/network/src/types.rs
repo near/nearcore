@@ -325,11 +325,6 @@ pub enum NetworkRequests {
     SpiceContractCodeResponse(AccountId, SpiceContractCodeResponse),
 }
 
-#[derive(Debug, strum::IntoStaticStr)]
-pub enum StateSyncEvent {
-    StatePartReceived(ShardId, StatePartIndex),
-}
-
 /// Combines peer address info, chain.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
@@ -422,7 +417,6 @@ pub struct PeerManagerAdapter {
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub request_with_permit_sender: Sender<NetworkRequestWithPermit>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
-    pub state_sync_event_sender: Sender<StateSyncEvent>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]

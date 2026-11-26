@@ -2,7 +2,7 @@ use crate::PeerManagerActor;
 use crate::network_protocol::PeerInfo;
 use crate::types::{
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
-    StateSyncEvent, Tier3Request,
+    Tier3Request,
 };
 use futures::{Future, FutureExt};
 use near_async::messaging::{AsyncSendError, CanSend, CanSendAsync, Handler};
@@ -23,7 +23,7 @@ pub fn peer_id_from_seed(seed: &str) -> PeerId {
     PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed).public_key())
 }
 
-// `convert_boot_nodes` generate list of `PeerInfos` for unit tests
+// `convert_boot_nodes` generate list of `PeerInfo` for unit tests
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, std::net::SocketAddr)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, addr) in boot_nodes {
@@ -62,13 +62,11 @@ where
     .await
 }
 
-// Gets random PeerId
 pub fn random_peer_id() -> PeerId {
     let sk = SecretKey::from_random(KeyType::ED25519);
     PeerId::new(sk.public_key())
 }
 
-// Gets random EpochId
 pub fn random_epoch_id() -> EpochId {
     EpochId(hash(index_to_bytes(thread_rng().next_u64()).as_ref()))
 }
@@ -170,10 +168,6 @@ impl CanSendAsync<PeerManagerMessageRequest, PeerManagerMessageResponse>
 
 impl CanSend<SetChainInfo> for MockPeerManagerAdapter {
     fn send(&self, _msg: SetChainInfo) {}
-}
-
-impl CanSend<StateSyncEvent> for MockPeerManagerAdapter {
-    fn send(&self, _msg: StateSyncEvent) {}
 }
 
 impl CanSend<Tier3Request> for MockPeerManagerAdapter {

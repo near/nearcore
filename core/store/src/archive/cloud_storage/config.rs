@@ -52,7 +52,6 @@ pub fn test_cloud_archival_config(root_dir: impl Into<PathBuf>) -> CloudArchival
     CloudArchivalConfig { location, credentials_file: None, writer: None, reader: None }
 }
 
-/// Creates a test cloud storage context.
 pub fn test_cloud_storage_context(
     root_dir: impl Into<PathBuf>,
     chain_id: String,
@@ -72,5 +71,5 @@ pub fn create_test_cloud_storage(
     bucket_config: BucketConfig,
 ) -> Arc<CloudStorage> {
     let context = test_cloud_storage_context(root_dir, chain_id);
-    CloudStorageOpener::new(context, bucket_config).open().unwrap()
+    CloudStorageOpener::new(context, bucket_config).open()
 }

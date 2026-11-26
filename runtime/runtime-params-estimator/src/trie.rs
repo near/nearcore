@@ -218,7 +218,7 @@ pub(crate) fn read_trie_node_estimate_by_iteration(
     let start = GasCost::measure(testbed.config.metric);
     {
         let locked_trie = trie.lock_for_iter();
-        let mut iter = locked_trie.iter().expect("Failed to get iterator");
+        let mut iter = locked_trie.iter();
         iter.seek(Bound::Included(&start_account)).expect("Failed to seek");
         iter.take_while(|_| trie.recorded_storage_size() < max_read_bytes).for_each(|_| {});
     }

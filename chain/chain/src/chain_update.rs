@@ -97,7 +97,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Process results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
         block: &Block,
@@ -201,7 +200,7 @@ impl<'a> ChainUpdate<'a> {
     ) {
         self.chain_store_update.save_incoming_receipt(hash, shard_id, receipt_proof);
     }
-    /// This is the last step of process_block_single, where we take the preprocess block info
+    /// This is the last step of block processing, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
     #[tracing::instrument(
         level = "debug",
@@ -322,7 +321,7 @@ impl<'a> ChainUpdate<'a> {
             // On the epoch switch record the epoch light client block
             // Note that we only do it if `res.is_some()`, i.e. if the current block is the head.
             // This is necessary because the computation of the light client block relies on
-            // `ColNextBlockHash`-es populated, and they are only populated for the canonical
+            // `NextBlockHashes` populated, and they are only populated for the canonical
             // chain. We need to be careful to avoid a situation when the first block of the epoch
             // never becomes a tip of the canonical chain.
             // Presently the epoch boundary is defined by the height, and the fork choice rule
@@ -394,7 +393,7 @@ impl<'a> ChainUpdate<'a> {
         if last_final_block_header.height() > final_head.height {
             let tip = Tip::from_header(&last_final_block_header);
             self.record_chunk_certifying_blocks(&last_final_block_header, final_head.height)?;
-            self.chain_store_update.save_final_head(&tip)?;
+            self.chain_store_update.save_final_head(&tip);
             Ok(Some(tip))
         } else {
             Ok(None)
@@ -458,7 +457,7 @@ impl<'a> ChainUpdate<'a> {
         if header.height() > head.height {
             let tip = Tip::from_header(header);
 
-            self.chain_store_update.save_body_head(&tip)?;
+            self.chain_store_update.save_body_head(&tip);
             metrics::BLOCK_HEIGHT_HEAD.set(tip.height as i64);
             metrics::BLOCK_ORDINAL_HEAD.set(header.block_ordinal() as i64);
             let now_ns = time::OffsetDateTime::now_utc().unix_timestamp_nanos();

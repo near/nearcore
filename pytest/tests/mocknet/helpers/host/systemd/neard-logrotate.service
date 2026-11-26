@@ -1,0 +1,6 @@
+[Unit]
+Description=rotate the neard log
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/logrotate -s %h/neard-logs/.logrotate_status %h/.near/forknet/systemd/logrotate.conf

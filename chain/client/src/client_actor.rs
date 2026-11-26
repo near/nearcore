@@ -5,15 +5,14 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! <https://github.com/near/nearcore/issues/7899>
 
-#[cfg(feature = "test_features")]
 pub use crate::chunk_producer::AdvProduceChunksMode;
-#[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
+use crate::spice::chunk_executor_actor::ChunkExecutorSenderForClient;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validation_actor::{
     ChunkValidationActor, ChunkValidationSender,
@@ -37,7 +36,6 @@ use near_async::time::{Clock, Utc};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
 use near_chain::ApplyChunksSpawner;
-#[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
@@ -81,7 +79,6 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, get_protocol_upgrade_schedule};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
-#[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter as _;
 use near_telemetry::TelemetryEvent;
@@ -111,9 +108,9 @@ impl fmt::Display for ShutdownReason {
     }
 }
 
-/// Multiplier on `max_block_time` to wait until deciding that chain stalled.
+/// Multiplier on `max_block_production_delay` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
-/// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
+/// `max_block_production_delay` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
 
@@ -153,7 +150,7 @@ pub struct StartClientResult {
 }
 
 pub struct SpiceClientConfig {
-    pub chunk_executor_sender: Sender<ProcessedBlock>,
+    pub chunk_executor_sender: ChunkExecutorSenderForClient,
     pub spice_chunk_validator_sender: Sender<ProcessedBlock>,
     pub spice_data_distributor_sender: Sender<ProcessedBlock>,
     pub spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -342,7 +339,7 @@ pub struct ClientActor {
 
     /// With spice chunk executor executes chunks asynchronously.
     /// Should be noop sender otherwise.
-    chunk_executor_sender: Sender<ProcessedBlock>,
+    chunk_executor_sender: ChunkExecutorSenderForClient,
 
     /// With spice spice chunk validator validates witnesses for which it
     /// needs to be aware of new blocks.
@@ -432,7 +429,7 @@ impl ClientActor {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
-        chunk_executor_sender: Sender<ProcessedBlock>,
+        chunk_executor_sender: ChunkExecutorSenderForClient,
         spice_chunk_validator_sender: Sender<ProcessedBlock>,
         spice_data_distributor_sender: Sender<ProcessedBlock>,
         spice_core_writer_sender: Sender<ProcessedBlock>,
@@ -487,7 +484,6 @@ impl ClientActor {
     }
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceBlockHeightSelection {
     /// Place the new block on top of the latest known block. Block's height will be the next
@@ -510,7 +506,6 @@ pub enum AdvProduceBlockHeightSelection {
     },
 }
 
-#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
@@ -524,14 +519,12 @@ pub enum NetworkAdversarialMessage {
     AdvCheckStorageConsistency,
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) {
         Handler::<NetworkAdversarialMessage, Option<u64>>::handle(self, msg);
     }
 }
 
-#[cfg(feature = "test_features")]
 impl Handler<NetworkAdversarialMessage, Option<u64>> for ClientActor {
     fn handle(&mut self, msg: NetworkAdversarialMessage) -> Option<u64> {
         match msg {
@@ -1694,11 +1687,11 @@ impl ClientActor {
             // Head hasn't advanced in ~1 epoch: we really are behind (a peer can't
             // fake this), so use the unvalidated claimed heights to decide how far
             // behind we are; the proof and downstream checks re-validate the target.
-            self.sync_requirement_from_claimed_peers(head.clone())?
+            self.sync_requirement_from_claimed_peers(head.clone())
         } else {
             // Head is recent, so we still know the validator set for nearby heights
             // and can verify a peer's advertised height before entering sync.
-            self.sync_requirement_from_verified_peers(head.clone())?
+            self.sync_requirement_from_verified_peers(head.clone())
         };
         // After state sync the verified peer heights sit below the new head, so peers read as
         // level with us. Our own header head is already ahead and no peer can forge it. It
@@ -1765,10 +1758,7 @@ impl ClientActor {
 
     /// Sync decision from unverified advertised heights. Used only once our own
     /// clock already shows we are behind.
-    fn sync_requirement_from_claimed_peers(
-        &self,
-        head: Tip,
-    ) -> Result<SyncRequirement, near_chain::Error> {
+    fn sync_requirement_from_claimed_peers(&self, head: Tip) -> SyncRequirement {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let eligible_peers = self.peers_advertising_above(head.height);
         let now = self.clock.now_utc();
@@ -1777,21 +1767,18 @@ impl ClientActor {
         let Some(peer_info) =
             selector.sync_target_from_claimed_peers(&eligible_peers, trigger_height, now)
         else {
-            return Ok(SyncRequirement::NoPeers);
+            return SyncRequirement::NoPeers;
         };
         let peer_id = peer_info.peer_info.id.clone();
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
         let highest_height = peer_info.highest_block_height.min(shutdown_height);
-        Ok(self.sync_requirement(peer_id, highest_height, head))
+        self.sync_requirement(peer_id, highest_height, head)
     }
 
     /// Sync decision from the SetNetworkInfo heights, each capped by what we proved for
     /// that peer. Their slower push keeps us from syncing over a block we are about to
     /// process.
-    fn sync_requirement_from_verified_peers(
-        &self,
-        head: Tip,
-    ) -> Result<SyncRequirement, near_chain::Error> {
+    fn sync_requirement_from_verified_peers(&self, head: Tip) -> SyncRequirement {
         metrics::PEERS_WITH_INVALID_HASH.set(self.peers_with_invalid_head() as i64);
         let best_peer = self
             .network_info
@@ -1816,11 +1803,11 @@ impl ClientActor {
             .max_by_key(|(_, height, claimed_height)| (*height, *claimed_height));
         let Some((peer_id, height, _)) = best_peer else {
             tracing::debug!(target: "sync", connected_peers = self.network_info.connected_peers.len(), "no eligible peer to sync from");
-            return Ok(SyncRequirement::NoPeers);
+            return SyncRequirement::NoPeers;
         };
         let shutdown_height = self.client.config.expected_shutdown.get().unwrap_or(u64::MAX);
         let highest_height = height.min(shutdown_height);
-        Ok(self.sync_requirement(peer_id, highest_height, head))
+        self.sync_requirement(peer_id, highest_height, head)
     }
 
     fn sync_requirement(
@@ -1866,7 +1853,10 @@ impl ClientActor {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
-            if let Err(err) = self.client.run_catchup(&self.sync_jobs_sender.block_catch_up) {
+            if let Err(err) = self.client.run_catchup(
+                &self.sync_jobs_sender.block_catch_up,
+                &self.chunk_executor_sender.catchup_finished,
+            ) {
                 tracing::error!(target: "client", ?err, "error occurred during catchup for the next epoch");
             }
         }
@@ -2165,7 +2155,6 @@ impl ClientActor {
     ///
     /// The parameter `height_selection` governs the produced blocks' heights and what base block
     /// height they are placed.
-    #[cfg(feature = "test_features")]
     pub fn adv_produce_blocks_on(
         &mut self,
         num_blocks: BlockHeight,

@@ -3,7 +3,6 @@ use crate::archive::cloud_storage::bucket_config::BucketConfig;
 use crate::archive::cloud_storage::config::CloudStorageContext;
 use near_chain_configs::ExternalStorageLocation;
 use near_external_storage::ExternalConnection;
-use std::io::Result;
 use std::sync::Arc;
 
 /// Opener for the external archival storage, which results in an `CloudStorage` instance.
@@ -20,11 +19,11 @@ impl CloudStorageOpener {
         Self { context, bucket_config }
     }
 
-    pub fn open(&self) -> Result<Arc<CloudStorage>> {
+    pub fn open(&self) -> Arc<CloudStorage> {
         let external = self.create_external_connection();
         let chain_id = self.context.chain_id.clone();
         let cloud_storage = CloudStorage::new(external, chain_id, self.bucket_config.clone());
-        Ok(Arc::new(cloud_storage))
+        Arc::new(cloud_storage)
     }
 
     /// Returns `true` if the given storage backend is supported by cloud archival.

@@ -5,13 +5,15 @@ use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageManager;
 use crate::genesis::GenesisStateApplier;
 use crate::{
-    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_height,
-    get_genesis_state_roots, set_genesis_height, set_genesis_state_roots,
+    ShardTries, StateSnapshotConfig, Store, TrieConfig, get_genesis_congestion_infos,
+    get_genesis_height, get_genesis_state_roots, set_genesis_congestion_infos, set_genesis_height,
+    set_genesis_state_roots,
 };
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::chains::{MAINNET, TESTNET};
+use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::{
@@ -70,6 +72,10 @@ pub fn initialize_sharded_genesis_state(
         state_roots
     };
 
+    if let Some(congestion_infos) = genesis.congestion_infos() {
+        initialize_genesis_congestion_infos(&store, &congestion_infos, shard_layout);
+    }
+
     // Some hardcoded checks for mainnet and testnet
     if &genesis.config.chain_id == MAINNET {
         assert_eq!(format!("{state_roots:?}"), "[8EhZRfDTYujfZoUZtZ3eSMB9gJyFo5zjscR12dEcaxGU]");
@@ -104,6 +110,39 @@ fn check_state_roots_match_layout(
         state_roots.len(),
         shard_layout.num_shards(),
     );
+}
+
+/// Saves the congestion infos from the genesis file to the database. The chain
+/// reads them from there when it builds the genesis block. If they are not
+/// there it computes them from the genesis state.
+///
+/// If the database already has them, they must be the same as the ones from
+/// the genesis file.
+fn initialize_genesis_congestion_infos(
+    store: &Store,
+    congestion_infos: &[CongestionInfo],
+    shard_layout: &ShardLayout,
+) {
+    assert_eq!(
+        congestion_infos.len(),
+        shard_layout.num_shards() as usize,
+        "genesis has {} congestion infos but the genesis shard layout has {} shards",
+        congestion_infos.len(),
+        shard_layout.num_shards(),
+    );
+
+    if let Some(stored_congestion_infos) = get_genesis_congestion_infos(store) {
+        assert_eq!(
+            stored_congestion_infos, congestion_infos,
+            "genesis congestion infos in the database are different from the ones in the genesis \
+             file. The database was created with a different genesis."
+        );
+        return;
+    }
+
+    let mut store_update = store.store_update();
+    set_genesis_congestion_infos(&mut store_update, congestion_infos);
+    store_update.commit();
 }
 
 pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
@@ -146,7 +185,7 @@ fn genesis_state_from_genesis(
                 message="computing state roots from records",
             )
         }
-        GenesisContents::StateRoots { state_roots } => {
+        GenesisContents::StateRoots { state_roots, .. } => {
             return state_roots.clone();
         }
     }
@@ -234,6 +273,7 @@ mod tests {
             config,
             contents: GenesisContents::StateRoots {
                 state_roots: (0..num_roots).map(|i| CryptoHash::hash_bytes(&[i as u8])).collect(),
+                congestion_infos: None,
             },
         }
     }

@@ -82,7 +82,6 @@ pub(crate) fn get_yield_data_ids_in_latest_state(env: &TestLoopEnv) -> Vec<Crypt
     get_yield_data_ids_in_state(client, latest_state_root, shard_uid)
 }
 
-/// Get the latest available state root.
 fn get_latest_state_state_root(
     client: &Client,
     latest_block_hash: CryptoHash,
@@ -115,7 +114,7 @@ fn get_yield_data_ids_in_state(
     let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
     let trie = Trie::new(trie_storage, state_root, None);
     let locked_trie = trie.lock_for_iter();
-    let mut iter = locked_trie.iter().unwrap();
+    let mut iter = locked_trie.iter();
     iter.seek_prefix(&[col::PROMISE_YIELD_RECEIPT]).unwrap();
 
     let mut result = vec![];
@@ -144,7 +143,7 @@ fn get_promise_yield_statuses_in_state(
     let trie_storage = Arc::new(TrieDBStorage::new(store.trie_store(), shard_uid));
     let trie = Trie::new(trie_storage, state_root, None);
     let locked_trie = trie.lock_for_iter();
-    let mut iter = locked_trie.iter().unwrap();
+    let mut iter = locked_trie.iter();
     iter.seek_prefix(&[col::PROMISE_YIELD_STATUS]).unwrap();
 
     let mut result = vec![];

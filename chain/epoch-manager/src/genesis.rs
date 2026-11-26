@@ -80,7 +80,7 @@ impl EpochManager {
         }
     }
 
-    /// This code is a simplified copy of `old_validator_selection::proposals_to_epoch_info`
+    /// This code is a simplified copy of the original validator selection.
     /// The epoch_info returned by this function is very specific to testnet and mainnet and should
     /// not be used for other scenarios.
     ///

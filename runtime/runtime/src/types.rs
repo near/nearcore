@@ -15,8 +15,7 @@ pub struct SignedValidPeriodTransactions {
     ///
     /// Transactions for which a `false` is stored here must be ignored/dropped/skipped.
     ///
-    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
-    /// enabled.
+    /// All elements are true unless a transaction failed the validity check.
     transaction_validity_check_passed: Vec<bool>,
 }
 

@@ -682,6 +682,15 @@ pub enum ProtocolVersionCheckConfig {
     NextNext,
 }
 
+/// Adversarial behavior of the node. Do not enable in production.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AdversarialMode {
+    /// No adversarial behavior. The `adv_*` RPC methods are rejected.
+    None,
+    /// The `adv_*` RPC methods are accepted.
+    Rpc,
+}
+
 /// ClientConfig where some fields can be updated at runtime.
 #[derive(Clone, serde::Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

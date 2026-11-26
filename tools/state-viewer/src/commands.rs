@@ -769,7 +769,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let trie =
             runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
-        for item in trie.disk_iter().unwrap() {
+        for item in trie.disk_iter() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(&key, value) {
                 println!("{}", state_record);
@@ -1057,8 +1057,7 @@ pub(crate) fn print_epoch_analysis(
             );
             // Start from empty assignment for correct number of shards.
             *next_epoch_info.chunk_producers_settlement_mut() = vec![vec![]; num_shards];
-            // This in fact sets maximal number of all validators to 100 for
-            // `StatelessValidationV0`.
+            // This in fact sets maximal number of all validators to 100.
             // Needed because otherwise generation fails at epoch 1327 with
             // assertion `stake < threshold` in
             // chain/epoch-manager/src/validator_selection.rs:227:13.
@@ -1236,7 +1235,7 @@ pub(crate) fn view_trie(
     record_type: Option<u8>,
     from: Option<AccountId>,
     to: Option<AccountId>,
-) -> anyhow::Result<()> {
+) {
     let trie = get_trie(store, hash, shard_id, shard_version);
     trie.print_recursive(
         &mut std::io::stdout().lock(),
@@ -1247,7 +1246,6 @@ pub(crate) fn view_trie(
         &from.as_ref(),
         &to.as_ref(),
     );
-    Ok(())
 }
 
 pub(crate) fn view_trie_leaves(
@@ -1260,7 +1258,7 @@ pub(crate) fn view_trie_leaves(
     record_type: Option<u8>,
     from: Option<AccountId>,
     to: Option<AccountId>,
-) -> anyhow::Result<()> {
+) {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
     trie.print_recursive_leaves(
         &mut std::io::stdout().lock(),
@@ -1270,7 +1268,6 @@ pub(crate) fn view_trie_leaves(
         &from.as_ref(),
         &to.as_ref(),
     );
-    Ok(())
 }
 
 fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
