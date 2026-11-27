@@ -91,8 +91,8 @@ use_account(&*arc_account);
 **Rationale:** Both compile to the same thing, but `as_ref()` makes the intent
 explicit and reads more cleanly. This is a deliberate exception to
 [Avoid `AsRef::as_ref`](#avoid-asrefas_ref) — `Arc` (and `Rc`/`Box`) implement
-`AsRef<T>` only for their pointee `T`, so the ambiguity that motivates that
-rule does not arise here.
+`AsRef<T>` only for their inner value `T`, so the ambiguity that motivates
+that rule does not arise here.
 
 ### Avoid `AsRef::as_ref`
 
@@ -115,7 +115,7 @@ fn log_validator(account_id: AccountId) {
 ```
 
 Note that `Option::as_ref`, `Result::as_ref` are great, do use them! The same
-applies to `Arc::as_ref` (and `Rc`/`Box`) when borrowing the pointee — see
+applies to `Arc::as_ref` (and `Rc`/`Box`) when borrowing the inner value — see
 [Borrow `Arc` with `as_ref`](#borrow-arc-with-as_ref).
 
 **Rationale:** Readability and churn-resistance. There might be more than one
