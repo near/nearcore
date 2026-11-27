@@ -764,6 +764,11 @@ impl PeerActor {
             tier3_requester: tier == tcp::Tier::T3
                 && self.peer_type == PeerType::Inbound
                 && !self.network_state.pending_tier3_requests.contains_key(&peer_info.id),
+            // The owned account was verified above.
+            validator: handshake
+                .owned_account
+                .as_ref()
+                .is_some_and(|account| self.network_state.is_validator_key(&account.account_key)),
             stats: self.stats.clone(),
             _peer_connections_metric: peer_connections_metric,
             last_time_peer_requested: AtomicCell::new(None),

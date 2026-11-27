@@ -7,6 +7,7 @@
 ### Non-protocol Changes
 
 * Raised the minimum supported Rust version to 1.100.0. Building `nearcore` from source now requires a Rust 1.100.0 toolchain.
+* A node reserves some of its inbound Tier 3 connection capacity for validators. `network.inbound_tier3_connections_reserved_for_validators` defaults to a quarter of `network.max_inbound_tier3_connections`.
 
 ## [2.15.0]
 

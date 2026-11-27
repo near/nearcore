@@ -53,6 +53,7 @@ use forwarded_txs::ForwardedTxCounters;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, CanSendAsync, Sender};
 use near_async::{new_owned_future_spawner, time};
+use near_crypto::PublicKey;
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -411,6 +412,12 @@ impl NetworkState {
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
 
+    /// Whether `key` is the account key of a validator of the current or the next epoch, as known
+    /// to this node.
+    pub(crate) fn is_validator_key(&self, key: &PublicKey) -> bool {
+        self.accounts_data.load().keys.contains(key)
+    }
+
     /// predicate checking whether we should allow an inbound connection from peer_info.
     fn is_inbound_allowed(&self, peer_info: &PeerInfo, transport: &dyn NetworkTransport) -> bool {
         // Check if we have spare inbound connections capacity.
@@ -456,7 +463,7 @@ impl NetworkState {
                     // Allow for inbound TIER1 connections only directly from a TIER1 peers.
                     let owned_account =
                         info.owned_account.as_ref().ok_or(RegisterPeerError::NotTier1Peer)?;
-                    if !self.accounts_data.load().keys.contains(&owned_account.account_key) {
+                    if !self.is_validator_key(&owned_account.account_key) {
                         return Err(RegisterPeerError::NotTier1Peer);
                     }
                 }

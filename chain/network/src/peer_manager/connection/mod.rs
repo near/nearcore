@@ -111,9 +111,12 @@ pub(crate) struct Connection {
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
     /// Whether this is an inbound Tier3 connection from a peer requesting state from us,
-    /// rather than from a host answering our own state requests. The pool accepts at most
-    /// `NetworkConfig::max_inbound_tier3_connections` such connections.
+    /// rather than from a host answering our own state requests. The pool accepts such
+    /// connections within a `Tier3RequesterLimit`.
     pub tier3_requester: bool,
+    /// Whether the peer proved in its handshake that it owns the account key of a validator,
+    /// see `NetworkState::is_validator_key`. Set once, when the connection is created.
+    pub validator: bool,
     /// Time where the connection was established.
     pub established_time: time::Instant,
 
@@ -254,6 +257,16 @@ pub(crate) enum PoolError {
     TooManyTier3Requesters,
 }
 
+/// Limit on the inbound Tier3 connections from peers requesting state from us.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Tier3RequesterLimit {
+    /// Maximum number of such connections.
+    pub max: usize,
+    /// Number of connections which only validators may take. Validators may also take any of the
+    /// other connections, while the rest of the peers are limited to `max - reserved_for_validators`.
+    pub reserved_for_validators: usize,
+}
+
 impl Pool {
     pub fn new(me: PeerId) -> Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
@@ -269,12 +282,12 @@ impl Pool {
         self.0.load()
     }
 
-    /// Inserts a connection which completed its handshake. If `max_tier3_requesters` is set,
-    /// at most that many connections with `tier3_requester` set are accepted.
+    /// Inserts a connection which completed its handshake. If `tier3_requester_limit` is set, the
+    /// connections with `tier3_requester` set are accepted within that limit.
     pub fn insert_ready(
         &self,
         peer: Arc<Connection>,
-        max_tier3_requesters: Option<usize>,
+        tier3_requester_limit: Option<Tier3RequesterLimit>,
     ) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
             let id = peer.peer_info.id.clone();
@@ -316,10 +329,20 @@ impl Pool {
                 }
             }
             if peer.tier3_requester
-                && let Some(max) = max_tier3_requesters
-                && pool.ready.values().filter(|conn| conn.tier3_requester).count() >= max
+                && let Some(limit) = tier3_requester_limit
             {
-                return Err(PoolError::TooManyTier3Requesters);
+                let requesters = pool.ready.values().filter(|conn| conn.tier3_requester).count();
+                let non_validator_requesters = pool
+                    .ready
+                    .values()
+                    .filter(|conn| conn.tier3_requester && !conn.validator)
+                    .count();
+                let max_non_validators = limit.max.saturating_sub(limit.reserved_for_validators);
+                if requesters >= limit.max
+                    || (!peer.validator && non_validator_requesters >= max_non_validators)
+                {
+                    return Err(PoolError::TooManyTier3Requesters);
+                }
             }
             if pool.ready.insert(id.clone(), peer.clone()).is_some() {
                 return Err(PoolError::AlreadyConnected);

@@ -94,14 +94,21 @@ impl TcpTransport {
         tier: tcp::Tier,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
-        let (pool, max_tier3_requesters) = match tier {
+        let (pool, tier3_requester_limit) = match tier {
             tcp::Tier::T1 => (&self.tier1, None),
             tcp::Tier::T2 => (&self.tier2, None),
             tcp::Tier::T3 => {
-                (&self.tier3, Some(self.state.config.max_inbound_tier3_connections as usize))
+                let config = &self.state.config;
+                let limit = connection::Tier3RequesterLimit {
+                    max: config.max_inbound_tier3_connections as usize,
+                    reserved_for_validators: config
+                        .inbound_tier3_connections_reserved_for_validators
+                        as usize,
+                };
+                (&self.tier3, Some(limit))
             }
         };
-        pool.insert_ready(conn, max_tier3_requesters).map_err(RegisterPeerError::PoolError)
+        pool.insert_ready(conn, tier3_requester_limit).map_err(RegisterPeerError::PoolError)
     }
 
     /// Remove a connection from the tier's Pool.
