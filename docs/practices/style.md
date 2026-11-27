@@ -578,8 +578,9 @@ development and test nodes.
   network level, such as producing a block or a chunk, or validating a state
   witness. Anything related to the node's routine participation in the network
   (steady-state operation, keeping up with chain head, housekeeping, etc.) does
-  not belong here and should be logged at `TRACE` instead. Example of a
-  legitimate `DEBUG` event: receiving an invalid or irrelevant state witness.
+  not belong here and should be logged at `TRACE` instead. Examples of
+  legitimate `DEBUG` events: receiving an invalid or irrelevant state witness,
+  rejecting a block as invalid.
 - `INFO` — significant state changes that indicate the node is operating
   normally and are useful to validators. Examples: node started state sync, node
   fell out of sync.
