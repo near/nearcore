@@ -4,7 +4,6 @@
 //! restarted keeps its rules, and a node added later is covered by the rules added for its
 //! account before.
 
-use super::drop_condition::TestLoopChunksStorage;
 use super::peer_manager_actor::{DeferredNetworkRequest, TestLoopPeerManagerActor};
 use super::state::SharedState;
 use near_async::messaging::CanSend as _;
@@ -12,7 +11,6 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_network::types::NetworkRequests;
 use near_primitives::block_header::ApprovalInner;
-use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -33,33 +31,6 @@ impl NetworkRequestsMatcher {
 
     pub fn matches(&self, request: &NetworkRequests) -> bool {
         (self.0)(request)
-    }
-
-    /// Matches every message that carries parts of a chunk `selects`: the parts a producer
-    /// pushes, the parts owners forward, and the request and response pair a node falls back
-    /// to.
-    pub fn chunk_parts(
-        chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-        selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
-    ) -> Self {
-        Self::new(move |request| {
-            let by_hash = |hash| chunks_storage.lock().get(hash).is_some_and(&selects);
-            match request {
-                NetworkRequests::PartialEncodedChunkMessage { partial_encoded_chunk, .. } => {
-                    selects(&partial_encoded_chunk.header)
-                }
-                NetworkRequests::PartialEncodedChunkForward { forward, .. } => {
-                    by_hash(&forward.chunk_hash)
-                }
-                NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
-                    by_hash(&request.chunk_hash)
-                }
-                NetworkRequests::PartialEncodedChunkResponse { response, .. } => {
-                    by_hash(&response.chunk_hash)
-                }
-                _ => false,
-            }
-        })
     }
 }
 
@@ -149,26 +120,15 @@ impl<'a> TestLoopNodeNetwork<'a> {
         self.shared_state.network_rules.add(self.account_id.clone(), matches, action)
     }
 
-    /// [`Self::add_rule`] on the messages that carry the parts of the chunks `selects`. See
-    /// [`NetworkRequestsMatcher::chunk_parts`].
-    pub fn add_chunk_parts_rule(
-        &self,
-        selects: impl Fn(&ShardChunkHeader) -> bool + Send + Sync + 'static,
-        action: Action,
-    ) -> RuleHandle {
-        let matches =
-            NetworkRequestsMatcher::chunk_parts(self.shared_state.chunks_storage.clone(), selects);
-        self.add_rule(matches, action)
-    }
-
-    /// From now on `observe` reports every request the node sends that `matches`, as the node
-    /// sent it, ahead of the node's rules.
+    /// [`Self::add_rule`] with [`Action::Observe`]: from now on `observe` reports every
+    /// request the node sends that `matches` and the rules added before let through. Added
+    /// before any other rule, it sees every request the node sends.
     pub fn observe_messages(
         &self,
         matches: NetworkRequestsMatcher,
         observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
     ) -> RuleHandle {
-        self.shared_state.network_rules.observe_first(self.account_id.clone(), matches, observe)
+        self.add_rule(matches, Action::Observe(Box::new(observe)))
     }
 
     /// From now on the node drops every request it sends that `matches`.
@@ -183,8 +143,6 @@ pub struct NetworkRules(Arc<Mutex<Inner>>);
 
 #[derive(Default)]
 struct Inner {
-    /// The observers added by [`NetworkRules::observe_first`], which run before `rules`.
-    first_observers: Vec<Arc<Rule>>,
     rules: Vec<Arc<Rule>>,
     /// Per account, the requests its hold rules keep, oldest first, each with the rule holding it.
     held: HashMap<AccountId, Vec<(Arc<Rule>, NetworkRequests)>>,
@@ -224,27 +182,6 @@ impl NetworkRules {
         action: Action,
     ) -> RuleHandle {
         self.add_rule(account_id, Some(tag), matches, action)
-    }
-
-    /// Adds an observer of the outgoing requests of `account_id` ahead of the account's
-    /// rules, so it reports every request as the node sent it, before any rule has its
-    /// say. Such observers run in the order they were added.
-    pub fn observe_first(
-        &self,
-        account_id: AccountId,
-        matches: NetworkRequestsMatcher,
-        observe: impl Fn(&NetworkRequests) + Send + Sync + 'static,
-    ) -> RuleHandle {
-        let state = Arc::new(RuleState::default());
-        let rule = Rule {
-            account_id,
-            tag: None,
-            matches: matches,
-            action: Action::Observe(Box::new(observe)),
-            state: state.clone(),
-        };
-        self.0.lock().first_observers.push(Arc::new(rule));
-        RuleHandle(state)
     }
 
     /// [`Self::add`] under an existing handle, which the new rule shares with the rules added
@@ -317,13 +254,7 @@ impl NetworkRules {
         let released_held = self.note_sent(account_id, &request);
         let rules: Vec<Arc<Rule>> = {
             let inner = self.0.lock();
-            inner
-                .first_observers
-                .iter()
-                .chain(&inner.rules)
-                .filter(|rule| &rule.account_id == account_id)
-                .cloned()
-                .collect()
+            inner.rules.iter().filter(|rule| &rule.account_id == account_id).cloned().collect()
         };
         for rule in rules {
             if rule.lifted() || !rule.matches.matches(&request) {

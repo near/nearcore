@@ -191,10 +191,9 @@ env.node_network(1).add_rule(
 ```
 
 - Rules run in the order they were added. A delayed or held request skips the rules after
-  the one that delayed it; `observe_messages` sees requests before any rule does.
+  the one that delayed it. Add an observer first to see everything a node sends.
 - Dropping a block broadcast does not keep the block from the network: peers can still
   fetch it by hash. A test that needs it unfetchable also drops the `BlockRequest`s for it.
-- `add_chunk_parts_rule` (built on `NetworkRequestsMatcher::chunk_parts`) matches every message that carries a chunk's parts.
 - To withhold a block from one recipient only, use `withhold_block_delivery` /
   `deliver_withheld_blocks` on `env.shared_state.network_shared_state`.
 - `register_override_handler` is still available for tests that deliver messages
