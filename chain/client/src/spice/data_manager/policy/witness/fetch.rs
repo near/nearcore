@@ -1,7 +1,5 @@
 use crate::spice::data_manager::DataId;
-use near_chain::spice::all_stake_fallback::{
-    SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_eligible, is_fallback_only_chunk,
-};
+use near_chain::spice::all_stake_fallback::{fallback_eligible, is_fallback_only_chunk};
 use near_chain::spice::chunk_application::shards_applied_itself;
 use near_chain::spice::core::{get_last_certified_block_header, get_uncertified_chunks};
 use near_chain::{Block, Error};
@@ -11,12 +9,13 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::EpochError;
 use near_primitives::types::{AccountId, BlockHeight, SpiceChunkId};
 use near_primitives::utils::{get_endorsements_key, get_execution_results_key};
+use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store};
 use std::sync::Arc;
 
-/// Blocks before a chunk can first become fallback-eligible from which the epoch's other
-/// validators track its witness.
+/// Blocks before a chunk becomes fallback-eligible from which the epoch's other validators track
+/// its witness, so a fallback push that arrives before this node sees the fallback open is kept.
 pub(crate) const FALLBACK_TRACKING_LOOKAHEAD: BlockHeight = 2;
 
 /// The witnesses of `block` that `me` validates without applying the chunk itself: as a
@@ -51,48 +50,45 @@ pub(crate) fn needed_items(
     Ok(ids)
 }
 
-/// Blocks after a chunk's own block at which the epoch's other validators start tracking its
-/// witness: the earliest the chunk can come within `FALLBACK_TRACKING_LOOKAHEAD` blocks of the
-/// all-stake fallback, so a fallback push that arrives before this node sees the fallback open is
-/// kept.
-pub(crate) const FALLBACK_TRACKING_DELAY: BlockHeight =
-    SPICE_FALLBACK_CERTIFICATION_DELAY - FALLBACK_TRACKING_LOOKAHEAD;
-
-/// The witnesses of `block` that `me` tracks as a validator of its epoch neither designated for
-/// the chunk nor applying it, skipping chunks the fallback alone certifies (tracked from their
-/// own block) and chunks already certified. None without an account.
-pub(crate) fn fallback_items(
-    store: &Store,
+/// The witnesses `me` starts tracking at `block` as a validator of their epoch: each chunk
+/// uncertified as of `block`'s parent that is fallback-eligible within
+/// `FALLBACK_TRACKING_LOOKAHEAD` blocks of the block after `block`, with its block's header. Skips
+/// the chunks `me` applies itself and those with a stored execution result. None without an
+/// account.
+pub(crate) fn nearing_fallback(
+    chain_store: &ChainStoreAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
     me: Option<&AccountId>,
-    block: &BlockHeader,
-) -> Result<Vec<DataId>, Error> {
+    block: &Block,
+) -> Result<Vec<(Arc<BlockHeader>, DataId)>, Error> {
     let Some(me) = me else {
         return Ok(Vec::new());
     };
-    if !is_epoch_validator(epoch_manager, me, block)? {
-        return Ok(Vec::new());
-    }
-    let applied_itself = shards_applied_itself(shard_tracker, epoch_manager, block)?;
-    let shard_layout = epoch_manager.get_shard_layout(block.epoch_id())?;
-    let mut ids = Vec::new();
-    for shard_id in shard_layout.shard_ids() {
-        if applied_itself.contains(&shard_id)
-            || is_fallback_only_chunk(epoch_manager, block, shard_id)?
-            || epoch_manager
-                .get_chunk_validator_assignments(block.epoch_id(), shard_id, block.height())?
-                .contains(me)
+    let carrying_height = block.header().height() + 1 + FALLBACK_TRACKING_LOOKAHEAD;
+    let mut items = Vec::new();
+    for chunk_info in get_uncertified_chunks(chain_store, block.header().prev_hash())? {
+        let chunk_id = &chunk_info.chunk_id;
+        // A missing header means a store fault; skip the chunk and log it.
+        let Some(header) = chain_store.get_block_header_if_exists(&chunk_id.block_hash) else {
+            tracing::error!(target: "spice_data_distribution", ?chunk_id, "uncertified chunk's block header is missing");
+            continue;
+        };
+        let certified = chain_store.store().exists(
+            DBCol::execution_results(),
+            &get_execution_results_key(&chunk_id.block_hash, chunk_id.shard_id),
+        );
+        if certified
+            || !fallback_eligible(epoch_manager, &header, &chunk_info, carrying_height)?
+            || !is_epoch_validator(epoch_manager, me, &header)?
+            || shards_applied_itself(shard_tracker, epoch_manager, &header)?
+                .contains(&chunk_id.shard_id)
         {
             continue;
         }
-        let certified = store
-            .exists(DBCol::execution_results(), &get_execution_results_key(block.hash(), shard_id));
-        if !certified {
-            ids.push(DataId::Witness(SpiceChunkId { block_hash: *block.hash(), shard_id }));
-        }
+        items.push((header, DataId::Witness(chunk_info.chunk_id)));
     }
-    Ok(ids)
+    Ok(items)
 }
 
 /// Whether `me` is a validator of `block`'s epoch.

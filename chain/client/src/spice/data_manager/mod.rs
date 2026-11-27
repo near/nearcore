@@ -42,7 +42,8 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use orphans::ParkedParts;
 pub(crate) use policy::ServePolicies;
-pub(crate) use policy::witness::FALLBACK_TRACKING_DELAY;
+#[cfg(test)]
+pub(crate) use policy::witness::FALLBACK_TRACKING_LOOKAHEAD;
 use policy::{receipt_proof, witness};
 use pull::Pulls;
 pub(crate) use pull::{Config as PullConfig, PullRequest};
@@ -271,62 +272,32 @@ impl SpiceDataManager {
         Ok(self.release_parked(block.header()))
     }
 
-    /// Opens the tracked items `block` makes pullable and drops the witnesses of the chunks it
+    /// Opens the tracked items `block` makes pullable and marks done the witnesses of the chunks it
     /// certifies.
     fn apply_core_statements(&mut self, block: &Block) -> Result<(), Error> {
         self.mark_pullable_by(block)?;
         for id in witness::certified_by(block) {
-            self.remove_item(&id);
+            self.mark_done(&id);
         }
         Ok(())
     }
 
-    /// Starts tracking the items pushed to this node from `block`, and the witnesses this node
-    /// validates only through the all-stake fallback of each block `FALLBACK_TRACKING_DELAY`
-    /// below a height `block` newly reaches.
+    /// Starts tracking the items pushed to this node from `block`, and the witnesses of earlier
+    /// chunks whose fallback push to this node `block` brings near.
     fn track_needed_items(&mut self, block: &Block) -> Result<(), Error> {
-        let header = block.header();
-        let ids = self.needed_items(header)?;
-        self.track_pushed(header, ids)?;
-        // The other validators' witnesses of a block are tracked once the highest processed
-        // height reaches the block's height plus `FALLBACK_TRACKING_DELAY`: here for a block
-        // processed after that, otherwise when a later block reaches it.
-        if self.heights.processed_at_or_above(header.height() + FALLBACK_TRACKING_DELAY) {
-            self.track_fallback_items(header)?;
-        }
-        let Some(reached) = self.heights.update_highest_processed(header.height()) else {
-            return Ok(());
-        };
-        for height in reached {
-            let Some(chunk_height) = height.checked_sub(FALLBACK_TRACKING_DELAY) else {
-                continue;
-            };
-            let blocks: Vec<CryptoHash> = self
-                .processed_blocks
-                .iter()
-                .filter(|(_, block_height)| **block_height == chunk_height)
-                .map(|(block_hash, _)| *block_hash)
-                .collect();
-            for block_hash in blocks {
-                let header = self.chain_store.get_block_header(&block_hash)?;
-                self.track_fallback_items(&header)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Starts tracking the witnesses of `block` this node validates only through the all-stake
-    /// fallback.
-    fn track_fallback_items(&mut self, block: &BlockHeader) -> Result<(), Error> {
+        let ids = self.needed_items(block.header())?;
+        self.track_pushed(block.header(), ids)?;
         let me = self.me();
-        let ids = witness::fallback_items(
-            &self.chain_store.store(),
+        for (header, id) in witness::nearing_fallback(
+            &self.chain_store,
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
             me.as_ref(),
             block,
-        )?;
-        self.track_pushed(block, ids)
+        )? {
+            self.track_pushed(&header, vec![id])?;
+        }
+        Ok(())
     }
 
     /// Starts tracking each of `ids`, pushed to this node from `block`, that it doesn't already have
@@ -610,14 +581,20 @@ impl SpiceDataManager {
     }
 
     /// Removes the items at heights newly at or below the final head at `final_height` that are
-    /// off the canonical chain, which can never be applied, and every done item at or below it. A
-    /// done item is kept only to settle late parts, and the head of the shard it goes to need not
-    /// pass it: the shard may stop being applied.
+    /// off the canonical chain, which can never be applied, and every done receipt proof at or
+    /// below it. A done receipt proof is kept only to settle late parts, and the head of the shard
+    /// it goes to need not pass it: the shard may stop being applied. A done witness stays until
+    /// it expires: a fork above the final head can still list its chunk as uncertified.
     fn on_final_head(&mut self, final_height: BlockHeight) {
         let Some(from) = self.heights.update_final_head(final_height) else {
             return;
         };
-        let mut removed: Vec<DataId> = self.items.done_ids_in(..=final_height).cloned().collect();
+        let mut removed: Vec<DataId> = self
+            .items
+            .done_ids_in(..=final_height)
+            .filter(|id| matches!(id, DataId::ReceiptProof(_)))
+            .cloned()
+            .collect();
         for height in self.items.heights_in((from, Bound::Included(final_height))) {
             let canonical = match self.canonical_block_hash(height) {
                 Ok(canonical) => canonical,
@@ -652,11 +629,20 @@ impl SpiceDataManager {
         let done: Vec<DataId> =
             self.delivered_items.iter().filter(|id| self.is_done(id)).cloned().collect();
         for id in done {
-            self.delivered_items.remove(&id);
-            self.items.stop_pulling(&id);
-            self.pulls.forget_requests(&id);
-            self.items.mark_done(&id);
+            self.mark_done(&id);
         }
+    }
+
+    /// Stops pulling the tracked item `id` and settles its later parts; does nothing for an
+    /// untracked one.
+    fn mark_done(&mut self, id: &DataId) {
+        if !self.items.contains(id) {
+            return;
+        }
+        self.delivered_items.remove(id);
+        self.items.stop_pulling(id);
+        self.pulls.forget_requests(id);
+        self.items.mark_done(id);
     }
 
     fn remove_item(&mut self, id: &DataId) {

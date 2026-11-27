@@ -170,11 +170,23 @@ impl TestManager {
     }
 
     /// Removes `chunk_ids` from the stored uncertified chunks of the canonical blocks at `heights`.
-    /// The column is written once, so each row is deleted before it is rewritten.
     fn drop_uncertified_chunks(
         &self,
         heights: RangeInclusive<BlockHeight>,
         chunk_ids: &[SpiceChunkId],
+    ) {
+        self.edit_uncertified_chunks(heights, |_, row| {
+            row.retain(|info| !chunk_ids.contains(&info.chunk_id))
+        });
+    }
+
+    /// Rewrites the stored uncertified chunks of the canonical blocks at `heights` with `edit`,
+    /// given each block's height. The column is written once, so each row is deleted before it is
+    /// rewritten.
+    fn edit_uncertified_chunks(
+        &self,
+        heights: RangeInclusive<BlockHeight>,
+        edit: impl Fn(BlockHeight, &mut Vec<SpiceUncertifiedChunkInfo>),
     ) {
         let chain_store = self.store.chain_store();
         let col = DBCol::uncertified_chunks();
@@ -188,7 +200,7 @@ impl TestManager {
             else {
                 continue;
             };
-            row.retain(|info| !chunk_ids.contains(&info.chunk_id));
+            edit(height, &mut row);
             rows.push((block_hash, row));
         }
         let mut deletes = self.store.store_update();

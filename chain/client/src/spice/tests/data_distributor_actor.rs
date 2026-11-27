@@ -7,7 +7,7 @@ use crate::spice::data_distributor_actor::{
     SpiceDistributorOutgoingReceipts, SpiceDistributorStateWitness, SpiceReceiptProofNeeds,
 };
 use crate::spice::data_manager::{
-    AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, FALLBACK_TRACKING_DELAY,
+    AssembledDataError, CheckedDataRequest, DATA_PARTS_RATIO, DataId, FALLBACK_TRACKING_LOOKAHEAD,
     SenderFault,
 };
 use crate::spice::tests::{
@@ -3725,42 +3725,23 @@ fn test_pushed_fallback_only_witness_waits_for_its_block_to_arrive() {
     assert_eq!(witnesses.iter().map(|witness| witness.chunk_id()).collect_vec(), vec![&chunk_id]);
 }
 
-/// Grows the chain until its head is `blocks_short` blocks below the height at which validators
-/// outside the designated set start tracking the witness of the shard's oldest uncertified chunk,
-/// and returns that chunk.
-fn grow_chain_toward_fallback_tracking(
-    chain: &mut Chain,
-    shard_id: ShardId,
+/// A validator outside the chunk's designated set starts the actor once the fallback is
+/// `blocks_short` blocks from opening, receives a fallback push of the chunk's witness, and returns
+/// the witnesses it delivered. With `certified_on_another_fork`, the chunk's execution result is
+/// stored first, as when a block on another fork certified it.
+fn deliver_fallback_push_short_of_opening(
     blocks_short: BlockHeight,
-) -> SpiceChunkId {
-    let head = chain.chain_store.head().unwrap();
-    let chunk_id = chain
-        .spice_core_reader
-        .get_uncertified_chunks(&head.last_block_hash)
-        .unwrap()
-        .into_iter()
-        .find(|chunk_info| chunk_info.chunk_id.shard_id == shard_id)
-        .expect("no uncertified chunk for the shard")
-        .chunk_id;
-    let chunk_height = chain.chain_store.get_block_header(&chunk_id.block_hash).unwrap().height();
-    while chain.chain_store.head().unwrap().height + blocks_short
-        < chunk_height + FALLBACK_TRACKING_DELAY
-    {
-        produce_block(chain, &latest_block(chain));
-    }
-    chunk_id
-}
-
-/// A validator outside the chunk's designated set starts the actor with the head `blocks_short`
-/// blocks below the chunk's fallback tracking height, receives a fallback push of the chunk's
-/// witness, and returns the witnesses it delivered.
-fn deliver_fallback_push_short_of_tracking(blocks_short: BlockHeight) -> Vec<SpiceChunkId> {
+    certified_on_another_fork: bool,
+) -> Vec<SpiceChunkId> {
     // More validators than mandates per shard, so some are outside every chunk's designated set.
     let (_genesis, mut chain) = setup(2, 100);
     let shard_id = witness_shard_id(&latest_block(&chain));
-    let chunk_id = grow_chain_toward_fallback_tracking(&mut chain, shard_id, blocks_short);
+    let chunk_id = grow_chain_toward_fallback_opening(&mut chain, shard_id, blocks_short);
     let data = pushed_witness_data(&chain, &chunk_id);
     let validator = fallback_witness_recipient(&chain, &chunk_id);
+    if certified_on_another_fork {
+        save_execution_result(&chain, &chunk_id);
+    }
 
     let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
     let mut actor = new_actor_for_account(outgoing_sc, &chain, &validator);
@@ -3775,23 +3756,30 @@ fn deliver_fallback_push_short_of_tracking(blocks_short: BlockHeight) -> Vec<Spi
         .collect()
 }
 
-/// A validator outside the designated set tracks an uncertified chunk's witness once the chain
-/// reaches the chunk's height plus `FALLBACK_TRACKING_DELAY`, before the fallback can open, so a
-/// fallback push is delivered even before the receiver sees the fallback open.
+/// A validator outside the designated set tracks a chunk's witness from a few blocks before the
+/// fallback opens, so a fallback push is delivered even before the receiver sees it open.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_pushed_fallback_witness_is_delivered_from_the_fallback_tracking_height() {
-    let delivered = deliver_fallback_push_short_of_tracking(0);
+fn test_pushed_fallback_witness_is_delivered_within_the_lookahead_of_the_fallback_opening() {
+    let delivered = deliver_fallback_push_short_of_opening(FALLBACK_TRACKING_LOOKAHEAD, false);
     assert_eq!(delivered.len(), 1);
 }
 
-/// Below the fallback tracking height, a validator outside the designated set does not want the
-/// witness, so a producer cannot make it validate one.
+/// A chunk certified on another fork has a stored execution result. A validator outside the
+/// designated set does not track its witness again as the fallback nears on this fork.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn test_pushed_witness_is_not_delivered_to_a_non_designated_validator_below_the_fallback_tracking_height()
- {
-    let delivered = deliver_fallback_push_short_of_tracking(1);
+fn test_a_witness_certified_on_another_fork_is_not_tracked_again_near_the_fallback() {
+    let delivered = deliver_fallback_push_short_of_opening(FALLBACK_TRACKING_LOOKAHEAD, true);
+    assert_eq!(delivered, vec![]);
+}
+
+/// Until the fallback is near, a validator outside the designated set does not want the witness,
+/// so a producer cannot make it validate one.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_pushed_witness_is_not_delivered_to_a_non_designated_validator_before_the_lookahead() {
+    let delivered = deliver_fallback_push_short_of_opening(FALLBACK_TRACKING_LOOKAHEAD + 1, false);
     assert_eq!(delivered, vec![]);
 }
 

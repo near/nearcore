@@ -1,4 +1,5 @@
 use super::*;
+use near_chain::spice::all_stake_fallback::SPICE_FALLBACK_CERTIFICATION_DELAY;
 use near_primitives::epoch_info::{EpochInfo, EpochInfoV5};
 use near_primitives::types::SpiceUncertifiedChunkInfo;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -136,7 +137,7 @@ fn a_receipt_proof_need_change_issues_receipt_proof_pulls_and_no_witness_pull() 
 /// Once a block on any fork certifies the chunk, its endorsements exist and ours adds nothing.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_witness_is_dropped_at_the_block_certifying_its_chunk_on_any_fork() {
+fn a_witness_is_settled_at_the_block_certifying_its_chunk_on_any_fork() {
     let (mut chain, blocks) = chain_with_blocks(3);
     let mut manager = validator_manager(&chain, &blocks[0]);
     let id = witness_id(&blocks[0], 0);
@@ -151,10 +152,43 @@ fn a_witness_is_dropped_at_the_block_certifying_its_chunk_on_any_fork() {
 
     manager.track_block(&fork_certifier);
 
-    manager.assert_forgotten(&id);
+    assert!(manager.manager.items.is_marked_done(&id));
+    assert!(!manager.is_pullable(&id));
+    assert!(!manager.manager.pulls.holds_state_for(&id));
     let (commitment, parts) = encode_to_wire(&encoder(), &witness_data(&blocks[0], 0));
     let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
-    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
+}
+
+/// A fork above the final head can still list a chunk the final head's descendants certify, so
+/// the witness stays done past the final head and goes only below the lowest needed height.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_done_witness_is_kept_past_the_final_head_until_it_expires() {
+    let (mut chain, blocks) = chain_with_blocks(3);
+    let mut manager = validator_manager(&chain, &blocks[0]);
+    let id = witness_id(&blocks[0], 0);
+    let DataId::Witness(chunk_id) = id.clone() else { unreachable!() };
+    manager.on_block_processed(&blocks[0]);
+    let fork_certifier = certifying_block(&blocks[0], &[chunk_id]);
+    save_and_record_block(&mut chain, &fork_certifier);
+    record_no_uncertified_chunks(&manager.store, &fork_certifier);
+    manager.track_block(&fork_certifier);
+    manager.set_final_head(&blocks[1]);
+
+    manager.on_block_processed(&blocks[1]);
+
+    assert!(manager.manager.items.is_marked_done(&id));
+    // The canonical chain certifies the first block's chunks too, below the final head.
+    let chunk_ids: Vec<SpiceChunkId> = manager
+        .shard_ids
+        .iter()
+        .map(|&shard_id| SpiceChunkId { block_hash: *blocks[0].hash(), shard_id })
+        .collect();
+    manager.drop_uncertified_chunks(2..=3, &chunk_ids);
+    manager.set_final_head(&blocks[2]);
+    manager.on_block_processed(&blocks[2]);
+    manager.assert_forgotten(&id);
 }
 
 /// A block this node never processes certifies the chunk, so only the lowest needed height,
@@ -304,31 +338,64 @@ fn store_execution_result(store: &Store, chunk_id: &SpiceChunkId) {
     store_update.commit();
 }
 
-/// `blocks[i]` is at height `i + 1`, so the first block's tracking height is reached by
-/// `blocks[FALLBACK_TRACKING_DELAY]`.
+/// The index in `blocks` (`blocks[i]` is at height `i + 1`) of the block that starts tracking the
+/// witness of a chunk certifiable since `certifiable_since`: the one whose next block is
+/// `FALLBACK_TRACKING_LOOKAHEAD` below the fallback's opening. Nothing else is certified on the
+/// test chain, so the first block's chunks are certifiable since their own height, 1.
+fn fallback_tracking_index(certifiable_since: BlockHeight) -> usize {
+    (certifiable_since + SPICE_FALLBACK_CERTIFICATION_DELAY - 1 - FALLBACK_TRACKING_LOOKAHEAD - 1)
+        as usize
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_non_designated_witness_is_tracked_once_the_highest_height_reaches_its_fallback_tracking_delay()
-{
-    let delay = FALLBACK_TRACKING_DELAY as usize;
-    let (chain, blocks) = chain_with_fallback_validators(delay + 1);
+fn a_non_designated_witness_is_tracked_from_the_block_bringing_its_fallback_within_the_lookahead() {
+    let tracking = fallback_tracking_index(1);
+    let (chain, blocks) = chain_with_fallback_validators(tracking + 1);
     let mut manager = fallback_validator_manager(&chain, &blocks[0]);
     let id = witness_id(&blocks[0], 0);
-
-    for block in &blocks[..delay] {
+    for block in &blocks[..tracking] {
         manager.on_block_processed(block);
     }
     assert!(!manager.is_tracking(&id));
-    manager.on_block_processed(&blocks[delay]);
+
+    manager.on_block_processed(&blocks[tracking]);
+
+    assert!(manager.is_tracking(&id));
+}
+
+/// Under a certification lag, the chunk becomes certifiable after its own height, and the fallback
+/// opens that much later, so the tracking starts that much later too.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_non_designated_witness_is_tracked_later_by_the_certification_lag() {
+    let certifiable_since: BlockHeight = 6;
+    let tracking = fallback_tracking_index(certifiable_since);
+    let (chain, blocks) = chain_with_fallback_validators(tracking + 1);
+    let mut manager = fallback_validator_manager(&chain, &blocks[0]);
+    let id = witness_id(&blocks[0], 0);
+    let DataId::Witness(chunk_id) = id.clone() else { unreachable!() };
+    manager.edit_uncertified_chunks(1..=tracking as BlockHeight + 1, |height, row| {
+        for info in row.iter_mut().filter(|info| info.chunk_id == chunk_id) {
+            info.certifiable_since_height =
+                (height >= certifiable_since).then_some(certifiable_since);
+        }
+    });
+    for block in &blocks[..tracking] {
+        manager.on_block_processed(block);
+    }
+    assert!(!manager.is_tracking(&id));
+
+    manager.on_block_processed(&blocks[tracking]);
 
     assert!(manager.is_tracking(&id));
 }
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_certified_witness_is_not_tracked_at_its_fallback_tracking_height() {
-    let delay = FALLBACK_TRACKING_DELAY as usize;
-    let (chain, blocks) = chain_with_fallback_validators(delay + 1);
+fn a_witness_with_a_stored_execution_result_is_not_tracked_near_its_fallback() {
+    let tracking = fallback_tracking_index(1);
+    let (chain, blocks) = chain_with_fallback_validators(tracking + 1);
     let mut manager = fallback_validator_manager(&chain, &blocks[0]);
     let id = witness_id(&blocks[0], 0);
     let DataId::Witness(chunk_id) = id.clone() else { unreachable!() };
@@ -341,50 +408,29 @@ fn a_certified_witness_is_not_tracked_at_its_fallback_tracking_height() {
     assert!(!manager.is_tracking(&id));
 }
 
-/// The tracking height is crossed once, so a witness a fork's certification dropped is not
-/// tracked again by any later block, of either fork.
+/// The core writer stores the execution result apart from the manager's trigger, so the other
+/// fork's block comes before it here. The witness stays done, and its parts stay settled.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_non_designated_witness_dropped_by_a_fork_certification_is_not_tracked_again() {
-    let delay = FALLBACK_TRACKING_DELAY as usize;
-    let (mut chain, blocks) = chain_with_fallback_validators(delay + 2);
+fn a_witness_certified_on_one_fork_is_not_tracked_again_from_another_forks_uncertified_chunks() {
+    let tracking = fallback_tracking_index(1);
+    let (mut chain, blocks) = chain_with_fallback_validators(tracking + 2);
     let mut manager = fallback_validator_manager(&chain, &blocks[0]);
     let id = witness_id(&blocks[0], 0);
     let DataId::Witness(chunk_id) = id.clone() else { unreachable!() };
-    for block in &blocks[..=delay] {
+    for block in &blocks[..=tracking] {
         manager.on_block_processed(block);
     }
     assert!(manager.is_tracking(&id));
-    // A fork off the tracking block certifies the chunk.
-    let fork_certifier = certifying_block(&blocks[delay - 1], &[chunk_id]);
+    let fork_certifier = certifying_block(&blocks[tracking], &[chunk_id]);
     save_and_record_block(&mut chain, &fork_certifier);
     record_no_uncertified_chunks(&manager.store, &fork_certifier);
     manager.track_block(&fork_certifier);
-    manager.assert_forgotten(&id);
 
-    manager.on_block_processed(&blocks[delay + 1]);
+    manager.on_block_processed(&blocks[tracking + 1]);
 
-    manager.assert_forgotten(&id);
-}
-
-/// A fork block processed after the highest height passed its tracking height is tracked at its
-/// own processing. The final head stays below the fork, so the fork can still be applied.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn a_block_processed_after_its_fallback_tracking_height_is_tracked_at_its_own_processing() {
-    let delay = FALLBACK_TRACKING_DELAY as usize;
-    let (mut chain, blocks) = chain_with_fallback_validators(delay + 2);
-    let fork = certifying_block(&blocks[0], &[]);
-    save_and_record_block(&mut chain, &fork);
-    let mut manager = fallback_validator_manager(&chain, &fork);
-    manager.set_final_head(&blocks[0]);
-    for block in &blocks {
-        manager.on_block_processed(block);
-    }
-    let id = witness_id(&fork, 0);
-    assert!(!manager.is_tracking(&id));
-
-    manager.on_block_processed(&fork);
-
-    assert!(manager.is_tracking(&id));
+    assert!(manager.manager.items.is_marked_done(&id));
+    let (commitment, parts) = encode_to_wire(&encoder(), &witness_data(&blocks[0], 0));
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+    assert_matches!(result, Ok(PartsOutcome::AlreadySettled));
 }

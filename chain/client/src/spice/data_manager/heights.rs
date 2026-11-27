@@ -1,6 +1,6 @@
 use super::DataId;
 use near_primitives::types::BlockHeight;
-use std::ops::{Bound, Range, RangeInclusive};
+use std::ops::{Bound, Range};
 
 /// The lowest height whose pushed items of each kind may still be needed.
 #[derive(Debug, Clone, Copy)]
@@ -17,8 +17,6 @@ pub(super) struct ChainHeights {
     lowest_needed: Option<LowestNeededHeights>,
     /// Highest consensus final head.
     final_head: Option<BlockHeight>,
-    /// Highest height of a processed block.
-    highest_processed: Option<BlockHeight>,
 }
 
 impl ChainHeights {
@@ -48,26 +46,6 @@ impl ChainHeights {
         };
         self.final_head = Some(height);
         Some(from)
-    }
-
-    /// Raises the highest processed height to `height` and returns the heights newly reached;
-    /// `None` if it did not rise.
-    pub(super) fn update_highest_processed(
-        &mut self,
-        height: BlockHeight,
-    ) -> Option<RangeInclusive<BlockHeight>> {
-        let from = match self.highest_processed {
-            Some(highest) if highest >= height => return None,
-            Some(highest) => highest + 1,
-            None => height,
-        };
-        self.highest_processed = Some(height);
-        Some(from..=height)
-    }
-
-    /// Whether a block at `height` or above has been processed.
-    pub(super) fn processed_at_or_above(&self, height: BlockHeight) -> bool {
-        self.highest_processed.is_some_and(|highest| highest >= height)
     }
 
     /// Whether `id` at `height` is below its kind's lowest needed height.
