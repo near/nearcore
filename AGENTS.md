@@ -24,7 +24,7 @@ formatting preferences before creating PRs.
 
 ## Formatting
 
-- For Rust run `cargo fmt` after making changes. It's cheap.
+- For Rust run `just fmt` after making changes. It's cheap. Plain `cargo fmt` does not split imports to one `use` per module, and CI checks that.
 - For Python run `scripts/formatting --fix`.
 
 ## Clippy
