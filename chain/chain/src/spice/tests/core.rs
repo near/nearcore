@@ -652,6 +652,77 @@ fn test_core_statements_for_next_block_contains_all_endorsements() {
     }
 }
 
+/// A child chunk can gather enough endorsements before its parent does, e.g. when one validator's
+/// endorsement for the parent is late. Certifying the child first is invalid, so the producer
+/// holds back the child's statements until the parent certifies.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_core_statements_for_next_block_withholds_child_certified_before_parent() {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let genesis = chain.genesis_block();
+    let parent = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, parent.clone());
+    let child = build_block(&mut chain, &parent, vec![]);
+    process_block(&mut chain, child.clone());
+
+    let shard_id = ShardId::new(0);
+    let parent_chunk_id = SpiceChunkId { block_hash: *parent.hash(), shard_id };
+    let child_chunk_id = SpiceChunkId { block_hash: *child.hash(), shard_id };
+    let validators = test_validators();
+    endorse_chunk(&chain, &mut core_writer_actor, &parent_chunk_id, &validators[..2]);
+    endorse_chunk(&chain, &mut core_writer_actor, &child_chunk_id, &validators);
+    let has_result = |block: &Block| {
+        core_reader
+            .get_execution_results_by_shard_id(block.header())
+            .unwrap()
+            .contains_key(&shard_id)
+    };
+    assert!(!has_result(&parent));
+    assert!(has_result(&child));
+
+    let core_statements = core_reader.core_statements_for_next_block(child.header()).unwrap();
+    assert!(core_statements.iter().any(|statement| statement.chunk_id() == &parent_chunk_id));
+    assert!(
+        core_statements.iter().all(|statement| statement.chunk_id() != &child_chunk_id),
+        "child chunk statements should be withheld, got {core_statements:?}"
+    );
+    let next_block = build_block(&chain, &child, core_statements);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
+    assert!(result.is_ok(), "produced block was rejected: {result:?}");
+}
+
+/// When the parent certifies in the same block, the child may certify along with it.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_core_statements_for_next_block_certifies_child_together_with_parent() {
+    let (mut chain, core_reader) = setup();
+    let mut core_writer_actor = core_writer_actor(&chain);
+    let genesis = chain.genesis_block();
+    let parent = build_block(&mut chain, &genesis, vec![]);
+    process_block(&mut chain, parent.clone());
+    let child = build_block(&mut chain, &parent, vec![]);
+    process_block(&mut chain, child.clone());
+
+    let shard_id = ShardId::new(0);
+    let parent_chunk_id = SpiceChunkId { block_hash: *parent.hash(), shard_id };
+    let child_chunk_id = SpiceChunkId { block_hash: *child.hash(), shard_id };
+    let validators = test_validators();
+    endorse_chunk(&chain, &mut core_writer_actor, &parent_chunk_id, &validators);
+    endorse_chunk(&chain, &mut core_writer_actor, &child_chunk_id, &validators);
+
+    let core_statements = core_reader.core_statements_for_next_block(child.header()).unwrap();
+    let certified: HashSet<&SpiceChunkId> = core_statements
+        .iter()
+        .filter(|statement| matches!(statement, SpiceCoreStatement::ChunkExecutionResult { .. }))
+        .map(|statement| statement.chunk_id())
+        .collect();
+    assert_eq!(certified, HashSet::from([&parent_chunk_id, &child_chunk_id]));
+    let next_block = build_block(&chain, &child, core_statements);
+    let result = core_reader.validate_core_statements_in_block(&next_block);
+    assert!(result.is_ok(), "produced block was rejected: {result:?}");
+}
+
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn test_endorsement_stats_only_credit_certified_result() {
