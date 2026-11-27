@@ -7,6 +7,9 @@
 ### Non-protocol Changes
 
 * Raised the minimum supported Rust version to 1.100.0. Building `nearcore` from source now requires a Rust 1.100.0 toolchain.
+* The `validators` RPC no longer returns per-shard chunk endorsement stats: `shards_endorsed`, `num_produced_endorsements_per_shard` and `num_expected_endorsements_per_shard` are removed from `current_validators` entries. The totals `num_produced_endorsements` and `num_expected_endorsements` are unchanged. ([#16608](https://github.com/near/nearcore/pull/16608))
+* **Metrics change for chunk endorsements:** `near_validators_chunk_endorsements_produced_by_shard` and `near_validators_chunk_endorsements_expected_by_shard` are replaced by `near_validators_chunk_endorsements_produced` and `near_validators_chunk_endorsements_expected`, labeled by `account_id` only. Dashboards and alerts that use the old names must be updated. ([#16608](https://github.com/near/nearcore/pull/16608))
+* A migration that raises `DB_VERSION` from 53 to 54 rewrites the stored epoch info aggregator in the layout that keeps chunk endorsement stats per validator instead of per shard. A node cannot roll back to a release at version 53. ([#16608](https://github.com/near/nearcore/pull/16608))
 
 ## [2.15.0]
 

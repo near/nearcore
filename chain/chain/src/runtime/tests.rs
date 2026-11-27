@@ -1083,7 +1083,6 @@ fn test_get_validator_info() {
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
             shards_produced: vec![shard_id],
-            shards_endorsed: vec![shard_id],
             num_produced_blocks: expected_blocks[0],
             num_expected_blocks: expected_blocks[0],
             num_produced_chunks: expected_chunks[0],
@@ -1092,8 +1091,6 @@ fn test_get_validator_info() {
             num_expected_chunks_per_shard: vec![expected_chunks[0]],
             num_produced_endorsements: expected_endorsements[0],
             num_expected_endorsements: expected_endorsements[0],
-            num_expected_endorsements_per_shard: vec![expected_endorsements[0]],
-            num_produced_endorsements_per_shard: vec![expected_endorsements[0]],
         },
         CurrentEpochValidatorInfo {
             account_id: "test2".parse().unwrap(),
@@ -1101,7 +1098,6 @@ fn test_get_validator_info() {
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
             shards_produced: vec![shard_id],
-            shards_endorsed: vec![shard_id],
             num_produced_blocks: expected_blocks[1],
             num_expected_blocks: expected_blocks[1],
             num_produced_chunks: expected_chunks[1],
@@ -1110,8 +1106,6 @@ fn test_get_validator_info() {
             num_expected_chunks_per_shard: vec![expected_chunks[1]],
             num_produced_endorsements: expected_endorsements[1],
             num_expected_endorsements: expected_endorsements[1],
-            num_expected_endorsements_per_shard: vec![expected_endorsements[1]],
-            num_produced_endorsements_per_shard: vec![expected_endorsements[1]],
         },
     ];
     let next_epoch_validator_info = vec![
@@ -1179,10 +1173,6 @@ fn test_get_validator_info() {
     current_epoch_validator_info[0].num_expected_chunks_per_shard = vec![expected_chunks[0]];
     current_epoch_validator_info[0].num_produced_endorsements = expected_endorsements[0];
     current_epoch_validator_info[0].num_expected_endorsements = expected_endorsements[0];
-    current_epoch_validator_info[0].num_produced_endorsements_per_shard =
-        vec![expected_endorsements[0]];
-    current_epoch_validator_info[0].num_expected_endorsements_per_shard =
-        vec![expected_endorsements[0]];
     current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
     current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
     current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
@@ -1191,10 +1181,6 @@ fn test_get_validator_info() {
     current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![];
     current_epoch_validator_info[1].num_produced_endorsements = expected_endorsements[1];
     current_epoch_validator_info[1].num_expected_endorsements = expected_endorsements[1];
-    current_epoch_validator_info[1].num_produced_endorsements_per_shard =
-        vec![expected_endorsements[1]];
-    current_epoch_validator_info[1].num_expected_endorsements_per_shard =
-        vec![expected_endorsements[1]];
     current_epoch_validator_info[1].shards_produced = vec![];
     assert_eq!(response.current_validators, current_epoch_validator_info);
     assert_eq!(
