@@ -10,7 +10,7 @@ The total transaction fee is the sum of the following:
 - A fee for creation of the receipt
 - A fee for every action
 
-Every [Fee](/GenesisConfig/RuntimeFeeConfig/Fee.md) consists of 3 values measured in gas:
+Every [Fee](../../GenesisConfig/RuntimeFeeConfig/Fee.md) consists of 3 values measured in gas:
 
 - `send_sir` and `send_not_sir` - the gas burned when the action is being created to be sent to a receiver.
   - `send_sir` is used when `current_account_id == receiver_id` (`current_account_id` is a `signer_id` for a signed transaction).
@@ -21,13 +21,13 @@ Every [Fee](/GenesisConfig/RuntimeFeeConfig/Fee.md) consists of 3 values measure
 
 Fees are charged for 2 types of receipts:
 
-- Action receipts [ActionReceipt](/RuntimeSpec/Receipts.md#actionreceipt)
-- Data receipts [DataReceipt](/RuntimeSpec/Receipts.md#datareceipt)
+- Action receipts [ActionReceipt](../Receipts.md#actionreceipt)
+- Data receipts [DataReceipt](../Receipts.md#datareceipt)
 
-A transaction is converted into an [ActionReceipt](/RuntimeSpec/Receipts.md#actionreceipt).
+A transaction is converted into an [ActionReceipt](../Receipts.md#actionreceipt).
 Data receipts are used for data dependencies and will be discussed separately.
 
-The `Fee` for an action receipt creation is described in the config [`action_receipt_creation_config`](/GenesisConfig/RuntimeFeeConfig.md#action_receipt_creation_config).
+The `Fee` for an action receipt creation is described in the config [`action_receipt_creation_config`](../../GenesisConfig/RuntimeFeeConfig.md#action_receipt_creation_config).
 
 Example: when a signed transaction is being converted into a receipt, the gas for `action_receipt_creation_config.send` is being burned immediately,
 while the gas for `action_receipt_creation_config.execution` is only charged, but not burned. It'll be burned when
@@ -35,8 +35,8 @@ the newly created receipt is executed on the receiver's account.
 
 ## Fees for actions
 
-Every [`Action`](/RuntimeSpec/Actions) has a corresponding Fee(s).
-The fees of most actions are described in the config [`action_creation_config`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md).
+Every [`Action`](../Actions.md) has a corresponding Fee(s).
+The fees of most actions are described in the config [`action_creation_config`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md).
 The fees of the global contract, state init and gas key actions are not part of that config.
 This page names those fees by their runtime parameter names, such as `action_gas_key_transfer`.
 Similar to a receipt creation costs, the `send` gas is burned when an action is added to a receipt to be sent, and the `execution` gas is only charged, but not burned.
@@ -45,34 +45,34 @@ Fees are either a base fee or a fee per unit of some data within the action, suc
 
 Here is the list of actions and their corresponding fees:
 
-- [CreateAccount](/RuntimeSpec/Actions.md#createaccountaction) uses
-  - the base fee [`create_account_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#create_account_cost)
-- [DeployContract](/RuntimeSpec/Actions.md#deploycontractaction) uses the sum of the following fees:
-  - the base fee [`deploy_contract_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#deploy_contract_cost)
-  - the fee per byte of the contract code to be deployed with the fee [`deploy_contract_cost_per_byte`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#deploy_contract_cost_per_byte)
+- [CreateAccount](../Actions.md#createaccountaction) uses
+  - the base fee [`create_account_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#create_account_cost)
+- [DeployContract](../Actions.md#deploycontractaction) uses the sum of the following fees:
+  - the base fee [`deploy_contract_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#deploy_contract_cost)
+  - the fee per byte of the contract code to be deployed with the fee [`deploy_contract_cost_per_byte`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#deploy_contract_cost_per_byte)
     To compute the number of bytes for a deploy contract action `deploy_contract_action` use `deploy_contract_action.code.len()`
-- [FunctionCall](/RuntimeSpec/Actions.md#functioncallaction) uses the sum of the following fees:
-  - the base fee [`function_call_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#function_call_cost)
-  - the fee per byte of method name string and per byte of arguments with the fee [`function_call_cost_per_byte`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#function_call_cost_per_byte).
+- [FunctionCall](../Actions.md#functioncallaction) uses the sum of the following fees:
+  - the base fee [`function_call_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#function_call_cost)
+  - the fee per byte of method name string and per byte of arguments with the fee [`function_call_cost_per_byte`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#function_call_cost_per_byte).
     To compute the number of bytes for a function call action `function_call_action` use `function_call_action.method_name.as_bytes().len() + function_call_action.args.len()`
-- [Transfer](/RuntimeSpec/Actions.md#transferaction) uses one of the following fees:
-  - if the `receiver_id` is a [NEAR-implicit account ID](/DataStructures/Account.md#near-implicit-account-id), then a sum of base fees is used:
-    - the create account base fee [`create_account_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#create_account_cost)
-    - the transfer base fee [`transfer_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#transfer_cost)
-    - the add full access key base fee [`add_key_cost.full_access_cost`](/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#full_access_cost)
-  - if the `receiver_id` is an [ETH-implicit account ID](/DataStructures/Account.md#eth-implicit-account-id), a [deterministic account ID](/DataStructures/Account.md#deterministic-account-id), or from protocol version 88 (nearcore 2.14.0) a universal (`0u`) account ID, then a sum of base fees is used:
-    - the create account base fee [`create_account_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#create_account_cost)
-    - the transfer base fee [`transfer_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#transfer_cost)
+- [Transfer](../Actions.md#transferaction) uses one of the following fees:
+  - if the `receiver_id` is a [NEAR-implicit account ID](../../DataStructures/Account.md#near-implicit-account-id), then a sum of base fees is used:
+    - the create account base fee [`create_account_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#create_account_cost)
+    - the transfer base fee [`transfer_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#transfer_cost)
+    - the add full access key base fee [`add_key_cost.full_access_cost`](../../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#full_access_cost)
+  - if the `receiver_id` is an [ETH-implicit account ID](../../DataStructures/Account.md#eth-implicit-account-id), a [deterministic account ID](../../DataStructures/Account.md#deterministic-account-id), or from protocol version 88 (nearcore 2.14.0) a universal (`0u`) account ID, then a sum of base fees is used:
+    - the create account base fee [`create_account_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#create_account_cost)
+    - the transfer base fee [`transfer_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#transfer_cost)
   - for any other `receiver_id`, only the base fee is used:
-    - the transfer base fee [`transfer_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#transfer_cost)
-- [Stake](/RuntimeSpec/Actions.md#stakeaction) uses
-  - the base fee [`stake_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#stake_cost)
-- [AddKey](/RuntimeSpec/Actions.md#addkeyaction) uses one of the following fees:
-  - if the access key is [`AccessKeyPermission::FullAccess`](/DataStructures/AccessKey) the base fee is used
-    - the add full access key base fee [`add_key_cost.full_access_cost`](/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#full_access_cost)
-  - if the access key is [`AccessKeyPermission::FunctionCall`](/DataStructures/AccessKey.md#accesskeypermissionfunctioncall) the sum of the fees is used
-    - the add function call permission access key base fee [`add_key_cost.function_call_cost`](/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#function_call_cost)
-    - the fee per byte of method names with extra byte for every method with the fee [`add_key_cost.function_call_cost_per_byte`](/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#function_call_cost_per_byte)
+    - the transfer base fee [`transfer_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#transfer_cost)
+- [Stake](../Actions.md#stakeaction) uses
+  - the base fee [`stake_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#stake_cost)
+- [AddKey](../Actions.md#addkeyaction) uses one of the following fees:
+  - if the access key is [`AccessKeyPermission::FullAccess`](../../DataStructures/AccessKey.md) the base fee is used
+    - the add full access key base fee [`add_key_cost.full_access_cost`](../../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#full_access_cost)
+  - if the access key is [`AccessKeyPermission::FunctionCall`](../../DataStructures/AccessKey.md#accesskeypermissionfunctioncall) the sum of the fees is used
+    - the add function call permission access key base fee [`add_key_cost.function_call_cost`](../../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#function_call_cost)
+    - the fee per byte of method names with extra byte for every method with the fee [`add_key_cost.function_call_cost_per_byte`](../../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#function_call_cost_per_byte)
         To compute the number of bytes for `function_call_permission` use `function_call_permission.method_names.iter().map(|name| name.as_bytes().len() as u64 + 1).sum::<u64>()`
   - if the access key is a gas key, with `AccessKeyPermission::GasKeyFullAccess` or `AccessKeyPermission::GasKeyFunctionCall`, the fees of the matching `FullAccess` or `FunctionCall` case above are used, plus the following fees:
     - the `send` part of the fee per byte `action_gas_key_byte`, for the bytes of the gas key information.
@@ -81,27 +81,27 @@ Here is the list of actions and their corresponding fees:
     - the `execution` part of the fee per byte `action_gas_key_byte`, for the trie key and value of each nonce.
       To compute the number of bytes use `gas_key_info.num_nonces * (receiver_id.len() + add_key_action.public_key.trie_id_len() + 2 + size_of::<NonceIndex>() + size_of::<Nonce>())`.
       The `2` counts the column byte and the separator byte of the trie key.
-- [DeleteKey](/RuntimeSpec/Actions.md#deletekeyaction) uses
-  - the base fee [`delete_key_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#delete_key_cost)
-- [DeleteAccount](/RuntimeSpec/Actions.md#deleteaccountaction) uses the base fee [`delete_account_cost`](/GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#delete_account_cost).
+- [DeleteKey](../Actions.md#deletekeyaction) uses
+  - the base fee [`delete_key_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#delete_key_cost)
+- [DeleteAccount](../Actions.md#deleteaccountaction) uses the base fee [`delete_account_cost`](../../GenesisConfig/RuntimeFeeConfig/ActionCreationConfig.md#delete_account_cost).
   The remaining balance goes to `beneficiary_id` in a balance refund receipt, which has no fee.
-- [Delegate](/RuntimeSpec/Actions.md#delegate-actions) uses the sum of the following fees. `DelegateV2` uses the same fees:
+- [Delegate](../Actions.md#delegate-actions) uses the sum of the following fees. `DelegateV2` uses the same fees:
   - the base fee `delegate_cost`
   - the `send` fees of the inner actions, which are burned when the transaction is converted into a receipt
   - the `send` and `execution` fees of the inner actions and the `execution` fee of an action receipt.
     These fees are prepaid for the receipt that the delegate action creates. The prepaid `send` fees are burned when that receipt is created.
-- [DeployGlobalContract](/RuntimeSpec/Actions.md#deployglobalcontractaction) uses the sum of the following fees:
+- [DeployGlobalContract](../Actions.md#deployglobalcontractaction) uses the sum of the following fees:
   - the base fee `action_deploy_global_contract`
   - the fee per byte of the contract code `action_deploy_global_contract_per_byte`.
     To compute the number of bytes use `deploy_global_contract_action.code.len()`
 
-  The action also burns tokens for the code storage, see [DeployGlobalContractAction](/RuntimeSpec/Actions.md#deployglobalcontractaction).
-- [UseGlobalContract](/RuntimeSpec/Actions.md#useglobalcontractaction) uses the sum of the following fees:
+  The action also burns tokens for the code storage, see [DeployGlobalContractAction](../Actions.md#deployglobalcontractaction).
+- [UseGlobalContract](../Actions.md#useglobalcontractaction) uses the sum of the following fees:
   - the base fee `action_use_global_contract`
   - the fee per byte of the contract identifier `action_use_global_contract_per_identifier_byte`.
     To compute the number of bytes use `use_global_contract_action.contract_identifier.len()`.
     It is 32 for a code hash and the length of the account ID for an account ID.
-- [DeterministicStateInit](/RuntimeSpec/Actions.md#deterministicstateinitaction) uses the sum of the following fees:
+- [DeterministicStateInit](../Actions.md#deterministicstateinitaction) uses the sum of the following fees:
   - the base fee `action_deterministic_state_init`
   - the fee per byte of the storage keys and values `action_deterministic_state_init_per_byte`.
     To compute the number of bytes use `state_init_action.state_init.len_bytes()`, which is the total length of all keys and values in `state_init_action.state_init.data()`
@@ -123,7 +123,7 @@ Here is the list of actions and their corresponding fees:
   - the fee per byte of the serialized state init `action_universal_state_init_per_byte`.
     To compute the number of bytes use `universal_state_init_action.state_init.0.len()`
   - the fee per storage entry `action_universal_state_init_per_entry`, for each storage entry in the decoded state init
-  - the add full access key base fee [`add_key_cost.full_access_cost`](/GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#full_access_cost), for each access key in the decoded state init
+  - the add full access key base fee [`add_key_cost.full_access_cost`](../../GenesisConfig/RuntimeFeeConfig/AccessKeyCreationConfig.md#full_access_cost), for each access key in the decoded state init
 
 ## Account creation charge
 
@@ -195,7 +195,7 @@ The VM itself is called in the `action_function_call` inside `Runtime`. When all
  
 ## Gas key transactions
 
-From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a [gas key](/DataStructures/AccessKey.md#gas-keys).
+From protocol version 85 (nearcore 2.13.0), a transaction can be signed with a [gas key](../../DataStructures/AccessKey.md#gas-keys).
 Its fees are the same as for a transaction signed with a regular access key, but its cost is paid from two balances:
 
 - The gas cost is paid from the gas key balance. It is `gas_burnt` converted at the current gas price, plus `gas_remaining` converted at the receipt gas price.
@@ -204,7 +204,7 @@ Its fees are the same as for a transaction signed with a regular access key, but
 
 If the gas key balance does not cover the gas cost, the transaction fails with `NotEnoughGasKeyBalance` and nothing is charged.
 If the account balance does not cover the deposits, or does not cover the storage of the account after them, the transaction fails with `NotEnoughBalanceForDeposit`.
-In that case the gas key is charged only for `gas_burnt`, at the current gas price. See [Gas key transactions](/RuntimeSpec/Transactions.md#gas-key-transactions).
+In that case the gas key is charged only for `gas_burnt`, at the current gas price. See [Gas key transactions](../Transactions.md#gas-key-transactions).
 Gas refunds of a gas key transaction go back to the gas key balance, see [Refunds](../Refunds.md#gas-key-balance-refunds).
 
 # Example

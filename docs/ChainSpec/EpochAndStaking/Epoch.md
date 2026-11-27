@@ -23,7 +23,7 @@ Since every final block must have two more blocks on top of it, it means that th
 
 Note that an epoch only ends when there is a final block above a certain height. If there are no final blocks, the epoch will be stretched until the required final block appears. An epoch can potentially be longer than `epoch_length`.
 
-![Diagram of epoch end](/images/epoch_end_diagram.png)
+![Diagram of epoch end](../../images/epoch_end_diagram.png)
 
 ### EpochHeight
 

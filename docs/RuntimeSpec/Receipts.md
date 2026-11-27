@@ -149,7 +149,7 @@ Associated data in bytes. `None` indicates an error during execution.
 
 ## Creating Receipt
 
-Receipts can be generated during the execution of a [SignedTransaction](/RuntimeSpec/Transactions#signed-transaction) (see [example](./Scenarios/FinancialTransaction.md)) or during application of some `ActionReceipt` which contains a [`FunctionCall`](#actions) action. The result of the `FunctionCall` could be either another `ActionReceipt` or a `DataReceipt` (returned data).
+Receipts can be generated during the execution of a [SignedTransaction](Transactions.md#signed-transaction) (see [example](./Scenarios/FinancialTransaction.md)) or during application of some `ActionReceipt` which contains a [`FunctionCall`](#actions) action. The result of the `FunctionCall` could be either another `ActionReceipt` or a `DataReceipt` (returned data).
 
 ## Receipt Matching
 

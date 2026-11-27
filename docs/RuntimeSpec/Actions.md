@@ -251,12 +251,12 @@ pub struct AddKeyAction {
 
 **Outcome**:
 
-- Adds a new [AccessKey](/DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
+- Adds a new [AccessKey](../DataStructures/AccessKey.md) to the receiver's account and associates it with a `public_key` provided.
 - For a regular key, the `nonce` field of the provided `AccessKey` is ignored. The nonce is set to `block_height * 1_000_000 - 1`
   (`(block_height - 1) * 1_000_000` before protocol version 89).
-- If the permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the new key is a [gas key](/DataStructures/AccessKey.md#gas-keys) with a balance of 0.
+- If the permission is `GasKeyFullAccess` or `GasKeyFunctionCall`, the new key is a [gas key](../DataStructures/AccessKey.md#gas-keys) with a balance of 0.
   The `nonce` field of the key is set to 0. The runtime also creates `num_nonces` nonce records for the key, each set to `block_height * 1_000_000 - 1` (`(block_height - 1) * 1_000_000` before protocol version 89).
-  These records add to the storage usage of the account, see [Gas Key Nonces](/DataStructures/AccessKey.md#gas-key-nonces).
+  These records add to the storage usage of the account, see [Gas Key Nonces](../DataStructures/AccessKey.md#gas-key-nonces).
 
 ### Errors
 
@@ -335,8 +335,8 @@ pub struct DeleteKeyAction {
 
 **Outcome**:
 
-- Deletes the [AccessKey](/DataStructures/AccessKey.md) associated with `public_key`.
-- If the key is a [gas key](/DataStructures/AccessKey.md#gas-keys), its balance is burnt and all its nonce records are removed.
+- Deletes the [AccessKey](../DataStructures/AccessKey.md) associated with `public_key`.
+- If the key is a [gas key](../DataStructures/AccessKey.md#gas-keys), its balance is burnt and all its nonce records are removed.
 
 ### Errors
 
@@ -371,7 +371,7 @@ pub struct DeleteAccountAction {
 **Outcomes**:
 
 - The account, as well as all the data stored under the account, is deleted and the tokens are transferred to `beneficiary_id`.
-- The balances of all [gas keys](/DataStructures/AccessKey.md#gas-keys) of the account are burnt.
+- The balances of all [gas keys](../DataStructures/AccessKey.md#gas-keys) of the account are burnt.
 
 ### Errors
 
@@ -431,7 +431,7 @@ pub struct TransferToGasKeyAction {
 }
 ```
 
-Adds `deposit` to the balance of the [gas key](/DataStructures/AccessKey.md#gas-keys) with the given `public_key` on the receiver account.
+Adds `deposit` to the balance of the [gas key](../DataStructures/AccessKey.md#gas-keys) with the given `public_key` on the receiver account.
 Any account can send this action, so an account can fund a gas key of another account.
 The `deposit` is paid by the sender in the same way as the `deposit` of a `Transfer`.
 A contract can create this action with the `promise_batch_action_transfer_to_gas_key` host function.
@@ -466,7 +466,7 @@ pub struct WithdrawFromGasKeyAction {
 }
 ```
 
-Moves `amount` from the balance of the [gas key](/DataStructures/AccessKey.md#gas-keys) with the given `public_key` to the balance of the receiver account.
+Moves `amount` from the balance of the [gas key](../DataStructures/AccessKey.md#gas-keys) with the given `public_key` to the balance of the receiver account.
 The `predecessor_id` and `receiver_id` must be equal.
 No host function creates this action, so it can only come from a transaction or from the actions of a delegate action.
 From protocol version 87 (nearcore 2.14.0), it cannot be inside a delegate action.
@@ -506,7 +506,7 @@ InsufficientGasKeyBalance { account_id: AccountId, public_key: PublicKey, balanc
 
 ## DelegateV2
 
-`DelegateV2` is a version of the [delegate action](#delegate-actions) that a [gas key](/DataStructures/AccessKey.md#gas-keys) can sign.
+`DelegateV2` is a version of the [delegate action](#delegate-actions) that a [gas key](../DataStructures/AccessKey.md#gas-keys) can sign.
 It is accepted at protocol versions 85 and 86.
 
 ```rust
@@ -536,7 +536,7 @@ pub struct DelegateActionV2 {
 }
 ```
 
-`DelegateActionV2` has the same fields as `DelegateAction`, except that `nonce` is a [`TransactionNonce`](/RuntimeSpec/Transactions.md).
+`DelegateActionV2` has the same fields as `DelegateAction`, except that `nonce` is a [`TransactionNonce`](Transactions.md).
 The signature is over the SHA-256 hash of the Borsh encoding of the 4-byte prefix `(1 << 30) + 611` (NEP-611), followed by the `VersionedDelegateActionPayload`.
 The payload starts with the variant byte `0` for `V2`.
 A `Delegate` action uses the prefix `(1 << 30) + 366` (NEP-366) instead.
@@ -652,7 +652,7 @@ DelegateActionExpired
 DelegateActionAccessKeyError
 ```
 
-- If the action is a `Delegate` and its `public_key` belongs to a [gas key](/DataStructures/AccessKey.md#gas-keys), the following error is returned. A `Delegate` action must be signed with a regular access key.
+- If the action is a `Delegate` and its `public_key` belongs to a [gas key](../DataStructures/AccessKey.md#gas-keys), the following error is returned. A `Delegate` action must be signed with a regular access key.
 
 ```rust
 /// A plain access key nonce does not select one of the gas key's nonces.
