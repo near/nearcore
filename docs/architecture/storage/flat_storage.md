@@ -171,30 +171,96 @@ Here we describe structures used for flat storage implementation.
 
 ## FlatStorage
 
-This is the main structure which owns information about ValueRefs for all keys from some fixed
-shard for some set of blocks. It is shared by multiple threads, so it is guarded by RwLock:
+This is the main structure that tracks which blocks are supported by flat storage for a single
+`ShardUId` and how to answer state queries for them. Conceptually it keeps two kinds of data:
 
-* Chain thread, because it sends queries like:
-  * "new block B was processed by chain" - supported by add_block
-  * "flat storage head can be moved forward to block B" - supported by update_flat_head
-* Thread that applies a chunk, because it sends read queries "what is the ValueRef for key for block B"
-* View client (not fully decided)
+* the **flat head**, a `BlockInfo` describing the block whose full key/value mapping is stored in
+  `DBCol::FlatState`, and
+* a set of **cached deltas** (`FlatStateDelta`) for blocks above the flat head, stored both on
+  disk and in memory.
 
-Requires ChainAccessForFlatStorage on creation because it needs to know the tree of blocks after
-the flat storage head, to support getting queries correctly.
+`FlatStorage` is shared across multiple threads (chain processing, chunk application, view
+clients), so it is wrapped in `RwLock` and all operations are done through `&self`.
+
+The most important methods are:
+
+* `add_delta(delta: FlatStateDelta)` — records state changes for a newly processed block. The
+  method writes the delta and its metadata to `DBCol::FlatStateChanges`/`DBCol::FlatStateDeltaMetadata`
+  and caches it in memory. It ensures that the new block is reachable from the current flat head.
+* `update_flat_head(block_hash: &CryptoHash)` — advances the flat head towards the given block.
+  Internally it finds a path from the current flat head to `block_hash`, applies the corresponding
+  deltas to `DBCol::FlatState`, updates `DBCol::FlatStorageStatus` with the new `flat_head`, and
+  garbage‑collects old deltas from disk and memory.
+* `clear_state(store_update: &mut FlatStoreUpdateAdapter)` — removes all flat state values and
+  deltas for this shard from the database and marks the status as `FlatStorageStatus::Empty`.
+* `get_head_hash()` — returns the hash of the current flat head block.
+* `set_flat_head_update_mode(enabled: bool)` — turns advancing the flat head on or off. When
+  disabled, calls to `update_flat_head` become no‑ops. This is used, for example, while taking
+  state snapshots so that flat storage does not move ahead.
 
 ## FlatStorageManager
 
-It holds all FlatStorages which NightshadeRuntime knows about and:
+`FlatStorageManager` owns `FlatStorage` instances for all shards known to the runtime and provides
+thread‑safe access to them. It is responsible for wiring flat storage into block processing,
+initialization and resharding logic.
 
-* provides views for flat storage for some fixed block - supported by new_flat_state_for_shard
-* sets initial flat storage state for genesis block - set_flat_storage_for_genesis
-* adds/removes/gets flat storage if we started/stopped tracking a shard or need to create a view - create_flat_storage_for_shard, etc.
+Its main responsibilities are:
+
+* **Initialization**
+  * `set_flat_storage_for_genesis(...)` — sets up the initial `FlatStorageStatus::Ready` for a
+    shard at the genesis block in an empty database.
+  * `create_flat_storage_for_shard(shard_uid)` — constructs an in‑memory `FlatStorage` for the
+    given shard based on the status and deltas stored on disk and registers it in the manager.
+
+* **Tracking per‑block changes and advancing the head**
+  * `save_flat_state_changes(block_hash, prev_hash, height, shard_uid, state_changes)` — converts
+    `RawStateChangesWithTrieKey` for a block into a `FlatStateDelta` and either
+    * calls `FlatStorage::add_delta` if flat storage is already loaded for this shard, or
+    * persists the delta on disk so it can be picked up later when flat storage is created.
+    It returns a `FlatStoreUpdateAdapter` that must be committed together with trie changes.
+  * `update_flat_storage_for_shard(shard_uid, new_flat_head)` — asks the corresponding
+    `FlatStorage` to advance its flat head to (or towards) `new_flat_head`, applying and
+    garbage‑collecting deltas as needed. Fork‑related `BlockNotSupported` errors are logged and
+    ignored; other errors are treated as fatal.
+
+* **Serving read views**
+  * `chunk_view(shard_uid, block_hash) -> Option<FlatStorageChunkView>` — if flat storage exists
+    for the shard, returns a `FlatStorageChunkView` that can be attached to a `Trie` to answer
+    reads for the state as of `block_hash`. If flat storage is still being created in the
+    background, returns `None`.
+
+* **Lifecycle, resharding and snapshots**
+  * `remove_flat_storage_for_shard(shard_uid, store_update)` — removes the `FlatStorage` object
+    from memory and calls `FlatStorage::clear_state` to delete all related data from disk.
+  * `resharding_catchup_height_reached(...)` — inspects `FlatStorageStatus` for a set of shards
+    undergoing resharding and reports how far their resharding catchup has progressed.
+  * `want_snapshot(block_hash, min_chunk_prev_height)` and `snapshot_taken(block_hash)` — coordinate
+    state snapshots with flat storage. While a snapshot for `block_hash` is pending, the manager
+    disables advancing flat heads on all `FlatStorage` instances; once `snapshot_taken` is called
+    for the same block hash, head updates are re‑enabled.
+  * `snapshot_height_wanted()` / `snapshot_hash_wanted()` — expose the requested snapshot point to
+    other components (for example, resharding logic) so they do not advance beyond it.
 
 ## FlatStorageChunkView
 
-Interface for getting ValueRefs from flat storage for some shard for some fixed block, supported
-by get_ref method.
+`FlatStorageChunkView` is a lightweight read‑only view over flat storage for a given shard and a
+given block. It is created by `FlatStorageManager::chunk_view` and is then passed into `Trie` so
+that trie lookups can be served from flat storage instead of walking the on‑disk trie.
+
+The core methods are:
+
+* `get_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, StorageError>` — returns the
+  flat‑state value for a raw trie key as of the block associated with this view. The return type is
+  `FlatStateValue`, which is either a `Ref(ValueRef)` or an `Inlined(Vec<u8>)`. In the trie layer
+  this is converted into an `OptimizedValueRef`, so that inlined values can be used directly while
+  still preserving correct gas accounting.
+* `contains_key(&self, key: &[u8]) -> Result<bool, StorageError>` — checks whether the given key
+  is present in the flat state for this block.
+* `iter_range(&self, from: Option<&[u8]>, to: Option<&[u8]>) -> FlatStateIterator` — iterates over
+  flat‑state entries in a given key range for the shard, reading from `DBCol::FlatState` at the
+  current flat head. This is primarily used for range queries and tools.
+* `get_head_hash(&self) -> CryptoHash` and `shard_uid(&self) -> ShardUId` — expose the underlying
+  flat storage head and shard identity for observability and debugging.
 
 ## Other notes
 
