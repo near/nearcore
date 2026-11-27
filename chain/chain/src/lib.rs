@@ -13,7 +13,7 @@ pub use near_primitives::receipt::ReceiptResult;
 pub use pending_shard_jobs::{FromPanic, PendingShardJobs};
 pub use store::utils::{
     check_transaction_validity_period, compute_transaction_validity, get_chunk_clone_from_header,
-    get_incoming_receipts_for_shard, retrieve_headers,
+    get_chunk_if_valid, get_incoming_receipts_for_shard, retrieve_headers,
 };
 pub use store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, ReceiptFilter,

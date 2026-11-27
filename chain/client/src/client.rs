@@ -40,7 +40,7 @@ use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
     ApplyChunksSpawner, BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis,
     ChainStoreAccess, ChunksReadiness, Doomslug, DoomslugThresholdMode, MemtrieLoadingSpawner,
-    Provenance,
+    Provenance, get_chunk_if_valid,
 };
 use near_chain_configs::{
     BLOCK_HORIZON, ClientConfig, MutableValidatorSigner, UpdatableClientConfig,
@@ -80,6 +80,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_store::adapter::StoreAdapter;
 use parking_lot::Mutex;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
@@ -198,15 +199,6 @@ impl AsRef<Client> for Client {
     fn as_ref(&self) -> &Client {
         self
     }
-}
-
-/// Invalid chunks (SPICE) have no stored `ShardChunk` and execute as empty, so they carry no
-/// transactions and cannot be read with `Chain::get_chunk`.
-fn is_invalid_chunk(chain: &Chain, chunk_header: &ShardChunkHeader) -> bool {
-    chain
-        .chain_store()
-        .is_invalid_chunk(chunk_header.height_created(), chunk_header.chunk_hash())
-        .is_some()
 }
 
 impl Client {
@@ -564,11 +556,12 @@ impl Client {
                 .shard_tracker
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
-                if is_invalid_chunk(&self.chain, chunk_header) {
-                    continue;
-                }
                 // Otherwise the chunk must be in store, or the block would have been orphaned.
-                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
+                let Some(chunk) =
+                    get_chunk_if_valid(&self.chain.chain_store().chunk_store(), chunk_header)?
+                else {
+                    continue;
+                };
                 let transactions = chunk.to_transactions();
                 for tx in transactions {
                     let hash = *tx.id_hash();
@@ -600,11 +593,12 @@ impl Client {
                 .shard_tracker
                 .cares_about_shard_this_or_next_epoch(block.header().prev_hash(), shard_id)
             {
-                if is_invalid_chunk(&self.chain, chunk_header) {
-                    continue;
-                }
                 // Otherwise the chunk must be in store, or the block would have been orphaned.
-                let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
+                let Some(chunk) =
+                    get_chunk_if_valid(&self.chain.chain_store().chunk_store(), chunk_header)?
+                else {
+                    continue;
+                };
 
                 let validated_txs = chunk
                     .to_transactions()
@@ -686,10 +680,11 @@ impl Client {
             {
                 continue;
             }
-            if is_invalid_chunk(&self.chain, chunk_header) {
+            let Some(chunk) =
+                get_chunk_if_valid(&self.chain.chain_store().chunk_store(), chunk_header)?
+            else {
                 continue;
-            }
-            let chunk = self.chain.get_chunk(&chunk_header.chunk_hash())?;
+            };
             let transactions = chunk.to_transactions();
             let mut ptq = self.chunk_producer.pending_transaction_queue.lock();
             ptq.get_or_create(shard_uid).add_chunk_transactions(
@@ -743,10 +738,11 @@ impl Client {
                 {
                     continue;
                 }
-                if is_invalid_chunk(&chain, chunk_header) {
+                let Some(chunk) =
+                    get_chunk_if_valid(&chain.chain_store().chunk_store(), chunk_header)?
+                else {
                     continue;
-                }
-                let chunk = chain.get_chunk(&chunk_header.chunk_hash())?;
+                };
                 let transactions = chunk.to_transactions();
                 pending_transaction_queue.lock().get_or_create(shard_uid).add_chunk_transactions(
                     *block_hash,

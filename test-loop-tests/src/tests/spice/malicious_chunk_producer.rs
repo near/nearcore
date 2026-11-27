@@ -1,4 +1,5 @@
 use crate::setup::builder::{ArchivalKind, TestLoopBuilder};
+use crate::setup::env::TestLoopEnv;
 use crate::utils::account::create_account_id;
 use crate::utils::node::TestLoopNode;
 use assert_matches::assert_matches;
@@ -13,7 +14,8 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
-use near_primitives::types::{Balance, BlockHeight, Gas, ShardId};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, ShardId};
 use near_primitives::utils::{get_endorsements_key_prefix, get_spice_invalid_chunk_key_rev};
 use near_store::DBCol;
 use near_store::db::{COLD_HEAD_KEY, Database};
@@ -264,6 +266,83 @@ fn cold_head_height(node: &TestLoopNode) -> BlockHeight {
     node.store().get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).map_or(0, |tip| tip.height)
 }
 
+/// An environment in which every block carries an invalid chunk for the first shard, ahead of the
+/// chunk of the shard holding `sender`. `observer` is a non-validator tracking all shards, so only
+/// block processing can update its pools.
+#[cfg(feature = "test_features")]
+struct InvalidChunkEnv {
+    env: TestLoopEnv,
+    observer: AccountId,
+    tx_producer: AccountId,
+    sender: AccountId,
+    receiver: AccountId,
+    tx_shard_uid: ShardUId,
+}
+
+#[cfg(feature = "test_features")]
+impl InvalidChunkEnv {
+    fn new(pending_transaction_queue_enabled: bool) -> Self {
+        let sender = create_account_id("usera");
+        let receiver = create_account_id("userb");
+        let observer = create_account_id("observer");
+        let mut env = TestLoopBuilder::new()
+            .validators(2, 0)
+            .num_shards(2)
+            .add_user_accounts([&sender, &receiver], Balance::from_near(1_000))
+            .add_non_validator_client(&observer)
+            .config_modifier(move |config, _| {
+                config
+                    .set_spice_pending_transaction_queue_enabled(pending_transaction_queue_enabled);
+            })
+            .build();
+
+        let observer_node = env.node_for_account(&observer);
+        let epoch_id = observer_node.head().epoch_id;
+        let epoch_manager = observer_node.client().epoch_manager.clone();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let invalid_shard_id = shard_layout.shard_ids().next().unwrap();
+        let tx_shard_uid = shard_layout.account_id_to_shard_uid(&sender);
+        assert_ne!(tx_shard_uid.shard_id(), invalid_shard_id);
+        let only_producer = |shard_id| {
+            let producers =
+                epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, shard_id).unwrap();
+            assert_eq!(producers.len(), 1, "shard {shard_id} needs a single chunk producer");
+            producers[0].clone()
+        };
+        let malicious = only_producer(invalid_shard_id);
+        let tx_producer = only_producer(tx_shard_uid.shard_id());
+
+        // Every block now has an invalid chunk before the transaction's chunk.
+        env.runner_for_account(&malicious).send_adversarial_message(
+            NetworkAdversarialMessage::AdvProduceChunks(
+                AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
+            ),
+        );
+        // Chunks already in flight are still valid.
+        env.runner_for_account(&observer)
+            .run_until(|node| !stored_invalid_chunk_keys(node).is_empty(), Duration::seconds(30));
+
+        Self { env, observer, tx_producer, sender, receiver, tx_shard_uid }
+    }
+
+    /// Sends a transfer from `sender` and runs until the observer's head block includes it. The
+    /// chunk producer of the shard and the observer both hold the transaction in their pools.
+    fn send_transfer_until_included(&mut self) -> SignedTransaction {
+        let tx = self.env.node_for_account(&self.observer).tx_send_money(
+            &self.sender,
+            &self.receiver,
+            Balance::from_millinear(1),
+        );
+        self.env.node_for_account(&self.tx_producer).submit_tx_pool(tx.clone());
+        let tx_hash = self.env.node_for_account(&self.observer).submit_tx_pool(tx.clone());
+        self.env.runner_for_account(&self.observer).run_until(
+            |node| tx_in_shard_chunk(node, self.tx_shard_uid.shard_id(), tx_hash),
+            Duration::seconds(30),
+        );
+        tx
+    }
+}
+
 /// Under SPICE an invalid chunk has no `ShardChunk` in `DBCol::Chunks`. A node tracking every
 /// shard must still drop a transaction from its pool once a block includes it, even when that
 /// block carries an invalid chunk for an earlier shard.
@@ -273,91 +352,49 @@ fn cold_head_height(node: &TestLoopNode) -> BlockHeight {
 fn test_spice_tx_leaves_pool_next_to_invalid_chunk() {
     init_test_logger();
 
-    let num_producers = 8;
-    let sender = create_account_id("usera");
-    let receiver = create_account_id("userb");
-    let mut env = TestLoopBuilder::new()
-        .validators(num_producers, 0)
-        .num_shards(2)
-        .track_all_shards()
-        .add_user_accounts([&sender, &receiver], Balance::from_near(1_000))
-        .build();
+    let mut test = InvalidChunkEnv::new(false);
+    let tx = test.send_transfer_until_included();
 
-    // Accounts sort after the boundary account, so they live in the last shard.
-    let observer_node = env.node(0);
-    let epoch_id = observer_node.head().epoch_id;
-    let epoch_manager = observer_node.client().epoch_manager.clone();
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-    let invalid_shard_id = shard_layout.shard_ids().next().unwrap();
-    let tx_shard_uid = shard_layout.account_id_to_shard_uid(&sender);
-    assert_ne!(tx_shard_uid.shard_id(), invalid_shard_id);
-    let tx_shard_producers = epoch_manager
-        .get_epoch_chunk_producers_for_shard(&epoch_id, tx_shard_uid.shard_id())
-        .unwrap();
-    let invalid_shard_producers =
-        epoch_manager.get_epoch_chunk_producers_for_shard(&epoch_id, invalid_shard_id).unwrap();
-    let malicious = invalid_shard_producers
-        .iter()
-        .find(|account| !tx_shard_producers.contains(account))
-        .expect("a producer of only the first shard")
-        .clone();
-    let observer = tx_shard_producers[0].clone();
-    let malicious_idx = env.account_data_idx(&malicious);
-    env.node_runner(malicious_idx).send_adversarial_message(
-        NetworkAdversarialMessage::AdvProduceChunks(
-            AdvProduceChunksMode::ProduceWithCorruptedTxRoot,
-        ),
-    );
+    let node = test.env.node_for_account(&test.observer);
+    let pooled = node
+        .client()
+        .chunk_producer
+        .sharded_tx_pool
+        .lock()
+        .get_pool_iterator(test.tx_shard_uid)
+        .map_or(0, |pool| pool.drain().len());
+    assert_eq!(pooled, 0, "tx {} is still in the pool of {}", tx.get_hash(), test.observer);
+}
 
-    let mut rounds_next_to_invalid_chunk = 0;
-    for _ in 0..24 {
-        let tx = env.node_for_account(&observer).tx_send_money(
-            &sender,
-            &receiver,
-            Balance::from_millinear(1),
-        );
-        let tx_hash = tx.get_hash();
-        // A chunk producer only keeps transactions it was handed itself, so every producer of
-        // the shard gets one. The observer then holds a copy whichever of them includes it.
-        for producer in &tx_shard_producers {
-            env.node_for_account(producer).submit_tx(tx.clone());
-        }
-        env.runner_for_account(&observer).run_until(
-            |node| tx_in_shard_chunk(node, tx_shard_uid.shard_id(), tx_hash),
-            Duration::seconds(30),
-        );
+/// The pending transaction queue must hold the nonce of a transaction included next to an invalid
+/// chunk, both after the block and after a restart rebuilds the queue from the uncertified blocks.
+#[cfg(feature = "test_features")]
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn test_spice_pending_queue_holds_nonce_next_to_invalid_chunk() {
+    init_test_logger();
 
-        let node = env.node_for_account(&observer);
-        let block = node.head_block();
-        let included_at = block.header().height();
-        let invalid_next_to_tx = block.chunks().iter_new().any(|header| {
-            header.shard_id() == invalid_shard_id
-                && node
-                    .client()
-                    .chain
-                    .chain_store()
-                    .is_invalid_chunk(header.height_created(), header.chunk_hash())
-                    .is_some()
-        });
-        if invalid_next_to_tx {
-            rounds_next_to_invalid_chunk += 1;
-        }
-        let pooled = node
-            .client()
+    let mut test = InvalidChunkEnv::new(true);
+    let tx = test.send_transfer_until_included();
+    let nonce = tx.transaction.nonce().nonce();
+    let pending_nonce = |node: &TestLoopNode| {
+        node.client()
             .chunk_producer
-            .sharded_tx_pool
+            .pending_transaction_queue
             .lock()
-            .get_pool_iterator(tx_shard_uid)
-            .map_or(0, |pool| pool.drain().len());
-        assert_eq!(
-            pooled, 0,
-            "tx {tx_hash} included at height {included_at} is still in the pool of {observer} \
-             (invalid chunk in the same block: {invalid_next_to_tx})",
-        );
-    }
-    assert!(
-        rounds_next_to_invalid_chunk > 0,
-        "no transaction was included in a block with an invalid chunk, so the test proves nothing",
+            .get(&test.tx_shard_uid)
+            .map(|queue| queue.get_pending_constraints(&tx).max_nonce)
+    };
+    assert_eq!(pending_nonce(&test.env.node_for_account(&test.observer)), Some(nonce));
+
+    let observer_data = &test.env.node_datas[test.env.account_data_idx(&test.observer)];
+    let identifier = observer_data.identifier.clone();
+    let node_state = test.env.kill_node(&identifier);
+    test.env.restart_node(&format!("{identifier}-restart"), node_state);
+    assert_eq!(
+        pending_nonce(&test.env.node_for_account(&test.observer)),
+        Some(nonce),
+        "restart dropped the pending nonce",
     );
 }
 
