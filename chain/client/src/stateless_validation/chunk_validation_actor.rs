@@ -452,6 +452,9 @@ impl ChunkValidationActor {
                         signer.as_ref(),
                         &self.network_adapter,
                     );
+                    if let Some(processing_done_tracker) = processing_done_tracker {
+                        processing_done_tracker.finish(true);
+                    }
                     return Ok(());
                 }
                 Err(err) => {
@@ -482,10 +485,9 @@ impl ChunkValidationActor {
         let rs = self.rs.clone();
 
         self.validation_spawner.spawn("stateless_validation", move || {
-            // Capture the processing_done_tracker here - it will be dropped when this closure completes
-            let _processing_done_tracker = processing_done_tracker;
-
-            match chunk_validation::validate_chunk_state_witness(
+            // processing_done_tracker is moved into this closure. It reports the validation result
+            // below, or a failure if it is dropped when this closure ends early.
+            let validation_result = chunk_validation::validate_chunk_state_witness(
                 state_witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
@@ -494,7 +496,9 @@ impl ChunkValidationActor {
                 store,
                 save_witness_if_invalid,
                 rs,
-            ) {
+            );
+            let success = validation_result.is_ok();
+            match validation_result {
                 Ok(_) => {
                     send_chunk_endorsement_to_block_producers(
                         &chunk_header,
@@ -515,6 +519,9 @@ impl ChunkValidationActor {
                         "failed to validate chunk state witness"
                     );
                 }
+            }
+            if let Some(processing_done_tracker) = processing_done_tracker {
+                processing_done_tracker.finish(success);
             }
         });
 

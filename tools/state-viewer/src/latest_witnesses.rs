@@ -15,6 +15,7 @@ use nearcore::NearConfig;
 use nearcore::NightshadeRuntimeExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -145,6 +146,8 @@ impl GenerateWitnessesCmd {
             false,
         );
 
+        let mut num_validated = 0;
+        let mut num_failed = 0;
         for height in self.start_height..=self.end_height {
             let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
             let block = chain_store.get_block(&block_hash).unwrap();
@@ -174,17 +177,33 @@ impl GenerateWitnessesCmd {
             let data_parts = epoch_manager.num_data_parts();
             let parity_parts = epoch_manager.num_total_parts() - data_parts;
             let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
-            chain
-                .shadow_validate_state_witness(
-                    state_witness,
-                    chain.epoch_manager.as_ref(),
-                    Some(processing_done_tracker),
-                    rs,
-                )
-                .unwrap();
-            waiter.wait();
+            num_validated += 1;
+            let started = chain.shadow_validate_state_witness(
+                state_witness,
+                chain.epoch_manager.as_ref(),
+                Some(processing_done_tracker),
+                rs,
+            );
+            if let Err(err) = started {
+                num_failed += 1;
+                println!(
+                    "height {height}, chunk {chunk_hash:?}: witness pre-validation failed: {err}"
+                );
+                continue;
+            }
+            if waiter.wait() {
+                println!("height {height}, chunk {chunk_hash:?}: witness is valid");
+            } else {
+                num_failed += 1;
+                println!(
+                    "height {height}, chunk {chunk_hash:?}: witness validation failed, see the error logged above"
+                );
+            }
         }
-        println!("Validation finished. Use `RUST_LOG=debug` to see validation result");
+        println!("Validation finished: {num_failed} of {num_validated} witnesses failed");
+        if num_failed > 0 {
+            process::exit(1);
+        }
     }
 }
 
@@ -279,15 +298,21 @@ impl ValidateWitnessCmd {
         let data_parts = chain.epoch_manager.num_data_parts();
         let parity_parts = chain.epoch_manager.num_total_parts() - data_parts;
         let rs = Arc::new(ReedSolomon::new(data_parts, parity_parts).unwrap());
-        chain
-            .shadow_validate_state_witness(
-                witness,
-                chain.epoch_manager.as_ref(),
-                Some(processing_done_tracker),
-                rs,
-            )
-            .unwrap();
-        waiter.wait();
-        println!("Validation finished. Use `RUST_LOG=debug` to see validation result");
+        let started = chain.shadow_validate_state_witness(
+            witness,
+            chain.epoch_manager.as_ref(),
+            Some(processing_done_tracker),
+            rs,
+        );
+        if let Err(err) = started {
+            println!("Validation finished: witness pre-validation failed: {err}");
+            process::exit(1);
+        }
+        if waiter.wait() {
+            println!("Validation finished: witness is valid");
+        } else {
+            println!("Validation finished: witness validation failed, see the error logged above");
+            process::exit(1);
+        }
     }
 }
