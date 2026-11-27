@@ -391,11 +391,11 @@ when logs are enabled.
 ```rust
 // GOOD - explicit qualifier
 tracing::error!(target: "client", ?err, "failed to process");
-tracing::warn!(target: "sync", height, "state sync started");
+tracing::info!(target: "sync", height, "state sync started");
 
 // BAD - unqualified macros
 error!(target: "client", ?err, "failed to process");
-warn!(target: "sync", height, "state sync started");
+info!(target: "sync", height, "state sync started");
 ```
 
 **Rationale:** Explicit qualification improves code clarity by making it immediately obvious that tracing infrastructure is being used. It also prevents naming conflicts with other logging libraries or macros, and makes the code easier to search and refactor.
