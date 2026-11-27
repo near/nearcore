@@ -147,7 +147,7 @@ The `src/examples/` directory contains minimal self-contained tests demonstratin
 | `archival.rs` | Archival node with cold storage |
 | `gas_limit.rs` | Gas limit behavior verification |
 | `delayed_receipts.rs` | Creating and observing delayed receipts |
-| `network_rules.rs` | Dropping, delaying and observing the requests a node sends |
+| `network_rules.rs` | Dropping, delaying, holding and observing the requests a node sends or receives |
 | `missing_chunk.rs` | Triggering missing chunks using adversarial messages |
 | `validator_rotation.rs` | Validator rotation across epochs |
 | `resharding.rs` | Dynamic resharding (manual genesis setup) |
@@ -172,7 +172,7 @@ env.add_node(identifier, new_node_state);
 ### Network rules
 
 A rule applies an `Action` (`Drop`, `DelayBy` or `Action::delay(..)`, `Hold`, `Observe`)
-to the requests a node sends that match a `NetworkRequestsMatcher`, until its `RuleHandle` is lifted. Rules
+to the requests a node sends (or, for an incoming rule, receives) that match a `NetworkRequestsMatcher`, until its `RuleHandle` is lifted. Rules
 are added through `env.node_network(idx)` or `env.node_network_for_account(&account_id)`.
 They are keyed by account, so they survive a node restart. See `src/setup/network_rules.rs`.
 
@@ -184,18 +184,19 @@ env.node_runner(0).run_for_number_of_blocks(5);
 assert!(rule.matched() > 0);
 rule.lift();
 
-env.node_network(1).add_rule(
+env.node_network(1).add_outgoing_rule(
     NetworkRequestsMatcher::new(|request| matches!(request, NetworkRequests::Approval { .. })),
     Action::delay(Duration::seconds(1)),
 );
 ```
 
 - Rules run in the order they were added. A delayed or held request skips the rules after
-  the one that delayed it. Add an observer first to see everything a node sends.
+  the one that delayed it.
 - Dropping a block broadcast does not keep the block from the network: peers can still
   fetch it by hash. A test that needs it unfetchable also drops the `BlockRequest`s for it.
-- To withhold a block from one recipient only, use `withhold_block_delivery` /
-  `deliver_withheld_blocks` on `env.shared_state.network_shared_state`.
+- `add_incoming_rule` applies to what reaches a node from any sender, and
+  `env.node_network(a).add_rule_to(&b, ..)` to what `a` sends `b` only. Neither affects the
+  other recipients of a broadcast.
 - `register_override_handler` is still available for tests that deliver messages
   themselves.
 

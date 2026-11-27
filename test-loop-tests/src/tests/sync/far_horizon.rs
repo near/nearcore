@@ -18,6 +18,7 @@ use super::util::{
     track_sync_status, verify_balances_on_synced_node,
 };
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::network_rules::{Action, NetworkRequestsMatcher};
 use crate::utils::account::create_account_id;
 use crate::utils::transactions::{execute_money_transfers, get_shared_block_hash, make_accounts};
 use near_async::messaging::Handler;
@@ -912,14 +913,18 @@ fn test_far_horizon_block_sync_without_verified_peer_above_head() {
     // The chain is already well past `far_horizon_height` by now, so take the window from
     // where it actually is: the node syncs and catches up within the next couple of epochs.
     let tip = env.node(0).head().height;
-    env.shared_state
-        .network_shared_state
-        .suppress_block_delivery(&new_account, tip..tip + 2 * epoch_length);
+    let suppressed = env.node_network_for_account(&new_account).add_incoming_rule(
+        NetworkRequestsMatcher::block_broadcasts(tip..tip + 2 * epoch_length),
+        Action::Drop,
+    );
 
     let sync_history = track_sync_status(&mut env.test_loop, &env.node_datas, new_node_idx);
     run_until_synced(&mut env.test_loop, &env.node_datas, new_node_idx, 0);
 
-    let suppressed = env.shared_state.network_shared_state.suppressed_block_count(&new_account);
-    assert!(suppressed > 0, "height window {tip}..{} covered no broadcast", tip + 2 * epoch_length);
+    assert!(
+        suppressed.matched() > 0,
+        "height window {tip}..{} covered no broadcast",
+        tip + 2 * epoch_length
+    );
     assert_far_horizon_sync_sequence(&sync_history.borrow());
 }
