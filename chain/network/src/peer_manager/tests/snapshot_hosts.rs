@@ -1,16 +1,12 @@
 use crate::config::NetworkConfig;
-use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
-use crate::network_protocol::SnapshotHostInfo;
-use crate::network_protocol::SyncSnapshotHosts;
-use crate::peer_manager;
+use crate::network_protocol::{
+    MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, SnapshotHostInfo, SyncSnapshotHosts, testonly as data,
+};
+use crate::peer::testonly::PeerHandle;
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::tcp;
 use crate::testonly::{AsSet as _, make_rng};
-use crate::types::NetworkRequests;
-use crate::types::PeerManagerMessageRequest;
-use crate::types::PeerMessage;
-use crate::types::SnapshotHostEvent;
-use crate::{network_protocol::testonly as data, peer::testonly::PeerHandle};
+use crate::types::{NetworkRequests, PeerManagerMessageRequest, PeerMessage, SnapshotHostEvent};
+use crate::{peer_manager, tcp};
 use itertools::Itertools;
 use near_async::messaging::CanSendAsync;
 use near_async::time;
@@ -18,8 +14,7 @@ use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::types::EpochHeight;
-use near_primitives::types::ShardId;
+use near_primitives::types::{EpochHeight, ShardId};
 use peer_manager::testonly::FDS_PER_PEER;
 use pretty_assertions::assert_eq;
 use rand::Rng;

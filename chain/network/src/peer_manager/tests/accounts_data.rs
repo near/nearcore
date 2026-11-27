@@ -1,14 +1,12 @@
 use crate::concurrency::rate;
 use crate::config::NetworkTransitionConfig;
-use crate::network_protocol::SyncAccountsData;
-use crate::network_protocol::testonly as data;
-use crate::peer_manager;
+use crate::network_protocol::{SyncAccountsData, testonly as data};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly;
 use crate::peer_manager::testonly::start as start_pm;
-use crate::tcp;
 use crate::testonly::{AsSet as _, make_rng};
 use crate::types::PeerMessage;
+use crate::{peer_manager, tcp};
 use itertools::Itertools;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;

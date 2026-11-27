@@ -1,6 +1,5 @@
 use crate::accounts_data::*;
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, SignedAccountData};
+use crate::network_protocol::{Encoding, SignedAccountData, testonly as data};
 use crate::testonly::{AsSet as _, Rng, assert_is_superset, make_rng};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;

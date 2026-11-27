@@ -2,14 +2,13 @@ use crate::metrics::ANCHORED_CHUNK_PRODUCER_LOOKUP_TOTAL;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EpochManagerAdapter};
-use near_primitives::{
-    block::BlockHeader,
-    errors::EpochError,
-    hash::CryptoHash,
-    sharding::{ChunkHash, ShardChunkHeader},
-    stateless_validation::ChunkProductionKey,
-    types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
-};
+use near_primitives::block::BlockHeader;
+use near_primitives::errors::EpochError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_store::{Store, get_genesis_height};
 
 pub fn verify_block_vrf(

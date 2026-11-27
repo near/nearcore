@@ -3,9 +3,8 @@ mod sticky_resharding;
 use crate::{EpochInfo, EpochManagerAdapter, RngSeed};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::{
-    AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex, validator_stake::ValidatorStake,
-};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex};
 use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 use near_store::trie::ShardUId;
 use rand::Rng;

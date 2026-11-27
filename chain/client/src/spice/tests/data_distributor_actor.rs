@@ -16,12 +16,9 @@ use crate::spice::tests::{
 };
 use assert_matches::assert_matches;
 use itertools::Itertools as _;
-use near_async::messaging::Actor;
-use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
+use near_async::messaging::{Actor, Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::{Clock, FakeClock};
-use near_chain::Block;
-use near_chain::ChainStoreAccess;
 use near_chain::spice::activation::SpiceMessageKind;
 use near_chain::spice::all_stake_fallback::{
     SPICE_FALLBACK_CERTIFICATION_DELAY, fallback_endorsers, is_fallback_only_chunk,
@@ -35,7 +32,7 @@ use near_chain::test_utils::{
     produce_spice_block_certifying_parent, setup_spice_key_rotation,
 };
 use near_chain::types::Tip;
-use near_chain::{BlockProcessingArtifact, Chain, Provenance};
+use near_chain::{Block, BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
 use near_chain_primitives::ApplyChunksMode;
@@ -56,14 +53,11 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::gas::Gas;
-use near_primitives::hash::CryptoHash;
-use near_primitives::hash::hash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{Direction, MerklePathItem};
 use near_primitives::reed_solomon::reed_solomon_num_data_parts;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ReceiptProof;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::sharding::ShardProof;
+use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, ShardProof};
 use near_primitives::spice::chunk_endorsement::{
     SpiceChunkEndorsement, SpiceEndorsementSignedData, testonly_create_endorsement_core_statement,
 };
@@ -80,18 +74,16 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };
-use near_primitives::types::AccountId;
-use near_primitives::types::Balance;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ChunkExecutionResult};
-use near_primitives::types::{ShardId, SpiceChunkId, SpiceUncertifiedChunkInfo};
-use near_primitives::utils::get_contract_accesses_key;
-use near_primitives::utils::get_execution_results_key;
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, ChunkExecutionResult, ShardId, SpiceChunkId,
+    SpiceUncertifiedChunkInfo,
+};
+use near_primitives::utils::{get_contract_accesses_key, get_execution_results_key};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_store::adapter::StoreAdapter;
-use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, ShardUId};
 use num_rational::Rational32;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};

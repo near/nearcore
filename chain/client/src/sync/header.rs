@@ -3,8 +3,9 @@ use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_network::config::MAX_BLOCK_HEADER_HASHES;
-use near_network::types::{NetworkRequests, PeerManagerAdapter};
-use near_network::types::{PeerManagerMessageRequest, ReasonForBan};
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
+};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;

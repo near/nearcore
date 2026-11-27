@@ -1,13 +1,12 @@
 use crate::config::SocketOptions;
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, Handshake, PartialEdgeInfo, PeerMessage};
-use crate::peer_manager;
+use crate::network_protocol::{
+    Encoding, Handshake, PartialEdgeInfo, PeerMessage, testonly as data,
+};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::ActorHandler;
-use crate::tcp;
-use crate::testonly::make_rng;
-use crate::testonly::stream;
+use crate::testonly::{make_rng, stream};
 use crate::types::{Disconnect, Edge};
+use crate::{peer_manager, tcp};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;

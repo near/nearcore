@@ -1,14 +1,10 @@
-use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::peer_manager::connection_store::STORED_CONNECTIONS_MIN_DURATION;
 use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
-use crate::peer_manager::peer_manager_actor::Event;
-use crate::peer_manager::peer_manager_actor::POLL_CONNECTION_STORE_INTERVAL;
-use crate::peer_manager::testonly::ActorHandler;
-use crate::peer_manager::testonly::start as start_pm;
-use crate::tcp;
-use crate::testonly::AsSet;
-use crate::testonly::make_rng;
+use crate::peer_manager::peer_manager_actor::{Event, POLL_CONNECTION_STORE_INTERVAL};
+use crate::peer_manager::testonly::{ActorHandler, start as start_pm};
+use crate::testonly::{AsSet, make_rng};
+use crate::{broadcast, tcp};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;

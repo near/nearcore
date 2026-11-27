@@ -46,7 +46,9 @@ use near_vm_runner::logic::{ExecutionMode, ProtocolVersion, ReturnData};
 use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache};
 use std::num::NonZeroU32;
 use std::ops::Bound;
-use std::{str, sync::Arc, time::Instant};
+use std::str;
+use std::sync::Arc;
+use std::time::Instant;
 
 pub mod errors;
 

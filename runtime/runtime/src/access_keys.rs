@@ -361,12 +361,11 @@ pub(crate) fn action_withdraw_from_gas_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ActionResult;
-    use crate::ApplyState;
     use crate::actions_test_utils::{setup_account, setup_account_with_tries, test_delete_account};
     use crate::config::storage_removes_compute;
     use crate::state_viewer::TrieViewer;
     use crate::state_viewer::errors::ViewAccessKeyError;
+    use crate::{ActionResult, ApplyState};
     use near_crypto::{InMemorySigner, KeyType, PublicKeyHandle};
     use near_parameters::{RuntimeConfig, RuntimeConfigStore};
     use near_primitives::account::{

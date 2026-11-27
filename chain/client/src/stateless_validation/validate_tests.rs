@@ -3,8 +3,7 @@ use crate::stateless_validation::validate::{
     validate_partial_encoded_contract_deploys, validate_partial_encoded_state_witness,
 };
 use assert_matches::assert_matches;
-use near_async::time::Clock;
-use near_async::time::{Duration, FakeClock, Utc};
+use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period_at_version};
 use near_chain::{BlockProcessingArtifact, Chain, ChainStoreAccess, Provenance};
 use near_chain_primitives::Error;
@@ -20,10 +19,8 @@ use near_primitives::stateless_validation::contract_distribution::{
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitnessV2, VersionedPartialEncodedStateWitness,
 };
-use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::BlockHeight;
-use near_primitives::types::{Balance, Gas, ShardId};
+use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
+use near_primitives::types::{Balance, BlockHeight, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use std::collections::HashSet;

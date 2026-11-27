@@ -2,11 +2,9 @@ pub mod delegate;
 
 // This type used to be defined here, then moved to core primitives to give access to the vm
 // runtime. Reexporting it here avoids breakage on depending crates.
-use crate::{
-    deterministic_account_id::DeterministicAccountStateInit,
-    trie_key::GlobalContractCodeIdentifier,
-    universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts},
-};
+use crate::deterministic_account_id::DeterministicAccountStateInit;
+use crate::trie_key::GlobalContractCodeIdentifier;
+use crate::universal_state_init::{RawStateInit, UniversalStateInit, state_init_counts};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::account::AccessKey;

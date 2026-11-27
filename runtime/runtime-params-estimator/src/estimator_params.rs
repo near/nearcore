@@ -2,7 +2,8 @@
 //! These parameters have been estimated manually and are now hard-coded for a more deterministic estimation of runtime parameters.
 //! This module contains the hard-coded constants as well as the code to manually re-estimate them.
 
-use crate::{config::GasMetric, gas_cost::GasCost};
+use crate::config::GasMetric;
+use crate::gas_cost::GasCost;
 use near_primitives::hash::CryptoHash;
 use num_rational::Ratio;
 

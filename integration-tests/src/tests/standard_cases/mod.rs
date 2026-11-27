@@ -7,11 +7,9 @@ use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_parameters::{ActionCosts, ExtCosts};
-use near_parameters::{RuntimeConfig, RuntimeConfigStore};
-use near_primitives::account::{
-    AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
-};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
+use near_primitives::account::id::AccountType;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::TransferAction;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, FunctionCallError, InvalidAccessKeyError,

@@ -1,8 +1,7 @@
 /// Provides serialization of Duration as std::time::Duration.
 pub mod serde_duration_as_std {
     use crate::Duration;
-    use serde::Deserialize;
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
 
     pub fn serialize<S>(dur: &Duration, s: S) -> Result<S::Ok, S::Error>
     where
@@ -26,8 +25,7 @@ pub mod serde_duration_as_std {
 /// Provides serialization of Duration as std::time::Duration.
 pub mod serde_opt_duration_as_std {
     use crate::Duration;
-    use serde::Deserialize;
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
 
     pub fn serialize<S>(dur: &Option<Duration>, s: S) -> Result<S::Ok, S::Error>
     where

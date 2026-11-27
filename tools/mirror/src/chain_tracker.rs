@@ -19,9 +19,7 @@ use near_primitives_core::types::{Nonce, NonceIndex};
 use parking_lot::Mutex;
 use rocksdb::DB;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::hash_map;
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque, hash_map};
 use std::fmt::Write;
 use std::time::{Duration, Instant};
 

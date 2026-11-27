@@ -1,12 +1,11 @@
 use super::*;
 use crate::config::DecodeMemoryLimits;
-use crate::network_protocol::PeersResponse;
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{RoutedMessage, RoutedMessageBody};
-use crate::testonly::Rng as TestRng;
-use crate::testonly::make_rng;
-use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
-use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use crate::network_protocol::{PeersResponse, RoutedMessage, RoutedMessageBody, testonly as data};
+use crate::testonly::{Rng as TestRng, make_rng};
+use crate::types::{
+    Disconnect, HandshakeFailureReason, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerMessage,
+};
 use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
@@ -251,9 +250,8 @@ fn verify_signed_structs() {
 
 #[test]
 fn handshake_tracked_shards_too_many() {
-    use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
-    use crate::network_protocol::proto;
     use crate::network_protocol::proto_conv::ParsePeerChainInfoV2Error;
+    use crate::network_protocol::{MAX_TRACKED_SHARDS_PER_PEER, proto};
 
     let mut rng = make_rng(8475629384);
     let mut clock = time::FakeClock::default();
@@ -636,12 +634,11 @@ mod versioned_witness_tests {
 
 #[test]
 fn snapshot_host_info_signed_address() {
-    use crate::network_protocol::SnapshotHostInfoVerificationError;
-    use crate::network_protocol::proto;
     use crate::network_protocol::proto_conv::ParseSnapshotHostInfoError;
     use crate::network_protocol::state_sync::{
         SnapshotHostInfo, SnapshotHostInfoV1, SnapshotHostInfoV2,
     };
+    use crate::network_protocol::{SnapshotHostInfoVerificationError, proto};
     use protobuf::MessageField;
 
     let mut rng = make_rng(2847510394);
@@ -725,10 +722,9 @@ fn snapshot_host_info_signed_data() {
 
 #[test]
 fn snapshot_host_info_too_many_shards() {
-    use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
-    use crate::network_protocol::proto;
     use crate::network_protocol::proto_conv::ParseSnapshotHostInfoError;
     use crate::network_protocol::state_sync::SnapshotHostInfo;
+    use crate::network_protocol::{MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, proto};
 
     let mut rng = make_rng(2847510394);
     // A host info with empty shards, so converting it to proto does not trip the

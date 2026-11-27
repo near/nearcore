@@ -47,10 +47,9 @@ use near_primitives::transaction::{
     TransactionNonce, TransactionV0, TransferAction, ValidatedEcc, ValidatedTransactionEnvelope,
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
-use near_primitives::types::Gas;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    BlockHeightDelta, Nonce, StateChangeCause, ValidatorId, ValidatorInfoIdentifier,
+    BlockHeightDelta, Gas, Nonce, StateChangeCause, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason,
 };
 use near_primitives::universal_state_init::{UniversalStateInit, UniversalStateInitV1};
@@ -61,20 +60,19 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_runtime::ExternalCallInclusion;
-use near_runtime::PostStateNodes;
-use near_runtime::SignedValidPeriodTransactions;
 use near_runtime::config::ecc_cost;
+use near_runtime::{ExternalCallInclusion, PostStateNodes, SignedValidPeriodTransactions};
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::test_populate_trie;
-use near_store::trie::AccessOptions;
-use near_store::trie::NewTrieNodes;
+use near_store::trie::{AccessOptions, NewTrieNodes};
 use near_store::{NodeStorage, PartialStorage, get_account, get_genesis_state_roots, set_account};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use num_rational::Ratio;
 use primitive_types::U256;
-use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::mpsc;
 use std::thread;

@@ -1,8 +1,9 @@
 // This file contains structures for the Entity Debug UI.
 // They are to be sent to the UI as JSON.
 use crate::errors::RpcError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochId, NumBlocks, ShardId};
-use near_primitives::{hash::CryptoHash, shard_layout::ShardUId};
 use serde::{Deserialize, Serialize};
 
 /// One entry to be displayed in the UI as a single row.

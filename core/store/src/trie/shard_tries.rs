@@ -16,8 +16,9 @@ use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{
     NewTrieNodes, TrieCache, TrieCachingStorage, TrieStorageWithNewNodes,
 };
-use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
-use crate::{Trie, TrieChanges, TrieUpdate};
+use crate::{
+    DBCol, PrefetchApi, Store, Trie, TrieChanges, TrieDBStorage, TrieStorage, TrieUpdate, metrics,
+};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_primitives::errors::StorageError;
@@ -1034,16 +1035,14 @@ impl KeyForStateChanges {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::TrieConfig;
     use crate::adapter::StoreAdapter;
-    use crate::test_utils::{TestTriesBuilder, test_populate_trie};
-    use crate::trie::AccessOptions;
-    use crate::{
-        TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
-        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
-    };
+    use crate::config::TrieCacheConfig;
+    use crate::test_utils::{TestTriesBuilder, create_test_store, test_populate_trie};
+    use crate::trie::{AccessOptions, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT};
+    use std::str::FromStr;
     use std::sync::mpsc::sync_channel;
-    use std::thread;
-    use std::{assert_eq, str::FromStr};
+    use std::{assert_eq, thread};
 
     fn create_trie() -> ShardTries {
         let store = create_test_store();

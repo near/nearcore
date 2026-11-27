@@ -1,8 +1,6 @@
 use crate::network_protocol::testonly as data;
-use crate::raw;
-use crate::tcp;
-use crate::testonly;
 use crate::types::PeerInfo;
+use crate::{raw, tcp, testonly};
 use near_async::time;
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;

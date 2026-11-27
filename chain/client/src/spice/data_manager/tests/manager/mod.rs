@@ -9,8 +9,9 @@ use near_primitives::block_body::SpiceCoreStatement;
 use near_primitives::spice::partial_data::SpiceDataPart;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::types::{ChunkExecutionResult, SpiceChunkId, SpiceUncertifiedChunkInfo};
+use near_primitives::types::{
+    BlockHeight, ChunkExecutionResult, EpochId, SpiceChunkId, SpiceUncertifiedChunkInfo,
+};
 use near_primitives::utils::get_execution_results_key;
 use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, Store};

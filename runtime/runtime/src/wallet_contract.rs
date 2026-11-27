@@ -5,9 +5,10 @@
 //! the hashes are needed here. Tests pin the original code hashes; WASM needed
 //! for execution tests lives in near-test-contracts.
 
-use near_primitives_core::{
-    chains, hash::CryptoHash, types::ProtocolVersion, version::ProtocolFeature,
-};
+use near_primitives_core::chains;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::ProtocolVersion;
+use near_primitives_core::version::ProtocolFeature;
 
 // Legacy mainnet wallet magic bytes.
 // 77CJrGB4MNcG2fJXr87m3HCZngUMxZQYwhqGqcHSd7BB

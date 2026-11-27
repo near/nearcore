@@ -6,11 +6,12 @@ use near_async::messaging::{IntoSender, noop};
 use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 #[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{EccTransaction, SignedTransaction};
-use near_primitives::types::EpochId;
-use near_primitives::{hash::CryptoHash, test_utils::TestBlockBuilder, types::Balance};
+use near_primitives::types::{Balance, EpochId};
 use std::sync::Arc;
 
 /// An ECC has no block hash, so it is exempt from the validity period, while a signed

@@ -16,7 +16,8 @@ use crate::runner::VMKindExt;
 use crate::tests::{create_context, test_vm_config, with_vm_variants};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::VMKind;
-use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::hazmat::PrehashSigner};
+use p256::ecdsa::signature::hazmat::PrehashSigner;
+use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use std::cell::RefCell;
 use std::sync::Arc;
 

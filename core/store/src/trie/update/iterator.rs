@@ -1,6 +1,6 @@
 use crate::StorageError;
-use crate::trie::TrieIterator;
-use crate::trie::{TrieWithReadLock, update::*};
+use crate::trie::update::*;
+use crate::trie::{TrieIterator, TrieWithReadLock};
 use std::iter::Peekable;
 use std::ops::Bound;
 

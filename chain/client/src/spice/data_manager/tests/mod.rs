@@ -21,9 +21,7 @@ use near_primitives::spice::partial_data::{
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::state::PartialState;
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
-use near_primitives::types::EpochId;
-use near_primitives::types::SpiceChunkId;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId, SpiceChunkId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{ShardUId, Store};

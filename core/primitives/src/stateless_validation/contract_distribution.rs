@@ -2,7 +2,8 @@ use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::types::{SignatureDifferentiator, SpiceChunkId};
-use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
+use crate::utils::compression::CompressedData;
+use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
@@ -12,9 +13,8 @@ use near_primitives_core::types::{AccountId, ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeSet, HashSet};
-use std::io;
-use std::mem;
 use std::sync::Arc;
+use std::{io, mem};
 
 /// Maximum number of contracts allowed in a single contract code request.
 /// This is a conservative upper bound on the number of unique contracts that can

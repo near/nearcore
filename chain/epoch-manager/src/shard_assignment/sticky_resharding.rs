@@ -8,7 +8,8 @@
 use super::{AssignmentStrategy, ValidatorIdx, build_chunk_producer_indices};
 use itertools::Itertools;
 use near_primitives::shard_layout::{ShardLayout, ShardLayoutError};
-use near_primitives::types::{Balance, ShardIndex, validator_stake::ValidatorStake};
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{Balance, ShardIndex};
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 

@@ -463,8 +463,7 @@ mod trie_recording_tests {
     use itertools::Itertools;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
-    use near_primitives::state::ValueRef;
-    use near_primitives::state::{FlatStateValue, PartialState};
+    use near_primitives::state::{FlatStateValue, PartialState, ValueRef};
     use near_primitives::types::StateRoot;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use rand::prelude::SliceRandom;

@@ -8,7 +8,6 @@ use crate::client::{
 };
 use crate::concurrency::demux;
 use crate::concurrency::outgoing_queue_limiter::OutgoingQueueLimiter;
-use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
     RoutedMessage, SignedAccountData, SignedOwnedAccount, SnapshotHostInfo, SyncAccountsData,
@@ -16,14 +15,11 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::connected_peers::{ConnectedPeerState, ConnectedPeers};
-use crate::peer_manager::connection;
-use crate::peer_manager::connection_store;
 use crate::peer_manager::network_transport::NetworkTransport;
 #[cfg(test)]
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::peer_manager::peer_store;
+use crate::peer_manager::{connection, connection_store, peer_store};
 use crate::private_messages::RegisterPeerError;
-use crate::public_addr;
 use crate::recv_permit::RecvMessagePermit;
 use crate::routing::route_back_cache::{ExpectedResponse, RouteBackCache};
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -40,13 +36,12 @@ use crate::state_witness::{
     PartialWitnessSenderForNetwork,
 };
 use crate::stats::metrics;
-use crate::store;
-use crate::tcp;
 use crate::types::{
     BlockInfo, ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan,
     StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
     Tier3RequestBody,
 };
+use crate::{config, public_addr, store, tcp};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use forwarded_txs::ForwardedTxCounters;

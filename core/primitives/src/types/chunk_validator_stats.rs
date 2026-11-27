@@ -1,8 +1,6 @@
+use super::{NumBlocks, ValidatorStats};
+use borsh::{self, BorshDeserialize, BorshSerialize};
 use near_schema_checker_lib::ProtocolSchema;
-use {
-    super::{NumBlocks, ValidatorStats},
-    borsh::{self, BorshDeserialize, BorshSerialize},
-};
 
 /// An extension to `ValidatorStats` which also tracks endorsements
 /// coming from stateless validators.

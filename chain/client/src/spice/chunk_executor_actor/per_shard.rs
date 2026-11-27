@@ -10,18 +10,18 @@ use crate::spice::data_distributor_actor::{
 };
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, IntoSender, Sender};
-use near_chain::BlockHeader;
 use near_chain::chain::{NewChunkData, NewChunkResult, ShardContext, StorageContext};
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::spice::chunk_application::{
     ChunkPersistenceConfig, apply_chunk_postprocessing, build_spice_apply_chunk_block_context,
 };
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::types::ApplyChunkResult;
-use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
+use near_chain::types::{
+    ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource,
+};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
-    Block, Chain, Error, collect_receipts, compute_transaction_validity,
+    Block, BlockHeader, Chain, Error, collect_receipts, compute_transaction_validity,
     get_chunk_clone_from_header,
 };
 use near_chain_configs::MutableValidatorSigner;
@@ -43,10 +43,9 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_runtime::SignedValidPeriodTransactions;
-use near_store::DBCol;
-use near_store::ShardUId;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::{DBCol, ShardUId};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;

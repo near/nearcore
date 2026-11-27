@@ -5,10 +5,9 @@ use crate::types::{AccountId, ValidatorKickoutReason, ValidatorStakeV1};
 use crate::validator_mandates::ValidatorMandates;
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::{Balance, EpochHeight, ProtocolVersion, ValidatorId};
-use near_primitives_core::{
-    hash::hash,
-    types::{BlockHeight, ShardId},
+use near_primitives_core::hash::hash;
+use near_primitives_core::types::{
+    Balance, BlockHeight, EpochHeight, ProtocolVersion, ShardId, ValidatorId,
 };
 use near_schema_checker_lib::ProtocolSchema;
 use smart_default::SmartDefault;

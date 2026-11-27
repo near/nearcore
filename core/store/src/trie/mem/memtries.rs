@@ -1,7 +1,6 @@
-use super::arena::Arena;
-use super::arena::FrozenArena;
 use super::arena::hybrid::{HybridArena, HybridArenaMemory};
 use super::arena::single_thread::STArena;
+use super::arena::{Arena, FrozenArena};
 use super::flexible_data::value::ValueView;
 use super::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use super::lookup::memtrie_lookup;

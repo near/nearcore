@@ -1,8 +1,7 @@
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
-    PeersResponse, T2MessageBody,
+    PeersResponse, T2MessageBody, testonly as data,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::{PeerConfig, PeerHandle};

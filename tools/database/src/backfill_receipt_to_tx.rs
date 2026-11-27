@@ -1,7 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
+use indicatif::{ProgressBar, ProgressStyle};
 use near_chain::ChainStore;
 use near_chain::backfill_receipt_to_tx::{
     BACKFILL_CHECKPOINT_KEY, BackfillStats, BackfillStorage, process_one_batch,

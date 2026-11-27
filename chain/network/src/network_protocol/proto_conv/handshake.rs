@@ -1,10 +1,9 @@
 /// Conversion functions for `Handshake` messages.
 use super::*;
-use crate::network_protocol::Encoding;
-use crate::network_protocol::MAX_TRACKED_SHARDS_PER_PEER;
-use crate::network_protocol::proto;
-use crate::network_protocol::{Handshake, HandshakeFailureReason};
-use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
+use crate::network_protocol::{
+    Encoding, Handshake, HandshakeFailureReason, MAX_TRACKED_SHARDS_PER_PEER, PeerChainInfoV2,
+    PeerInfo, proto,
+};
 use near_o11y::log_assert_fail;
 use near_primitives::genesis::GenesisId;
 use protobuf::MessageField as MF;

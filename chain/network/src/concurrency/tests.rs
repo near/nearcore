@@ -1,6 +1,5 @@
 use crate::concurrency::arc_mutex::ArcMutex;
-use crate::concurrency::demux;
-use crate::concurrency::rate;
+use crate::concurrency::{demux, rate};
 use near_async::futures::DirectTokioFutureSpawnerForTest;
 
 #[tokio::test]

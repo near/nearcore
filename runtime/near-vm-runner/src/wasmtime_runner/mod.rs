@@ -5,10 +5,9 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMLogicError,
     VMRunnerError, WasmTrap, truncate_wasmtime_compilation_error_message,
 };
-use crate::logic::host as logic;
 use crate::logic::{
     Config, ExecutionResultState, External, GasCounter, HostCtx, HostError,
-    PreparedContractGasCounter, VMContext, VMOutcome,
+    PreparedContractGasCounter, VMContext, VMOutcome, host as logic,
 };
 use crate::metrics::{COMPILATION_PATH_TOTAL, COMPILATION_TOTAL};
 use crate::runner::VMResult;
@@ -430,7 +429,8 @@ impl IntoVMError for wasmtime::Error {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         let cause = self.root_cause();
         if let Some(container) = cause.downcast_ref::<ErrorContainer>() {
-            use {VMLogicError as LE, VMRunnerError as RE};
+            use VMLogicError as LE;
+            use VMRunnerError as RE;
             return match container.take() {
                 Some(LE::HostError(h)) => Ok(FunctionCallError::HostError(h)),
                 Some(LE::ExternalError(s)) => Err(RE::ExternalError(s)),

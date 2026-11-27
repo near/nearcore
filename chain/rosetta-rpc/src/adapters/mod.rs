@@ -1036,8 +1036,7 @@ mod tests {
     use near_primitives::action::delegate::{
         DelegateAction, DelegateActionV2, SignedDelegateAction, VersionedSignedDelegateAction,
     };
-    use near_primitives::transaction::TransactionNonce;
-    use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::transaction::{Action, TransactionNonce, TransferAction};
     use near_primitives::types::Gas;
 
     #[test]

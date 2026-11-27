@@ -1,18 +1,18 @@
 use crate::concurrency::rate;
 use crate::config::{ConnectionEncoding, SignedStructFormat, SocketOptions};
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Disconnect, Encoding, PeerMessage};
-use crate::network_protocol::{Handshake, OwnedAccount, PartialEdgeInfo, to_unix_nanos};
+use crate::network_protocol::{
+    Disconnect, Encoding, Handshake, OwnedAccount, PartialEdgeInfo, PeerMessage, testonly as data,
+    to_unix_nanos,
+};
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer_manager;
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::tcp_transport::LIMIT_PENDING_PEERS;
 use crate::private_messages::RegisterPeerError;
-use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
 use crate::types::Edge;
+use crate::{peer_manager, tcp};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;

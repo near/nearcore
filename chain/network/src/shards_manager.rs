@@ -3,7 +3,8 @@ use crate::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
 use near_async::time::Instant;
-use near_primitives::{hash::CryptoHash, sharding::PartialEncodedChunk};
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::PartialEncodedChunk;
 
 #[derive(Debug, strum::IntoStaticStr)]
 #[allow(clippy::large_enum_variant)]

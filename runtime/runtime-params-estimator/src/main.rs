@@ -11,14 +11,12 @@ use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
     Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig, costs_to_runtime_config,
 };
-use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
 use std::fs::{self};
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time;
+use std::{env, time};
 use tracing_subscriber::Layer;
 
 mod replay;

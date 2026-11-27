@@ -1,7 +1,6 @@
 use base64::Engine;
 use base64::display::Base64Display;
-use base64::engine::general_purpose::GeneralPurpose;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::engine::general_purpose::{GeneralPurpose, STANDARD as BASE64_STANDARD};
 
 pub fn to_base64(input: &[u8]) -> String {
     BASE64_STANDARD.encode(input)
@@ -29,8 +28,7 @@ pub fn base64_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Sch
 /// deserializing, strings are parsed as decimal numbers while numbers are
 /// interpreted as is.
 pub mod dec_format {
-    use serde::de;
-    use serde::{Deserializer, Serializer};
+    use serde::{Deserializer, Serializer, de};
 
     #[derive(thiserror::Error, Debug)]
     #[error("cannot parse from unit")]

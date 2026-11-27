@@ -1,11 +1,9 @@
 use near_chain::{Block, BlockHeader};
 use near_primitives::block::Chunks;
+use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::Balance;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_primitives::{
-    stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
-    test_utils::create_test_signer,
-};
 
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
     let chunk_headers = vec![prev_block.chunks()[0].clone()];

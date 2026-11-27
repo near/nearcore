@@ -1,7 +1,6 @@
 use lru::LruCache;
 use near_async::time::{Duration, Utc};
-use near_network::types::FullPeerInfo;
-use near_network::types::PeerInfo;
+use near_network::types::{FullPeerInfo, PeerInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::BlockHeight;

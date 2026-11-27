@@ -21,9 +21,8 @@ use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::spice::data_distribution::{
     SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
-    SpiceContractCodeResponseMessage,
+    SpiceContractCodeResponseMessage, SpiceDataRequestMessage, SpiceIncomingPartialData,
 };
-use near_network::spice::data_distribution::{SpiceDataRequestMessage, SpiceIncomingPartialData};
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
     ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,

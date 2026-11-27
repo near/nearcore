@@ -608,10 +608,9 @@ mod tests {
     use near_primitives::test_utils::{
         TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
     };
-    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{ChunkExecutionResult, SpiceChunkId};
+    use near_primitives::types::{Balance, ChunkExecutionResult, SpiceChunkId};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::adapter::StoreAdapter;
     use std::sync::Arc;

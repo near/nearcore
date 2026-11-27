@@ -6,10 +6,9 @@
 //! tests cannot.
 
 use crate::ContractCode;
-use crate::logic::Config;
-use crate::logic::External;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
+use crate::logic::{Config, External};
 use crate::runner::VMKindExt;
 use crate::tests::{create_context, test_vm_config, with_vm_variants};
 use near_parameters::RuntimeFeesConfig;

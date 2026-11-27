@@ -1,7 +1,8 @@
 use clap::{Arg, Command};
 use near_chain::store_validator::StoreValidator;
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::{EpochManager, shard_tracker::ShardTracker};
+use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_o11y::testonly::init_integration_logger;
 use nearcore::{NightshadeRuntimeExt, get_default_home, load_config};
 use std::path::PathBuf;

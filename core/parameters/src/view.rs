@@ -1,8 +1,7 @@
 use crate::config::{CongestionControlConfig, ExternalCallsConfig, WitnessConfig};
 use crate::{ActionCosts, ExtCosts, Fee, ParameterCost, SignatureKind};
 use near_account_id::AccountId;
-use near_primitives_core::types::Balance;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Balance, Gas};
 use num_rational::Rational32;
 
 /// View that preserves JSON format of the runtime config.
@@ -955,9 +954,8 @@ mod tests {
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
     fn test_runtime_config_view() {
-        use crate::RuntimeConfig;
-        use crate::RuntimeConfigStore;
         use crate::view::RuntimeConfigView;
+        use crate::{RuntimeConfig, RuntimeConfigStore};
         use near_primitives_core::version::PROTOCOL_VERSION;
 
         let config_store = RuntimeConfigStore::new();

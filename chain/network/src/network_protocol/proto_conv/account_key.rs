@@ -1,10 +1,9 @@
 /// Conversion functions for payloads signable by an account key.
 use super::*;
-use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
 use crate::network_protocol::{
     AccountData, AccountKeySignature, OwnedAccount, SignedAccountData, SignedOwnedAccount,
-    VersionedAccountData, from_unix_nanos, to_unix_nanos,
+    VersionedAccountData, from_unix_nanos, proto, to_unix_nanos,
 };
 use protobuf::{Message as _, MessageField as MF};
 

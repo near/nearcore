@@ -3,8 +3,7 @@
 
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::{ExecutionMode, VMContext};
-use crate::logic::{ReturnData, VMOutcome};
+use crate::logic::{ExecutionMode, ReturnData, VMContext, VMOutcome};
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};

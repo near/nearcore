@@ -1,6 +1,5 @@
 use crate::cli::SubCommand::CheckStateRoot;
-use anyhow;
-use anyhow::Context;
+use anyhow::{self, Context};
 use borsh::BorshDeserialize;
 use clap;
 use near_chain_configs::GenesisValidationMode;
@@ -18,10 +17,10 @@ use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::DbKind;
 use near_store::flat::FlatStorageManager;
 use near_store::{
-    COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, ShardTries, ShardUId, StateSnapshotConfig, TAIL_KEY,
-    Trie, TrieConfig, TrieUpdate, get_delayed_receipt_indices, get_promise_yield_indices, set,
+    COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY, NodeStorage, ShardTries, ShardUId,
+    StateSnapshotConfig, Store, StoreOpener, TAIL_KEY, Trie, TrieConfig, TrieUpdate,
+    get_delayed_receipt_indices, get_promise_yield_indices, set,
 };
-use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use nearcore::NearConfig;
 use rand::seq::SliceRandom;
 use std::ops::Deref;

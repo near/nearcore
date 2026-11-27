@@ -1,7 +1,8 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{PartialEncodedChunkRequestMsg, testonly as data};
-use crate::network_protocol::{PeerMessage, T2MessageBody};
+use crate::network_protocol::{
+    PartialEncodedChunkRequestMsg, PeerMessage, T2MessageBody, testonly as data,
+};
 use crate::peer::testonly::{PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::rate_limits::messages_limits;

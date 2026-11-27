@@ -1,17 +1,14 @@
-use crate::config;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     PeerAddr, PeerMessage, PeersRequest, PeersResponse, T1MessageBody, TieredMessageBody,
+    testonly as data,
 };
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
-use crate::stun;
-use crate::tcp;
 use crate::testonly::{Rng, make_rng};
 use crate::types::ReasonForBan;
+use crate::{config, peer_manager, stun, tcp};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner};

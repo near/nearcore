@@ -1,8 +1,7 @@
 use near_primitives::network::PeerId;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::BufWriter;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub struct LatenciesCsv {

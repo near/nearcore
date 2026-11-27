@@ -15,12 +15,10 @@ pub struct Version {
 use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 /// near_primitives_core re-exports
 pub use near_primitives_core::types::ProtocolVersion;
-pub use near_primitives_core::version::MIN_SUPPORTED_PROTOCOL_VERSION;
-pub use near_primitives_core::version::PROD_GENESIS_PROTOCOL_VERSION;
-pub use near_primitives_core::version::PROTOCOL_VERSION;
-pub use near_primitives_core::version::ProtocolFeature;
-pub use near_primitives_core::version::assert_supported_protocol_version;
-pub use near_primitives_core::version::clamp_to_supported_protocol_version;
+pub use near_primitives_core::version::{
+    MIN_SUPPORTED_PROTOCOL_VERSION, PROD_GENESIS_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    ProtocolFeature, assert_supported_protocol_version, clamp_to_supported_protocol_version,
+};
 
 /// Minimum gas price proposed in NEP 92 (fixed) and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92_FIX: Balance = Balance::from_yoctonear(100_000_000);

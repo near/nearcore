@@ -18,8 +18,7 @@ use serde_with::serde_as;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::io::{self, Read};
-use std::io::{Error, ErrorKind};
+use std::io::{self, Error, ErrorKind, Read};
 use std::sync::Arc;
 
 /// The outgoing (egress) data which will be transformed

@@ -572,8 +572,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network_protocol::PeerIdOrHash;
-    use crate::network_protocol::testonly as data;
+    use crate::network_protocol::{PeerIdOrHash, testonly as data};
     use crate::testonly::make_rng;
 
     /// A normally-sized transaction passes the network size gate and round-trips

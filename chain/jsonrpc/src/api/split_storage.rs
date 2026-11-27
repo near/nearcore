@@ -1,9 +1,9 @@
 use super::{Params, RpcFrom, RpcRequest};
 use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetSplitStorageInfoError;
-use near_jsonrpc_primitives::{
-    errors::RpcParseError,
-    types::split_storage::{RpcSplitStorageInfoError, RpcSplitStorageInfoRequest},
+use near_jsonrpc_primitives::errors::RpcParseError;
+use near_jsonrpc_primitives::types::split_storage::{
+    RpcSplitStorageInfoError, RpcSplitStorageInfoRequest,
 };
 use serde_json::Value;
 

@@ -3,14 +3,14 @@ use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_pool::{
     DEFAULT_ECC_SIZE_SHARE, InsertTransactionResult, PoolIteratorWrapper, TransactionPool,
 };
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::transaction::{TransactionEnvelope, ValidatedTransactionEnvelope};
-use near_primitives::{
-    epoch_info::RngSeed,
-    sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
-    types::{AccountId, ShardId},
+use near_primitives::sharding::{
+    EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader,
 };
+use near_primitives::transaction::{TransactionEnvelope, ValidatedTransactionEnvelope};
+use near_primitives::types::{AccountId, ShardId};
 use std::collections::HashMap;
 
 /// The decoded content of a completed chunk.
@@ -184,19 +184,20 @@ mod tests {
     use crate::client::ShardedTransactionPool;
     use near_crypto::{InMemorySigner, KeyType};
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::{
-        epoch_info::RngSeed,
-        hash::CryptoHash,
-        shard_layout::ShardLayout,
-        transaction::{
-            EccTransaction, SignedTransaction, ValidatedEcc, ValidatedTransaction,
-            ValidatedTransactionEnvelope,
-        },
-        types::{AccountId, Balance, ShardId},
+    use near_primitives::epoch_info::RngSeed;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::transaction::{
+        EccTransaction, SignedTransaction, ValidatedEcc, ValidatedTransaction,
+        ValidatedTransactionEnvelope,
     };
+    use near_primitives::types::{AccountId, Balance, ShardId};
     use near_store::ShardUId;
-    use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
-    use std::{collections::HashMap, str::FromStr};
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rand::seq::SliceRandom;
+    use std::collections::HashMap;
+    use std::str::FromStr;
 
     const TEST_SEED: RngSeed = [3; 32];
 

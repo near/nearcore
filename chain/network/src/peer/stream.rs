@@ -15,8 +15,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tokio::io::AsyncReadExt as _;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::Semaphore;
 
 /// Maximum size of network message in encoded format.

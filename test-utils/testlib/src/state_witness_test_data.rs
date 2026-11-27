@@ -13,8 +13,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::test_utils::{MockEpochInfoProvider, account_new};
 use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
-use near_primitives::types::EpochId;
-use near_primitives::types::{Balance, EpochInfoProvider, Gas, StateChangeCause};
+use near_primitives::types::{Balance, EpochId, EpochInfoProvider, Gas, StateChangeCause};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use near_store::test_utils::TestTriesBuilder;

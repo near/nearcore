@@ -1,6 +1,5 @@
 use super::{ReceiptFilter, filter_incoming_receipts_for_shard};
-use crate::byzantine_assert;
-use crate::metrics;
+use crate::{byzantine_assert, metrics};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;

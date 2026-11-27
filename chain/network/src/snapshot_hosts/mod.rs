@@ -13,14 +13,12 @@
 //! epoch are accepted.
 
 use crate::concurrency;
-use crate::network_protocol::SnapshotHostInfo;
-use crate::network_protocol::SnapshotHostInfoVerificationError;
+use crate::network_protocol::{SnapshotHostInfo, SnapshotHostInfoVerificationError};
 use itertools::Itertools;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePartIndex;
-use near_primitives::types::EpochHeight;
-use near_primitives::types::ShardId;
+use near_primitives::types::{EpochHeight, ShardId};
 use parking_lot::Mutex;
 use rand::prelude::IteratorRandom;
 use rand::thread_rng;

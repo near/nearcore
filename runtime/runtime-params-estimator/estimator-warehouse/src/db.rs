@@ -197,7 +197,8 @@ mod tests {
     use super::Db;
     use crate::import::ImportConfig;
     use chrono::{NaiveDate, NaiveDateTime};
-    use rusqlite::{Connection, functions::FunctionFlags};
+    use rusqlite::Connection;
+    use rusqlite::functions::FunctionFlags;
 
     impl Db {
         /// Create a new in-memory test database with a mocked `datetime()` function.

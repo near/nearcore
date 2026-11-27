@@ -20,8 +20,7 @@ use near_chain::ChainStoreAccess;
 use near_chain::state_sync::derive_epoch_sync_hash;
 use near_chain_configs::MIN_GC_NUM_EPOCHS_TO_KEEP;
 use near_chain_configs::test_genesis::TestEpochConfigBuilder;
-use near_client::archive::cloud_archival_utils::find_snapshot_at_or_before;
-use near_client::archive::cloud_archival_utils::save_block_data;
+use near_client::archive::cloud_archival_utils::{find_snapshot_at_or_before, save_block_data};
 use near_client::archive::cloud_reader_trie_utils::build_shard_tries;
 use near_client::archive::cloud_recent_reader::CloudArchivalRecentReader;
 use near_primitives::block::Block;
@@ -34,8 +33,9 @@ use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::{AccountId, Balance, BlockHeight, BlockHeightDelta, ShardId};
-use near_primitives::utils::get_block_shard_id_rev;
-use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
+use near_primitives::utils::{
+    get_block_shard_id, get_block_shard_id_rev, get_outcome_id_block_hash, index_to_bytes,
+};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::cloud_archival_store::CloudReaderHead;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};

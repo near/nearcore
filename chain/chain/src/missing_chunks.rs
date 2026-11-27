@@ -4,11 +4,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::BlockHeight;
 use std::cmp::Ordering;
-use std::collections::{
-    BinaryHeap, HashSet,
-    btree_map::{self, BTreeMap},
-    hash_map::{self, HashMap},
-};
+use std::collections::btree_map::{self, BTreeMap};
+use std::collections::hash_map::{self, HashMap};
+use std::collections::{BinaryHeap, HashSet};
 
 type BlockHash = CryptoHash;
 

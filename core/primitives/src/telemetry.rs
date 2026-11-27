@@ -1,7 +1,6 @@
 //! Types for telemetry reporting. Can be received by any telemetry dashboard to display
 //! node count and their status across the network.
-use crate::types::AccountId;
-use crate::types::BlockHeight;
+use crate::types::{AccountId, BlockHeight};
 use near_primitives_core::hash::CryptoHash;
 
 #[derive(serde::Serialize, Debug)]

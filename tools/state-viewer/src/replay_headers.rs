@@ -1,18 +1,14 @@
-use near_chain::BlockHeader;
-use near_chain::ChainStore;
-use near_chain::ChainStoreAccess;
-use near_epoch_manager::EpochManager;
-use near_epoch_manager::EpochManagerAdapter;
+use near_chain::{BlockHeader, ChainStore, ChainStoreAccess};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::types::AccountId;
-use near_primitives::types::ValidatorKickoutReason;
-use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
+use near_primitives::types::{
+    AccountId, BlockHeight, ValidatorInfoIdentifier, ValidatorKickoutReason,
+};
 use near_primitives::views::EpochValidatorInfo;
 use near_store::db::{MixedDB, ReadOrder, TestDB};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::NearConfig;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Replays the headers for the blocks between `start_height` and `end-height`.

@@ -1,17 +1,13 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
+use near_primitives::block_header::ApprovalInner;
 use near_primitives::congestion_info::CongestionInfo;
-use near_primitives::types::{EpochId, ShardId, ShardIndex};
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
+use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId, ShardIndex};
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
-    SyncStatusView,
-};
-use near_primitives::{
-    block_header::ApprovalInner,
-    hash::CryptoHash,
-    sharding::ChunkHash,
-    types::{AccountId, BlockHeight},
-    views::ValidatorInfo,
+    SyncStatusView, ValidatorInfo,
 };
 use near_time::Utc;
 use std::collections::HashMap;

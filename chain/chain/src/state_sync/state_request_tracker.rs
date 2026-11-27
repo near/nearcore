@@ -1,11 +1,9 @@
 use crate::metrics;
 use lru::LruCache;
-use near_primitives::{
-    hash::CryptoHash,
-    state_part::StatePartIndex,
-    types::ShardId,
-    views::{PartElapsedTimeView, RequestedStatePartsView},
-};
+use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::StatePartIndex;
+use near_primitives::types::ShardId;
+use near_primitives::views::{PartElapsedTimeView, RequestedStatePartsView};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 

@@ -1,8 +1,6 @@
-use {
-    super::ValidatorMandatesConfig,
-    near_primitives_core::types::Balance,
-    std::cmp::{Ordering, min},
-};
+use super::ValidatorMandatesConfig;
+use near_primitives_core::types::Balance;
+use std::cmp::{Ordering, min};
 
 /// Given the stakes for the validators and the target number of mandates to have,
 /// this function computes the mandate price to use. It works by using a binary search.

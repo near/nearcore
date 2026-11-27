@@ -11,8 +11,7 @@ use near_primitives::errors::{IntegerOverflowError, RuntimeError};
 use near_primitives::fees::{compute_receipt_congestion_gas, compute_receipt_congestion_size};
 use near_primitives::receipt::{Receipt, StateStoredReceipt, StateStoredReceiptMetadata};
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::ProtocolVersion;
-use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
+use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{

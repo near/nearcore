@@ -6,8 +6,9 @@ use crate::types::{AccountId, Balance, EpochId, Nonce, SpiceChunkId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 pub use near_primitives_core::errors::IntegerOverflowError;
-use near_primitives_core::types::Gas;
-use near_primitives_core::types::{BlockHeight, Compute, NonceIndex, ProtocolVersion, ShardId};
+use near_primitives_core::types::{
+    BlockHeight, Compute, Gas, NonceIndex, ProtocolVersion, ShardId,
+};
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Display};
 use std::io;

@@ -1,14 +1,16 @@
 // cspell:ignore bendian, blst, cofactor, enot, goperations, multipoint
 // cspell:ignore pmul, pneg, psum, regs, wbmap, yabig, ybig
 mod tests {
-    use crate::logic::HostError;
-    use crate::logic::MemSlice;
     use crate::logic::tests::helpers::{assert_costs, reset_costs_counter};
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
+    use crate::logic::{HostError, MemSlice};
     use crate::map;
     use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
-    use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurve};
-    use ark_ec::{AffineRepr, CurveGroup, bls12::Bls12Config, pairing::Pairing};
+    use ark_ec::bls12::Bls12Config;
+    use ark_ec::hashing::curve_maps::wb::WBMap;
+    use ark_ec::hashing::map_to_curve_hasher::MapToCurve;
+    use ark_ec::pairing::Pairing;
+    use ark_ec::{AffineRepr, CurveGroup};
     use ark_ff::{Field, PrimeField};
     use ark_serialize::{
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
@@ -16,8 +18,11 @@ mod tests {
     use ark_std::{One, Zero};
     use bolero::{TypeGenerator, generator};
     use near_parameters::ExtCosts;
-    use rand::{seq::SliceRandom, thread_rng};
-    use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
+    use std::fs;
+    use std::ops::{Add, Mul, Neg};
+    use std::str::FromStr;
 
     const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
     const P_HEX: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
@@ -1578,16 +1583,18 @@ mod tests {
     }
 
     fix_eip2537_input!(fix_eip2537_g1_namespace, fix_eip2537_fp);
-    use fix_eip2537_g1_namespace::cmp_output_g as cmp_output_g1;
-    use fix_eip2537_g1_namespace::fix_eip2537_g as fix_eip2537_g1;
-    use fix_eip2537_g1_namespace::fix_eip2537_mul_input as fix_eip2537_mul_g1_input;
-    use fix_eip2537_g1_namespace::fix_eip2537_sum_input as fix_eip2537_sum_g1_input;
+    use fix_eip2537_g1_namespace::{
+        cmp_output_g as cmp_output_g1, fix_eip2537_g as fix_eip2537_g1,
+        fix_eip2537_mul_input as fix_eip2537_mul_g1_input,
+        fix_eip2537_sum_input as fix_eip2537_sum_g1_input,
+    };
 
     fix_eip2537_input!(fix_eip2537_g2_namespace, fix_eip2537_fp2);
-    use fix_eip2537_g2_namespace::cmp_output_g as cmp_output_g2;
-    use fix_eip2537_g2_namespace::fix_eip2537_g as fix_eip2537_g2;
-    use fix_eip2537_g2_namespace::fix_eip2537_mul_input as fix_eip2537_mul_g2_input;
-    use fix_eip2537_g2_namespace::fix_eip2537_sum_input as fix_eip2537_sum_g2_input;
+    use fix_eip2537_g2_namespace::{
+        cmp_output_g as cmp_output_g2, fix_eip2537_g as fix_eip2537_g2,
+        fix_eip2537_mul_input as fix_eip2537_mul_g2_input,
+        fix_eip2537_sum_input as fix_eip2537_sum_g2_input,
+    };
 
     fn check_pairing_res(output: &str, res: u64) {
         if output == "0000000000000000000000000000000000000000000000000000000000000000" {

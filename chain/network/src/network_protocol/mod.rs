@@ -5,8 +5,7 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 mod trace_context;
-use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::{KIB, MIB};
 pub use edge::*;
 pub use message_kind::*;
@@ -16,13 +15,11 @@ use near_primitives::spice::partial_data::SpicePartialData;
 use near_primitives::state_part::StatePartIndex;
 pub use near_primitives::state_sync::StateRequestAck;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::contract_distribution::ChunkContractAccesses;
-use near_primitives::stateless_validation::contract_distribution::ContractCodeRequest;
-use near_primitives::stateless_validation::contract_distribution::ContractCodeResponse;
-use near_primitives::stateless_validation::contract_distribution::PartialEncodedContractDeploys;
-use near_primitives::stateless_validation::contract_distribution::SpiceChunkContractAccesses;
-use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeRequest;
-use near_primitives::stateless_validation::contract_distribution::SpiceContractCodeResponse;
+use near_primitives::stateless_validation::contract_distribution::{
+    ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse,
+    PartialEncodedContractDeploys, SpiceChunkContractAccesses, SpiceContractCodeRequest,
+    SpiceContractCodeResponse,
+};
 use near_primitives::stateless_validation::partial_witness::{
     PartialEncodedStateWitness, VersionedPartialEncodedStateWitness,
 };
@@ -51,8 +48,7 @@ use crate::network_protocol::trace_context::TraceContext;
 use crate::spice::data_distribution::SpiceDataRequest;
 pub use _proto::network as proto;
 use near_async::time;
-use near_crypto::PublicKey;
-use near_crypto::Signature;
+use near_crypto::{PublicKey, Signature};
 use near_o11y::OpenTelemetrySpanExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -66,17 +62,15 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
-use near_primitives::types::AccountId;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
 use near_schema_checker_lib::ProtocolSchema;
 use protobuf::Message as _;
 use std::collections::HashSet;
-use std::fmt;
 use std::fmt::Debug;
-use std::io;
 use std::sync::Arc;
+use std::{fmt, io};
 use tracing::Span;
 
 /// Send important messages three times.

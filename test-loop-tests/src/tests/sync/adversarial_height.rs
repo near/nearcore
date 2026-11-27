@@ -8,8 +8,7 @@
 
 use super::util::{TEST_EPOCH_SYNC_HORIZON, run_until_synced, track_sync_status};
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::peer_manager_actor::ClientSenderForTestLoopNetwork;
-use crate::setup::peer_manager_actor::TestLoopNetworkBlockInfo;
+use crate::setup::peer_manager_actor::{ClientSenderForTestLoopNetwork, TestLoopNetworkBlockInfo};
 use crate::setup::state::NodeExecutionData;
 use crate::tests::sync::util::far_horizon_height;
 use crate::utils::account::create_account_id;
@@ -27,8 +26,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::Balance;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{Balance, BlockHeight};
 use std::sync::Arc;
 
 #[test]

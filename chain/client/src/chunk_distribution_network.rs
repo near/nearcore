@@ -2,17 +2,14 @@
 
 use borsh::BorshDeserialize;
 use near_async::messaging::Sender;
-use near_chain::{
-    blocks_delay_tracker::BlocksDelayTracker, chain::BlockMissingChunks,
-    orphan::OrphanMissingChunks,
-};
+use near_chain::blocks_delay_tracker::BlocksDelayTracker;
+use near_chain::chain::BlockMissingChunks;
+use near_chain::orphan::OrphanMissingChunks;
 use near_chain_configs::{ChunkDistributionNetworkConfig, ClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_primitives::{
-    hash::CryptoHash,
-    sharding::{PartialEncodedChunk, ShardChunkHeader},
-    types::{EpochId, ShardId},
-};
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
+use near_primitives::types::{EpochId, ShardId};
 use std::fmt;
 
 /// Basic interface for the chunk distribution network.
@@ -216,23 +213,21 @@ impl ChunkDistributionClient for ChunkDistributionNetwork {
 mod tests {
     use super::*;
     use futures::FutureExt;
-    use near_async::{
-        messaging::{CanSend, IntoSender},
-        time::Clock,
+    use near_async::messaging::{CanSend, IntoSender};
+    use near_async::time::Clock;
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
+    use near_primitives::congestion_info::CongestionInfo;
+    use near_primitives::gas::Gas;
+    use near_primitives::hash::hash;
+    use near_primitives::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
+    use near_primitives::sharding::{
+        PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderV3,
     };
-    use near_primitives::{
-        bandwidth_scheduler::BandwidthRequests,
-        congestion_info::CongestionInfo,
-        gas::Gas,
-        hash::hash,
-        sharding::{
-            PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderV3,
-            shard_chunk_header_inner::ShardChunkHeaderInnerV4,
-        },
-        types::Balance,
-        validator_signer::EmptyValidatorSigner,
-    };
-    use std::{collections::HashMap, convert::Infallible, future::Future};
+    use near_primitives::types::Balance;
+    use near_primitives::validator_signer::EmptyValidatorSigner;
+    use std::collections::HashMap;
+    use std::convert::Infallible;
+    use std::future::Future;
     use tokio::sync::mpsc;
 
     #[test]

@@ -1,12 +1,9 @@
 use crate::config::SocketOptions;
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerMessage, T2MessageBody};
-use crate::peer;
+use crate::network_protocol::{PeerMessage, T2MessageBody, testonly as data};
 use crate::peer::testonly::PeerHandle;
-use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::tcp;
 use crate::testonly::{abort_on_panic, make_rng};
+use crate::{peer, peer_manager, tcp};
 use near_async::{ActorSystem, time};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::transaction::{EccTransaction, TransactionEnvelope};

@@ -424,9 +424,8 @@ mod tests {
     use near_primitives::account::id::AccountIdRef;
     use near_primitives::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::NumSeats;
-    use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{NumSeats, ShardId};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 

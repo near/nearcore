@@ -1,9 +1,8 @@
 use crate::metrics;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
-use near_async::messaging::Actor;
-use near_async::messaging::Handler;
-use near_chain::ChainGenesis;
-use near_chain::{ChainStore, ChainStoreAccess, types::RuntimeAdapter};
+use near_async::messaging::{Actor, Handler};
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess};
 use near_chain_configs::GCConfig;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;

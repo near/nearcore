@@ -1,7 +1,6 @@
 use crate::metrics::DYNAMIC_RESHARDING_VALIDATION_FAILURES;
 use crate::stateless_validation::metrics::VALIDATE_CHUNK_WITH_ENCODED_MERKLE_ROOT_TIME;
-use crate::{Chain, byzantine_assert};
-use crate::{ChainStore, Error};
+use crate::{Chain, ChainStore, Error, byzantine_assert};
 use borsh::BorshSerialize;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;

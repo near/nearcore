@@ -29,11 +29,14 @@
 use crate::test_utils::{
     record_block, record_block_with_final_and_mask, setup_default_epoch_manager,
 };
-use crate::{CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EARLY_KICKOUT_EPOCH_GRACE_BLOCKS};
-use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use crate::{
+    CHUNK_GRANDPARENT_ANCHOR_HEIGHT_OFFSET, EARLY_KICKOUT_EPOCH_GRACE_BLOCKS, EpochManager,
+    EpochManagerAdapter, EpochManagerHandle,
+};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, ValidatorId};
-use near_primitives::types::{ShardId, ValidatorInfoIdentifier};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorInfoIdentifier,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::RangeInclusive;
 

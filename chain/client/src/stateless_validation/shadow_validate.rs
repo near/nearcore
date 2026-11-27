@@ -1,7 +1,6 @@
 use crate::Client;
-use near_chain::get_chunk_clone_from_header;
 use near_chain::stateless_validation::state_witness::CreateWitnessResult;
-use near_chain::{Block, BlockHeader};
+use near_chain::{Block, BlockHeader, get_chunk_clone_from_header};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_store::adapter::StoreAdapter;

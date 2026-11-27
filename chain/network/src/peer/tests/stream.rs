@@ -1,8 +1,9 @@
 use crate::auto_stop::AutoStopActor;
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
 use crate::config::DEFAULT_MAX_WRITE_BUFFER_CAPACITY_BYTES;
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, PeerMessage, PeerMessageFrames, PeersRequest};
+use crate::network_protocol::{
+    Encoding, PeerMessage, PeerMessageFrames, PeersRequest, testonly as data,
+};
 use crate::peer::stream::{self, IncomingFrame};
 use crate::peer_manager::network_state::INCOMING_SEMAPHORE_PERMITS;
 use crate::tcp;

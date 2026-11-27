@@ -6,8 +6,7 @@ use crate::metrics::{
     EARLY_KICKOUT_CHUNK_PRODUCER_REASSIGNED, EARLY_KICKOUT_SAFETY_VALVE_FIRED,
     PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES, RESHARDING_ASSIGNMENT_STRATEGY,
 };
-pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-pub use crate::reward_calculator::RewardCalculator;
+pub use crate::reward_calculator::{NUM_SECONDS_IN_A_YEAR, RewardCalculator};
 use epoch_info_aggregator::EpochInfoAggregator;
 use itertools::Itertools;
 use near_cache::SyncLruCache;

@@ -1,4 +1,3 @@
-use crate::metrics;
 use crate::spice::all_stake_fallback::{
     endorsers_certify_chunk, fallback_eligible, fallback_endorsers, is_fallback_only_chunk,
 };
@@ -6,7 +5,7 @@ use crate::spice::ancestry_endorsements::AncestryEndorsements;
 use crate::spice::boundary::{
     boundary_uncertified_chunks, get_uncertified_chunks_of_pre_spice_block,
 };
-use crate::{Chain, ChainStoreAccess, ChainStoreUpdate, byzantine_assert};
+use crate::{Chain, ChainStoreAccess, ChainStoreUpdate, byzantine_assert, metrics};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;

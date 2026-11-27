@@ -1,17 +1,14 @@
-use near_chain::{
-    Block, BlockHeader, ChainStore, ChainStoreAccess,
-    types::{ApplyChunkResult, Tip},
-};
-use near_epoch_manager::{
-    EpochManager, EpochManagerAdapter, EpochManagerHandle, shard_assignment::shard_id_to_uid,
-};
-use near_primitives::{
-    errors::EpochError,
-    types::{BlockHeight, ShardId, StateRoot, chunk_extra::ChunkExtra},
-};
+use near_chain::types::{ApplyChunkResult, Tip};
+use near_chain::{Block, BlockHeader, ChainStore, ChainStoreAccess};
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::errors::EpochError;
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use std::{path::Path, sync::Arc};
+use std::path::Path;
+use std::sync::Arc;
 
 pub enum LoadTrieMode {
     /// Load latest state

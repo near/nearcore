@@ -24,20 +24,17 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{BlockApproval, BlockHeadersResponse, BlockResponse, SetNetworkInfo};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    BlockInfo, ConnectedPeerInfo, NetworkInfo, PeerChainInfo, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType,
+    BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
+    ReasonForBan,
 };
-use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
-use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
-use near_parameters::{ActionCosts, ExtCosts};
-use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::{PooledGroup, TransactionGroupIterator};
 use near_primitives::block::Approval;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::errors::TxExecutionError;
-use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
+use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -47,8 +44,7 @@ use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::transaction::{
     Action, ExecutionStatus, SignedTransaction, Transaction, TransactionV0, ValidatedTransaction,
 };
@@ -57,13 +53,12 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, Gas, NumB
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_primitives_core::num_rational::Ratio;
-use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::db::metadata::{DB_VERSION, DbKind};
 use near_store::merkle_proof::MerkleProofAccess;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::{DBCol, TrieChanges, get};
+use near_store::{DBCol, NodeStorage, TrieChanges, get};
 use parking_lot::RwLock;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
@@ -3490,8 +3485,7 @@ mod contract_precompilation_tests {
     use super::*;
     use crate::utils::process_blocks::produce_blocks_from_height;
     use near_primitives::test_utils::MockEpochInfoProvider;
-    use near_runtime::state_viewer::TrieViewer;
-    use near_runtime::state_viewer::ViewApplyState;
+    use near_runtime::state_viewer::{TrieViewer, ViewApplyState};
     use near_store::TrieUpdate;
     use near_vm_runner::{ContractCode, FilesystemContractRuntimeCache};
 

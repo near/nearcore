@@ -1,31 +1,26 @@
-use crate::NUM_SECONDS_IN_A_YEAR;
-use crate::RewardCalculator;
-use crate::RngSeed;
 use crate::genesis::find_threshold;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
-use crate::{BlockInfo, EpochManager};
+use crate::{BlockInfo, EpochManager, NUM_SECONDS_IN_A_YEAR, RewardCalculator, RngSeed};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::epoch_block_info::BlockInfoV4;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AllEpochConfig;
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore, ShardLayoutConfig};
+use near_primitives::epoch_manager::{
+    AllEpochConfig, EpochConfig, EpochConfigStore, ShardLayoutConfig,
+};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
-use near_primitives::types::EpochId;
-use near_primitives::types::ProtocolVersion;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
-    ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards,
+    ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
-use num_rational::Ratio;
-use num_rational::Rational32;
+use num_rational::{Ratio, Rational32};
 use std::collections::{BTreeMap, HashMap};
 
 pub const DEFAULT_TOTAL_SUPPLY: Balance = Balance::from_yoctonear(1_000_000_000_000);

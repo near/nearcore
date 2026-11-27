@@ -40,9 +40,8 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
-use near_network::PeerAddr;
 use near_network::config::NetworkConfig;
-use near_network::tcp;
+use near_network::{PeerAddr, tcp};
 use near_o11y::log_config::LogConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;

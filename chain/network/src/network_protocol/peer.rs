@@ -129,9 +129,7 @@ pub struct PeerChainInfoV2 {
 
 #[cfg(test)]
 mod test {
-    use std::net::IpAddr;
-    use std::net::SocketAddr;
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
     #[test]
     /// TODO this test might require an improvement (probably by mocking the DNS resolution)

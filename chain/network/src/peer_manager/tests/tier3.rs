@@ -1,29 +1,26 @@
-use crate::broadcast;
 use crate::client::{
     StatePartOrHeader, StateRequestHeader, StateRequestPart, StateRequestResponse,
     StateRequestUpdate, StateRequestUpdateMessage,
 };
 use crate::config::{NetworkConfig, SocketOptions};
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, PartialEdgeInfo, PeerMessage, SnapshotHostInfo, SnapshotHostInfoV1,
     StateRequestAck, StateResponseInfo, StateResponseInfoV2, SyncSnapshotHosts, T2MessageBody,
-    TieredMessageBody,
+    TieredMessageBody, testonly as data,
 };
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer::testonly::PeerHandle;
-use crate::peer_manager;
 use crate::peer_manager::connection::PoolError;
 use crate::peer_manager::peer_manager_actor::{Event, TIER3_IDLE_TIMEOUT};
 use crate::peer_manager::testonly::ActorHandler;
 use crate::private_messages::RegisterPeerError;
-use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
 use crate::types::{
     Edge, NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     StateRequestSenderForNetwork,
 };
+use crate::{broadcast, peer_manager, tcp};
 use futures::future::join_all;
 use near_async::messaging::{AsyncSender, CanSendAsync, IntoMultiSender, noop};
 use near_async::time;

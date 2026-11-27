@@ -11,22 +11,19 @@ use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValu
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
-use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
-    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
+    ChunkValidationActor, PartialWitnessActor, RpcHandlerConfig, StartClientResult,
+    StateRequestActor, ViewClientActor, spawn_chunk_endorsement_handler_actor,
     spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::PeerManagerActor;
 use near_network::auto_stop::AutoStopActor;
-use near_network::blacklist;
-use near_network::config;
-use near_network::tcp;
 use near_network::test_utils::{GetInfo, expected_routing_tables, peer_id_from_seed};
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
+use near_network::{PeerManagerActor, blacklist, config, tcp};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::genesis::GenesisId;
 use near_primitives::network::PeerId;

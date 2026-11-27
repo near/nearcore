@@ -4,16 +4,14 @@ use crate::network_protocol::{
     AccountData, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer_manager::network_transport::NetworkTransport;
-use crate::stun;
-use crate::tcp;
 use crate::types::PeerType;
+use crate::{stun, tcp};
 use near_async::time;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
-use rand::seq::IteratorRandom as _;
-use rand::seq::SliceRandom as _;
+use rand::seq::{IteratorRandom as _, SliceRandom as _};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 

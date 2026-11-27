@@ -4,10 +4,8 @@ use near_primitives::action::{
     Action, DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
     UseGlobalContractAction,
 };
-use near_primitives::types::AccountId;
-use near_primitives::types::{Balance, Gas};
-use near_primitives::views::FinalExecutionOutcomeView;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use testlib::fees_utils::FeeHelper;
 
 // AccountCostIncrease adds a refund for the purchase/burn price difference.

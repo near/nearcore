@@ -5,7 +5,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::gas::Gas;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
-use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::hazmat::PrehashSigner};
+use p256::ecdsa::signature::hazmat::PrehashSigner;
+use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 
 /// Build a WASM contract that imports `env.p256_verify`, bakes the supplied
 /// `signature || public_key || message` into linear memory at fixed offsets,

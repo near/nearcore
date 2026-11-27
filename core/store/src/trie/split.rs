@@ -1139,11 +1139,10 @@ mod tests {
         use near_primitives::test_utils::account_new;
         use near_primitives::trie_key::TrieKey;
         use near_primitives::types::{AccountId, Balance, StateChangeCause, StateRoot};
-        use rand::RngCore;
         use rand::distributions::{Distribution, Uniform};
         use rand::prelude::SliceRandom;
         use rand::rngs::StdRng;
-        use rand::{Rng, SeedableRng};
+        use rand::{Rng, RngCore, SeedableRng};
         use std::fmt::Debug;
 
         impl<NodePtr, Value, Storage> TrieDescent<NodePtr, Value, Storage>

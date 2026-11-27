@@ -23,8 +23,7 @@ use futures::future::BoxFuture;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::time;
 use std::future::Future;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 /// Boxed asynchronous function. In rust asynchronous functions
 /// are just regular functions which return a Future.

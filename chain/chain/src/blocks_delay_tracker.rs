@@ -12,7 +12,8 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
 };
-use std::collections::{BTreeMap, HashMap, hash_map::Entry};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::mem;
 use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;

@@ -1495,8 +1495,7 @@ mod tests {
     use crate::universal_state_init::UniversalStateInitV1;
     use assert_matches::assert_matches;
     use borsh::BorshDeserialize;
-    use near_crypto::SecretKey;
-    use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+    use near_crypto::{InMemorySigner, KeyType, SecretKey, Signature, Signer};
     use near_primitives::types::Gas;
     use near_primitives_core::version::PROTOCOL_VERSION;
     use std::collections::{BTreeMap, BTreeSet};

@@ -1,12 +1,11 @@
 use near_chain_primitives::error::Error;
 use near_crypto::Signature;
-use near_primitives::{
-    block_header::{Approval, ApprovalInner},
-    epoch_info::EpochInfo,
-    hash::CryptoHash,
-    types::{AccountId, ApprovalStake, Balance, BlockHeight},
-};
-use std::{collections::HashSet, sync::Arc};
+use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::epoch_info::EpochInfo;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 pub fn verify_approval_with_approvers_info(
     prev_block_hash: &CryptoHash,

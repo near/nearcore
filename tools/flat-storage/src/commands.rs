@@ -19,7 +19,8 @@ use near_store::flat::{
 use near_store::trie::AccessOptions;
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
+use std::sync::Arc;
 // cspell:ignore tqdm
 use tqdm::tqdm;
 

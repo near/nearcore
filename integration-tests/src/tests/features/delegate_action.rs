@@ -10,9 +10,8 @@ use crate::tests::standard_cases::fee_helper;
 use near_chain_configs::Genesis;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::ActionCosts;
-use near_primitives::account::{
-    AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
-};
+use near_primitives::account::id::AccountType;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, TxExecutionError,
 };

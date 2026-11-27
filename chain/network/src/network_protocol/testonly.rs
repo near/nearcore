@@ -1,10 +1,9 @@
 use super::*;
-use crate::config;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, TieredMessageBody,
 };
-use crate::tcp;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
+use crate::{config, tcp};
 use near_async::time;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_primitives::block::{Block, BlockHeader};

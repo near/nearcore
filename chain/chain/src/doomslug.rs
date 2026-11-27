@@ -828,8 +828,7 @@ mod tests {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
-    use near_primitives::types::ApprovalStake;
-    use near_primitives::types::Balance;
+    use near_primitives::types::{ApprovalStake, Balance};
     use num_rational::Rational32;
     use std::sync::Arc;
 

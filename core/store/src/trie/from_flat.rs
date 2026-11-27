@@ -2,7 +2,8 @@ use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageManager;
 use crate::trie::AccessOptions;
 use crate::{ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
-use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 use std::time::Instant;
 
 // This function creates a new trie from flat storage for a given shard_uid

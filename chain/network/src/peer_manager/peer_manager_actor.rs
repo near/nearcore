@@ -3,14 +3,12 @@ use crate::client::{
     StateRequestPart, StateRequestResponse, StateRequestUpdate, StateRequestUpdateMessage,
 };
 use crate::concurrency::outgoing_queue_limiter::OutgoingPermit;
-use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
-use crate::network_protocol::{self, T2MessageBody};
 use crate::network_protocol::{
-    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, StateHeaderRequest,
-    StatePartRequest, StateRequestAck,
+    self, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
+    StateHeaderRequest, StatePartRequest, StateRequestAck, SyncSnapshotHosts, T1MessageBody,
+    T2MessageBody,
 };
-use crate::network_protocol::{SyncSnapshotHosts, T1MessageBody};
 use crate::peer_manager::connected_peers::ConnectedPeerState;
 use crate::peer_manager::network_state::{
     NetworkState, PENDING_TIER3_REQUEST_TIMEOUT, STATE_SYNC_RESPONSE_BYTES, WhitelistNode,
@@ -23,8 +21,6 @@ use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::spice::data_distribution::SpiceDataDistributorSenderForNetwork;
 use crate::state_witness::PartialWitnessSenderForNetwork;
 use crate::stats::metrics;
-use crate::store;
-use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, KnownProducer, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerChainInfo, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -32,6 +28,7 @@ use crate::types::{
     StateHeaderRequestBody, StatePartRequestBody, StateRequestSenderForNetwork, Tier3Request,
     Tier3RequestBody,
 };
+use crate::{config, store, tcp};
 use ::time::ext::InstantExt as _;
 use anyhow::Context as _;
 use itertools::Itertools;
@@ -51,9 +48,8 @@ use near_primitives::views::{
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
-use rand::Rng;
 use rand::seq::{IteratorRandom, SliceRandom};
-use rand::thread_rng;
+use rand::{Rng, thread_rng};
 use std::cmp::min;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};

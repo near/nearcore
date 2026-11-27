@@ -38,9 +38,8 @@
 //! the thresholds do not affect.
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::tests::early_kickout_probe::walk_anchor_rows;
 use crate::tests::early_kickout_probe::{
-    assert_blacklist_read_everywhere, assert_walk_window, probe_block_region,
+    assert_blacklist_read_everywhere, assert_walk_window, probe_block_region, walk_anchor_rows,
 };
 use crate::tests::sync::state_sync::{
     assert_shard_shuffling_happened, assert_state_synced_for_reassigned_shard,
@@ -78,8 +77,7 @@ use near_primitives::types::{
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
-use std::collections::BTreeMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 /// Grace window used by the reassignment and epoch-sync bootstrap tests, in blocks into
