@@ -1,6 +1,6 @@
 name: CI
 
-#cspell:ignore SCCACHE endgroup etime ppid
+#cspell:ignore endgroup etime ppid
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,15 +12,6 @@ on:
 
 env:
   CI_HACKS: 1
-  # Pinned so that sccache-action does not look up the latest release through
-  # the GitHub API, a request it does not retry. Bump it together with the Rust
-  # toolchain in rust-toolchain.toml, since both can invalidate the cache.
-  SCCACHE_VERSION: v0.20.1
-  # Start the sccache server without probing the GCS bucket. The probe must
-  # finish within sccache's 10 s server startup timeout, otherwise the first
-  # rustc call fails, whereas cache errors during the build only fall back to
-  # compiling locally.
-  SCCACHE_SKIP_CACHE_CHECK: 1
 
 # BE CAREFUL IF EDITING THIS FILE:
 # If you add/remove python tests from here, you should also update `check_pytests.py`’s list of GHA_TESTS
@@ -67,23 +58,7 @@ jobs:
           persist-credentials: false
 
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
-        id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: (github.event_name != 'pull_request' || matrix.run_on_pr) && steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: (github.event_name != 'pull_request' || matrix.run_on_pr) && steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-sccache
 
       # Install all the required tools
       - if: github.event_name != 'pull_request' || matrix.run_on_pr
@@ -163,23 +138,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - uses: WarpBuilds/setup-python@6cfa838faedb1152a7dc8626f00fdc041d8ebd82 # v5.1.4
         with:
           python-version: 3.11
@@ -218,23 +177,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
@@ -293,23 +236,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
@@ -326,23 +253,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
@@ -423,23 +334,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
@@ -455,23 +350,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just
@@ -488,23 +367,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
       - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e
         with:
           tool: just,cargo-udeps
@@ -588,34 +451,18 @@ jobs:
         if: steps.run-job.outcome == 'success'
         with:
           persist-credentials: false
-      - id: gcp-auth
+      - uses: ./.github/actions/setup-sccache
         if: steps.run-job.outcome == 'success'
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.run-job.outcome == 'success' && steps.gcp-auth.outcome == 'success'
+      # sccache spawns rustc with all arguments on the command line, which
+      # for near-runtime exceeds the Windows limit of 32767 characters
+      # (os error 206). Most of the length is repeated target directory
+      # paths, so use a short one at the root of the workspace drive.
+      - if: steps.run-job.outcome == 'success' && runner.os == 'Windows' && env.RUSTC_WRAPPER == 'sccache'
         # The default shell on Windows is PowerShell, where `$GITHUB_ENV` is an
-        # unset variable and the writes below are silently discarded.
+        # unset variable and the write below is silently discarded.
         shell: bash
         run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          # sccache spawns rustc with all arguments on the command line, which
-          # for near-runtime exceeds the Windows limit of 32767 characters
-          # (os error 206). Most of the length is repeated target directory
-          # paths, so use a short one at the root of the workspace drive.
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE:0:2}\\t" >> $GITHUB_ENV
-          fi
+          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE:0:2}\\t" >> $GITHUB_ENV
       # near-store (with its default `rocksdb` feature) builds librocksdb-sys.
       - uses: ./.github/actions/install-clang
         if: steps.run-job.outcome == 'success'

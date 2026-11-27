@@ -5,17 +5,6 @@ on:
   merge_group:
   workflow_dispatch:
 
-env:
-  # Pinned so that sccache-action does not look up the latest release through
-  # the GitHub API, a request it does not retry. Bump it together with the Rust
-  # toolchain in rust-toolchain.toml, since both can invalidate the cache.
-  SCCACHE_VERSION: v0.20.1
-  # Start the sccache server without probing the GCS bucket. The probe must
-  # finish within sccache's 10 s server startup timeout, otherwise the first
-  # rustc call fails, whereas cache errors during the build only fall back to
-  # compiling locally.
-  SCCACHE_SKIP_CACHE_CHECK: 1
-
 jobs:
   tx-injection-single-node:
     name: "tx injections single-node benchmark"
@@ -31,23 +20,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - id: gcp-auth
-        name: Authenticate with Google Cloud
-        continue-on-error: true
-        uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
-        with:
-          workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
-      - if: steps.gcp-auth.outcome == 'success'
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
-        with:
-          version: ${{ env.SCCACHE_VERSION }}
-      - if: steps.gcp-auth.outcome == 'success'
-        run: |
-          echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
-          echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-sccache
 
       # Install all the required tools
       - uses: taiki-e/install-action@7852930e42e73b6c323ae4435f5135b58754dfdd
