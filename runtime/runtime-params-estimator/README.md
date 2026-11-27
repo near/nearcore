@@ -5,7 +5,8 @@ Use this tool to measure the running time of elementary runtime operations that 
 1. Run the estimator
     ```bash
     cargo run --release --package runtime-params-estimator --features required \
-        --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 \
+        --bin runtime-params-estimator -- --home "$PWD/estimator-home" \
+        --accounts-num 20000 --additional-accounts-num 200000 \
         --iters 1 --warmup-iters 1 --metric time
     ```
 
@@ -16,7 +17,8 @@ Use this tool to measure the running time of elementary runtime operations that 
     To get more robust estimates, replace the arguments that follow `--` with these:
 
     ```bash
-    --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 \
+    --home "$PWD/estimator-home" \
+      --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 \
       --containerized --metric icount
     ```
 
@@ -28,7 +30,7 @@ Use this tool to measure the running time of elementary runtime operations that 
 
     ```
     cargo build --profile=dev-release -p runtime-params-estimator --features required
-    qemu-x86 -cpu Haswell-v4 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/dev-release/runtime-params-estimator $ARGS
+    qemu-x86 -cpu Haswell-v4 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/dev-release/runtime-params-estimator --home "$PWD/estimator-home" $ARGS
     ```
 
     You can also significantly reduce the number of accounts in most of the cases.
@@ -48,6 +50,50 @@ Use this tool to measure the running time of elementary runtime operations that 
 3. **Continuous Estimation**: Take a look at [`estimator-warehouse/README.md`](./estimator-warehouse/README.md) to learn about the automated setup around the parameter estimator.
 
 Note, if you use the plotting functionality you would need to install [gnuplot](http://www.gnuplot.info/) to see the graphs.
+
+## Benchmarking Wasmtime upgrades
+
+Build each revision in a separate work tree and target directory. For wall-clock
+comparisons, pin one CPU and run several paired processes in alternating order.
+Use separate estimator homes so compiled artifacts are not shared between versions.
+
+```bash
+cargo build --release -p runtime-params-estimator --features required
+BIN="$PWD/target/release/runtime-params-estimator"
+ESTIMATOR_HOME="$PWD/estimator-home"
+
+COSTS=ContractLoadingBase,ContractLoadingPerByte,\
+AdversarialLoadManyGlobals,AdversarialLoadManyDataSegments,\
+AdversarialLoadManyElementSegments,AdversarialCompileMaxBlocks,\
+AdversarialCompileFallbackElements,AdversarialLoadFallbackElements,\
+ContractCompileEmpty,ContractCompileMinimal,ContractCompileBaseV2,\
+ContractCompileBytesV2
+mkdir "$ESTIMATOR_HOME/suite"
+
+taskset -c 0 "$BIN" --home "$ESTIMATOR_HOME/suite" --metric time --vm-kind wasmtime \
+  --accounts-num 2 --additional-accounts-num 0 \
+  --costs "$COSTS" --iters 5 --warmup-iters 3 --debug --json-output
+```
+
+Also sweep global counts to compare compilation and cached instantiation scaling:
+
+```bash
+for n in 0 1 100 1000 10000 50000; do
+  taskset -c 0 "$BIN" --home "$ESTIMATOR_HOME/globals-$n" --metric time --vm-kind wasmtime \
+    --accounts-num 2 --additional-accounts-num 0 \
+    --costs AdversarialCompileManyGlobals,AdversarialLoadManyGlobals \
+    --globals-count "$n" --iters 5 --warmup-iters 3 --json-output
+done
+```
+
+Compilation samples use fresh caches and exclude runtime/engine creation. Loading
+benchmarks prime the compile cache before measuring cached invocations. Use zero
+warmups when investigating early invocations and nonzero warmups for steady state.
+`--debug` emits the raw `compile_v2` corpus and fit diagnostics.
+
+Repeat focused regressions with `--metric icount` under the configured QEMU
+plugin or container, and profile important wall-clock regressions. Do not run
+`--metric icount` directly without QEMU.
 
 ## Replaying IO traces
 
