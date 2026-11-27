@@ -169,7 +169,7 @@ and confirm that the commits are as expected.
 Once your change ends up in master, it will be released with the rest of the
 changes by other contributors on the regular release schedules.
 
-On [betanet](https://docs.near.org/docs/concepts/networks#betanet) we run
+On betanet (see [NEAR networks](https://docs.near.org/protocol/network/networks)) we run
 nightly build from master with all the nightly protocol features enabled. Every
 five weeks, we stabilize some protocol features and make a release candidate for
 testnet.  The process for feature stabilization can be found in [this
