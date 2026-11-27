@@ -1,3 +1,4 @@
+use super::network_rules::{Applied, NetworkRules, PendingRequest};
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunnerExt as _, FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{
@@ -40,13 +41,12 @@ use near_primitives::genesis::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_sync::{PartOrHeader, StateRequestAck, StateRequestAckBody};
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use parking_lot::{Mutex, MutexGuard};
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha20Rng;
 use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map};
-use std::ops::Range;
 use std::sync::Arc;
 
 /// Subset of ClientSenderForNetwork required for the TestLoop network.
@@ -138,6 +138,9 @@ pub type NetworkRequestObserver = Box<dyn Fn(&NetworkRequests)>;
 pub struct TestLoopPeerManagerActor {
     handlers: Vec<NetworkRequestHandler>,
     observers: Vec<NetworkRequestObserver>,
+    /// The rules of every node, consulted for this node's account before the handlers.
+    rules: NetworkRules,
+    account_id: AccountId,
 
     clock: Clock,
     client_sender: ClientSenderForTestLoopNetwork,
@@ -178,6 +181,7 @@ impl TestLoopPeerManagerActor {
         client_sender: ClientSenderForTestLoopNetwork,
         genesis_id: GenesisId,
         future_spawner: Arc<dyn FutureSpawner>,
+        rules: NetworkRules,
     ) -> Self {
         let handlers = vec![
             network_message_to_client_handler(&account_id, shared_state.clone()),
@@ -202,6 +206,8 @@ impl TestLoopPeerManagerActor {
         Self {
             handlers,
             observers: Vec::new(),
+            rules,
+            account_id: account_id.clone(),
             clock,
             client_sender,
             shared_state: shared_state.clone(),
@@ -221,6 +227,39 @@ impl TestLoopPeerManagerActor {
         // We add the handler to the end of the list and while processing the request, we iterate
         // over the handlers in reverse order.
         self.handlers.push(handler);
+    }
+
+    /// Hands the request to the handlers, the last registered first, which route it to the
+    /// recipients the incoming rules let it reach.
+    fn route(&self, pending: PendingRequest) -> PeerManagerMessageResponse {
+        let PendingRequest { request, only_to } = pending;
+        let recipients = match only_to {
+            Some(to) => Some(Recipients::Only(to)),
+            None if self.rules.has_incoming_rules() => {
+                Some(Recipients::Rules(self.rules.clone(), Arc::new(request.clone())))
+            }
+            None => None,
+        };
+        self.shared_state.set_in_flight(&self.account_id, recipients);
+        let response = self.run_handlers(request);
+        self.shared_state.clear_in_flight();
+        response
+    }
+
+    fn run_handlers(&self, request: NetworkRequests) -> PeerManagerMessageResponse {
+        let mut request = Some(request);
+        for handler in self.handlers.iter().rev() {
+            match handler(request.take().unwrap()) {
+                HandlerResult::Unhandled(req) => {
+                    request = Some(req);
+                }
+                HandlerResult::Handled(response) => {
+                    return PeerManagerMessageResponse::NetworkResponses(response);
+                }
+            }
+        }
+        // If no handler was able to handle the request, panic.
+        panic!("unhandled request: {:?}", request);
     }
 
     fn push_network_info(
@@ -276,10 +315,19 @@ impl TestLoopPeerManagerActor {
 #[derive(Clone)]
 pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
 
-/// Broadcast blocks withheld from one account, with a count of how many were withheld.
-struct SuppressedBlockDelivery {
-    heights: Range<BlockHeight>,
-    count: usize,
+/// The request a node's peer manager is routing right now. The sender lookups its handlers
+/// make meanwhile consult it for each recipient, see [`TestLoopNetworkSharedState::delivers`].
+struct InFlight {
+    from: AccountId,
+    recipients: Recipients,
+}
+
+#[derive(Clone)]
+enum Recipients {
+    /// Each recipient the incoming rules let the request reach.
+    Rules(NetworkRules, Arc<NetworkRequests>),
+    /// Only this recipient, which the incoming rules already let the request reach.
+    Only(AccountId),
 }
 
 struct TestLoopNetworkSharedStateInner {
@@ -289,7 +337,9 @@ struct TestLoopNetworkSharedStateInner {
     drop_events_senders: Arc<OneClientSenders>,
     route_back: BTreeMap<CryptoHash, PeerId>,
     disallowed_peer_links: BTreeMap<PeerId, BTreeSet<PeerId>>,
-    suppressed_block_recipients: BTreeMap<AccountId, SuppressedBlockDelivery>,
+    /// Set while a peer manager routes a request, when the incoming rules have a say on its
+    /// recipients.
+    in_flight: Option<InFlight>,
     archival_peer_ids: BTreeSet<PeerId>,
     /// Peers that accept every message and never answer, the way a peer
     /// advertising a false height does. No node stands behind them, so any peer
@@ -358,7 +408,7 @@ impl TestLoopNetworkSharedState {
             drop_events_senders: to_drop_events_senders(unreachable_actor_sender),
             route_back: BTreeMap::new(),
             disallowed_peer_links: BTreeMap::new(),
-            suppressed_block_recipients: BTreeMap::new(),
+            in_flight: None,
             archival_peer_ids: BTreeSet::new(),
             unresponsive_peer_ids: BTreeSet::new(),
             tracked_shards_config: BTreeMap::new(),
@@ -422,35 +472,6 @@ impl TestLoopNetworkSharedState {
         guard.disallowed_peer_links = BTreeMap::new();
     }
 
-    /// Stops delivery of broadcast blocks to `account_id` while the height is in `heights`.
-    /// Peer height announcements and requested blocks still arrive.
-    pub fn suppress_block_delivery(&self, account_id: &AccountId, heights: Range<BlockHeight>) {
-        let suppressed = SuppressedBlockDelivery { heights, count: 0 };
-        self.0.lock().suppressed_block_recipients.insert(account_id.clone(), suppressed);
-    }
-
-    /// How many broadcast blocks were withheld from `account_id`. Lets a test check that its
-    /// height window actually covered the behaviour under test.
-    pub fn suppressed_block_count(&self, account_id: &AccountId) -> usize {
-        let guard = self.0.lock();
-        guard.suppressed_block_recipients.get(account_id).map_or(0, |s| s.count)
-    }
-
-    fn is_block_delivery_suppressed(&self, account_id: &AccountId, height: BlockHeight) -> bool {
-        let guard = self.0.lock();
-        guard
-            .suppressed_block_recipients
-            .get(account_id)
-            .is_some_and(|s| s.heights.contains(&height))
-    }
-
-    fn count_suppressed_block(&self, account_id: &AccountId) {
-        let mut guard = self.0.lock();
-        if let Some(suppressed) = guard.suppressed_block_recipients.get_mut(account_id) {
-            suppressed.count += 1;
-        }
-    }
-
     pub(crate) fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
         let guard = self.0.lock();
         guard.account_to_peer_id.get(account_id).unwrap().clone()
@@ -494,37 +515,96 @@ impl TestLoopNetworkSharedState {
     ) -> bool {
         guard.disallowed_peer_links.get(from).and_then(|blocklist| blocklist.get(to)).is_some()
     }
+    fn peer_account_id(
+        guard: &MutexGuard<TestLoopNetworkSharedStateInner>,
+        peer_id: &PeerId,
+    ) -> Option<AccountId> {
+        guard
+            .account_to_peer_id
+            .iter()
+            .find(|(_, account_peer_id)| *account_peer_id == peer_id)
+            .map(|(account_id, _)| account_id.clone())
+    }
+
+    /// Marks `from` as routing a request, which reaches the `recipients` only. `None` routes it
+    /// to every recipient.
+    fn set_in_flight(&self, from: &AccountId, recipients: Option<Recipients>) {
+        let in_flight = recipients.map(|recipients| InFlight { from: from.clone(), recipients });
+        self.0.lock().in_flight = in_flight;
+    }
+
+    fn clear_in_flight(&self) {
+        self.0.lock().in_flight = None;
+    }
+
+    /// Whether the request `from` is routing reaches `to` now, rather than being dropped,
+    /// delayed or held for `to` by the incoming rules. Messages sent while no request is in
+    /// flight, such as the answers to a request, always do.
+    fn delivers(&self, from: &AccountId, to: &AccountId) -> bool {
+        let recipients = {
+            let guard = self.0.lock();
+            match &guard.in_flight {
+                Some(in_flight) if &in_flight.from == from => in_flight.recipients.clone(),
+                _ => return true,
+            }
+        };
+        match recipients {
+            Recipients::Only(only) => &only == to,
+            Recipients::Rules(rules, request) => rules.deliver(from, to, &request),
+        }
+    }
+
+    fn drop_events_senders(&self) -> Arc<OneClientSenders> {
+        self.0.lock().drop_events_senders.clone()
+    }
+
+    /// The senders of `account_id`, unless the link from `origin` to it is severed.
+    fn linked_senders(
+        &self,
+        origin: &AccountId,
+        account_id: &AccountId,
+    ) -> Option<Arc<OneClientSenders>> {
+        let guard = self.0.lock();
+        let origin_peer_id = &guard.account_to_peer_id[origin];
+        let peer_id = &guard.account_to_peer_id[account_id];
+        if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
+            return None;
+        }
+        Some(guard.senders.get(peer_id).unwrap().clone())
+    }
+
     fn senders_for_account(
         &self,
         origin: &AccountId,
         account_id: &AccountId,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        let origin_peer_id = &guard.account_to_peer_id[origin];
-        let peer_id = &guard.account_to_peer_id[account_id];
-        if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
-            return guard.drop_events_senders.clone();
+        match self.linked_senders(origin, account_id) {
+            Some(senders) if self.delivers(origin, account_id) => senders,
+            _ => self.drop_events_senders(),
         }
-        guard.senders.get(peer_id).unwrap().clone()
     }
 
-    /// The recipients a message from `origin` reaches, dropping the ones behind a severed link. For
-    /// handlers that deliver messages themselves instead of going through `senders_for_account`.
+    /// The recipients a message from `origin` reaches, dropping the ones behind a severed link
+    /// and the ones the incoming rules keep it from. For handlers that deliver messages
+    /// themselves instead of going through `senders_for_account`.
     pub(crate) fn reachable_from(
         &self,
         origin: &AccountId,
         recipients: &HashSet<AccountId>,
     ) -> Vec<AccountId> {
-        let guard = self.0.lock();
-        let origin_peer_id = &guard.account_to_peer_id[origin];
-        recipients
-            .iter()
-            .filter(|recipient| {
-                let peer_id = &guard.account_to_peer_id[*recipient];
-                !Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id)
-            })
-            .cloned()
-            .collect()
+        let linked: Vec<AccountId> = {
+            let guard = self.0.lock();
+            let origin_peer_id = &guard.account_to_peer_id[origin];
+            recipients
+                .iter()
+                .filter(|recipient| {
+                    let peer_id = &guard.account_to_peer_id[*recipient];
+                    !Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id)
+                })
+                .cloned()
+                .collect()
+        };
+        linked.into_iter().filter(|recipient| self.delivers(origin, recipient)).collect()
     }
 
     pub(crate) fn senders_for_peer(
@@ -532,14 +612,22 @@ impl TestLoopNetworkSharedState {
         origin: &PeerId,
         peer_id: &PeerId,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
-            return guard.drop_events_senders.clone();
+        let (senders, accounts) = {
+            let guard = self.0.lock();
+            if Self::is_peer_link_disallowed(&guard, origin, peer_id) {
+                return guard.drop_events_senders.clone();
+            }
+            if guard.unresponsive_peer_ids.contains(peer_id) {
+                return guard.drop_events_senders.clone();
+            }
+            let accounts =
+                Self::peer_account_id(&guard, origin).zip(Self::peer_account_id(&guard, peer_id));
+            (guard.senders.get(peer_id).unwrap().clone(), accounts)
+        };
+        match accounts {
+            Some((from, to)) if !self.delivers(&from, &to) => self.drop_events_senders(),
+            _ => senders,
         }
-        if guard.unresponsive_peer_ids.contains(peer_id) {
-            return guard.drop_events_senders.clone();
-        }
-        guard.senders.get(peer_id).unwrap().clone()
     }
 
     /// Returns senders for the given peer without checking disallowed links.
@@ -565,13 +653,19 @@ impl TestLoopNetworkSharedState {
         origin: &AccountId,
         route_back: &CryptoHash,
     ) -> Arc<OneClientSenders> {
-        let guard = self.0.lock();
-        let origin_peer_id = &guard.account_to_peer_id[origin];
-        let peer_id = guard.route_back.get(route_back).unwrap();
-        if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
-            return guard.drop_events_senders.clone();
+        let (senders, to) = {
+            let guard = self.0.lock();
+            let origin_peer_id = &guard.account_to_peer_id[origin];
+            let peer_id = guard.route_back.get(route_back).unwrap();
+            if Self::is_peer_link_disallowed(&guard, origin_peer_id, peer_id) {
+                return guard.drop_events_senders.clone();
+            }
+            (guard.senders.get(peer_id).unwrap().clone(), Self::peer_account_id(&guard, peer_id))
+        };
+        match to {
+            Some(to) if !self.delivers(origin, &to) => self.drop_events_senders(),
+            _ => senders,
         }
-        guard.senders.get(peer_id).unwrap().clone()
     }
 
     pub fn mark_unresponsive(&self, peer_id: &PeerId) {
@@ -654,20 +748,28 @@ impl Handler<PeerManagerMessageRequest, PeerManagerMessageResponse> for TestLoop
             observer(&request);
         }
 
-        // Iterate over the handlers in reverse order to allow for overriding the default handlers.
-        let mut request = Some(request);
-        for handler in self.handlers.iter().rev() {
-            match handler(request.take().unwrap()) {
-                HandlerResult::Unhandled(req) => {
-                    request = Some(req);
-                }
-                HandlerResult::Handled(response) => {
-                    return PeerManagerMessageResponse::NetworkResponses(response);
-                }
-            }
+        let Applied { released_held, outgoing } = self.rules.apply(&self.account_id, request);
+        for pending in released_held {
+            self.route(pending);
         }
-        // If no handler was able to handle the request, panic.
-        panic!("Unhandled request: {:?}", request);
+        // A request the rules dropped, delayed or held answers like one the handlers took in
+        // silence.
+        match outgoing {
+            Some(request) => self.route(PendingRequest::to_all(request)),
+            None => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+        }
+    }
+}
+
+/// A request a rule let go later than it was sent, see [`NetworkRules::apply_deferred`].
+#[derive(Debug)]
+pub struct DeferredNetworkRequest(pub PendingRequest);
+
+impl Handler<DeferredNetworkRequest> for TestLoopPeerManagerActor {
+    fn handle(&mut self, msg: DeferredNetworkRequest) {
+        for pending in self.rules.apply_deferred(&self.account_id, msg.0) {
+            self.route(pending);
+        }
     }
 }
 
@@ -684,11 +786,12 @@ fn network_message_to_client_handler(
                     continue;
                 }
 
-                let senders = shared_state.senders_for_account(&my_account_id, &account_id);
-
-                if shared_state.is_block_delivery_suppressed(&account_id, block.header().height()) {
-                    shared_state.count_suppressed_block(&account_id);
-                } else {
+                let Some(senders) = shared_state.linked_senders(&my_account_id, &account_id) else {
+                    continue;
+                };
+                // The incoming rules keep the block from a recipient, not the peer height
+                // announcement after it.
+                if shared_state.delivers(&my_account_id, &account_id) {
                     let future = senders.client_sender.send_async(
                         BlockResponse {
                             block: block.clone(),

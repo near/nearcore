@@ -1,5 +1,6 @@
 use super::builder::NodeStateBuilder;
 use super::drop_condition::DropCondition;
+use super::network_rules::TestLoopNodeNetwork;
 use super::setup::setup_client;
 use super::state::{NodeExecutionData, NodeSetupState, SharedState};
 use crate::utils::account::{archival_account_id, rpc_account_id};
@@ -199,6 +200,21 @@ impl TestLoopEnv {
 
     pub fn node_mut(&mut self, idx: usize) -> TestLoopNodeMut<'_> {
         TestLoopNodeMut { data: &mut self.test_loop.data, node_data: &self.node_datas[idx] }
+    }
+
+    /// The network of node `idx`, to add rules on what it sends. See
+    /// [`super::network_rules`].
+    pub fn node_network(&self, idx: usize) -> TestLoopNodeNetwork<'_> {
+        self.node_network_for_account(&self.node_datas[idx].account_id)
+    }
+
+    /// [`Self::node_network`] for the node of `account_id`. Rules are keyed by account, so the
+    /// node need not exist yet: a node added later for the account is covered.
+    pub fn node_network_for_account<'a>(
+        &'a self,
+        account_id: &'a AccountId,
+    ) -> TestLoopNodeNetwork<'a> {
+        TestLoopNodeNetwork::new(account_id, &self.shared_state)
     }
 
     pub fn node_for_account(&self, account_id: &AccountId) -> TestLoopNode<'_> {

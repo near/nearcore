@@ -6,6 +6,7 @@ mod delayed_receipts;
 mod gas_limit;
 #[cfg(feature = "test_features")]
 mod missing_chunk;
+mod network_rules;
 mod node_lifecycle;
 mod resharding;
 mod setup;
