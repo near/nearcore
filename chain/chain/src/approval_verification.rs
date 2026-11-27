@@ -19,8 +19,11 @@ pub fn verify_approval_with_approvers_info(
         return false;
     }
 
+    let Some(prev_block_height_plus_one) = prev_block_height.checked_add(1) else {
+        return false;
+    };
     let message_to_sign = Approval::get_data_for_sig(
-        &if prev_block_height + 1 == block_height {
+        &if prev_block_height_plus_one == block_height {
             ApprovalInner::Endorsement(*prev_block_hash)
         } else {
             ApprovalInner::Skip(prev_block_height)
@@ -100,7 +103,7 @@ fn get_heuristic_block_approvers_ordered(epoch_info: &EpochInfo) -> Vec<Approval
 
 #[cfg(test)]
 mod tests {
-    use super::verify_approvals_and_threshold_orphan;
+    use super::{verify_approval_with_approvers_info, verify_approvals_and_threshold_orphan};
     use assert_matches::assert_matches;
     use near_chain_primitives::error::Error;
     use near_epoch_manager::test_utils::epoch_info;
@@ -109,6 +112,17 @@ mod tests {
     use near_primitives::types::Balance;
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;
+
+    #[test]
+    fn verify_approval_with_approvers_info_rejects_max_prev_height() {
+        assert!(!verify_approval_with_approvers_info(
+            &CryptoHash::default(),
+            u64::MAX,
+            0,
+            &[],
+            vec![],
+        ));
+    }
 
     #[test]
     fn verify_approvals_and_threshold_orphan_rejects_max_prev_height() {
