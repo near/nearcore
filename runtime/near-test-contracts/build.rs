@@ -53,6 +53,7 @@ fn try_main() -> Result<(), Error> {
     )?;
 
     build_contract("./sharded-contract", &[], "sharded_contract")?;
+    build_contract("./ecc-wallet", &[], "ecc_wallet")?;
 
     res_contract("legacy_backwards_compatible_rs_contract");
     res_contract("test_contract_ts");
@@ -88,7 +89,7 @@ fn build_contract(dir: &str, features: &[&str], output: &str) -> Result<(), Erro
     std::fs::rename(&from, &to)
         .map_err(|err| format!("failed to copy `{}`: {}", from.display(), err))?;
     println!("cargo:rustc-env=CONTRACT_{}={}", output, to.display());
-    println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
+    println!("cargo:rerun-if-changed=./{}/src", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
     println!("debug: from = {from:?}, to = {to:?}");
     Ok(())

@@ -42,6 +42,7 @@ mod early_kickout_withheld_block;
 mod early_prepare_transactions;
 mod ecc_reserved_method;
 mod ecc_submission;
+mod ecc_wallet;
 mod eth_implicit_missing_global_contract;
 mod eth_implicit_wallet_upgrade;
 mod fix_chunk_producer_stake_threshold;

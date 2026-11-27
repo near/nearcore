@@ -156,6 +156,12 @@ pub fn sharded_contract_test_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_sharded_contract"))
 }
 
+/// Example account-abstraction wallet for external contract calls, checking WebAuthn passkey
+/// signatures. Not for production; see `ecc-wallet/README.md`.
+pub fn ecc_wallet_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_ecc_wallet"))
+}
+
 #[test]
 fn smoke_test() {
     assert!(!rs_contract().is_empty());
