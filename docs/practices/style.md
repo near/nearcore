@@ -573,9 +573,13 @@ development and test nodes.
 - `TRACE` — tracing method execution and arbitrary fine-grained debug output.
   Not expected to be enabled globally; typically turned on for a specific target
   when debugging a particular issue or collecting performance traces.
-- `DEBUG` — information useful to protocol developers but not to validators. Must
-  not spam logs. Example: receiving an invalid or irrelevant state witness. Many
-  messages currently emitted at `WARN` belong here.
+- `DEBUG` — information useful to protocol developers but not to validators.
+  Reserved for significant events that reflect the node taking action at the
+  network level, such as producing a block or a chunk, or validating a state
+  witness. Anything related to the node's routine participation in the network
+  (steady-state operation, keeping up with chain head, housekeeping, etc.) does
+  not belong here and should be logged at `TRACE` instead. Example of a
+  legitimate `DEBUG` event: receiving an invalid or irrelevant state witness.
 - `INFO` — significant state changes that indicate the node is operating
   normally and are useful to validators. Examples: node started state sync, node
   fell out of sync.
