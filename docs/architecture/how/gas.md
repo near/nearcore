@@ -21,7 +21,6 @@ The topic is split into several sections.
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
     - [Gas Refund Fee](#gas-refund-fee): The cost paid for a gas refund receipt.
-3. [Tracking Gas](#tracking-gas-in-receipts): How the system keeps track of purchased gas during the transaction execution.
 
 ## Gas Flow
 

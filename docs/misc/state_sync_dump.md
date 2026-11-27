@@ -11,7 +11,7 @@ kinds of external storage are supported:
 
 Note: consuming state parts from external storage (centralized state sync) has
 been removed — nodes now always sync state from peers
-([State Sync](../architecture/how/sync.md#step-2-state-sync-normal-node)). Only
+([State Sync](../architecture/how/sync.md#step-3-state-sync)). Only
 the dump side documented here remains, for archival and state-distribution
 tooling.
 
