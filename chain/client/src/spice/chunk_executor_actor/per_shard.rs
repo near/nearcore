@@ -21,8 +21,7 @@ use near_chain::types::ApplyChunkResult;
 use near_chain::types::{ApplyChunkBlockContext, RuntimeAdapter, StorageDataSource};
 use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::{
-    Block, Chain, Error, collect_receipts, compute_transaction_validity,
-    get_chunk_clone_from_header,
+    Block, Chain, Error, collect_receipts, compute_transaction_validity, get_chunk_if_valid,
 };
 use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
@@ -850,18 +849,7 @@ impl PerShardChunkExecutor {
         if !chunk_header.is_new_chunk(height) {
             return Ok(None);
         }
-        let chunk_store = self.chain_store.chunk_store();
-        match get_chunk_clone_from_header(&chunk_store, chunk_header) {
-            Ok(chunk) => Ok(Some(chunk)),
-            Err(Error::ChunkMissing(_))
-                if chunk_store
-                    .is_invalid_chunk(chunk_header.height_created(), chunk_header.chunk_hash())
-                    .is_some() =>
-            {
-                Ok(None)
-            }
-            Err(err) => Err(err),
-        }
+        get_chunk_if_valid(&self.chain_store.chunk_store(), chunk_header)
     }
 
     #[instrument(

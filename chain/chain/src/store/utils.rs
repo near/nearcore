@@ -33,6 +33,25 @@ pub fn get_chunk_clone_from_header(
     Ok(shard_chunk)
 }
 
+/// Like `get_chunk_clone_from_header`, but returns `None` for an invalid chunk (SPICE). Such a
+/// chunk has no stored `ShardChunk` and executes as empty, so it carries no transactions.
+pub fn get_chunk_if_valid(
+    chunk_store: &ChunkStoreAdapter,
+    header: &ShardChunkHeader,
+) -> Result<Option<ShardChunk>, Error> {
+    match get_chunk_clone_from_header(chunk_store, header) {
+        Ok(chunk) => Ok(Some(chunk)),
+        Err(Error::ChunkMissing(_))
+            if chunk_store
+                .is_invalid_chunk(header.height_created(), header.chunk_hash())
+                .is_some() =>
+        {
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Returns block header from the current chain defined by `sync_hash` for given height if present.
 pub fn get_block_header_on_chain_by_height(
     chain_store: &ChainStoreAdapter,
