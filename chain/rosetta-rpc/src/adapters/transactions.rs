@@ -420,30 +420,19 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     &account_change.cause,
                     near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { .. }
                 );
-                // Calculate the total amount of deposit from transfer and function call actions.
-                // This is needed to separate deposits into a separate operation
-                // so that the remaining balance change can be marked as gas prepayment.
+                // Calculate the total amount of deposit across the transaction's actions,
+                // including the inner actions of a delegate-style action, so that the
+                // deposit can be split into its own operation and the remaining balance
+                // change can be marked as gas prepayment. The per-action sum is driven by
+                // `ActionView::get_deposit_balance`, which mirrors the runtime's
+                // `total_deposit` so a new action type with a deposit cannot be missed.
                 let deposit = match &account_change.cause {
                     near_primitives::views::StateChangeCauseView::TransactionProcessing {
                         tx_hash,
                     } => transactions_in_block.get(tx_hash).and_then(|t| {
-                        let total_sum =
-                            t.actions.iter().fold(Balance::ZERO, |sum, action| match action {
-                                near_primitives::views::ActionView::Transfer { deposit } => {
-                                    sum.checked_add(*deposit).unwrap()
-                                }
-                                near_primitives::views::ActionView::FunctionCall {
-                                    deposit,
-                                    ..
-                                } => sum.checked_add(*deposit).unwrap(),
-                                near_primitives::views::ActionView::TransferToGasKey {
-                                    deposit,
-                                    ..
-                                } => sum.checked_add(*deposit).unwrap(),
-                                // TODO: match every action, so a new one with a deposit is not
-                                // missed. This wildcard predates external calls.
-                                _ => sum,
-                            });
+                        let total_sum = t.actions.iter().fold(Balance::ZERO, |sum, action| {
+                            sum.checked_add(action.get_deposit_balance()).unwrap()
+                        });
                         if total_sum.is_zero() { None } else { Some(total_sum) }
                     }),
                     // An external call's change is its contract's own run, so like a receipt's run
