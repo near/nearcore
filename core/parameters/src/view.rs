@@ -34,6 +34,9 @@ pub struct RuntimeConfigView {
     /// account creation.
     #[serde(default)]
     pub account_creation_charge: Balance,
+    /// Maximum cold contract code bytes admitted for compilation per chunk.
+    #[serde(default)]
+    pub max_cold_contract_bytes_per_chunk: u64,
 }
 
 /// Describes different fees for the runtime
@@ -224,6 +227,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
             external_calls_config: ExternalCallsConfigView::from(config.external_calls_config),
             min_gas_purchase_price: config.min_gas_purchase_price,
             account_creation_charge: config.account_creation_charge,
+            max_cold_contract_bytes_per_chunk: config.max_cold_contract_bytes_per_chunk,
         }
     }
 }

@@ -254,6 +254,19 @@ impl DelayedReceiptQueue {
         let indices = crate::get_delayed_receipt_indices(trie)?;
         Ok(Self { indices: indices.into() })
     }
+
+    /// Restores the item removed by the most recent `pop_front` call.
+    pub fn undo_last_pop(
+        &mut self,
+        state_update: &mut TrieUpdate,
+        item: &StateStoredReceipt<'_>,
+    ) -> Result<(), IntegerOverflowError> {
+        let index = self.indices.first_index.checked_sub(1).ok_or(IntegerOverflowError)?;
+        set(state_update, self.trie_key(index), item);
+        self.indices.first_index = index;
+        self.write_indices(state_update);
+        Ok(())
+    }
 }
 
 impl TrieQueue for DelayedReceiptQueue {

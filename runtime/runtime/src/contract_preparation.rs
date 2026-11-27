@@ -102,7 +102,11 @@ pub(crate) fn prepare_function_call(
     prepare_with_priority(code_ext, config, cache, *gas_counter, method_name, priority)
 }
 
-fn gas_counter(config: &RuntimeConfig, execution_mode: &ExecutionMode, gas: Gas) -> GasCounter {
+pub(crate) fn gas_counter(
+    config: &RuntimeConfig,
+    execution_mode: &ExecutionMode,
+    gas: Gas,
+) -> GasCounter {
     let GasLimits { max_gas_burnt, prepaid_gas } =
         execution_mode.gas_limits(&config.wasm_config.limit_config, gas);
     GasCounter::new(

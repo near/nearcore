@@ -29,6 +29,8 @@ pub enum Parameter {
     /// How much creating an account should cost in NEAR. Taken into account when burning gas for
     /// account creation.
     AccountCreationCharge,
+    /// Limits access to uncached contracts in executed receipts per chunk.
+    MaxColdContractBytesPerChunk,
 
     /// Stateless validation config
     /// Size limit for storage proof generated while executing receipts in a chunk.

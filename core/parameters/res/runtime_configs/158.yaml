@@ -1,0 +1,1 @@
+max_cold_contract_bytes_per_chunk: { old: 2_147_483_647, new: 4_194_304 }

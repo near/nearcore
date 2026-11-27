@@ -43,6 +43,10 @@ pub struct RuntimeConfig {
     /// How much creating an account should cost in NEAR. Taken into account when burning gas for
     /// account creation.
     pub account_creation_charge: Balance,
+
+    /// Cold contract bytes admitted per chunk. The delayed queue head may exceed
+    /// this budget by one contract to make progress across chunks.
+    pub max_cold_contract_bytes_per_chunk: u64,
 }
 
 impl RuntimeConfig {
@@ -72,6 +76,7 @@ impl RuntimeConfig {
             bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             min_gas_purchase_price: runtime_config.min_gas_purchase_price,
             account_creation_charge: runtime_config.account_creation_charge,
+            max_cold_contract_bytes_per_chunk: runtime_config.max_cold_contract_bytes_per_chunk,
         }
     }
 
@@ -95,6 +100,7 @@ impl RuntimeConfig {
             // zero as well so the invariant min_gas_purchase_price * create_account_gas_cost >=
             // account_creation_charge holds trivially (0 >= 0).
             account_creation_charge: Balance::ZERO,
+            max_cold_contract_bytes_per_chunk: u64::MAX,
         }
     }
 

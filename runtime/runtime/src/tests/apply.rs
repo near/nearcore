@@ -2070,6 +2070,7 @@ fn test_dry_run_ecc_matches_apply() {
             EccDryRun::Refused(error) => {
                 assert_eq!(outcome.status, ExecutionStatus::Failure(error), "{name}");
             }
+            EccDryRun::Deferred => panic!("unexpected deferral: {name}"),
         }
     }
 }
@@ -2111,6 +2112,7 @@ fn test_dry_run_ecc_recording_budget_matches_apply() {
                 assert_eq!(error, recorded_storage_exceeded(&apply_state.config), "{name}");
                 assert_eq!(status, &ExecutionStatus::Failure(error), "{name}");
             }
+            EccDryRun::Deferred => panic!("unexpected deferral: {name}"),
         }
     }
 }
@@ -2339,6 +2341,7 @@ fn test_dry_run_ecc_on_the_parent_nodes_matches_apply_of_the_next_chunk() {
                 assert_eq!(error, recorded_storage_exceeded(&apply_state.config), "{name}");
                 assert_eq!(outcome.status, ExecutionStatus::Failure(error), "{name}");
             }
+            EccDryRun::Deferred => panic!("unexpected deferral: {name}"),
         }
     }
 }
@@ -12085,6 +12088,7 @@ mod ecc_state_init {
                     assert_eq!(outcome.outcome.status, ExecutionStatus::Failure(error), "{name}");
                     assert_eq!(after, before, "{name}");
                 }
+                EccDryRun::Deferred => panic!("unexpected deferral: {name}"),
             }
         }
     }

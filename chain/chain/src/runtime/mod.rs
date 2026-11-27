@@ -424,6 +424,15 @@ impl NightshadeRuntime {
                     tracing::trace!(target: "runtime", tx=?ecc.get_hash(), ?error, "discarding ECC that its contract refuses");
                     result.num_refused += 1;
                 }
+                // Apply would skip the call, so it stays in the pool for a later chunk. Like a
+                // refused call, it is not in the chunk and counts toward nothing.
+                EccDryRun::Deferred => {
+                    metrics::ECC_DRY_RUNS
+                        .with_label_values(&[shard_label.as_str(), "deferred"])
+                        .inc();
+                    tracing::trace!(target: "runtime", tx=?ecc.get_hash(), "skipping ECC whose code exceeds the chunk's compilation budget");
+                    result.skipped.push(ecc);
+                }
             }
             state.trie = state.trie.recording_reads_new_recorder();
             run_state = Some(state);
@@ -648,6 +657,10 @@ impl NightshadeRuntime {
             }
             EccDryRun::Refused(error) => {
                 Err(ViewExternalCallError::Refused(Box::new(error), output.logs))
+            }
+            EccDryRun::Deferred => {
+                let error = "the contract's code exceeds the compilation budget of a chunk";
+                Err(ViewExternalCallError::Internal(Error::Other(error.to_string())))
             }
         }
     }
