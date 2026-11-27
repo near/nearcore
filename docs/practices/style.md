@@ -49,6 +49,51 @@ stream or during code review.
 This section documents all micro-rules which are not otherwise enforced by
 `rustfmt`.
 
+### Avoid fully qualified paths
+
+Don't use fully qualified paths like `std::collections::HashMap::new()`. Add a
+`use` declaration and reference the type directly. This applies to all Rust
+code — production, tests, and examples.
+
+```rust
+// GOOD
+use std::collections::HashMap;
+
+let map = HashMap::new();
+
+// BAD
+let map = std::collections::HashMap::new();
+```
+
+An exception are macro invocations that are conventionally called with a short
+crate prefix to make their origin obvious and avoid name collisions — most
+notably `tracing::` (see [Tracing](#tracing)) and `anyhow::anyhow!`. Keep the
+prefix on these.
+
+**Rationale:** Readability and consistency. Imports aggregate dependencies at
+the top of the file, making it easy to see what the module uses at a glance.
+
+### Borrow `Arc` with `as_ref`
+
+To borrow from an `Arc<T>` or `Arc<dyn Trait>`, use `arc.as_ref()` rather than
+`&*arc`.
+
+```rust
+// GOOD
+fn use_account(account: &AccountId) { ... }
+use_account(arc_account.as_ref());
+
+// BAD
+fn use_account(account: &AccountId) { ... }
+use_account(&*arc_account);
+```
+
+**Rationale:** Both compile to the same thing, but `as_ref()` makes the intent
+explicit and reads more cleanly. This is a deliberate exception to
+[Avoid `AsRef::as_ref`](#avoid-asrefas_ref) — `Arc` (and `Rc`/`Box`) implement
+`AsRef<T>` only for their inner value `T`, so the ambiguity that motivates
+that rule does not arise here.
+
 ### Avoid `AsRef::as_ref`
 
 When you have some concrete type, prefer `.as_str`, `.as_bytes`, `.as_path` over
@@ -69,7 +114,9 @@ fn log_validator(account_id: AccountId) {
 }
 ```
 
-Note that `Option::as_ref`, `Result::as_ref` are great, do use them!
+Note that `Option::as_ref`, `Result::as_ref` are great, do use them! The same
+applies to `Arc::as_ref` (and `Rc`/`Box`) when borrowing the inner value — see
+[Borrow `Arc` with `as_ref`](#borrow-arc-with-as_ref).
 
 **Rationale:** Readability and churn-resistance. There might be more than one
 `AsRef<U>` implementation for a given type (with different `U`s). If a new
@@ -299,6 +346,29 @@ indexing, however, developers and reviewers are not used to treating integer ari
 with the due suspicion. Having to make a choice, and explicitly spell out, how an overflow case
 ought to be handled will result in an easier to review and understand code and a more resilient
 project overall.
+
+### Message capitalization
+
+Don't capitalize string literal messages in `tracing` events, error messages,
+`Option::expect`, `panic!`, and similar. Omit trailing punctuation as well.
+
+```rust
+// GOOD
+tracing::info!("received block");
+return Err(anyhow::anyhow!("failed to open file"));
+let value = opt.expect("value must be set");
+panic!("unreachable branch");
+
+// BAD
+tracing::info!("Received block.");
+return Err(anyhow::anyhow!("Failed to open file"));
+let value = opt.expect("Value must be set!");
+panic!("Unreachable branch!");
+```
+
+**Rationale:** Consistency. Messages are often chained into larger contexts
+(log lines, error chains), where surrounding text already supplies a capital
+letter and punctuation.
 
 ## Standard Naming
 

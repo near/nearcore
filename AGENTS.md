@@ -2,9 +2,7 @@
 
 ## Rust
 
-- NEVER use fully qualified paths (e.g., `std::collections::HashMap::new()`). Always add a `use` declaration and reference the type directly. This applies to all Rust code — production, tests, and examples.
-- Don't capitalize string literal messages in logs, errors, `Option::expect`, `panic!`, etc.
-- To borrow from an `Arc<T>` / `Arc<dyn Trait>`, use `arc.as_ref()`, not `&*arc`. Both compile to the same thing; `as_ref()` is cleaner.
+- Follow the style guidelines in `docs/practices/style.md`.
 
 ## Pull Requests
 
