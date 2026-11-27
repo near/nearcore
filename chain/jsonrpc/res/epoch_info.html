@@ -23,6 +23,19 @@
             }
             return `${seconds}s`
         }
+        // Timestamps arrive as a 9 element array:
+        //     [year, ordinal_day, hour, minute, second, nanosecond, offset_h, offset_m, offset_s]
+        // The second element is the day of the year rather than a month, so `Date.parse` cannot
+        // read it and returns NaN. The trailing offset is always zero, because block timestamps
+        // are built with `Utc::from_unix_timestamp_nanos`, which is always UTC.
+        function parseOffsetDateTime(value) {
+            if (!Array.isArray(value) || value.length < 6) {
+                return NaN;
+            }
+            let [year, ordinal, hour, minute, second, nanosecond] = value;
+            return Date.UTC(year, 0, 1, hour, minute, second, Math.floor(nanosecond / 1000000))
+                + (ordinal - 1) * 24 * 3600 * 1000;
+        }
         function humanFileSize(bytes, si = false, dp = 1) {
             const thresh = si ? 1000 : 1024;
 
@@ -140,7 +153,7 @@
                         row.append($('<td>'));
                     } else {
                         row.append($('<td>').append(epoch.first_block[0]));
-                        row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
+                        row.append($('<td>').append(convertTime(Date.now() - parseOffsetDateTime(epoch.first_block[1])) + " ago"));
                     }
                     row.append($('<td>').append(epoch.block_producers.length));
                     row.append($('<td>').append(epoch.chunk_producers.length));
