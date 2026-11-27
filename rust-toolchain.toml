@@ -2,6 +2,7 @@
 # This specifies the version of Rust we use to build.
 # Individual crates in the workspace may support a lower version, as indicated by `rust-version` field in each crate's `Cargo.toml`.
 # The version specified below, should be at least as high as the maximum `rust-version` within the workspace.
+# When bumping it, also bump `SCCACHE_VERSION` in .github/workflows/{ci,benchmarks,nayduck_ci}.yml.
 channel = "1.100.0"
 components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
 targets = ["wasm32-unknown-unknown"]

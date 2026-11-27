@@ -7,7 +7,8 @@ on:
 
 env:
   # Pinned so that sccache-action does not look up the latest release through
-  # the GitHub API, a request it does not retry.
+  # the GitHub API, a request it does not retry. Bump it together with the Rust
+  # toolchain in rust-toolchain.toml, since both can invalidate the cache.
   SCCACHE_VERSION: v0.20.1
   # Start the sccache server without probing the GCS bucket. The probe must
   # finish within sccache's 10 s server startup timeout, otherwise the first
