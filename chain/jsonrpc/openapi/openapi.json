@@ -15157,7 +15157,7 @@
             "type": "array"
           },
           "state_requests_per_throttle_period": {
-            "description": "Maximum number of state requests served per throttle period",
+            "description": "Maximum number of state requests admitted per throttle period, per state request server\nthread. All the threads share one window, which admits this value times\n`state_request_server_threads` requests.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"

@@ -590,24 +590,14 @@ pub async fn start_with_config_and_synchronization_impl(
         config.validator_signer.clone(),
     );
 
-    // Use dedicated thread pool for StateRequestActor
-    let state_request_addr = {
-        let runtime = runtime.clone();
-        let epoch_manager = epoch_manager.clone();
-        actor_system.spawn_multithread_actor(
-            config.client_config.state_request_server_threads,
-            move || {
-                StateRequestActor::new(
-                    Clock::real(),
-                    runtime.clone(),
-                    epoch_manager.clone(),
-                    genesis_id.hash,
-                    config.client_config.state_request_throttle_period,
-                    config.client_config.state_requests_per_throttle_period,
-                )
-            },
-        )
-    };
+    let state_request_addr = StateRequestActor::spawn_multithread_actor(
+        Clock::real(),
+        actor_system.clone(),
+        runtime.clone(),
+        epoch_manager.clone(),
+        genesis_id.hash,
+        &config.client_config,
+    );
 
     let state_snapshot_sender = LateBoundSender::new();
     let state_snapshot_actor = StateSnapshotActor::new(

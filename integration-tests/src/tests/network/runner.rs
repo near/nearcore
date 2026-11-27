@@ -13,8 +13,8 @@ use near_client::adapter::client_sender_for_network;
 use near_client::client_actor::SpiceClientConfig;
 use near_client::{ChunkValidationActor, spawn_chunk_endorsement_handler_actor};
 use near_client::{
-    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
-    spawn_rpc_handler_actor, start_client,
+    PartialWitnessActor, RpcHandlerConfig, StartClientResult, StateRequestActor,
+    StateRequestThrottle, ViewClientActor, spawn_rpc_handler_actor, start_client,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -161,8 +161,7 @@ fn setup_network_node_with_tcp(
         runtime.clone(),
         epoch_manager.clone(),
         genesis_id.hash,
-        client_config.state_request_throttle_period,
-        client_config.state_requests_per_throttle_period,
+        StateRequestThrottle::from_config(Clock::real(), &client_config),
     ));
     let rpc_handler_config = RpcHandlerConfig {
         handler_threads: client_config.transaction_request_handler_threads,

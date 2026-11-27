@@ -214,6 +214,12 @@ acknowledgements over Tier 2, then connect back to the requester over Tier 3 to
 send the state headers and parts. State response payloads are accepted only on
 Tier 3 connections.
 
+A host admits up to `state_requests_per_throttle_period` (30 by default) times
+`state_request_server_threads` (4 by default) state requests per
+`state_request_throttle_period` (30 seconds by default). All the threads share
+one window. The host acknowledges the requests over the limit as busy and
+doesn't serve them.
+
 A node puts its own public address into the state requests it routes, so that
 hosts can connect back to it, and into its snapshot advertisements, described
 below. It is `network.experimental.tier3_public_addr` if configured. Otherwise
