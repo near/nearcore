@@ -12,6 +12,14 @@ on:
 
 env:
   CI_HACKS: 1
+  # Pinned so that sccache-action does not look up the latest release through
+  # the GitHub API, a request it does not retry.
+  SCCACHE_VERSION: v0.20.1
+  # Start the sccache server without probing the GCS bucket. The probe must
+  # finish within sccache's 10 s server startup timeout, otherwise the first
+  # rustc call fails, whereas cache errors during the build only fall back to
+  # compiling locally.
+  SCCACHE_SKIP_CACHE_CHECK: 1
 
 jobs:
   nayduck_tests:
@@ -130,6 +138,8 @@ jobs:
           service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
       - if: steps.gcp-auth.outcome == 'success'
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
       - if: steps.gcp-auth.outcome == 'success'
         run: |
           echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
