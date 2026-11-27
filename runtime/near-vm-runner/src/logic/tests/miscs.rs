@@ -10,7 +10,8 @@ use near_primitives_core::types::{AccountId, Gas};
 use near_primitives_core::universal_state_init::StateInitError;
 use serde::de::Error;
 use serde_json::from_slice;
-use std::{fmt::Display, fs};
+use std::fmt::Display;
+use std::fs;
 
 #[test]
 fn test_sha256() {

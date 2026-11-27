@@ -2,11 +2,10 @@ use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;
 use near_client::ViewClientActor;
-use near_primitives::{
-    types::BlockId,
-    views::{ExecutionOutcomeWithIdView, ExecutionStatusView},
-};
-use std::{collections::HashMap, str::FromStr};
+use near_primitives::types::BlockId;
+use near_primitives::views::{ExecutionOutcomeWithIdView, ExecutionStatusView};
+use std::collections::HashMap;
+use std::str::FromStr;
 pub(crate) fn collect_nep141_events(
     receipt_execution_outcomes: &Vec<ExecutionOutcomeWithIdView>,
     block_header: &near_primitives::views::BlockHeaderView,

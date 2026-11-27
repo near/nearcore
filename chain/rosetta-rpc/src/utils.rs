@@ -1,8 +1,6 @@
-use crate::{
-    errors,
-    models::{self, AccountBalanceResponseMetadata},
-    types::AccountId,
-};
+use crate::errors;
+use crate::models::{self, AccountBalanceResponseMetadata};
+use crate::types::AccountId;
 use futures::StreamExt;
 use near_async::messaging::CanSendAsync;
 use near_async::multithread::MultithreadRuntimeHandle;

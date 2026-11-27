@@ -7,12 +7,10 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction};
-use near_primitives::errors::FunctionCallError;
-use near_primitives::errors::{ActionErrorKind, TxExecutionError};
+use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
-use near_primitives::types::Gas;
+use near_primitives::types::{AccountId, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
 

@@ -85,9 +85,17 @@ check-nearcore-no-default-features:
     RUSTFLAGS="-D warnings" \
     cargo check -p nearcore --no-default-features
 
+# `imports_granularity` is unstable, so stable rustfmt ignores it in
+# rustfmt.toml. Stable rustfmt accepts it on the command line.
+rustfmt_flags := "--config imports_granularity=Module"
+
+# format rust code
+fmt:
+    cargo fmt -- {{rustfmt_flags}}
+
 # check rust formatting
 check-cargo-fmt:
-    cargo fmt -- --check
+    cargo fmt -- --check {{rustfmt_flags}}
 
 # check that use imports form a single block without blank line separators
 check-import-blocks:

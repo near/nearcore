@@ -192,7 +192,8 @@ impl Database for SplitDB {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::db::{ColdDB, DBOp, DBTransaction, testdb::TestDB};
+    use crate::db::testdb::TestDB;
+    use crate::db::{ColdDB, DBOp, DBTransaction};
     use itertools::Itertools;
 
     const FOO: &[u8] = b"FOO";

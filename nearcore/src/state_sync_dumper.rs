@@ -9,10 +9,9 @@ use near_chain::state_snapshot_actor::snapshot_hash_for_sync_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
-use near_client::sync::external::{StateFileType, external_storage_location};
 use near_client::sync::external::{
-    StateSyncConnection, external_storage_location_directory, get_part_idx_from_filename,
-    is_part_filename,
+    StateFileType, StateSyncConnection, external_storage_location,
+    external_storage_location_directory, get_part_idx_from_filename, is_part_filename,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -29,8 +28,7 @@ use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use tokio::sync::Semaphore;
-use tokio::sync::oneshot;
+use tokio::sync::{Semaphore, oneshot};
 
 // TODO: could refactor this further and just have one "Dumper" struct here
 pub struct StateSyncDumper {

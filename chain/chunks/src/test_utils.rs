@@ -24,8 +24,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::MerkleHash;
-use near_primitives::types::{AccountId, Balance, EpochId, Gas};
+use near_primitives::types::{AccountId, Balance, EpochId, Gas, MerkleHash};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;

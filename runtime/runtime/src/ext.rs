@@ -21,12 +21,11 @@ use near_store::{
     has_promise_yield_receipt, has_promise_yield_status, has_yield_id_mapping,
     set_promise_yield_status, set_yield_id_mapping,
 };
-use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::errors::{AnyError, InconsistentStateError, VMLogicError};
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier, ReceiptIndex,
 };
-use near_vm_runner::logic::{External, StorageAccessTracker, ValuePtr};
+use near_vm_runner::logic::{External, HostError, StorageAccessTracker, ValuePtr};
 use near_vm_runner::{Contract, ContractCode};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;

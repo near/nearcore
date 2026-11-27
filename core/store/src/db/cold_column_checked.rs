@@ -117,11 +117,10 @@ impl Database for ColumnCheckedColdDB {
 #[cfg(test)]
 mod tests {
     use super::ColumnCheckedColdDB;
-    use crate::DBCol;
-    use crate::Store;
     use crate::db::metadata::{DB_VERSION, DbKind};
     use crate::db::{DBTransaction, Database, TestDB};
     use crate::test_utils::create_test_node_storage_with_cold;
+    use crate::{DBCol, Store};
     use std::sync::Arc;
 
     fn cold_store_and_db() -> (Store, Arc<TestDB>) {

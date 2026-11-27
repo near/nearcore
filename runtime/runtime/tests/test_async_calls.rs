@@ -1,11 +1,9 @@
 use crate::runtime_group_tools::RuntimeGroup;
 use near_crypto::InMemorySigner;
-use near_primitives::account::GasKeyInfo;
-use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{AccessKeyPermission, FunctionCallPermission, GasKeyInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::types::AccountId;
-use near_primitives::types::{Balance, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
 
 pub mod runtime_group_tools;
 

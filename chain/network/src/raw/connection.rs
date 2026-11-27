@@ -15,11 +15,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
-use std::fmt;
-use std::io;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::{fmt, io};
 use time::ext::InstantExt as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

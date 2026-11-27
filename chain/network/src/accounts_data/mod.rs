@@ -24,14 +24,13 @@
 //!       discarding the progress
 //!     - banning a peer wouldn't help since peers are anonymous, so a single attacker can act as a
 //!       lot of peers
-use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::config::NetworkTransitionConfig;
-use crate::network_protocol;
 use crate::network_protocol::{
     AccountData, SignedAccountData, VersionedAccountData, to_unix_nanos,
 };
 use crate::types::AccountKeys;
+use crate::{concurrency, network_protocol};
 use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::validator_signer::ValidatorSigner;

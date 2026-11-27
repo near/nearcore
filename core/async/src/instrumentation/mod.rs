@@ -1,4 +1,5 @@
-use crate::instrumentation::{data::ALL_ACTOR_INSTRUMENTATIONS, reader::InstrumentedThreadsView};
+use crate::instrumentation::data::ALL_ACTOR_INSTRUMENTATIONS;
+use crate::instrumentation::reader::InstrumentedThreadsView;
 use near_time::Clock;
 
 pub(crate) mod data;
@@ -15,8 +16,7 @@ mod tests;
 pub(crate) mod writer;
 
 pub use data::InstrumentedThread;
-pub use writer::InstrumentedThreadWriter;
-pub use writer::InstrumentedThreadWriterSharedPart;
+pub use writer::{InstrumentedThreadWriter, InstrumentedThreadWriterSharedPart};
 
 /// Window size. Windows are aligned to whole multiples of this size since UNIX epoch,
 /// regardless of when the actor thread started.

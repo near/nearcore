@@ -1,12 +1,10 @@
 use super::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use crate::network_protocol::Arc;
-use near_crypto::SecretKey;
-use near_crypto::Signature;
+use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePartIndex;
-use near_primitives::types::EpochHeight;
-use near_primitives::types::ShardId;
+use near_primitives::types::{EpochHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::net::SocketAddr;
 // TODO(saketh): Consider moving other types related to state sync into this file

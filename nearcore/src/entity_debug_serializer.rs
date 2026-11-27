@@ -13,13 +13,11 @@
 use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataEntry, EntityDataStruct, EntityDataValue,
 };
-use serde::{
-    Serialize, Serializer,
-    ser::{
-        SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
-        SerializeTupleStruct, SerializeTupleVariant,
-    },
+use serde::ser::{
+    SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
+    SerializeTupleStruct, SerializeTupleVariant,
 };
+use serde::{Serialize, Serializer};
 
 /// Root data for serialization output.
 struct EntitySerializerData {

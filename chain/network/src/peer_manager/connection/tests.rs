@@ -1,10 +1,9 @@
 use crate::network_protocol::testonly as data;
 use crate::peer::peer_actor::ClosingReason;
-use crate::peer_manager;
 use crate::peer_manager::connection;
 use crate::private_messages::RegisterPeerError;
-use crate::tcp;
 use crate::testonly::make_rng;
+use crate::{peer_manager, tcp};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;

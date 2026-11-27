@@ -3,8 +3,7 @@ use crate::config::{
     DEFAULT_ROUTING_GRAPH_MAX_EDGES, DEFAULT_ROUTING_GRAPH_MAX_EDGES_PER_SOURCE,
     DEFAULT_ROUTING_GRAPH_MAX_PEERS,
 };
-use crate::network_protocol::Edge;
-use crate::network_protocol::testonly as data;
+use crate::network_protocol::{Edge, testonly as data};
 use crate::peer_manager::network_state::EdgesWithSource;
 use crate::testonly::make_rng;
 use near_async::time;

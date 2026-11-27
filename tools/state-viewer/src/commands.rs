@@ -1,18 +1,14 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::cli::{ApplyRangeMode, EpochAnalysisMode, StorageSource};
-use crate::contract_accounts::ContractAccount;
-use crate::contract_accounts::ContractAccountFilter;
-use crate::contract_accounts::Summary;
+use crate::contract_accounts::{ContractAccount, ContractAccountFilter, Summary};
 use crate::epoch_info::iterate_and_filter;
-use crate::state_dump::state_dump;
-use crate::state_dump::state_dump_redis;
+use crate::state_dump::{state_dump, state_dump_redis};
 use crate::tx_dump::dump_tx_from_block;
 use crate::util::{LoadTrieMode, check_apply_block_result, load_trie, load_trie_stop_at_height};
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
 use bytesize::ByteSize;
-use itertools::ChunkBy;
-use itertools::Itertools;
+use itertools::{ChunkBy, Itertools};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
@@ -34,8 +30,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_record::StateRecord;
-use near_primitives::state_record::state_record_to_account_id;
+use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
@@ -44,18 +39,16 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_runtime::SignedValidPeriodTransactions;
 use near_runtime::adapter::ViewRuntimeAdapter;
-use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::TrieStoreAdapter;
-use near_store::flat::FlatStorageChunkView;
-use near_store::flat::FlatStorageManager;
+use near_store::flat::{FlatStorageChunkView, FlatStorageManager};
 use near_store::trie::AccessOptions;
-use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
-use nearcore::NightshadeRuntimeExt;
-use nearcore::{NearConfig, NightshadeRuntime};
+use near_store::{
+    DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage, TrieStorage,
+};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use serde_json::json;
-use std::collections::HashMap;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};

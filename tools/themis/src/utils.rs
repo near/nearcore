@@ -1,6 +1,8 @@
 use super::types::{Manifest, Package, Workspace};
-use cargo_metadata::{CargoOpt, MetadataCommand, camino::Utf8PathBuf};
-use std::{fs, io, rc::Rc};
+use cargo_metadata::camino::Utf8PathBuf;
+use cargo_metadata::{CargoOpt, MetadataCommand};
+use std::rc::Rc;
+use std::{fs, io};
 
 pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<Option<toml::Value>> {
     match fs::read(path) {

@@ -1,8 +1,7 @@
 use crate::setup::builder::TestLoopBuilder;
 use near_chain::{Block, Error, Provenance};
 use near_chain_configs::test_genesis::ValidatorsSpec;
-use near_crypto::InMemorySigner;
-use near_crypto::KeyType;
+use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;

@@ -35,9 +35,8 @@ impl PoolItem for ValidatedEcc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::InsertTransactionResult;
     use crate::grouped_pool::{GroupedPool, GroupedPoolIterator, PoolMetrics};
-    use crate::metrics;
+    use crate::{InsertTransactionResult, metrics};
     use near_primitives::epoch_info::RngSeed;
 
     const TEST_SEED: RngSeed = [3; 32];

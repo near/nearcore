@@ -1,10 +1,9 @@
 use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{self, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::Error;
-use near_chain::PendingShardJobs;
 use near_chain::chain::{BlockCatchUpRequest, BlockCatchUpResponse};
 use near_chain::update_shard::ShardUpdateResult;
+use near_chain::{Error, PendingShardJobs};
 use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt};
 use near_primitives::optimistic_block::CachedShardUpdateKey;
 use near_primitives::types::ShardId;

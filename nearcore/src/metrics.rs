@@ -9,13 +9,14 @@ use near_o11y::metrics::{
     try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
     try_create_int_gauge_vec,
 };
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key;
 use near_primitives::types::ShardId;
-use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::{ShardUId, Store, Trie, TrieDBStorage};
-use std::sync::Arc;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 pub(crate) static POSTPONED_RECEIPTS_COUNT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec(
@@ -215,9 +216,7 @@ pub fn spawn_trie_metrics_loop(
 mod tests {
     use super::*;
     use near_primitives::trie_key::col;
-    use near_store::test_utils::TestTriesBuilder;
-    use near_store::test_utils::simplify_changes;
-    use near_store::test_utils::test_populate_trie;
+    use near_store::test_utils::{TestTriesBuilder, simplify_changes, test_populate_trie};
 
     fn create_item(key: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         (key.to_vec(), Some(vec![]))

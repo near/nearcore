@@ -68,11 +68,11 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::PromiseYieldStatus;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas, Nonce,
-    NonceIndex, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, VmGeneration,
-    validator_stake::ValidatorStake,
+    NonceIndex, PromiseYieldStatus, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
+    StateRoot, VmGeneration,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
@@ -92,13 +92,10 @@ use near_store::{
     set_access_key, set_access_key_by_handle, set_account, set_gas_key_nonce,
     set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
-use near_vm_runner::CompilePriority;
-use near_vm_runner::ContractCode;
-use near_vm_runner::ContractRuntimeCache;
-use near_vm_runner::ProfileDataV3;
 use near_vm_runner::logic::ReturnData;
 use near_vm_runner::logic::types::PromiseResult;
 pub use near_vm_runner::with_ext_cost_counter;
+use near_vm_runner::{CompilePriority, ContractCode, ContractRuntimeCache, ProfileDataV3};
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use receipt_runtime_configs::ReceiptRuntimeConfigs;
@@ -3835,12 +3832,9 @@ fn schedule_contract_preparation<R: MaybeRefReceipt>(
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
-    use crate::ApplyState;
-    use crate::BandwidthSchedulerOutput;
-    use crate::congestion_control::ReceiptSinkV2;
-    use crate::congestion_control::ReceiptSinkV2Info;
-    use crate::congestion_control::ReceiptSinkV2WithInfo;
+    use crate::congestion_control::{ReceiptSinkV2, ReceiptSinkV2Info, ReceiptSinkV2WithInfo};
     use crate::pipelining::ReceiptPreparationPipeline;
+    use crate::{ApplyState, BandwidthSchedulerOutput};
     use near_primitives::bandwidth_scheduler::BandwidthSchedulerParams;
     use near_primitives::chunk_apply_stats::{ChunkApplyStatsV1, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
@@ -3853,9 +3847,7 @@ pub mod estimator {
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};
     use near_vm_runner::CompilePriority;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, HashSet, VecDeque};
     use std::num::NonZeroU64;
     use std::sync::Arc;
 

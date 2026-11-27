@@ -1,4 +1,5 @@
-use crate::types::{ValidatorId, validator_stake::ValidatorStake};
+use crate::types::ValidatorId;
+use crate::types::validator_stake::ValidatorStake;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::Balance;
 use near_schema_checker_lib::ProtocolSchema;
@@ -122,7 +123,8 @@ impl ValidatorMandates {
 mod validator_mandates_sample {
     use super::*;
     use itertools::Itertools;
-    use rand::{Rng, seq::SliceRandom};
+    use rand::Rng;
+    use rand::seq::SliceRandom;
 
     impl ValidatorMandates {
         /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
@@ -282,10 +284,9 @@ impl ShuffledShardIds {
 #[cfg(test)]
 mod tests {
     use super::{ChunkValidatorStakeAssignment, ShuffledShardIds, ValidatorMandates};
-    use crate::{
-        types::ValidatorId, types::validator_stake::ValidatorStake,
-        validator_mandates::ValidatorMandatesConfig,
-    };
+    use crate::types::ValidatorId;
+    use crate::types::validator_stake::ValidatorStake;
+    use crate::validator_mandates::ValidatorMandatesConfig;
     use near_crypto::PublicKey;
     use near_primitives_core::types::Balance;
     use rand::SeedableRng;

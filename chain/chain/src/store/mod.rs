@@ -2087,8 +2087,7 @@ mod tests {
     use crate::test_utils::get_chain;
     use near_async::time::Clock;
     use near_primitives::errors::InvalidTxError;
-    use near_primitives::test_utils::TestBlockBuilder;
-    use near_primitives::test_utils::create_test_signer;
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
     use near_primitives::types::BlockHeightDelta;
     use std::sync::Arc;
 

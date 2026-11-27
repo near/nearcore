@@ -4,8 +4,7 @@
 
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::chunk_producer::AdvProduceChunksMode;
-use crate::chunk_producer::ChunkProducer;
+use crate::chunk_producer::{AdvProduceChunksMode, ChunkProducer};
 use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::pending_transaction_queue::ShardedPendingTransactionQueue;
@@ -23,10 +22,8 @@ use crate::sync::state::{StateSync, StateSyncShardResult};
 use crate::verified_peer_heights::VerifiedPeerHeights;
 use crate::{ProduceChunkResult, metrics};
 use itertools::Itertools;
-use near_async::futures::RayonAsyncComputationSpawner;
-use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
-use near_async::messaging::IntoAsyncSender;
-use near_async::messaging::{CanSend, Sender};
+use near_async::futures::{AsyncComputationSpawner, FutureSpawner, RayonAsyncComputationSpawner};
+use near_async::messaging::{CanSend, IntoAsyncSender, Sender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::{
     BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState, VerifyBlockHashAndSignatureResult,
@@ -52,8 +49,10 @@ use near_client_primitives::types::{BlockNotificationMessage, Error, StateSyncSt
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_network::types::{NetworkRequests, PeerManagerAdapter, ReasonForBan};
+use near_network::types::{
+    AccountKeys, ChainInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    ReasonForBan, SetChainInfo,
+};
 use near_primitives::block::{
     Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, SpiceNewBlockProductionInfo, Tip,
 };

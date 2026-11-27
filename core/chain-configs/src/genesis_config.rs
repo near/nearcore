@@ -16,18 +16,16 @@ use near_parameters::view::Rational32SchemarsProvider;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardLayoutConfig};
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::StateRoot;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::{
-    hash::CryptoHash,
-    state_record::StateRecord,
-    types::{
-        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    },
-    version::ProtocolVersion,
-    views::CongestionInfoView,
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    StateRoot,
 };
+use near_primitives::version::ProtocolVersion;
+use near_primitives::views::CongestionInfoView;
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};

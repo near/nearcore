@@ -1,7 +1,8 @@
 use super::{FlatStorageManager, FlatStorageStatus};
 use crate::metrics::{flat_state_metrics, resharding};
 use near_o11y::metrics::IntGauge;
-use near_primitives::{shard_layout::ShardUId, types::BlockHeight};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::BlockHeight;
 
 pub(crate) struct FlatStorageMetrics {
     flat_head_height: IntGauge,

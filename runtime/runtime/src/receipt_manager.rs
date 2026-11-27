@@ -13,11 +13,10 @@ use near_primitives::universal_state_init::RawStateInit;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce, NonceIndex};
-use near_vm_runner::logic::HostError;
-use near_vm_runner::logic::VMLogicError;
 use near_vm_runner::logic::types::{
     ActionIndex, GlobalContractDeployMode, GlobalContractIdentifier,
 };
+use near_vm_runner::logic::{HostError, VMLogicError};
 use std::collections::{BTreeMap, HashMap};
 
 /// near_vm_runner::types is not public.

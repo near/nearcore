@@ -1,32 +1,28 @@
 use crate::runtime::ExternalCallCache;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::{Duration, Utc};
-use near_chain_configs::GenesisConfig;
-use near_chain_configs::MutableConfigValue;
-use near_chain_configs::ProtocolConfig;
-use near_chain_configs::ProtocolVersionCheckConfig;
-use near_chain_configs::ReshardingConfig;
-use near_chain_configs::default_produce_chunk_add_transactions_time_limit;
+use near_chain_configs::{
+    GenesisConfig, MutableConfigValue, ProtocolConfig, ProtocolVersionCheckConfig,
+    ReshardingConfig, default_produce_chunk_add_transactions_time_limit,
+};
 use near_chain_primitives::Error;
 pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStatsV1;
-use near_primitives::congestion_info::BlockCongestionInfo;
-use near_primitives::congestion_info::CongestionInfo;
-use near_primitives::congestion_info::ExtendedCongestionInfo;
+use near_primitives::congestion_info::{
+    BlockCongestionInfo, CongestionInfo, ExtendedCongestionInfo,
+};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::optimistic_block::OptimisticBlockKeySource;
 use near_primitives::receipt::{ProcessedReceipt, PromiseYieldTimeout, Receipt, ReceiptToTxInfo};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::{StatePart, StatePartId};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{
@@ -41,19 +37,19 @@ use near_primitives::types::{
     NumShards, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::utils::to_timestamp;
-use near_primitives::version::PROD_GENESIS_PROTOCOL_VERSION;
-use near_primitives::version::{MIN_GAS_PRICE_NEP_92_FIX, ProtocolVersion};
+use near_primitives::version::{
+    MIN_GAS_PRICE_NEP_92_FIX, PROD_GENESIS_PROTOCOL_VERSION, ProtocolVersion,
+};
 use near_primitives::views::{QueryRequest, QueryResponse};
 pub use near_runtime::PendingConstraints;
-use near_runtime::{ExternalCallInclusion, SignedValidPeriodTransactions};
-use near_runtime::{PostStateNodes, PostStateReadyCallback};
+use near_runtime::{
+    ExternalCallInclusion, PostStateNodes, PostStateReadyCallback, SignedValidPeriodTransactions,
+};
 use near_schema_checker_lib::ProtocolSchema;
-use near_store::TrieUpdate;
 use near_store::flat::FlatStorageManager;
 pub use near_store::trie::mem::memtries::MaybePinnedMemtrieRoot;
-use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
-use near_vm_runner::ContractCode;
-use near_vm_runner::ContractRuntimeCache;
+use near_store::{PartialStorage, ShardTries, Store, Trie, TrieUpdate, WrappedTrieChanges};
+use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use num_rational::Rational32;
 use std::cmp::{max, min};
 use std::collections::HashSet;

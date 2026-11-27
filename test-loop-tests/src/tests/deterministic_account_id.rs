@@ -46,14 +46,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::Gas;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::utils::derive_near_deterministic_account_id;
 use near_primitives::version::{MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion};
 use near_primitives::views::{
-    AccountView, ExecutionStatusView, QueryRequest, QueryResponseKind, StateInitView,
+    AccountView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    QueryRequest, QueryResponseKind, StateInitView,
 };
-use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_vm_runner::ContractCode;
 use std::collections::BTreeMap;
 

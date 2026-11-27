@@ -1,7 +1,7 @@
 use crate::metrics;
-use crate::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
-use crate::spice::chunk_executor_actor::get_contract_accesses;
-use crate::spice::chunk_executor_actor::get_witness;
+use crate::spice::chunk_executor_actor::{
+    ExecutorIncomingUnverifiedReceipts, get_contract_accesses, get_witness,
+};
 use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
@@ -12,14 +12,10 @@ use crate::spice::data_manager::{
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest, NeedChange};
 use lru::LruCache;
-use near_async::MultiSend;
-use near_async::MultiSenderFrom;
 use near_async::futures::DelayedActionRunner;
-use near_async::messaging::CanSend;
-use near_async::messaging::Handler;
-use near_async::messaging::IntoSender;
-use near_async::messaging::Sender;
+use near_async::messaging::{CanSend, Handler, IntoSender, Sender};
 use near_async::time::Clock;
+use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::Block;
 use near_chain::spice::activation::{
     SpiceMessageGate, SpiceMessageKind, is_spice_or_last_pre_spice_block,
@@ -36,30 +32,26 @@ use near_chain_configs::MutableValidatorSigner;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_network::spice::data_distribution::SpiceChunkContractAccessesMessage;
-use near_network::spice::data_distribution::SpiceContractCodeRequestMessage;
-use near_network::spice::data_distribution::SpiceContractCodeResponseMessage;
-use near_network::spice::data_distribution::SpiceIncomingPartialData;
-use near_network::spice::data_distribution::{SpiceDataRequest, SpiceDataRequestMessage};
+use near_network::spice::data_distribution::{
+    SpiceChunkContractAccessesMessage, SpiceContractCodeRequestMessage,
+    SpiceContractCodeResponseMessage, SpiceDataRequest, SpiceDataRequestMessage,
+    SpiceIncomingPartialData,
+};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_o11y::span_wrapped_msg::SpanWrapped;
-use near_o11y::span_wrapped_msg::SpanWrappedMessageExt as _;
+use near_o11y::span_wrapped_msg::{SpanWrapped, SpanWrappedMessageExt as _};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::ReedSolomonEncoderCache;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
-use near_primitives::spice::partial_data::SpiceDataIdentifier;
-use near_primitives::spice::partial_data::SpicePartialData;
+use near_primitives::spice::partial_data::{SpiceDataIdentifier, SpicePartialData};
 use near_primitives::spice::state_witness::SpiceChunkStateWitness;
 use near_primitives::stateless_validation::contract_distribution::{
     BoundedContractCodes, CodeBytes, CodeHash, MAX_CONTRACTS_PER_REQUEST,
     SpiceChunkContractAccesses, SpiceContractCodeRequest, SpiceContractCodeResponse,
     has_repeated_contracts, split_contracts_for_response,
 };
-use near_primitives::types::AccountId;
-use near_primitives::types::ShardId;
-use near_primitives::types::SpiceChunkId;
+use near_primitives::types::{AccountId, ShardId, SpiceChunkId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::StorageError::MissingTrieValue;
 use near_store::adapter::StoreAdapter;

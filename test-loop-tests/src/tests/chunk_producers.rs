@@ -353,9 +353,8 @@ mod hot_gc_tests {
     use near_o11y::testonly::init_test_logger;
     use near_primitives::epoch_manager::EpochConfigStore;
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::AccountId;
-    use near_primitives::types::ShardId;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{AccountId, ShardId};
     use near_primitives::utils::get_block_shard_id;
     use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::DBCol;

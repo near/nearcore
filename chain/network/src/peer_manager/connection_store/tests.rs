@@ -1,9 +1,7 @@
 use crate::network_protocol::testonly::make_peer_info;
-use crate::peer_manager::connection_store::ConnectionStore;
-use crate::peer_manager::connection_store::OUTBOUND_CONNECTIONS_CACHE_SIZE;
+use crate::peer_manager::connection_store::{ConnectionStore, OUTBOUND_CONNECTIONS_CACHE_SIZE};
 use crate::store;
-use crate::testonly::AsSet;
-use crate::testonly::make_rng;
+use crate::testonly::{AsSet, make_rng};
 use crate::types::ConnectionInfo;
 use near_async::time;
 use rand::Rng;

@@ -12,9 +12,8 @@ use near_primitives::receipt::{ReceiptEnum, ReceiptToTxInfo, VersionedReceiptEnu
 use near_primitives::trie_key::{TrieKey, col, trie_key_parsers};
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::FinalExecutionStatus;
-use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
-use near_store::{ShardUId, Trie, TrieDBStorage};
+use near_store::{DBCol, ShardUId, Trie, TrieDBStorage};
 use std::str::FromStr;
 use std::sync::Arc;
 

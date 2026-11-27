@@ -20,8 +20,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state::FlatStateValue;
-use near_primitives::state::{PartialState, TrieValue};
+use near_primitives::state::{FlatStateValue, PartialState, TrieValue};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{

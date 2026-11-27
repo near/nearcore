@@ -3,8 +3,7 @@ use async_trait::async_trait;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::QueryError as RuntimeQueryError;
-use near_client::ViewClientActor;
-use near_client::{ProcessTxRequest, ProcessTxResponse, RpcHandlerActor};
+use near_client::{ProcessTxRequest, ProcessTxResponse, RpcHandlerActor, ViewClientActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcomeError, GetReceiptError, Query,
     QueryError, Status,

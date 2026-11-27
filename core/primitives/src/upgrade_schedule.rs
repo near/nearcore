@@ -1,6 +1,7 @@
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use near_primitives_core::types::ProtocolVersion;
-use std::{env, ops::RangeInclusive};
+use std::env;
+use std::ops::RangeInclusive;
 
 const NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE: &str = "NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE";
 const PROTOCOL_UPGRADE_OVERRIDE_NOW: &str = "now";

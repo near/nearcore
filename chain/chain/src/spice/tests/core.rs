@@ -26,12 +26,11 @@ use near_primitives::errors::InvalidSpiceCoreStatementsError;
 use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{PartialMerkleTree, merklize};
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::spice::chunk_endorsement::testonly_create_endorsement_core_statement;
 use near_primitives::spice::chunk_endorsement::{
     SpiceChunkEndorsement, SpiceEndorsementSignedData, SpiceVerifiedEndorsement,
+    testonly_create_endorsement_core_statement,
 };
 use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
 use near_primitives::types::chunk_extra::ChunkExtra;

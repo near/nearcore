@@ -27,8 +27,10 @@ use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
-use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
+use near_store::{
+    ShardTries, ShardUId, StateSnapshotConfig, TrieCache, TrieCachingStorage, TrieConfig,
+    TrieUpdate,
+};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use std::collections::{HashMap, HashSet, VecDeque};

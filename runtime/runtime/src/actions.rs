@@ -943,15 +943,11 @@ mod tests {
     use near_primitives::congestion_info::BlockCongestionInfo;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::receipt::ActionReceipt;
-    use near_primitives::transaction::CreateAccountAction;
-    use near_primitives::transaction::TransferAction;
-    use near_primitives::types::EpochId;
-    use near_primitives::types::Gas;
-    use near_primitives::types::Nonce;
+    use near_primitives::transaction::{CreateAccountAction, TransferAction};
+    use near_primitives::types::{EpochId, Gas, Nonce};
     use near_primitives::universal_account_id::encode_universal_account_id;
     use near_primitives::universal_state_init::RawStateInit;
-    use near_primitives::version::PROTOCOL_VERSION;
-    use near_primitives::version::ProtocolFeature;
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 

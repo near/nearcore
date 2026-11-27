@@ -1,8 +1,6 @@
+use crate::action::GlobalContractIdentifier;
+use crate::hash::{CryptoHash, YieldId};
 use crate::types::AccountId;
-use crate::{
-    action::GlobalContractIdentifier,
-    hash::{CryptoHash, YieldId},
-};
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(test)]
 use near_crypto::PublicKey;

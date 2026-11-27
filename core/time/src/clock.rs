@@ -3,8 +3,7 @@ use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::pin::pin;
-use std::sync::Arc;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::task::Poll;
 use time::ext::InstantExt;
 

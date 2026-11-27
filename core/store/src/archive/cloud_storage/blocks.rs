@@ -1,7 +1,6 @@
-use crate::DBCol;
-use crate::Store;
 use crate::adapter::StoreAdapter;
 use crate::archive::cloud_storage::batch::BatchRange;
+use crate::{DBCol, Store};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;

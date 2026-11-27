@@ -31,8 +31,9 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::spice::chunk_endorsement::testonly_create_chunk_endorsement;
-use near_primitives::spice::chunk_endorsement::{SpiceChunkEndorsement, SpiceVerifiedEndorsement};
+use near_primitives::spice::chunk_endorsement::{
+    SpiceChunkEndorsement, SpiceVerifiedEndorsement, testonly_create_chunk_endorsement,
+};
 use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };

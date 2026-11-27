@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
-use integration_tests::user::{User, rpc_user::RpcUser};
+use integration_tests::user::User;
+use integration_tests::user::rpc_user::RpcUser;
 
 const DEFAULT_WAIT_PERIOD_SEC: &str = "60";
 const DEFAULT_RPC_URL: &str = "http://localhost:3030";

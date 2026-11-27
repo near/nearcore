@@ -91,8 +91,7 @@ use ::time::ext::InstantExt as _;
 use near_async::ActorSystem;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext, Sender};
-use near_async::time::Duration;
-use near_async::time::{self, Clock};
+use near_async::time::{self, Clock, Duration};
 use near_async::tokio::TokioRuntimeHandle;
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
@@ -108,10 +107,9 @@ pub use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg,
+    AccountIdOrPeerTrackingShard, NetworkRequests, PartialEncodedChunkForwardMsg,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerManagerMessageRequest,
 };
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::span_wrapped_msg::SpanWrappedMessageExt;
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
@@ -2562,8 +2560,7 @@ mod test {
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
-    use near_chain_configs::MutableConfigValue;
-    use near_chain_configs::default_chunks_cache_height_horizon;
+    use near_chain_configs::{MutableConfigValue, default_chunks_cache_height_horizon};
     use near_network::types::NetworkRequests;
     use near_primitives::borsh::{self, BorshDeserialize};
     use near_primitives::hash::CryptoHash;

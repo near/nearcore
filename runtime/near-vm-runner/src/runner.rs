@@ -1,8 +1,7 @@
-use crate::CompilePriority;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::{External, PreparedContractGasCounter, VMContext, VMOutcome};
-use crate::{ContractCode, ContractRuntimeCache};
+use crate::{CompilePriority, ContractCode, ContractRuntimeCache};
 use near_parameters::RuntimeFeesConfig;
 use near_parameters::vm::{Config, VMKind};
 use near_primitives_core::hash::CryptoHash;

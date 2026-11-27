@@ -1,8 +1,6 @@
 /// Conversion functions for the messages representing network primitives.
 use super::*;
-use crate::network_protocol::PeerAddr;
-use crate::network_protocol::proto;
-use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerAddr, PeerInfo, proto};
 use borsh::BorshDeserialize as _;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};

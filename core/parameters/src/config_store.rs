@@ -202,7 +202,8 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cost::ActionCosts, parameter_table::FeeComponent};
+    use crate::cost::ActionCosts;
+    use crate::parameter_table::FeeComponent;
     use near_primitives_core::types::Gas;
     use near_primitives_core::version::{MIN_SUPPORTED_PROTOCOL_VERSION, ProtocolFeature};
     use num_rational::Rational32;

@@ -1,11 +1,11 @@
+use crate::block_header::BlockHeader;
 use crate::epoch_block_info::BlockInfo;
 use crate::epoch_info::EpochInfo;
 use crate::hash::CryptoHash;
-use crate::merkle::PartialMerkleTree;
+use crate::merkle::{MerklePathItem, PartialMerkleTree};
 use crate::types::validator_stake::ValidatorStake;
 use crate::utils::compression::CompressedData;
 use crate::version::BLOCK_HEADER_V3_PROTOCOL_VERSION;
-use crate::{block_header::BlockHeader, merkle::MerklePathItem};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::Signature;

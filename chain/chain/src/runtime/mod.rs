@@ -77,9 +77,9 @@ use near_store::{
     TrieAccess, TrieConfig, TrieUpdate, WrappedTrieChanges, get_access_key, get_account,
     get_gas_key_nonce,
 };
-use near_vm_runner::ContractCode;
 use near_vm_runner::{
-    CompilePriority, ContractRuntimeCache, compiler_daemon, precompile_contract_with_priority,
+    CompilePriority, ContractCode, ContractRuntimeCache, compiler_daemon,
+    precompile_contract_with_priority,
 };
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;

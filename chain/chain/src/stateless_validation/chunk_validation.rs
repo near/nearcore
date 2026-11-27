@@ -16,8 +16,7 @@ use crate::validate::{
 };
 use crate::{Chain, ChainStore, ChainStoreAccess};
 use lru::LruCache;
-use near_async::futures::AsyncComputationSpawnerExt;
-use near_async::futures::RayonAsyncComputationSpawner;
+use near_async::futures::{AsyncComputationSpawnerExt, RayonAsyncComputationSpawner};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;

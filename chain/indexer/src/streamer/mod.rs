@@ -1,5 +1,4 @@
-use crate::INDEXER;
-use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+use crate::{AwaitForNodeSyncedEnum, INDEXER, IndexerConfig};
 pub use fetchers::IndexerClientFetcher;
 use near_async::time::{Clock, Duration};
 pub use near_client::indexer::IndexerViewClientFetcher;

@@ -505,8 +505,7 @@ mod tests {
         ExecutionOutcomeWithProof, ExecutionStatus, TransferAction,
     };
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::Gas;
-    use near_primitives::types::{AccountId, Balance};
+    use near_primitives::types::{AccountId, Balance, Gas};
     use near_store::test_utils::{
         TestTriesBuilder, create_test_store, test_populate_store, test_populate_store_rc,
         test_populate_trie,

@@ -1,6 +1,7 @@
+use crate::REAL_CONTRACTS_SAMPLE;
 use crate::config::GasMetric;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
-use crate::{REAL_CONTRACTS_SAMPLE, utils::read_resource};
+use crate::utils::read_resource;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::types::{Balance, Gas};

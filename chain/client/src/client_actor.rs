@@ -6,8 +6,7 @@
 //! <https://github.com/near/nearcore/issues/7899>
 
 pub use crate::chunk_producer::AdvProduceChunksMode;
-use crate::client::AdvProduceBlocksMode;
-use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
+use crate::client::{AdvProduceBlocksMode, CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{InfoHelper, display_sync_status};
@@ -31,12 +30,9 @@ use near_async::messaging::{
     self, CanSend, Handler, IntoMultiSender, IntoSender as _, LateBoundSender, Sender,
 };
 use near_async::multithread::MultithreadRuntimeHandle;
-use near_async::time::Duration;
-use near_async::time::{Clock, Utc};
+use near_async::time::{Clock, Duration, Utc};
 use near_async::tokio::TokioRuntimeHandle;
 use near_async::{ActorSystem, MultiSend, MultiSenderFrom};
-use near_chain::ApplyChunksSpawner;
-use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, PostStateReadyMessage,
     VerifyBlockHashAndSignatureResult,
@@ -48,7 +44,8 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{
-    Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
+    ApplyChunksSpawner, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
+    byzantine_assert, near_chain_primitives,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -64,9 +61,9 @@ use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, OptimisticBlockMessage, SetNetworkInfo,
     StateRequestUpdate, StateRequestUpdateMessage,
 };
-use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, SnapshotHostEvent,
+    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
+    SnapshotHostEvent,
 };
 use near_o11y::span_wrapped_msg::SpanWrapped;
 use near_primitives::block::Tip;

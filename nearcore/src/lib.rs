@@ -1,5 +1,6 @@
-pub use crate::config::NightshadeRuntimeExt;
-pub use crate::config::{NearConfig, init_configs, load_config, load_test_config};
+pub use crate::config::{
+    NearConfig, NightshadeRuntimeExt, init_configs, load_config, load_test_config,
+};
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
@@ -38,9 +39,8 @@ use near_client::{
     RpcHandlerConfig, StartClientResult, StateRequestActor, ViewClientActor,
     spawn_chunk_endorsement_handler_actor, spawn_rpc_handler_actor, start_client,
 };
-use near_epoch_manager::EpochManager;
-use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::sharded_rpc::ShardedRpcPool;
 use near_network::PeerManagerActor;

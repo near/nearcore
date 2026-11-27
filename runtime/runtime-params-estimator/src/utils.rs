@@ -457,7 +457,8 @@ pub(crate) fn random_vec(len: usize) -> Vec<u8> {
 #[cfg(test)]
 mod test {
     use super::percentiles;
-    use crate::{config::GasMetric, gas_cost::GasCost};
+    use crate::config::GasMetric;
+    use crate::gas_cost::GasCost;
     use rand::prelude::SliceRandom;
 
     #[track_caller]

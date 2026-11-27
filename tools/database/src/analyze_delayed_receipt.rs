@@ -2,8 +2,7 @@ use crate::block_iterators::{
     CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
 };
 use clap::Parser;
-use near_chain::ChainStore;
-use near_chain::ChainStoreAccess;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;

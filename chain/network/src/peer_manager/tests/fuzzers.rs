@@ -1,7 +1,7 @@
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::{network_protocol, peer_manager, testonly::make_rng};
-use near_async::time::Duration;
-use near_async::time::FakeClock;
+use crate::testonly::make_rng;
+use crate::{network_protocol, peer_manager};
+use near_async::time::{Duration, FakeClock};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;

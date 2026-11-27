@@ -1,24 +1,18 @@
-use crate::blacklist;
-use crate::broadcast;
 use crate::config::{NetworkConfig, SocketOptions};
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     PeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutingTableUpdate, T2MessageBody,
-    TieredMessageBody,
+    TieredMessageBody, testonly as data,
 };
-use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
 };
-use crate::peer_manager;
 use crate::peer_manager::network_state::RoutedAction;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::private_messages::RegisterPeerError;
-use crate::tcp;
 use crate::testonly::{Rng, abort_on_panic, make_rng};
-use crate::types::{Edge, PeerMessage};
-use crate::types::{PeerInfo, ReasonForBan};
+use crate::types::{Edge, PeerInfo, PeerMessage, ReasonForBan};
+use crate::{blacklist, broadcast, peer, peer_manager, tcp};
 use near_async::{ActorSystem, time};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;

@@ -1,8 +1,7 @@
 use crate::setup::drop_condition::TestLoopChunksStorage;
 use crate::setup::peer_manager_actor::HandlerResult;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::NetworkRequests;
-use near_network::types::NetworkResponses;
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight};
 use parking_lot::Mutex;

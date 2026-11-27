@@ -1,20 +1,14 @@
-use crate::blacklist;
 use crate::concurrency::rate;
 use crate::config_json::{DecodeMemoryLimitsConfig, Tier1Config};
-use crate::network_protocol::Encoding;
-use crate::network_protocol::PeerAddr;
-use crate::network_protocol::PeerInfo;
+use crate::network_protocol::{Encoding, PeerAddr, PeerInfo};
 use crate::peer_manager::peer_store;
 use crate::rate_limits::messages_limits;
-use crate::snapshot_hosts;
-use crate::stun;
-use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
+use crate::{blacklist, snapshot_hosts, stun, tcp};
 use anyhow::Context;
 use bytesize::{GIB, MIB};
 use near_async::time;
-use near_chain_configs::MutableConfigValue;
-use near_chain_configs::MutableValidatorSigner;
+use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
@@ -829,18 +823,15 @@ impl std::ops::Deref for VerifiedConfig {
 #[cfg(test)]
 mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
-    use crate::config;
     use crate::config::{ConnectionEncoding, DecodeMemoryLimits, SignedStructFormat};
-    use crate::config_json;
     use crate::config_json::{DecodeMemoryLimitsConfig, NetworkConfigOverrides};
-    use crate::network_protocol;
-    use crate::network_protocol::testonly as data;
-    use crate::network_protocol::{AccountData, Encoding, VersionedAccountData, to_unix_nanos};
-    use crate::rate_limits::messages_limits::{
-        RateLimitedPeerMessageKey::BlockHeaders, SingleMessageConfig,
+    use crate::network_protocol::{
+        AccountData, Encoding, VersionedAccountData, testonly as data, to_unix_nanos,
     };
-    use crate::tcp;
+    use crate::rate_limits::messages_limits::RateLimitedPeerMessageKey::BlockHeaders;
+    use crate::rate_limits::messages_limits::SingleMessageConfig;
     use crate::testonly::make_rng;
+    use crate::{config, config_json, network_protocol, tcp};
     use bytesize::MIB;
     use near_async::time;
     use near_chain_configs::MutableConfigValue;

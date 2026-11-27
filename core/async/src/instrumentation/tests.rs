@@ -1,9 +1,9 @@
-use crate::instrumentation::NUM_WINDOWS;
+use crate::instrumentation::data::InstrumentedThread;
 use crate::instrumentation::queue::InstrumentedQueue;
-use crate::instrumentation::writer::InstrumentedThreadWriterSharedPart;
-use crate::instrumentation::{
-    WINDOW_SIZE_NS, data::InstrumentedThread, writer::InstrumentedThreadWriter,
+use crate::instrumentation::writer::{
+    InstrumentedThreadWriter, InstrumentedThreadWriterSharedPart,
 };
+use crate::instrumentation::{NUM_WINDOWS, WINDOW_SIZE_NS};
 use near_time::FakeClock;
 use std::sync::Arc;
 use time::Duration;

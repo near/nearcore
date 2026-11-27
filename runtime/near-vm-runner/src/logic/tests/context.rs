@@ -1,7 +1,8 @@
 use crate::logic::tests::helpers::assert_costs;
+use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::{ExecutionMode, External, HostError, VMLogicError};
 use crate::map;
-use crate::{logic::tests::vm_logic_builder::VMLogicBuilder, tests::test_vm_config};
+use crate::tests::test_vm_config;
 use near_parameters::ExtCosts;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::Balance;

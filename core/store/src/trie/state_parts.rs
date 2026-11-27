@@ -26,8 +26,7 @@ use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, metrics};
 use borsh::BorshDeserialize;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::state::FlatStateValue;
-use near_primitives::state::PartialState;
+use near_primitives::state::{FlatStateValue, PartialState};
 use near_primitives::state_part::StatePartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
@@ -499,13 +498,12 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MissingTrieValue;
-    use crate::MissingTrieValueContext;
     use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{TestTriesBuilder, gen_changes, test_populate_trie};
     use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::trie_tests::merge_trie_changes;
     use crate::trie::{TrieRefcountAddition, ValueHandle};
+    use crate::{MissingTrieValue, MissingTrieValueContext};
     use assert_matches::assert_matches;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::ShardUId;

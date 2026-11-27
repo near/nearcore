@@ -31,8 +31,7 @@ use near_primitives::stateless_validation::contract_distribution::{
     SpiceContractCodeRequest, SpiceContractCodeResponse,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::types::{BlockExecutionResults, SpiceChunkId};
+use near_primitives::types::{AccountId, BlockExecutionResults, EpochId, ShardId, SpiceChunkId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;

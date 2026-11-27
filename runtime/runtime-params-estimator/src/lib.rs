@@ -108,10 +108,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_runner::ContractCode;
-use near_vm_runner::MockContractRuntimeCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+use near_vm_runner::{ContractCode, MockContractRuntimeCache};
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;

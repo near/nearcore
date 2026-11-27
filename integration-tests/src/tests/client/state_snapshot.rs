@@ -11,12 +11,12 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Balance;
 use near_store::adapter::StoreAdapter;
+use near_store::config::TrieCacheConfig;
 use near_store::flat::FlatStorageManager;
+use near_store::test_utils::create_test_store;
 use near_store::{
-    Mode, ShardTries, StateSnapshotConfig, StoreConfig, TrieConfig, config::TrieCacheConfig,
-    test_utils::create_test_store,
+    Mode, NodeStorage, ShardTries, StateSnapshotConfig, Store, StoreConfig, TrieConfig,
 };
-use near_store::{NodeStorage, Store};
 use std::path::PathBuf;
 
 struct StateSnapshotTestEnv {

@@ -1,14 +1,12 @@
 use crate::spice::chunk_executor_actor::{
-    CatchupFinished, ChunkExecutorActor, is_descendant_of_final_execution_head,
+    CatchupFinished, ChunkExecutorActor, ExecutorApplyChunksDone,
+    ExecutorIncomingUnverifiedReceipts, get_witness, is_descendant_of_final_execution_head,
+    receipt_proof_exists, save_receipt_proof,
 };
-use crate::spice::chunk_executor_actor::{ExecutorApplyChunksDone, get_witness};
-use crate::spice::chunk_executor_actor::{
-    ExecutorIncomingUnverifiedReceipts, receipt_proof_exists, save_receipt_proof,
+use crate::spice::data_distributor_actor::{
+    NeedChange, SpiceDataDistributorAdapter, SpiceDistributorOutgoingReceipts,
+    SpiceDistributorStateWitness, SpiceReceiptProofNeeds,
 };
-use crate::spice::data_distributor_actor::SpiceDataDistributorAdapter;
-use crate::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
-use crate::spice::data_distributor_actor::SpiceDistributorStateWitness;
-use crate::spice::data_distributor_actor::{NeedChange, SpiceReceiptProofNeeds};
 use crate::spice::data_manager::ReceiptProofId;
 use crate::spice::tests::{
     build_pre_spice_block, build_to_last_pre_spice_block, empty_outgoing_receipt_proofs,
@@ -18,30 +16,30 @@ use assert_matches::assert_matches;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
 use itertools::Itertools as _;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::messaging::Actor;
-use near_async::messaging::{Handler, IntoAsyncSender, IntoSender, Sender, noop};
+use near_async::messaging::{Actor, Handler, IntoAsyncSender, IntoSender, Sender, noop};
 use near_async::test_utils::FakeDelayedActionRunner;
 use near_async::time::Clock;
-use near_chain::ChainStoreAccess;
-use near_chain::Error;
 use near_chain::spice::boundary::{is_last_pre_spice_block, seed_execution_heads_at_activation};
 use near_chain::spice::chunk_application::ChunkPersistenceConfig;
-use near_chain::spice::chunk_validation::spice_pre_validate_chunk_state_witness;
-use near_chain::spice::chunk_validation::spice_validate_chunk_state_witness;
+use near_chain::spice::chunk_validation::{
+    spice_pre_validate_chunk_state_witness, spice_validate_chunk_state_witness,
+};
 use near_chain::spice::core::SpiceCoreReader;
-use near_chain::spice::core_writer_actor::ExecutionResultEndorsed;
-use near_chain::spice::core_writer_actor::ProcessedBlock;
-use near_chain::spice::core_writer_actor::SpiceCoreWriterActor;
+use near_chain::spice::core_writer_actor::{
+    ExecutionResultEndorsed, ProcessedBlock, SpiceCoreWriterActor,
+};
 use near_chain::test_utils::{
     get_chain_with_genesis, get_fake_next_block_chunk_headers, process_block_sync,
     produce_spice_block_certifying_parent,
 };
 use near_chain::types::Tip;
-use near_chain::{Block, Chain, ChainGenesis};
-use near_chain::{BlockProcessingArtifact, Provenance};
-use near_chain_configs::MutableValidatorSigner;
+use near_chain::{
+    Block, BlockProcessingArtifact, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance,
+};
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
-use near_chain_configs::{Genesis, MutableConfigValue, TrackedShardsConfig};
+use near_chain_configs::{
+    Genesis, MutableConfigValue, MutableValidatorSigner, TrackedShardsConfig,
+};
 use near_chain_primitives::ApplyChunksMode;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::SpiceChunkEndorsementMessage;
@@ -52,23 +50,20 @@ use near_primitives::gas::Gas;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::ShardChunk;
-use near_primitives::sharding::{ReceiptProof, ShardProof, StateSyncInfo};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardProof, StateSyncInfo};
 use near_primitives::spice::chunk_endorsement::SpiceChunkEndorsement;
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::test_utils::{
     TestBlockBuilder, create_test_signer, pre_spice_protocol_version,
 };
-use near_primitives::types::SpiceChunkId;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId,
+    AccountId, Balance, ChunkExecutionResult, NumShards, ProtocolVersion, ShardId, SpiceChunkId,
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
-use near_store::adapter::StoreAdapter as _;
-use near_store::adapter::StoreUpdateAdapter;
+use near_store::adapter::{StoreAdapter as _, StoreUpdateAdapter};
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageReadyStatus,
     FlatStorageStatus,

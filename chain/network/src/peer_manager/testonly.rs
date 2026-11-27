@@ -1,27 +1,20 @@
-use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::auto_stop::AutoStopActor;
-use crate::broadcast;
-use crate::client::ClientSenderForNetwork;
-use crate::client::StateRequestUpdateMessage;
-use crate::config;
-use crate::network_protocol::SnapshotHostInfo;
-use crate::network_protocol::SyncSnapshotHosts;
-use crate::network_protocol::testonly as data;
+use crate::client::{ClientSenderForNetwork, StateRequestUpdateMessage};
 use crate::network_protocol::{
-    EdgeState, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    EdgeState, PeerInfo, PeerMessage, SignedAccountData, SnapshotHostInfo, SyncAccountsData,
+    SyncSnapshotHosts, testonly as data,
 };
-use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::network_transport::NetworkTransport;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::tcp_transport::TcpTransport;
 use crate::snapshot_hosts::SnapshotHostsCache;
-use crate::tcp;
-use crate::test_utils;
-use crate::types::StateRequestSenderForNetwork;
-use crate::types::{AccountKeys, ChainInfo, KnownPeerStatus, ReasonForBan};
+use crate::types::{
+    AccountKeys, ChainInfo, KnownPeerStatus, ReasonForBan, StateRequestSenderForNetwork,
+};
+use crate::{PeerManagerActor, broadcast, config, peer, tcp, test_utils};
 use near_async::futures::FutureSpawnerExt;
 use near_async::messaging::{
     AsyncSender, CanSendAsync, Handler, IntoMultiSender, IntoSender, LateBoundSender, Sender, noop,

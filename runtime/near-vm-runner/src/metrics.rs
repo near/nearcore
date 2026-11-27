@@ -2,8 +2,9 @@ use near_o11y::metrics::{
     HistogramVec, IntCounterVec, IntGaugeVec, try_create_histogram_vec, try_create_int_counter_vec,
     try_create_int_gauge_vec,
 };
+use std::cell::RefCell;
 use std::sync::LazyLock;
-use std::{cell::RefCell, time::Duration};
+use std::time::Duration;
 
 thread_local! {
     static METRICS: RefCell<Metrics> = const { RefCell::new(Metrics {

@@ -48,10 +48,9 @@ use crate::validate::{
     validate_spice_chunk_execution_root,
 };
 use crate::{
-    BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
-    create_light_client_block_view,
+    BlockStatus, ChainGenesis, Doomslug, DoomslugThresholdMode, Provenance, byzantine_assert,
+    create_light_client_block_view, metrics,
 };
-use crate::{DoomslugThresholdMode, metrics};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
@@ -89,10 +88,9 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
-use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, ShardIndex,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, NumBlocks, ShardId, ShardIndex,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -100,9 +98,8 @@ use near_primitives::views::{BlockStatusView, DroppedReason, LightClientBlockVie
 use near_runtime::{PostState, PostStateReadyCallback, SignedValidPeriodTransactions};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::get_genesis_state_roots;
 use near_store::merkle_proof::MerkleProofAccess;
-use near_store::{DBCol, StateSnapshotConfig};
+use near_store::{DBCol, StateSnapshotConfig, get_genesis_state_roots};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};

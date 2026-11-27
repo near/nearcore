@@ -167,8 +167,7 @@ impl Registers {
 
 #[cfg(test)]
 mod tests {
-    use super::HostError;
-    use super::Registers;
+    use super::{HostError, Registers};
     use crate::logic::LimitConfig;
     use crate::logic::gas_counter::GasCounter;
     use crate::tests::test_vm_config;

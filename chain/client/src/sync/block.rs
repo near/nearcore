@@ -1,11 +1,9 @@
 use crate::sync::peers::{PeerAdvertisedHead, PeerSelector};
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
-use near_chain::Chain;
-use near_chain::ChainStoreAccess;
 use near_chain::chain::BlockKnowledge;
-use near_network::types::PeerManagerMessageRequest;
-use near_network::types::{NetworkRequests, PeerManagerAdapter};
+use near_chain::{Chain, ChainStoreAccess};
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;

@@ -30,9 +30,8 @@ use near_primitives::optimistic_block::{CachedShardUpdateKey, OptimisticBlockKey
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkWithEncoding};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, Gas, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
 use near_runtime::PostStateNodes;

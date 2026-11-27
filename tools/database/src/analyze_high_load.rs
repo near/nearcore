@@ -2,8 +2,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockHeight, Gas};
 use near_store::{DBCol, NodeStorage, Store};
-use rayon::iter::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::path::Path;
 
 #[derive(clap::Parser)]

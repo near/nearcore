@@ -7,12 +7,10 @@
 
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
-use near_vm_runner::CompilePriority;
-use near_vm_runner::compiler_daemon;
 use near_vm_runner::logic::errors::CompilationError;
 #[cfg(feature = "test_features")]
 use near_vm_runner::logic::errors::VMRunnerError;
-use near_vm_runner::prepare;
+use near_vm_runner::{CompilePriority, compiler_daemon, prepare};
 #[cfg(feature = "test_features")]
 use near_vm_runner::{ContractCode, MockContractRuntimeCache, precompile_contract};
 use std::env;

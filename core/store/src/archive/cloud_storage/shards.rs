@@ -15,9 +15,8 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ReceiptProof, ShardChunk};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ShardId;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::BTreeMap;
 

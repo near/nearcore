@@ -4,8 +4,7 @@ use near_client::ViewClientActor;
 use near_crypto::SecretKey;
 use near_parameters::RuntimeConfigView;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
-use near_primitives::types::{Balance, BlockReference};
+use near_primitives::types::{AccountId, Balance, BlockReference};
 use near_primitives::views::{AccountView, ActionView, SignedTransactionView};
 use std::collections::HashMap;
 

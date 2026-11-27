@@ -9,8 +9,7 @@ use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
 use near_client::GetBlock;
-use near_network::types::NetworkResponses;
-use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests};
+use near_network::types::{AccountIdOrPeerTrackingShard, NetworkRequests, NetworkResponses};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;

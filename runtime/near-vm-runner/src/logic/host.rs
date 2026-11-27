@@ -8,8 +8,6 @@
 // when they don't write to memory.
 #![allow(clippy::needless_pass_by_ref_mut)]
 
-use crate::logic::alt_bn128;
-use crate::logic::bls12381;
 use crate::logic::errors::InconsistentStateError;
 use crate::logic::gas_counter::{FreeGasCounter, GasCounter};
 use crate::logic::logic::*;
@@ -20,16 +18,18 @@ use crate::logic::types::{
 };
 use crate::logic::utils::{null_terminated_method_names_len, split_method_names};
 use crate::logic::vmstate::Registers;
-use crate::logic::{ExecutionMode, External, HostError, VMContext, VMLogicError};
+use crate::logic::{
+    ExecutionMode, External, HostError, VMContext, VMLogicError, alt_bn128, bls12381,
+};
 use ExtCosts::*;
 use core::mem::size_of;
 use near_crypto::Secp256K1Signature;
-use near_parameters::ParameterCost;
 use near_parameters::vm::Config;
 use near_parameters::{
-    ActionCosts, ExtCosts, RuntimeFeesConfig, gas_key_add_key_exec_fee, gas_key_add_key_send_fee,
-    gas_key_transfer_exec_fee, gas_key_transfer_send_fee, transfer_exec_fee, transfer_send_fee,
-    universal_state_init_content_terms, universal_state_init_size_terms,
+    ActionCosts, ExtCosts, ParameterCost, RuntimeFeesConfig, gas_key_add_key_exec_fee,
+    gas_key_add_key_send_fee, gas_key_transfer_exec_fee, gas_key_transfer_send_fee,
+    transfer_exec_fee, transfer_send_fee, universal_state_init_content_terms,
+    universal_state_init_size_terms,
 };
 use near_primitives_core::account::AccountContract;
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;

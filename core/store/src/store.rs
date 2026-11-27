@@ -1,8 +1,7 @@
-use crate::DBCol;
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::metadata::{DbKind, DbMetadata, DbVersion, KIND_KEY, VERSION_KEY};
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
-use crate::deserialized_column;
+use crate::{DBCol, deserialized_column};
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::EnumMap;
 use near_fmt::{AbbrBytes, StorageKey};

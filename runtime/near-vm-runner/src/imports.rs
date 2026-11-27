@@ -411,9 +411,10 @@ imports! {
     #[["test_features"]] burn_gas<[gas: u64] -> []>,
 }
 
+pub(crate) use call_with_name;
+pub(crate) use for_each_available_import;
 #[cfg(test)]
 pub(crate) use for_each_import_item;
-pub(crate) use {call_with_name, for_each_available_import};
 
 pub(crate) const fn should_trace_host_function(host_function: &str) -> bool {
     match host_function {

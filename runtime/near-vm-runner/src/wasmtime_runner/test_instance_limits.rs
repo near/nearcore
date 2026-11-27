@@ -25,8 +25,7 @@ use wasm_encoder::{
     GlobalSection, GlobalType, ImportSection, Instruction, MemorySection, MemoryType,
     Module as WasmModule, RefType, TableSection, TableType, TypeSection, ValType,
 };
-use wasmtime::Module;
-use wasmtime::Result as WasmtimeResult;
+use wasmtime::{Module, Result as WasmtimeResult};
 
 #[test]
 fn metadata_cap_activation() {

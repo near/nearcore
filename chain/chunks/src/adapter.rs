@@ -1,11 +1,9 @@
 use near_chain::types::Tip;
-use near_primitives::{
-    hash::CryptoHash,
-    merkle::MerklePath,
-    receipt::Receipt,
-    sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader},
-    types::EpochId,
-};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunkHeader};
+use near_primitives::types::EpochId;
 
 #[derive(Debug, strum::IntoStaticStr, PartialEq)]
 pub enum ShardsManagerRequestFromClient {

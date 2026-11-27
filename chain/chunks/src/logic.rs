@@ -1,16 +1,15 @@
-use near_chain::ChainStoreAccess;
 use near_chain::near_chain_primitives::Error as ChainError;
-use near_chain::{BlockHeader, Chain, ChainStore, types::EpochManagerAdapter};
+use near_chain::types::EpochManagerAdapter;
+use near_chain::{BlockHeader, Chain, ChainStore, ChainStoreAccess};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::ShardChunkWithEncoding;
 use near_primitives::sharding::{
     PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1, PartialEncodedChunkV2,
-    PartialEncodedChunkV3, ReceiptProof, ShardChunk, ShardChunkHeader,
+    PartialEncodedChunkV3, ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkWithEncoding,
 };
 use near_primitives::types::{AccountId, ShardId};
 use near_primitives::version::ProtocolFeature;

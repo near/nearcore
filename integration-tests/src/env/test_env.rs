@@ -3,8 +3,7 @@ use super::test_env_builder::TestEnvBuilder;
 use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
 use near_async::ActorSystem;
 use near_async::messaging::{CanSend, IntoMultiSender};
-use near_async::time::Clock;
-use near_async::time::{Duration, Instant};
+use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::spice::core_writer_actor::ProcessedBlock;
@@ -16,21 +15,21 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolVersionCheckConfig};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_client::ChunkValidationActor;
 use near_client::spice::chunk_executor_actor::ExecutorIncomingUnverifiedReceipts;
 use near_client::spice::chunk_executor_actor::testonly::TestonlySyncChunkExecutorActor;
 use near_client::spice::data_distributor_actor::SpiceDistributorOutgoingReceipts;
 use near_client::spice::data_manager::ReceiptProofId;
-use near_client::{Client, DistributeStateWitnessRequest, RpcHandlerActor};
+use near_client::{ChunkValidationActor, Client, DistributeStateWitnessRequest, RpcHandlerActor};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::{ProcessTxResponse, SpiceChunkEndorsementMessage};
 use near_network::recv_permit::RecvMessagePermit;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::NetworkRequests;
-use near_network::types::PeerManagerMessageRequest;
-use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use near_network::types::{
+    NetworkRequests, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    PeerManagerMessageRequest,
+};
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;

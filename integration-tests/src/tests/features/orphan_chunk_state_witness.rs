@@ -6,14 +6,13 @@ use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use near_chain::{Block, Provenance};
-use near_chain_configs::Genesis;
-use near_chain_configs::default_orphan_state_witness_max_size;
+use near_chain_configs::{Genesis, default_orphan_state_witness_max_size};
 use near_client::{ChunkValidationActor, HandleOrphanWitnessOutcome};
 use near_client_primitives::types::BlockNotificationMessage;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
-    ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardProof,
+    ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3,
+    ShardProof,
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::{AccountId, ShardId};

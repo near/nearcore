@@ -3,8 +3,7 @@ use crate::network_protocol::{
     SnapshotHostInfoVerificationError, testonly as data,
 };
 use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache, priority_score};
-use crate::testonly::assert_is_superset;
-use crate::testonly::{AsSet as _, make_rng};
+use crate::testonly::{AsSet as _, assert_is_superset, make_rng};
 use crate::types::SnapshotHostInfo;
 use futures::FutureExt;
 use futures::future::join_all;
@@ -14,8 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::StatePartIndex;
-use near_primitives::types::EpochHeight;
-use near_primitives::types::ShardId;
+use near_primitives::types::{EpochHeight, ShardId};
 use parking_lot::Mutex;
 use rayon::ThreadPoolBuilder;
 use std::collections::HashSet;

@@ -2,26 +2,22 @@ use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
-use near_epoch_manager::EpochManagerAdapter;
-use near_epoch_manager::EpochManagerHandle;
+use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::receipt::StateStoredReceipt;
-use near_primitives::state_record::state_record_to_account_id;
-use near_primitives::state_record::{DelayedReceipt, StateRecord};
+use near_primitives::state_record::{DelayedReceipt, StateRecord, state_record_to_account_id};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use nearcore::NightshadeRuntime;
 use nearcore::config::NearConfig;
 use redis::Commands;
 use serde::ser::{SerializeSeq, Serializer};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::env;
-use std::fs;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
+use std::{env, fs};
 
 /// Returns a `NearConfig` with genesis records taken from the current state.
 /// If `records_path` argument is provided, then records will be streamed into a separate file,

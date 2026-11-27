@@ -11,8 +11,7 @@ use crate::spice::data_distributor_actor::{
 };
 use crate::spice::data_manager::ReceiptProofId;
 use near_async::futures::AsyncComputationSpawner;
-use near_async::messaging::IntoSender as _;
-use near_async::messaging::{CanSend, Handler, Sender};
+use near_async::messaging::{CanSend, Handler, IntoSender as _, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::spice::activation::{spice_enabled_at_head_on_startup, spice_enabled_for_block};
 use near_chain::spice::block_application::{
@@ -37,10 +36,9 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReceiptProof;
 use near_primitives::types::{BlockHeight, NumBlocks, ShardId};
-use near_store::ShardUId;
-use near_store::Store;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::{ShardUId, Store};
 use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::Arc;

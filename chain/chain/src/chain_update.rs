@@ -1,7 +1,5 @@
-use crate::Chain;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
-use crate::metrics;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::spice::boundary::seed_activation_boundary;
 use crate::spice::chunk_application::apply_chunk_postprocessing;
@@ -14,6 +12,7 @@ use crate::types::{
     ApplyChunkBlockContext, ApplyChunkShardContext, BlockType, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
+use crate::{Chain, metrics};
 use near_chain_configs::ProtocolVersionCheckConfig;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::epoch_sync::update_epoch_sync_proof;

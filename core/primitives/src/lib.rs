@@ -1,14 +1,7 @@
-pub use near_primitives_core::account;
-pub use near_primitives_core::apply;
-pub use near_primitives_core::borsh;
-pub use near_primitives_core::config;
-pub use near_primitives_core::deterministic_account_id;
-pub use near_primitives_core::gas;
-pub use near_primitives_core::global_contract;
-pub use near_primitives_core::hash;
-pub use near_primitives_core::num_rational;
-pub use near_primitives_core::serialize;
-pub use near_primitives_core::universal_account_id;
+pub use near_primitives_core::{
+    account, apply, borsh, config, deterministic_account_id, gas, global_contract, hash,
+    num_rational, serialize, universal_account_id,
+};
 
 pub mod action;
 pub mod bandwidth_scheduler;

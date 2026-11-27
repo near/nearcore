@@ -125,7 +125,9 @@ impl ShardLayout {
     /// non-contiguous ShardIds.
     #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
-        use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+        use rand::seq::SliceRandom;
 
         let num_shards = (boundary_accounts.len() + 1) as u64;
 

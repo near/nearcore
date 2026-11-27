@@ -1,8 +1,10 @@
 use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
-use near_async::{test_loop::data::TestLoopData, time::Duration};
+use near_async::test_loop::data::TestLoopData;
+use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_primitives::{hash::CryptoHash, version::PROTOCOL_VERSION};
+use near_primitives::hash::CryptoHash;
+use near_primitives::version::PROTOCOL_VERSION;
 
 /// Runs the network until all the nodes contain the given code hash in their compiled-contracts cache.
 /// This is used, for example, to make sure that a deploy action took effect in the network and code was distributed to all nodes.

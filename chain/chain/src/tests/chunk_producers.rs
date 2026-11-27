@@ -1,8 +1,7 @@
 mod tests {
-    use crate::Chain;
-    use crate::ChainStoreAccess;
     use crate::garbage_collection::GCMode;
     use crate::test_utils::{setup, setup_with_tx_validity_period};
+    use crate::{Chain, ChainStoreAccess};
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::EpochManagerAdapter;

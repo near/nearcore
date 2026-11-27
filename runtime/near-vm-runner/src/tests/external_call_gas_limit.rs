@@ -1,10 +1,9 @@
 //! Test in the same style as `runtime/near-vm-runner/src/tests/view_call_gas_limit.rs`
 //! except to ensure that external calls are bounded by `max_gas_burnt_external`.
 
-use crate::logic::VMOutcome;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::{ExecutionMode, VMContext};
+use crate::logic::{ExecutionMode, VMContext, VMOutcome};
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfigStore, RuntimeFeesConfig};
@@ -13,8 +12,7 @@ use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 fn run_external_call(budget: Gas, code: &[u8]) -> VMOutcome {

@@ -20,20 +20,17 @@ use near_chain_configs::{MutableConfigValue, ReshardingHandle};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::archive::cloud_archival_writer::create_cloud_archival_writer;
 use near_client::archive::cold_store_actor::create_cold_store_actor;
-use near_client::client_actor::ClientActor;
-use near_client::client_actor::ShutdownReason;
+use near_client::client_actor::{ClientActor, ShutdownReason};
 use near_client::gc_actor::GCActor;
 use near_client::spice::chunk_executor_actor::ChunkExecutorActor;
 use near_client::spice::chunk_validator_actor::SpiceChunkValidatorActor;
 use near_client::spice::data_distributor_actor::SpiceDataDistributorActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{
-    AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, Client, PartialWitnessActor,
+    AsyncComputationMultiSpawner, ChunkEndorsementHandlerActor, ChunkValidationActor,
+    ChunkValidationSender, ChunkValidationSenderForPartialWitness, Client, PartialWitnessActor,
     RpcHandlerActor, RpcHandlerConfig, StateRequestActor, ViewClientActor,
     ViewClientRequestManager,
-};
-use near_client::{
-    ChunkValidationActor, ChunkValidationSender, ChunkValidationSenderForPartialWitness,
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::ShardTracker;

@@ -3,8 +3,7 @@ use crate::block::BlockValidityError::{
     InvalidChunkHeaderRoot, InvalidChunkHeight, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
-use crate::block_body::SpiceCoreStatements;
-use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
+use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures, SpiceCoreStatements};
 pub use crate::block_header::*;
 use crate::challenge::Challenge;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};

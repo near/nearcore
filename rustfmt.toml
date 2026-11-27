@@ -1,7 +1,7 @@
 use_small_heuristics = "Max"
 reorder_imports = true
 edition = "2024"
-# This option will merge imports, however it's only available in +nightly.
-# imports_granularity = "Module"
+# Imports use one `use` per module. Stable rustfmt ignores the unstable
+# `imports_granularity` option here, so `just fmt` passes it on the command line.
 # fn_args_density = "Compressed"
 # overflow_delimited_expr = "true"

@@ -5,8 +5,7 @@ use crate::spice::boundary_chunk_validation::{
 };
 use crate::spice::chunk_application::build_spice_apply_chunk_block_context;
 use crate::store::filter_incoming_receipts_for_shard;
-use crate::types::MaybePinnedMemtrieRoot;
-use crate::types::{RuntimeAdapter, StorageDataSource};
+use crate::types::{MaybePinnedMemtrieRoot, RuntimeAdapter, StorageDataSource};
 use crate::validate::validate_chunk_proofs;
 use crate::{Chain, ChainStore};
 use itertools::Itertools;
@@ -422,9 +421,10 @@ pub(super) mod tests {
         TestBlockBuilder, create_test_signer, create_user_test_signer,
     };
     use near_primitives::transaction::{SignedTransaction, TransactionEnvelope};
-    use near_primitives::types::Balance;
     use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::{AccountId, BlockHeight, ChunkExecutionResult, SpiceChunkId};
+    use near_primitives::types::{
+        AccountId, Balance, BlockHeight, ChunkExecutionResult, SpiceChunkId,
+    };
     use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::get_genesis_state_roots;

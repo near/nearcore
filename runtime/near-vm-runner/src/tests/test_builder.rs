@@ -1,14 +1,14 @@
-use crate::logic::{
-    ExecutionMode, ProtocolVersion, ReturnData, VMContext, VMOutcome,
-    mocks::mock_external::MockedExternal,
-};
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{ExecutionMode, ProtocolVersion, ReturnData, VMContext, VMOutcome};
 use crate::runner::VMKindExt;
 use near_parameters::vm::VMKind;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives_core::code::ContractCode;
 use near_primitives_core::types::{Balance, Gas};
 use near_primitives_core::version::ProtocolFeature;
-use std::{collections::HashSet, fmt::Write, sync::Arc};
+use std::collections::HashSet;
+use std::fmt::Write;
+use std::sync::Arc;
 
 pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {

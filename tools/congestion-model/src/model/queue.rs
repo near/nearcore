@@ -1,5 +1,4 @@
-use super::Receipt;
-use super::ShardId;
+use super::{Receipt, ShardId};
 use std::collections::VecDeque;
 
 pub struct Queue {
