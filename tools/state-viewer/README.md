@@ -29,6 +29,8 @@ the history.
 * Print a csv file if `--csv-file` is provided. The csv file contains per-block statistics such as, timestamp of the
 block, gas per block, delayed receipts per block. Useful for debugging performance issues. Don't forget to sort your
 data before making charts using this data.
+* Skip chunks with no transaction that calls or deploys a contract if `--only-contracts` is provided. An ECC counts as
+one.
 
 If you want to re-apply all the blocks in the available blockchain then omit both the `--start-index` and `--end-index`
 flags. Missing `--start-index` means use chain state starting from the genesis. Missing `--end-index` means using blocks up to the latest block available in the blockchain.
@@ -102,7 +104,7 @@ Example:
 
 ### `dump_tx`
 
-Saves all transactions of a range of blocks [start, end] to a file.
+Saves all transactions of a range of blocks [start, end] to a file, as a JSON array of base64-encoded borsh transactions. Signed transactions and ECCs (external contract calls) are both included. Decode an entry with `TransactionEnvelope::try_from_slice`. The base64 string of an ECC starts with `/w`.
 
 Flags:
 
@@ -110,7 +112,7 @@ Flags:
 
 * `--end-height` specifies the end block by its height, inclusive.
 
-* `--account-ids` specifies the accounts as receivers of the transactions that need to be dumped. By default, all transactions will be dumped if this parameter is not set.
+* `--account-ids` specifies the accounts as receivers of the transactions that need to be dumped. The receiver of an ECC is its contract. By default, all transactions will be dumped if this parameter is not set.
 
 Example:
 
