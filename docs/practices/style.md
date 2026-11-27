@@ -567,10 +567,30 @@ industry standard format, and can be interpreted by an extensive ecosystem of
 
 ### Event and span levels
 
-The `INFO` level is enabled by default, use it for information useful for node
-operators. The `DEBUG` level is enabled on the canary nodes, use it for
-information useful in debugging testnet failures. The `TRACE` level is not
-generally enabled, use it for arbitrary debug output.
+`INFO` is the default level for validator nodes. `DEBUG` is appropriate for
+development and test nodes.
+
+- `TRACE` — tracing method execution and arbitrary fine-grained debug output.
+  Not expected to be enabled globally; typically turned on for a specific target
+  when debugging a particular issue or collecting performance traces.
+- `DEBUG` — information useful to protocol developers but not to validators. Must
+  not spam logs. Example: receiving an invalid or irrelevant state witness. Many
+  messages currently emitted at `WARN` belong here.
+- `INFO` — significant state changes that indicate the node is operating
+  normally and are useful to validators. Examples: node started state sync, node
+  fell out of sync.
+- `WARN` — only for conditions that are actionable by the validator. Indicates
+  the node is, or is about to be, in a suboptimal state unless something is
+  done. Examples:
+  - use of deprecated config keys;
+  - OS network configuration (e.g. buffer sizes) is suboptimal and may cause
+    slow communication with other nodes;
+  - GC is not keeping up with block production (the distance between the header
+    head and the GC head grows over time) — the message should suggest how to
+    address it (which config values to adjust).
+- `ERROR` — something unexpected happened, but not severe enough to crash the
+  node with a panic. Errors are expected to be reported upstream so the root
+  cause can be investigated.
 
 ## Metrics
 
