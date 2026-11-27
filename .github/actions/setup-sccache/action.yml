@@ -1,0 +1,39 @@
+name: "Set up sccache"
+description: >
+  Makes rustc use sccache backed by the shared nearone-sccache GCS bucket.
+  Without Google Cloud credentials, for example in pull requests from forks,
+  it changes nothing and the job builds without the cache. The job needs the
+  `id-token: write` permission.
+
+runs:
+  using: "composite"
+  steps:
+    - id: gcp-auth
+      name: Authenticate with Google Cloud
+      continue-on-error: true
+      uses: "google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed" # v2.1.13
+      with:
+        workload_identity_provider: "projects/60246494556/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+        service_account: "sccache-sa@nearone-services.iam.gserviceaccount.com"
+    - if: steps.gcp-auth.outcome == 'success'
+      name: Install sccache
+      uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+      with:
+        # Pinned so that sccache-action does not look up the latest release
+        # through the GitHub API, a request it does not retry. Bump it together
+        # with the Rust toolchain in rust-toolchain.toml, since both can
+        # invalidate the cache.
+        version: v0.20.1
+    - if: steps.gcp-auth.outcome == 'success'
+      name: Configure sccache
+      shell: bash
+      run: |
+        echo "SCCACHE_GCS_BUCKET=nearone-sccache" >> $GITHUB_ENV
+        echo "SCCACHE_GCS_RW_MODE=READ_WRITE" >> $GITHUB_ENV
+        echo "SCCACHE_GCS_KEY_PREFIX=nearcore/ci" >> $GITHUB_ENV
+        # Start the sccache server without probing the GCS bucket. The probe
+        # must finish within sccache's 10 s server startup timeout, otherwise
+        # the first rustc call fails, whereas cache errors during the build
+        # only fall back to compiling locally.
+        echo "SCCACHE_SKIP_CACHE_CHECK=1" >> $GITHUB_ENV
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
