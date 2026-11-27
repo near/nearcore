@@ -24,10 +24,10 @@ fn the_needed_items_are_the_proofs_from_shards_not_applied_that_are_pushed_to_th
 fn track_block_tracks_exactly_the_needed_items_once() {
     let (chain, blocks) = chain_with_blocks(5);
     let block = &blocks[4];
-    let mut manager = TestManager::new(&chain).manager;
+    let mut manager = TestManager::new(&chain);
 
-    manager.track_block(&block).unwrap();
-    manager.track_block(&block).unwrap();
+    manager.track_block(&block);
+    manager.track_block(&block);
 
     assert!(manager.is_tracking(&receipt_id(block, 0, 1)));
     // Proofs from the shard we apply are produced locally; proofs into the shard we
@@ -36,7 +36,9 @@ fn track_block_tracks_exactly_the_needed_items_once() {
     assert!(!manager.is_tracking(&receipt_id(block, 1, 1)));
     assert!(!manager.is_tracking(&receipt_id(block, 0, 0)));
     // The second call did not duplicate the height index entry.
-    assert_eq!(manager.items.ids_in(..).count(), 1);
+    let proofs =
+        manager.manager.items.ids_in(..).filter(|(_, id)| matches!(id, DataId::ReceiptProof(_)));
+    assert_eq!(proofs.count(), 1);
 }
 
 #[test]
@@ -45,12 +47,12 @@ fn track_block_skips_items_already_on_disk() {
     let (chain, blocks) = chain_with_blocks(1);
     let block = &blocks[0];
     save_proof(&chain, block, &receipt_data(0, 1));
-    let mut manager = TestManager::new(&chain).manager;
+    let mut manager = TestManager::new(&chain);
 
-    manager.track_block(&block).unwrap();
+    manager.track_block(&block);
 
     assert!(!manager.is_tracking(&receipt_id(block, 0, 1)));
-    assert_eq!(manager.items.ids_in(..).next(), None);
+    assert!(!manager.manager.items.ids_in(..).any(|(_, id)| matches!(id, DataId::ReceiptProof(_))));
 }
 
 #[test]
@@ -118,7 +120,7 @@ fn a_processed_block_expires_the_items_below_the_final_execution_head() {
     manager.on_block_processed(&blocks[2]);
 
     assert!(!manager.is_tracking(&receipt_id(&blocks[1], 0, 1)));
-    assert_eq!(manager.tracked_heights(), vec![blocks[2].header().height()]);
+    assert_eq!(manager.tracked_proof_heights(), vec![blocks[2].header().height()]);
 }
 
 #[test]
@@ -147,7 +149,7 @@ fn a_fork_item_expires_by_height_with_the_final_execution_head() {
     for id in &fork_ids {
         assert!(!manager.is_tracking(id), "fork item stayed: {id:?}");
     }
-    assert_eq!(manager.tracked_heights(), vec![canonical_at_5.header().height()]);
+    assert_eq!(manager.tracked_proof_heights(), vec![canonical_at_5.header().height()]);
 }
 
 /// The fork at height 3 is certified by its own child, so it takes the only window slot
@@ -501,7 +503,10 @@ fn a_rejected_fake_delivery_leaves_the_honest_commitment_pulled_until_it_decodes
         &honest_commitment,
         parts_with_ordinals(&honest_parts, &[0, 2, 3, 4]),
     );
-    assert_matches!(result, Ok(PartsOutcome::Decoded(data)) if data == honest_data);
+    assert_matches!(
+        result,
+        Ok(PartsOutcome::Decoded(data)) if data == decoded_data(&id, honest_data.clone())
+    );
     assert!(manager.is_tracking(&id));
 
     // Saved: the next block stops pulling it.

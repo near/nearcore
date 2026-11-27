@@ -1,6 +1,6 @@
 use super::item::FetchItem;
 use super::items::Items;
-use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS};
+use super::{DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MAX_REQUESTED_WITNESSES};
 use near_async::time::{Duration, Instant};
 use near_primitives::types::AccountId;
 use rand::seq::SliceRandom;
@@ -31,6 +31,8 @@ pub(crate) struct Config {
     pub(crate) pulled_heights_of_pull_only_items: NonZeroUsize,
     /// Items one request may carry.
     pub(crate) max_ids_per_request: NonZeroUsize,
+    /// Witness items one request may carry.
+    pub(crate) max_witnesses_per_request: NonZeroUsize,
     /// Ordinals one request may carry, summed over its items.
     pub(crate) max_parts_per_request: NonZeroUsize,
 }
@@ -42,6 +44,7 @@ impl Default for Config {
             pulled_heights_of_pushed_items: const { NonZeroUsize::new(4).unwrap() },
             pulled_heights_of_pull_only_items: const { NonZeroUsize::new(2).unwrap() },
             max_ids_per_request: const { NonZeroUsize::new(MAX_REQUESTED_DATA_IDS).unwrap() },
+            max_witnesses_per_request: const { NonZeroUsize::new(MAX_REQUESTED_WITNESSES).unwrap() },
             max_parts_per_request: const { NonZeroUsize::new(MAX_REQUESTED_PARTS).unwrap() },
         }
     }
@@ -88,11 +91,32 @@ impl Pulls {
     /// pull-only items of the `pulled_heights_of_pull_only_items` lowest heights into each destination shard,
     /// looked up in `items`. Records every request it returns as created at `now`.
     pub(super) fn to_issue(&mut self, now: Instant, items: &Items) -> Vec<PullRequest> {
+        self.issue(now, items, |_| true)
+    }
+
+    /// The requests `to_issue` returns, restricted to receipt proofs.
+    pub(super) fn receipt_proofs_to_issue(
+        &mut self,
+        now: Instant,
+        items: &Items,
+    ) -> Vec<PullRequest> {
+        self.issue(now, items, |id| matches!(id, DataId::ReceiptProof(_)))
+    }
+
+    fn issue(
+        &mut self,
+        now: Instant,
+        items: &Items,
+        included: fn(&DataId) -> bool,
+    ) -> Vec<PullRequest> {
         let trigger = Trigger::new(now, self.config.request_timeout);
-        let push_ids = items.lowest_pullable_pushed(self.config.pulled_heights_of_pushed_items);
+        let push_ids = items
+            .lowest_pullable_pushed(self.config.pulled_heights_of_pushed_items)
+            .filter(|id| included(id));
         let push_wants = wants_by_producer(push_ids, items, &mut self.requests, &trigger);
-        let pull_only_ids =
-            items.lowest_pullable_pull_only(self.config.pulled_heights_of_pull_only_items);
+        let pull_only_ids = items
+            .lowest_pullable_pull_only(self.config.pulled_heights_of_pull_only_items)
+            .filter(|id| included(id));
         let pull_only_wants = wants_by_producer(pull_only_ids, items, &mut self.requests, &trigger);
         // TODO(spice-data-distribution): send pull-only requests in a serve-side lane of their own,
         // so they cannot crowd out the requests for pushed items under the server's rate limit.
@@ -105,26 +129,37 @@ impl Pulls {
 
     /// Splits a producer's wants into requests within the request limits; one item's ordinals
     /// may span requests.
+    // TODO(spice-data-distribution): a request the server's rate limit drops takes the receipt
+    // proofs packed with a witness with it, until the timeout retries them.
     fn pack_requests(
         &self,
         producer: AccountId,
         wants: BTreeMap<DataId, BTreeSet<u64>>,
     ) -> Vec<PullRequest> {
         let max_ids_per_request = self.config.max_ids_per_request.get();
+        let max_witnesses_per_request = self.config.max_witnesses_per_request.get();
         let max_parts_per_request = self.config.max_parts_per_request.get();
         let mut requests = Vec::new();
         let mut current: BTreeMap<DataId, BTreeSet<u64>> = BTreeMap::new();
         let mut current_parts = 0;
+        let mut current_witnesses = 0;
         for (id, ordinals) in wants {
+            let is_witness = matches!(id, DataId::Witness(_));
             for ordinal in ordinals {
+                let new_id = !current.contains_key(&id);
                 let full = current_parts == max_parts_per_request
-                    || (current.len() == max_ids_per_request && !current.contains_key(&id));
+                    || (new_id && current.len() == max_ids_per_request)
+                    || (new_id && is_witness && current_witnesses == max_witnesses_per_request);
                 if full {
                     requests.push(PullRequest {
                         producer: producer.clone(),
                         wants: take(&mut current),
                     });
                     current_parts = 0;
+                    current_witnesses = 0;
+                }
+                if is_witness && !current.contains_key(&id) {
+                    current_witnesses += 1;
                 }
                 current.entry(id.clone()).or_default().insert(ordinal);
                 current_parts += 1;

@@ -81,6 +81,11 @@ fn receipt_data_with_proof(
     ))
 }
 
+/// `data` as decoded for `id` under its own commitment.
+fn decoded_data(id: &DataId, data: SpiceData) -> Decoded {
+    id.verify_data(data).expect("the data is the data the id names")
+}
+
 /// Merklizes `parts` into a commitment and verifies each part against it.
 fn commit_parts(
     parts: Vec<Box<[u8]>>,
@@ -164,7 +169,7 @@ fn decode(
     encoder: &Arc<ReedSolomonEncoder>,
     parts: Vec<VerifiedCodedPart>,
     senders: Range<usize>,
-) -> SpiceData {
+) -> Decoded {
     match insert_data_parts(item, encoder, parts, senders) {
         PartInsertResult::Decoded(data) => data,
         other => panic!("commitment did not decode: {other:?}"),
@@ -180,6 +185,30 @@ fn chain_with_blocks(num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
 /// A chain with `num_shards` shards and `num_blocks` processed empty blocks; `blocks[i]` is
 /// at height `i + 1`. Each shard's chunk producers are `shard_producers(shard)`.
 fn chain_with_shards_and_blocks(num_shards: u64, num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
+    build_chain(num_shards, num_blocks, 10, &[])
+}
+
+/// Accounts that validate chunks and produce nothing, in `chain_with_fallback_validators`.
+fn fallback_validators() -> Vec<AccountId> {
+    (0..20).map(|index| format!("test-validator-{index}").parse().unwrap()).collect()
+}
+
+/// As `chain_with_blocks`, with `fallback_validators()` too, so some validators are outside a
+/// chunk's designated set, and one epoch long enough for every block: nothing is certified, so
+/// the chain cannot cross an epoch boundary.
+fn chain_with_fallback_validators(num_blocks: usize) -> (Chain, Vec<Arc<Block>>) {
+    let validators: Vec<String> =
+        fallback_validators().iter().map(|account| account.to_string()).collect();
+    let validators: Vec<&str> = validators.iter().map(String::as_str).collect();
+    build_chain(2, num_blocks, 100, &validators)
+}
+
+fn build_chain(
+    num_shards: u64,
+    num_blocks: usize,
+    epoch_length: BlockHeight,
+    chunk_validators_only: &[&str],
+) -> (Chain, Vec<Arc<Block>>) {
     // The epoch manager assigns the validators to shards round-robin, last shard first.
     let validators: Vec<String> = (0..TOTAL_PARTS)
         .flat_map(|index| {
@@ -190,8 +219,8 @@ fn chain_with_shards_and_blocks(num_shards: u64, num_blocks: usize) -> (Chain, V
     let genesis = TestGenesisBuilder::new()
         .genesis_height(0)
         .shard_layout(ShardLayout::multi_shard(num_shards, 0))
-        .epoch_length(10)
-        .validators_spec(ValidatorsSpec::desired_roles(&validators, &[]))
+        .epoch_length(epoch_length)
+        .validators_spec(ValidatorsSpec::desired_roles(&validators, chunk_validators_only))
         .build();
     let mut chain = get_chain_with_genesis(Clock::real(), genesis);
     let epoch_id = *chain.genesis_block().header().epoch_id();
@@ -323,7 +352,11 @@ fn save_proof(chain: &Chain, block: &Block, data: &SpiceData) {
 
 /// A witness for `shard` of `block` with no contents.
 fn witness_data(block: &Block, shard: u64) -> SpiceData {
-    let chunk_id = SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) };
+    witness_data_for(SpiceChunkId { block_hash: *block.hash(), shard_id: ShardId::new(shard) })
+}
+
+/// A witness for `chunk_id` with no contents.
+fn witness_data_for(chunk_id: SpiceChunkId) -> SpiceData {
     SpiceData::StateWitness(Box::new(SpiceChunkStateWitness::new(
         chunk_id,
         PartialState::TrieValues(Vec::new()),

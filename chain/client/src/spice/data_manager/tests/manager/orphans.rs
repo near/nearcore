@@ -17,7 +17,7 @@ fn parts_for_an_unprocessed_block_are_parked_and_decoded_at_its_trigger_once() {
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     assert_eq!(manager.on_block_processed(blocks[0].hash(), now).decoded, vec![]);
     let decoded = manager.on_block_processed(blocks[1].hash(), now).decoded;
-    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
     assert_eq!(manager.on_block_processed(blocks[1].hash(), now).decoded, vec![]);
 }
 
@@ -36,7 +36,7 @@ fn parts_parked_by_several_producers_are_decoded_together_at_the_trigger() {
 
     let decoded = manager.on_block_processed(blocks[1].hash(), now).decoded;
 
-    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn a_parked_message_with_a_bad_merkle_proof_is_dropped_at_the_trigger_and_the_re
 
     let decoded = manager.on_block_processed(blocks[1].hash(), now).decoded;
 
-    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn parts_for_an_unknown_block_are_decoded_once_it_is_processed() {
     .unwrap();
     let output = manager.on_block_processed(block.hash(), Clock::real().now());
 
-    assert_eq!(output.decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(output.decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 /// Parts for an unknown block are checked against the header head's epochs as stored when they
@@ -133,7 +133,7 @@ fn parts_for_a_block_with_a_known_header_are_checked_against_its_epoch() {
     let result = manager.receive_from(producer, &id, &commitment, parts);
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let output = manager.on_block_processed(blocks[0].hash(), Clock::real().now());
-    assert_eq!(output.decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(output.decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn parts_parked_for_a_block_are_decoded_at_its_trigger_after_a_higher_block_was_
     assert_eq!(manager.on_block_processed(blocks[1].hash(), now).decoded, vec![]);
     assert_eq!(
         manager.on_block_processed(blocks[0].hash(), now).decoded,
-        vec![(id, receipt_data(0, 1))]
+        vec![decoded_data(&id, receipt_data(0, 1))]
     );
 }
 
@@ -238,7 +238,7 @@ fn parts_for_a_stored_block_not_processed_yet_are_parked_after_a_higher_block_is
 
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let decoded = manager.manager.track_block(&blocks[1]).unwrap();
-    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn parts_for_an_untracked_item_only_pulled_are_not_wanted() {
     let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let decoded = manager.manager.track_block(&blocks[0]).unwrap();
-    assert_eq!(decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 /// The final head can pass a block whose trigger is still queued.
@@ -318,7 +318,7 @@ fn parts_for_a_canonical_block_at_or_below_the_final_head_not_processed_yet_are_
 
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let output = manager.manager.on_block_processed(blocks[1].hash(), manager.clock.now());
-    assert_eq!(output.decoded, vec![(id, receipt_data(0, 1))]);
+    assert_eq!(output.decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
 }
 
 #[test]
@@ -357,7 +357,7 @@ fn parts_for_a_fork_block_not_processed_yet_are_decoded_at_its_trigger() {
 
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let output = manager.manager.on_block_processed(fork_at_2.hash(), manager.clock.now());
-    assert_eq!(output.decoded, vec![(fork_id, receipt_data(0, 1))]);
+    assert_eq!(output.decoded, vec![decoded_data(&fork_id, receipt_data(0, 1))]);
 }
 
 /// Moves the stored header head into a new epoch in which the validator of `signer` holds its key.
