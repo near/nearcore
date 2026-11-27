@@ -13296,6 +13296,46 @@ learned truths, which might not be immediately obvious.</li>
 <h2 id="style"><a class="header" href="#style">Style</a></h2>
 <p>This section documents all micro-rules which are not otherwise enforced by
 <code>rustfmt</code>.</p>
+<h3 id="avoid-fully-qualified-paths"><a class="header" href="#avoid-fully-qualified-paths">Avoid fully qualified paths</a></h3>
+<p>Don't use fully qualified paths like <code>std::collections::HashMap::new()</code>. Add a
+<code>use</code> declaration and reference the type directly. This applies to all Rust
+code — production, tests, and examples.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+use std::collections::HashMap;
+
+let map = HashMap::new();
+
+// BAD
+let map = std::collections::HashMap::new();
+<span class="boring">}
+</span></code></pre></pre>
+<p>An exception are macro invocations that are conventionally called with a short
+crate prefix to make their origin obvious and avoid name collisions — most
+notably <code>tracing::</code> (see <a href="practices/style.html#tracing">Tracing</a>) and <code>anyhow::anyhow!</code>. Keep the
+prefix on these.</p>
+<p><strong>Rationale:</strong> Readability and consistency. Imports aggregate dependencies at
+the top of the file, making it easy to see what the module uses at a glance.</p>
+<h3 id="borrow-arc-with-as_ref"><a class="header" href="#borrow-arc-with-as_ref">Borrow <code>Arc</code> with <code>as_ref</code></a></h3>
+<p>To borrow from an <code>Arc&lt;T&gt;</code> or <code>Arc&lt;dyn Trait&gt;</code>, use <code>arc.as_ref()</code> rather than
+<code>&amp;*arc</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+fn use_account(account: &amp;AccountId) { ... }
+use_account(arc_account.as_ref());
+
+// BAD
+fn use_account(account: &amp;AccountId) { ... }
+use_account(&amp;*arc_account);
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Both compile to the same thing, but <code>as_ref()</code> makes the intent
+explicit and reads more cleanly. This is a deliberate exception to
+<a href="practices/style.html#avoid-asrefas_ref">Avoid <code>AsRef::as_ref</code></a> — <code>Arc</code> (and <code>Rc</code>/<code>Box</code>) implement
+<code>AsRef&lt;T&gt;</code> only for their inner value <code>T</code>, so the ambiguity that motivates
+that rule does not arise here.</p>
 <h3 id="avoid-asrefas_ref"><a class="header" href="#avoid-asrefas_ref">Avoid <code>AsRef::as_ref</code></a></h3>
 <p>When you have some concrete type, prefer <code>.as_str</code>, <code>.as_bytes</code>, <code>.as_path</code> over
 generic <code>.as_ref</code>. Only use <code>.as_ref</code> when the type in question is a generic
@@ -13315,7 +13355,9 @@ fn log_validator(account_id: AccountId) {
 }
 <span class="boring">}
 </span></code></pre></pre>
-<p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, do use them!</p>
+<p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, do use them! The same
+applies to <code>Arc::as_ref</code> (and <code>Rc</code>/<code>Box</code>) when borrowing the inner value — see
+<a href="practices/style.html#borrow-arc-with-as_ref">Borrow <code>Arc</code> with <code>as_ref</code></a>.</p>
 <p><strong>Rationale:</strong> Readability and churn-resistance. There might be more than one
 <code>AsRef&lt;U&gt;</code> implementation for a given type (with different <code>U</code>s). If a new
 implementation is added, some of the <code>.as_ref()</code> calls might break. See also
@@ -13519,6 +13561,27 @@ indexing, however, developers and reviewers are not used to treating integer ari
 with the due suspicion. Having to make a choice, and explicitly spell out, how an overflow case
 ought to be handled will result in an easier to review and understand code and a more resilient
 project overall.</p>
+<h3 id="message-capitalization"><a class="header" href="#message-capitalization">Message capitalization</a></h3>
+<p>Don't capitalize string literal messages in <code>tracing</code> events, error messages,
+<code>Option::expect</code>, <code>panic!</code>, and similar. Omit trailing punctuation as well.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+tracing::info!(&quot;received block&quot;);
+return Err(anyhow::anyhow!(&quot;failed to open file&quot;));
+let value = opt.expect(&quot;value must be set&quot;);
+panic!(&quot;unreachable branch&quot;);
+
+// BAD
+tracing::info!(&quot;Received block.&quot;);
+return Err(anyhow::anyhow!(&quot;Failed to open file&quot;));
+let value = opt.expect(&quot;Value must be set!&quot;);
+panic!(&quot;Unreachable branch!&quot;);
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Consistency. Messages are often chained into larger contexts
+(log lines, error chains), where surrounding text already supplies a capital
+letter and punctuation.</p>
 <h2 id="standard-naming"><a class="header" href="#standard-naming">Standard Naming</a></h2>
 <ul>
 <li>Use <code>-</code> rather than <code>_</code> in crate names and in corresponding folder names.</li>
