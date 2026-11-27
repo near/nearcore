@@ -13,13 +13,12 @@ mod serve;
 
 pub(crate) use data_id::Decoded;
 pub use data_id::{DataId, ReceiptProofId};
-pub(crate) use encode::{EncodedData, encode};
+pub(crate) use encode::{EncodedData, EncodedLengthTooLarge, encode};
 use heights::{ChainHeights, ExpiredHeights, LowestNeededHeights};
 use item::VerifiedCodedPart;
 pub(crate) use item::{AssembledDataError, SpiceData};
 use item::{FetchItem, PartInsertResult};
 use items::Items;
-use lru::LruCache;
 use near_async::time::Instant;
 use near_chain::{Block, Error};
 use near_chain_configs::MutableValidatorSigner;
@@ -40,7 +39,7 @@ use near_primitives::utils::get_execution_results_key;
 use near_store::DBCol;
 use near_store::adapter::StoreAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use orphans::ParkedParts;
+use orphans::OrphanPool;
 pub(crate) use policy::ServePolicies;
 #[cfg(test)]
 pub(crate) use policy::witness::FALLBACK_TRACKING_LOOKAHEAD;
@@ -50,10 +49,9 @@ pub(crate) use pull::{Config as PullConfig, PullRequest};
 use sender::AuthenticatedSender;
 pub use serve::MalformedDataRequest;
 pub(crate) use serve::{
-    CheckedDataRequest, Push, RequestedItem, ServeError, ServeOutcome, SpiceDataServer,
+    CheckedDataRequest, Push, PushError, RequestedItem, ServeError, ServeOutcome, SpiceDataServer,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::num::NonZeroUsize;
 use std::ops::Bound;
 use std::sync::Arc;
 
@@ -72,9 +70,6 @@ pub(crate) const MAX_REQUESTED_DATA_IDS: usize = 32;
 /// Max number of witness entries a single batched request may carry. Serving one encodes a
 /// witness of up to 64 MiB.
 pub(crate) const MAX_REQUESTED_WITNESSES: usize = 2;
-
-/// Blocks parts are parked for.
-pub(crate) const MAX_ORPHAN_BLOCKS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 #[cfg(test)]
 mod tests;
@@ -98,6 +93,8 @@ pub(crate) enum SenderFault {
     NotAProducer,
     #[error("message is not signed with a key the sender may use for the item")]
     InvalidSignature,
+    #[error("commitment claims an encoded length over its kind's cap")]
+    EncodedLengthTooLarge,
 }
 
 /// Outcome of accepting parts for an item.
@@ -123,6 +120,14 @@ fn producers_in_epoch(
     id: &DataId,
 ) -> Result<Vec<AccountId>, Error> {
     Ok(epoch_chunk_producers_for_shard(epoch_info, shard_layout, id.producing_chunk().shard_id)?)
+}
+
+/// The largest encoded length a commitment for `id` may claim.
+fn max_encoded_length(id: &DataId) -> u64 {
+    match id {
+        DataId::ReceiptProof(_) => receipt_proof::MAX_ENCODED_LENGTH,
+        DataId::Witness(_) => witness::MAX_ENCODED_LENGTH,
+    }
 }
 
 /// What a processed block yields.
@@ -163,9 +168,9 @@ pub(crate) struct SpiceDataManager {
     pulls: Pulls,
     /// Tracks the heights observed.
     heights: ChainHeights,
-    /// Parts for blocks not processed yet, by block hash; the most recently parked blocks.
-    // TODO(spice-data-distribution): bound the data parked per sender.
-    orphans: LruCache<CryptoHash, Vec<ParkedParts>>,
+    /// Parts for blocks not processed yet. Taken at their block's trigger, dropped by age as the
+    /// final head advances.
+    orphans: OrphanPool,
     /// Processed blocks at or above the lowest needed height of any kind, with their heights.
     processed_blocks: HashMap<CryptoHash, BlockHeight>,
 }
@@ -188,7 +193,7 @@ impl SpiceDataManager {
             items: Items::default(),
             delivered_items: HashSet::new(),
             heights: ChainHeights::default(),
-            orphans: LruCache::new(MAX_ORPHAN_BLOCKS),
+            orphans: OrphanPool::default(),
             processed_blocks: HashMap::new(),
         }
     }
@@ -424,12 +429,16 @@ impl SpiceDataManager {
                 tracing::error!(target: "spice_data_distribution", ?err, "failed to read the lowest needed heights");
             }
         }
-        match self.chain_store.final_head() {
-            Ok(final_head) => self.on_final_head(final_head.height),
+        let final_height = match self.chain_store.final_head() {
+            Ok(final_head) => {
+                self.on_final_head(final_head.height);
+                Some(final_head.height)
+            }
             Err(err) => {
                 tracing::error!(target: "spice_data_distribution", ?err, "failed to read the final head");
+                None
             }
-        }
+        };
         let decoded = match self.chain_store.get_block(block_hash) {
             Ok(block) => self
                 .track_block(&block)
@@ -439,6 +448,10 @@ impl SpiceDataManager {
                 Vec::new()
             }
         };
+        // After the block's own parked parts are released, so they never age out on its trigger.
+        if let Some(final_height) = final_height {
+            self.orphans.drop_aged(final_height);
+        }
         self.handle_done_items();
         ProcessedBlockOutput { pull_requests: self.pulls.to_issue(now, &self.items), decoded }
     }
@@ -497,6 +510,9 @@ impl SpiceDataManager {
             return Err(SenderFault::TooManyParts);
         }
         let id = DataId::from(data.id());
+        if data.commitment().encoded_length > max_encoded_length(&id) {
+            return Err(SenderFault::EncodedLengthTooLarge);
+        }
         let Some(item) = self.items.get(&id) else {
             return self.handle_untracked_item(id, data);
         };

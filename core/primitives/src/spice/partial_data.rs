@@ -106,6 +106,12 @@ impl SpicePartialData {
         }
     }
 
+    pub fn commitment(&self) -> &SpiceDataCommitment {
+        match self {
+            Self::V1(v1) => &v1.inner.commitment,
+        }
+    }
+
     pub fn has_parts(&self) -> bool {
         match self {
             Self::V1(v1) => !v1.inner.parts.is_empty(),

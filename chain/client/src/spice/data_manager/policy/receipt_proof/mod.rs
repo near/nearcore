@@ -1,6 +1,7 @@
 mod fetch;
 mod serve;
 
+use bytesize::ByteSize;
 pub(in crate::spice::data_manager) use fetch::{
     is_done, is_pushed_to, lowest_needed_height, made_pullable_by, needed_items,
 };
@@ -10,6 +11,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, ShardId};
 pub(super) use serve::ReceiptProofServePolicy;
 use std::collections::HashSet;
+
+/// The largest encoded receipt proof; above the bandwidth scheduler's largest grant for one link.
+pub(in crate::spice::data_manager) const MAX_ENCODED_LENGTH: u64 = ByteSize::mib(16).0;
 
 /// The nodes the proofs from `source_block` into `to_shard` are pushed to: the next block's chunk
 /// producers of `to_shard`; across a resharding, of the shards it splits into.

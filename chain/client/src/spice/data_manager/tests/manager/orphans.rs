@@ -1,6 +1,10 @@
 use super::*;
+use crate::spice::data_manager::orphans::{
+    MAX_PARKED_BYTES_PER_SENDER, PARKED_BLOCK_MAX_AGE, PARKED_MESSAGE_CHARGE,
+};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_store::FINAL_HEAD_KEY;
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -280,27 +284,6 @@ fn parts_for_an_untracked_item_of_a_stored_block_below_the_final_execution_head_
     assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
 
-/// Proofs only pulled are never pushed, so their parts answer a request for an item gone.
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-fn parts_for_an_untracked_item_only_pulled_are_not_wanted() {
-    let (chain, blocks) = chain_with_blocks(1);
-    let mut manager = TestManager::pull_only(&chain, 1);
-    let id = receipt_id(&blocks[0], 0, 1);
-    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
-    parts.truncate(DATA_PARTS);
-
-    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts.clone());
-    assert_matches!(result, Ok(PartsOutcome::NotWanted));
-
-    // The same parts are parked on a node they are pushed to.
-    let mut manager = TestManager::new(&chain);
-    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
-    assert_matches!(result, Ok(PartsOutcome::Collecting));
-    let decoded = manager.manager.track_block(&blocks[0]).unwrap();
-    assert_eq!(decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
-}
-
 /// The final head can pass a block whose trigger is still queued.
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
@@ -358,6 +341,110 @@ fn parts_for_a_fork_block_not_processed_yet_are_decoded_at_its_trigger() {
     assert_matches!(result, Ok(PartsOutcome::Collecting));
     let output = manager.manager.on_block_processed(fork_at_2.hash(), manager.clock.now());
     assert_eq!(output.decoded, vec![decoded_data(&fork_id, receipt_data(0, 1))]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn a_sender_over_its_cap_gets_not_wanted_and_its_earlier_parts_still_decode_at_the_trigger() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    let sender = &producers()[0];
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+    let earlier = receipt_id(&blocks[1], 0, 1);
+    let refused = receipt_id(&blocks[0], 0, 1);
+    let result = manager.manager.receive_from(sender, &earlier, &commitment, parts.clone());
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+    let earlier_charge = PARKED_MESSAGE_CHARGE
+        + parts
+            .iter()
+            .map(|part| part.part.len() + part.merkle_proof.len() * size_of::<MerklePathItem>())
+            .sum::<usize>() as u64;
+    let room = MAX_PARKED_BYTES_PER_SENDER - earlier_charge - PARKED_MESSAGE_CHARGE;
+    let filler = |bytes: u64| {
+        let mut part = parts[0].clone();
+        part.part = vec![0; bytes as usize].into_boxed_slice();
+        part.merkle_proof = vec![];
+        vec![part]
+    };
+    let unknown = DataId::receipt_proof(hash(b"unknown block"), ShardId::new(0), ShardId::new(1));
+    let result = manager.manager.receive_from(sender, &unknown, &commitment, filler(room + 1));
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+    let result = manager.manager.receive_from(sender, &unknown, &commitment, filler(room));
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+
+    let result = manager.manager.receive_from(sender, &refused, &commitment, parts);
+
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
+    assert_eq!(manager.manager.track_block(&blocks[0]).unwrap(), vec![]);
+    let decoded = manager.manager.track_block(&blocks[1]).unwrap();
+    assert_eq!(decoded, vec![decoded_data(&earlier, receipt_data(0, 1))]);
+}
+
+/// The final head can pass a block whose trigger is still queued.
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_are_dropped_once_the_final_head_advances_by_the_age_limit_past_where_they_were_parked() {
+    let (chain, blocks) = chain_with_blocks(3);
+    let mut manager = TestManager::new(&chain);
+    let id = receipt_id(&blocks[1], 0, 1);
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+    manager.set_final_head(&blocks[0]);
+    manager.on_block_processed(&blocks[0]);
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+    let mut aged = Tip::from_header(blocks[2].header());
+    aged.height = blocks[0].header().height() + PARKED_BLOCK_MAX_AGE;
+    let mut store_update = manager.store.store_update();
+    store_update.chain_store_update().set_final_head(&aged);
+    store_update.commit();
+    manager.on_block_processed(&blocks[2]);
+
+    let output = manager.manager.on_block_processed(blocks[1].hash(), manager.clock.now());
+
+    assert!(manager.is_tracking(&id));
+    assert_eq!(output.decoded, vec![]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_reaching_the_age_limit_on_their_own_blocks_trigger_are_decoded() {
+    let (chain, blocks) = chain_with_blocks(2);
+    let mut manager = TestManager::new(&chain);
+    let id = receipt_id(&blocks[1], 0, 1);
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+    manager.set_final_head(&blocks[0]);
+    manager.on_block_processed(&blocks[0]);
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+    assert_matches!(result, Ok(PartsOutcome::Collecting));
+    let mut aged = Tip::from_header(blocks[1].header());
+    aged.height = blocks[0].header().height() + PARKED_BLOCK_MAX_AGE;
+    let mut store_update = manager.store.store_update();
+    store_update.chain_store_update().set_final_head(&aged);
+    store_update.commit();
+
+    let output = manager.manager.on_block_processed(blocks[1].hash(), manager.clock.now());
+
+    assert_eq!(output.decoded, vec![decoded_data(&id, receipt_data(0, 1))]);
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn parts_for_an_unknown_block_are_not_wanted_while_the_final_head_is_unreadable() {
+    let (chain, _) = chain_with_blocks(1);
+    let mut manager = TestManager::new(&chain);
+    let id = DataId::receipt_proof(hash(b"unknown block"), ShardId::new(0), ShardId::new(1));
+    let (commitment, mut parts) = encode_to_wire(&encoder(), &receipt_data(0, 1));
+    parts.truncate(DATA_PARTS);
+    let mut store_update = manager.store.store_update();
+    store_update.delete(DBCol::BlockMisc, FINAL_HEAD_KEY);
+    store_update.commit();
+
+    let result = manager.manager.receive_from(&producers()[0], &id, &commitment, parts);
+
+    assert_matches!(result, Ok(PartsOutcome::NotWanted));
 }
 
 /// Moves the stored header head into a new epoch in which the validator of `signer` holds its key.

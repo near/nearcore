@@ -37,6 +37,26 @@ fn a_producer_serves_the_requested_parts_of_its_stored_proof_under_the_pushed_co
 
 #[test]
 #[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
+fn data_over_its_kinds_cap_is_neither_pushed_nor_served() {
+    let (chain, blocks) = chain_with_blocks(1);
+    let id = receipt_id(&blocks[0], 0, 1);
+    let item = MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left };
+    let item_length = borsh::object_length(&item).unwrap() as u64;
+    let items = receipt_proof::MAX_ENCODED_LENGTH / item_length + 1;
+    let data = receipt_data_with_proof(0, 1, vec![item; items as usize]);
+    save_proof(&chain, &blocks[0], &data);
+    let mut server = test_server(&chain);
+    let me = &producers()[0];
+
+    let pushed = server.build_push(me, &id, &data);
+    let served = server.requested_parts(me, &requested_item(&id, ordinals(&[0])));
+
+    assert_matches!(pushed.err(), Some(PushError::DataTooLarge(_)));
+    assert_matches!(served, Err(ServeError::DataTooLarge(_)));
+}
+
+#[test]
+#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
 fn a_push_carries_only_the_pushing_producers_own_part() {
     let (chain, blocks) = chain_with_blocks(1);
     let id = receipt_id(&blocks[0], 0, 1);

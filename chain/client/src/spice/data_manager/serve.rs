@@ -1,4 +1,4 @@
-use super::encode::{EncodedData, encode};
+use super::encode::{EncodedData, EncodedLengthTooLarge, encode};
 use super::{
     DATA_PARTS_RATIO, DataId, MAX_REQUESTED_DATA_IDS, MAX_REQUESTED_PARTS, MAX_REQUESTED_WITNESSES,
     ServePolicies, SpiceData, producers_in_epoch,
@@ -123,13 +123,25 @@ impl RequestedItem {
     }
 }
 
-/// Why serving one requested item failed: malformed request, or a read on this node failed.
+/// Why serving one requested item failed: malformed request, a read on this node failed, or the
+/// stored data is longer than any commitment for it may claim.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ServeError {
     #[error("malformed request: {0}")]
     Requester(#[from] MalformedDataRequest),
     #[error("chain read failed: {0}")]
     Chain(#[from] Error),
+    #[error("stored data is too large to serve: {0}")]
+    DataTooLarge(#[from] EncodedLengthTooLarge),
+}
+
+/// Why a producer cannot push data it produced.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PushError {
+    #[error("chain read failed: {0}")]
+    Chain(#[from] Error),
+    #[error("data is too large to push: {0}")]
+    DataTooLarge(#[from] EncodedLengthTooLarge),
 }
 
 /// Computes the parts this node sends for the data it produces: its own part for a push,
@@ -161,10 +173,12 @@ impl SpiceDataServer {
         me: &AccountId,
         id: &DataId,
         data: &SpiceData,
-    ) -> Result<Push, Error> {
+    ) -> Result<Push, PushError> {
         let header = self.chain_store.get_block_header(id.block_hash())?;
-        let epoch_info = self.epoch_manager.get_epoch_info(header.epoch_id())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(header.epoch_id())?;
+        let epoch_info =
+            self.epoch_manager.get_epoch_info(header.epoch_id()).map_err(Error::from)?;
+        let shard_layout =
+            self.epoch_manager.get_shard_layout(header.epoch_id()).map_err(Error::from)?;
         let producers = producers_in_epoch(&epoch_info, &shard_layout, id)?;
         let recipients = self
             .policies
@@ -177,7 +191,7 @@ impl SpiceDataServer {
             .position(|producer| producer == me)
             .expect("a node pushes only data it produced");
         let EncodedData { commitment, mut parts } =
-            encode(&self.encoders.entry(producers.len()), data);
+            encode(&self.encoders.entry(producers.len()), id, data)?;
         Ok(Push { recipients, commitment, part: parts.swap_remove(own_ordinal) })
     }
 
@@ -207,7 +221,7 @@ impl SpiceDataServer {
             return Ok(ServeOutcome::NotStored);
         };
         let EncodedData { commitment, parts } =
-            encode(&self.encoders.entry(producers.len()), &data);
+            encode(&self.encoders.entry(producers.len()), id, &data)?;
         let parts = parts.into_iter().filter(|part| ordinals.contains(&part.part_ord)).collect();
         Ok(ServeOutcome::Parts { commitment, parts })
     }

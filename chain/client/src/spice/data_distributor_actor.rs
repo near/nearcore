@@ -6,9 +6,10 @@ use crate::spice::chunk_validator_actor::{
     SpiceChunkStateWitnessMessage, send_spice_chunk_endorsement,
 };
 use crate::spice::data_manager::{
-    CheckedDataRequest, DATA_PARTS_RATIO, Decoded, EncodedData, PartsOutcome, ProcessedBlockOutput,
-    PullConfig, PullRequest, Push, RequestedItem, SenderFault, ServeError, ServeOutcome,
-    ServePolicies, SpiceData, SpiceDataManager, SpiceDataServer, encode,
+    CheckedDataRequest, DATA_PARTS_RATIO, Decoded, EncodedData, EncodedLengthTooLarge,
+    PartsOutcome, ProcessedBlockOutput, PullConfig, PullRequest, Push, PushError, RequestedItem,
+    SenderFault, ServeError, ServeOutcome, ServePolicies, SpiceData, SpiceDataManager,
+    SpiceDataServer, encode,
 };
 pub use crate::spice::data_manager::{DataId, MalformedDataRequest, NeedChange};
 use lru::LruCache;
@@ -448,8 +449,18 @@ impl SpiceDataDistributorActor {
             debug_assert!(false);
             return Err(Error::Other("trying to distribute data without validator_signer"));
         };
-        let Push { recipients, commitment, part } =
-            self.data_server.build_push(signer.validator_id(), data_id, data)?;
+        let Push { recipients, commitment, part } = match self.data_server.build_push(
+            signer.validator_id(),
+            data_id,
+            data,
+        ) {
+            Ok(push) => push,
+            Err(PushError::Chain(err)) => return Err(err.into()),
+            Err(PushError::DataTooLarge(err)) => {
+                tracing::error!(target: "spice_data_distribution", %err, ?data_id, "data too large to push");
+                return Ok(());
+            }
+        };
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::SpicePartialData {
                 partial_data: SpicePartialData::new(
@@ -623,8 +634,14 @@ impl SpiceDataDistributorActor {
             if recipients.is_empty() {
                 continue;
             }
-            let Some(mut distribution_data) = self.stored_witness_data(&chunk_id, producers.len())
-            else {
+            let distribution_data = match self.stored_witness_data(&chunk_id, producers.len()) {
+                Ok(distribution_data) => distribution_data,
+                Err(err) => {
+                    tracing::error!(target: "spice_data_distribution", %err, ?data_id, "witness too large to push for the all-stake fallback");
+                    continue;
+                }
+            };
+            let Some(mut distribution_data) = distribution_data else {
                 if is_fallback_only_chunk(
                     self.epoch_manager.as_ref(),
                     chunk_block.header(),
@@ -714,11 +731,15 @@ impl SpiceDataDistributorActor {
         &mut self,
         chunk_id: &SpiceChunkId,
         producers_count: usize,
-    ) -> Option<EncodedData> {
-        let witness =
-            get_witness(self.chain_store.store_ref(), &chunk_id.block_hash, chunk_id.shard_id)?;
+    ) -> Result<Option<EncodedData>, EncodedLengthTooLarge> {
+        let Some(witness) =
+            get_witness(self.chain_store.store_ref(), &chunk_id.block_hash, chunk_id.shard_id)
+        else {
+            return Ok(None);
+        };
         let data = SpiceData::StateWitness(Box::new(witness));
-        Some(encode(&self.rs_encoders.entry(producers_count), &data))
+        let id = DataId::Witness(chunk_id.clone());
+        encode(&self.rs_encoders.entry(producers_count), &id, &data).map(Some)
     }
 
     fn handle_data_request(&mut self, request: SpiceDataRequest) -> Result<(), Error> {
@@ -763,6 +784,10 @@ impl SpiceDataDistributorActor {
             }
             Err(ServeError::Requester(fault)) => return Err(Error::MalformedRequest(fault)),
             Err(ServeError::Chain(err)) => return Err(err.into()),
+            Err(ServeError::DataTooLarge(err)) => {
+                tracing::error!(target: "spice_data_distribution", %err, ?id, ?requester, "stored data too large to serve");
+                return Ok(());
+            }
         };
         // TODO(spice): Check that requester is one of the recipients and implement a
         // lower-priority way for other nodes that aren't validators (e.g. rpc nodes) to get
