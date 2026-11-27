@@ -19,6 +19,7 @@ use std::ops::RangeInclusive;
 
 mod batching;
 mod delivery;
+mod encoded_length;
 mod lifecycle;
 mod orphans;
 mod recovery;

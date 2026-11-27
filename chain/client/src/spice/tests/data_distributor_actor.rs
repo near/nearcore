@@ -1654,30 +1654,6 @@ fn test_a_receipt_proof_not_needed_for_a_block_walked_on_startup_is_irrelevant()
     assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
 }
 
-#[test]
-#[cfg_attr(not(feature = "protocol_feature_spice"), ignore)]
-/// Nothing is pushed to a node without a signer, so parts it did not ask for are not parked.
-fn test_a_node_without_signer_does_not_park_a_receipt_proof_for_a_block_not_yet_processed() {
-    let (_genesis, chain) = setup(2, 0);
-    let block = latest_block(&chain);
-    let (incoming_data, _) = receipt_proof_incoming_data(&chain, &block);
-    let to_shard_id = new_test_receipt_proof(&block).1.to_shard_id;
-    let to_shard_uid = {
-        let shard_layout = chain.epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
-        ShardUId::from_shard_id_and_layout(to_shard_id, &shard_layout)
-    };
-    let (outgoing_sc, mut outgoing_rc) = unbounded_channel();
-    let mut actor = ActorBuilder::new(None)
-        .tracked_shards_config(TrackedShardsConfig::Shards(vec![to_shard_uid]))
-        .build(outgoing_sc, &chain);
-
-    let result = actor.receive_data(incoming_data.data);
-
-    assert_matches!(result, Err(Error::DataIsIrrelevant(_)));
-    actor.handle(ProcessedBlock { block_hash: *block.hash() });
-    assert_matches!(outgoing_rc.try_recv(), Err(TryRecvError::Empty));
-}
-
 /// The startup walk starts at the cut-off, which follows certification on a node that applies
 /// no shard: the uncertified block at the final execution head is tracked too.
 #[test]

@@ -125,8 +125,6 @@ impl FetchItem {
         if self.is_settled(&commitment) {
             return PartInsertResult::AlreadySettled;
         }
-        // TODO(spice-data-distribution): cap encoded_length against the max payload size;
-        // the only cap today is MAX_ENCODED_LENGTH inside the decode.
         let encoded_length =
             usize::try_from(commitment.encoded_length).expect("encoded length should fit in usize");
         // equal widths plus a verified proof imply the ordinal is in range
