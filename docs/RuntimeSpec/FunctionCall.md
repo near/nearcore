@@ -19,7 +19,7 @@ ActionReceipt {
 ### `input_data_ids` to `PromiseResult`s
 
 `ActionReceipt.input_data_ids` must be satisfied before execution (see
-[Receipt Matching](/RuntimeSpec/Receipts#receipt-matching)). Each of `ActionReceipt.input_data_ids` will be converted to
+[Receipt Matching](Receipts.md#receipt-matching)). Each of `ActionReceipt.input_data_ids` will be converted to
 the `PromiseResult::Successful(Vec<u8>)` if `data_id.data` is `Some(Vec<u8>)` otherwise if
 `data_id.data` is `None` promise will be `PromiseResult::Failed`.
 
@@ -78,7 +78,7 @@ The output of the `FunctionCall`:
 - `logs` - during contract execution, utf8/16 string log records could be created. Logs are not
   persistent currently.
 - `new_receipts` - new `ActionReceipts` created during the execution. These receipts are going to
-  be sent to the respective `receiver_id`s (see [Receipt Matching explanation](/RuntimeSpec/Receipts#receipt-matching))
+  be sent to the respective `receiver_id`s (see [Receipt Matching explanation](Receipts.md#receipt-matching))
 - result could be either [`ReturnData::Value(Vec<u8>)`](#value-result) or
   [`ReturnData::ReceiptIndex(u64)`](#receiptindex-result)`
 
