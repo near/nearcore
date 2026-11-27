@@ -65,6 +65,11 @@ let map = HashMap::new();
 let map = std::collections::HashMap::new();
 ```
 
+An exception are macro invocations that are conventionally called with a short
+crate prefix to make their origin obvious and avoid name collisions — most
+notably `tracing::` (see [Tracing](#tracing)) and `anyhow::anyhow!`. Keep the
+prefix on these.
+
 **Rationale:** Readability and consistency. Imports aggregate dependencies at
 the top of the file, making it easy to see what the module uses at a glance.
 
@@ -75,16 +80,19 @@ To borrow from an `Arc<T>` or `Arc<dyn Trait>`, use `arc.as_ref()` rather than
 
 ```rust
 // GOOD
-fn use_value(value: &T) { ... }
-use_value(arc.as_ref());
+fn use_account(account: &AccountId) { ... }
+use_account(arc_account.as_ref());
 
 // BAD
-fn use_value(value: &T) { ... }
-use_value(&*arc);
+fn use_account(account: &AccountId) { ... }
+use_account(&*arc_account);
 ```
 
 **Rationale:** Both compile to the same thing, but `as_ref()` makes the intent
-explicit and reads more cleanly.
+explicit and reads more cleanly. This is a deliberate exception to
+[Avoid `AsRef::as_ref`](#avoid-asrefas_ref) — `Arc` (and `Rc`/`Box`) implement
+`AsRef<T>` only for their pointee `T`, so the ambiguity that motivates that
+rule does not arise here.
 
 ### Avoid `AsRef::as_ref`
 
@@ -106,7 +114,9 @@ fn log_validator(account_id: AccountId) {
 }
 ```
 
-Note that `Option::as_ref`, `Result::as_ref` are great, do use them!
+Note that `Option::as_ref`, `Result::as_ref` are great, do use them! The same
+applies to `Arc::as_ref` (and `Rc`/`Box`) when borrowing the pointee — see
+[Borrow `Arc` with `as_ref`](#borrow-arc-with-as_ref).
 
 **Rationale:** Readability and churn-resistance. There might be more than one
 `AsRef<U>` implementation for a given type (with different `U`s). If a new
