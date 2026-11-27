@@ -55,6 +55,7 @@ impl StateRequestThrottle {
             }
         }
         if admitted.len() >= self.limit {
+            drop(admitted);
             tracing::debug!(target: "sync", "throttling state sync request");
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return false;
